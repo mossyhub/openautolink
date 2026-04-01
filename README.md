@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/play_store_512.png" alt="OpenAutoLink" width="128">
+</p>
+
 # OpenAutoLink
 
 Wireless Android Auto for GM AAOS vehicles that lack native Android Auto support.
