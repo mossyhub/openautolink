@@ -1,6 +1,6 @@
 [Unit]
 Description=OpenAutoLink Wireless (WiFi AP)
-After=openautolink-car-net.service network.target bluetooth.target
+After=openautolink-network.service network.target bluetooth.target
 Before=openautolink.service
 Wants=bluetooth.service
 

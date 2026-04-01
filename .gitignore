@@ -1,5 +1,6 @@
 # Build
 build/
+build-bridge-arm64/
 .gradle/
 *.apk
 *.aab

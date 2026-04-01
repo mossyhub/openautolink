@@ -73,15 +73,12 @@ SBC_FILES=(
     "bridge/sbc/openautolink.env"
     "bridge/sbc/openautolink.service"
     "bridge/sbc/openautolink-bt.service"
-    "bridge/sbc/openautolink-car-net.service"
     "bridge/sbc/openautolink-wireless.service"
-    "bridge/sbc/openautolink-eth-ssh.service"
     "bridge/sbc/openautolink-network.service"
     "bridge/sbc/run-openautolink.sh"
-    "bridge/sbc/setup-car-net.sh"
     "bridge/sbc/setup-network.sh"
-    "bridge/sbc/setup-eth-ssh.sh"
     "bridge/sbc/start-wireless.sh"
+    "bridge/sbc/stop-wireless.sh"
     "bridge/openautolink/scripts/aa_bt_all.py"
     "bridge/openautolink/headless/avahi/openautolink.service"
 )
@@ -103,8 +100,8 @@ chmod +x "${INSTALL_DIR}/bin/openautolink-headless"
 echo "  Installed openautolink-headless binary"
 
 # Scripts
-for script in run-openautolink.sh setup-car-net.sh setup-network.sh \
-              setup-eth-ssh.sh start-wireless.sh; do
+for script in run-openautolink.sh setup-network.sh \
+              start-wireless.sh stop-wireless.sh; do
     [ -f "${TMP_DIR}/${script}" ] && cp "${TMP_DIR}/${script}" "${INSTALL_DIR}/"
 done
 chmod +x "${INSTALL_DIR}"/*.sh 2>/dev/null || true
@@ -165,16 +162,18 @@ echo ""
 
 # ── 6. Systemd services ──────────────────────────────────────────────
 echo ">>> [6/6] Installing systemd services..."
-for svc in openautolink.service openautolink-car-net.service \
-           openautolink-wireless.service openautolink-bt.service \
-           openautolink-eth-ssh.service openautolink-network.service; do
+for svc in openautolink.service openautolink-network.service \
+           openautolink-wireless.service openautolink-bt.service; do
     if [ -f "${TMP_DIR}/${svc}" ]; then
         cp "${TMP_DIR}/${svc}" /etc/systemd/system/
     fi
 done
 
+# Disable legacy services if they exist from a previous install
+systemctl disable openautolink-car-net openautolink-eth-ssh 2>/dev/null || true
+
 systemctl daemon-reload
-systemctl enable openautolink-car-net openautolink openautolink-wireless 2>/dev/null || true
+systemctl enable openautolink-network openautolink openautolink-wireless 2>/dev/null || true
 systemctl enable openautolink-bt 2>/dev/null || true
 
 # Clean up

@@ -15,7 +15,7 @@ Flash a lightweight **64-bit Linux** to your SBC's storage:
 
 | SBC | Recommended OS | Flash Tool |
 |-----|---------------|------------|
-| Raspberry Pi CM5/CM4 | [Raspberry Pi OS Lite (64-bit)](https://www.raspberrypi.com/software/) | Raspberry Pi Imager |
+| Raspberry Pi 4 or 5 | [Raspberry Pi OS Lite (64-bit)](https://www.raspberrypi.com/software/) | Raspberry Pi Imager |
 | Khadas VIM4 | [Ubuntu 22.04 Server](https://www.khadas.com/vim4) | Khadas Burn Tool / dd |
 | Generic ARM64 | Ubuntu Server 22.04+ or Debian 12+ | Etcher / dd |
 

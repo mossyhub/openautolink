@@ -1,7 +1,7 @@
 [Unit]
 Description=OpenAutoLink AA Bridge (TCP)
-After=network.target openautolink-car-net.service
-Wants=openautolink-car-net.service
+After=network.target openautolink-network.service
+Wants=openautolink-network.service
 
 [Service]
 Type=simple
