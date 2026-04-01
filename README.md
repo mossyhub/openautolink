@@ -63,7 +63,13 @@ Because this is an AAOS app (not a standard phone app), getting it onto your car
    ```
    The signed `.aab` will be in `app/build/outputs/bundle/release/`.
 
-6. **Upload the AAB** to your Play Console AAOS release track, fill in the required store listing details, and roll out to your vehicle
+6. **Add testers** — In the Play Console, go to your AAOS release track's **Testers** tab. Create an email list and add the Google accounts that are signed in on your car's head unit (even your own account)
+
+7. **Upload the AAB** to your Play Console AAOS release track, fill in the required store listing details, and publish the release
+
+8. **Accept the test invite** — After publishing, each tester (including yourself) must open the opt-in link from the Play Console testers page and accept the invitation. Without this step, the app will not appear on the car
+
+9. **Install** — Once the invite is accepted, the app will auto-install on your car's head unit if it has a WiFi or cellular data connection. You can also find it in the Play Store on the head unit
 
 ### Run Tests
 ```powershell
