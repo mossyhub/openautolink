@@ -68,6 +68,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # Save build artifacts path, clean working tree for branch switch
+          cp -r app/build/outputs/apk/release /tmp/apk-release
+          git stash --include-untracked || true
+
           # Fetch gh-pages
           git fetch origin gh-pages:gh-pages 2>/dev/null || true
 

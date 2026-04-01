@@ -1,115 +1,151 @@
 #!/bin/bash
-# install.sh — One-shot setup for OpenAutoLink on any Linux SBC
-# Tested: Raspberry Pi CM5, ROCK 3A, VIM4 (any ARM64 with WiFi+BT)
+# install.sh — One-shot setup for OpenAutoLink on any ARM64 Linux SBC
+# Downloads the bridge binary and all config from GitHub, installs everything.
 #
-# Usage: sudo bash install.sh
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/bridge/sbc/install.sh | sudo bash
+#   # — or —
+#   wget -qO- https://raw.githubusercontent.com/mossyhub/openautolink/main/bridge/sbc/install.sh | sudo bash
+#   # — or download the file first, inspect it, then run: —
+#   sudo bash install.sh
+#
+# Tested on: Raspberry Pi CM5, Khadas VIM4, ROCK 3A (any ARM64 with WiFi+BT)
 set -eu
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GITHUB_REPO="mossyhub/openautolink"
 INSTALL_DIR="/opt/openautolink"
+TMP_DIR="/tmp/openautolink-install"
 
-# Find source directories (repo layout or tarball)
-if [ -d "${SCRIPT_DIR}/../../external/aasdk" ]; then
-    REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-    AASDK_DIR="${REPO_ROOT}/external/aasdk"
-    HEADLESS_DIR="${REPO_ROOT}/bridge/openautolink/headless"
-elif [ -d "${SCRIPT_DIR}/../external/aasdk" ]; then
-    REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-    AASDK_DIR="${REPO_ROOT}/external/aasdk"
-    HEADLESS_DIR="${REPO_ROOT}/headless"
-else
-    echo "ERROR: Cannot find aasdk source." >&2
+echo "=== OpenAutoLink Bridge Installer ==="
+echo ""
+
+# ── Checks ────────────────────────────────────────────────────────────
+if [ "$(id -u)" -ne 0 ]; then
+    echo "ERROR: This script must be run as root (use sudo)." >&2
     exit 1
 fi
 
-echo "=== OpenAutoLink Installer ==="
-echo "Install dir: ${INSTALL_DIR}"
-echo ""
+ARCH=$(uname -m)
+if [ "$ARCH" != "aarch64" ]; then
+    echo "ERROR: This installer only supports ARM64 (aarch64) SBCs." >&2
+    echo "  Detected: $ARCH" >&2
+    exit 1
+fi
 
-# 1. System packages
-echo ">>> Installing system packages..."
+# ── 1. System packages ───────────────────────────────────────────────
+echo ">>> [1/6] Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq \
-    cmake g++ make \
-    libboost-system-dev libboost-log-dev \
-    libprotobuf-dev protobuf-compiler \
-    libssl-dev libusb-1.0-0-dev \
     hostapd dnsmasq \
     bluez python3-dbus python3-gi \
-    avahi-daemon avahi-utils
+    avahi-daemon avahi-utils \
+    curl jq
 echo ""
 
-# 2. Deploy files
-echo ">>> Deploying to ${INSTALL_DIR}..."
+# ── 2. Download latest release from GitHub ────────────────────────────
+echo ">>> [2/6] Downloading latest release..."
+rm -rf "$TMP_DIR"
+mkdir -p "$TMP_DIR"
+
+# Get the latest release tag
+LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | jq -r '.tag_name')
+if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+    echo "ERROR: Could not determine latest release." >&2
+    exit 1
+fi
+echo "  Latest release: ${LATEST_TAG}"
+
+RELEASE_URL="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_TAG}"
+RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${LATEST_TAG}"
+
+# Download the bridge binary
+echo "  Downloading bridge binary..."
+if ! curl -fsSL -o "${TMP_DIR}/openautolink-headless" \
+    "${RELEASE_URL}/openautolink-headless-stripped"; then
+    echo "ERROR: Failed to download bridge binary." >&2
+    echo "  The release may not have finished building yet." >&2
+    echo "  Check: https://github.com/${GITHUB_REPO}/releases/tag/${LATEST_TAG}" >&2
+    exit 1
+fi
+
+# Download SBC files from the repo at the release tag
+SBC_FILES=(
+    "bridge/sbc/openautolink.env"
+    "bridge/sbc/openautolink.service"
+    "bridge/sbc/openautolink-bt.service"
+    "bridge/sbc/openautolink-car-net.service"
+    "bridge/sbc/openautolink-wireless.service"
+    "bridge/sbc/openautolink-eth-ssh.service"
+    "bridge/sbc/openautolink-network.service"
+    "bridge/sbc/run-openautolink.sh"
+    "bridge/sbc/setup-car-net.sh"
+    "bridge/sbc/setup-network.sh"
+    "bridge/sbc/setup-eth-ssh.sh"
+    "bridge/sbc/start-wireless.sh"
+    "bridge/openautolink/scripts/aa_bt_all.py"
+    "bridge/openautolink/headless/avahi/openautolink.service"
+)
+
+echo "  Downloading configuration files..."
+for file in "${SBC_FILES[@]}"; do
+    filename=$(basename "$file")
+    curl -fsSL -o "${TMP_DIR}/${filename}" "${RAW_URL}/${file}" 2>/dev/null || true
+done
+echo ""
+
+# ── 3. Deploy files ──────────────────────────────────────────────────
+echo ">>> [3/6] Installing to ${INSTALL_DIR}..."
 mkdir -p "${INSTALL_DIR}/bin" "${INSTALL_DIR}/scripts"
 
-cp "${SCRIPT_DIR}/setup-car-net.sh" "${INSTALL_DIR}/"
-cp "${SCRIPT_DIR}/run-openautolink.sh" "${INSTALL_DIR}/"
-cp "${SCRIPT_DIR}/start-wireless.sh" "${INSTALL_DIR}/" 2>/dev/null || true
-chmod +x "${INSTALL_DIR}/setup-car-net.sh" "${INSTALL_DIR}/run-openautolink.sh" "${INSTALL_DIR}/start-wireless.sh" 2>/dev/null || true
+# Binary
+cp "${TMP_DIR}/openautolink-headless" "${INSTALL_DIR}/bin/"
+chmod +x "${INSTALL_DIR}/bin/openautolink-headless"
+echo "  Installed openautolink-headless binary"
 
-if [ -d "${SCRIPT_DIR}/../openautolink/scripts" ]; then
-    cp "${SCRIPT_DIR}/../openautolink/scripts/aa_bt_all.py" "${INSTALL_DIR}/scripts/" 2>/dev/null || true
-fi
+# Scripts
+for script in run-openautolink.sh setup-car-net.sh setup-network.sh \
+              setup-eth-ssh.sh start-wireless.sh; do
+    [ -f "${TMP_DIR}/${script}" ] && cp "${TMP_DIR}/${script}" "${INSTALL_DIR}/"
+done
+chmod +x "${INSTALL_DIR}"/*.sh 2>/dev/null || true
 
+# BT script
+[ -f "${TMP_DIR}/aa_bt_all.py" ] && \
+    cp "${TMP_DIR}/aa_bt_all.py" "${INSTALL_DIR}/scripts/"
+
+# Env file (don't overwrite if user already has one)
 if [ ! -f /etc/openautolink.env ]; then
-    cp "${SCRIPT_DIR}/openautolink.env" /etc/openautolink.env
-    echo "  Created /etc/openautolink.env"
+    cp "${TMP_DIR}/openautolink.env" /etc/openautolink.env
+    echo "  Created /etc/openautolink.env (edit this to configure)"
+else
+    echo "  /etc/openautolink.env exists — not overwriting"
 fi
 
-if [ -d "${SCRIPT_DIR}/../openautolink/headless/avahi" ]; then
-    cp "${SCRIPT_DIR}/../openautolink/headless/avahi/openautolink.service" \
-       /etc/avahi/services/ 2>/dev/null || true
-fi
-echo ""
-
-# 3. Install headless binary (prebuilt or build from source)
-echo ">>> Installing headless binary..."
-ARCH=$(uname -m)
-PREBUILT="${SCRIPT_DIR}/prebuilt/${ARCH}/openautolink-headless"
-
-if [ -f "$PREBUILT" ]; then
-    cp "$PREBUILT" "${INSTALL_DIR}/bin/openautolink-headless"
-    chmod +x "${INSTALL_DIR}/bin/openautolink-headless"
-    echo "  Installed prebuilt binary for ${ARCH}"
-elif [ -d "${AASDK_DIR}" ] && [ -f "${HEADLESS_DIR}/CMakeLists.txt" ]; then
-    echo "  No prebuilt found, building from source..."
-    BUILD_DIR="/tmp/openautolink-build"
-    rm -rf "${BUILD_DIR}"
-    cmake -S "${HEADLESS_DIR}" -B "${BUILD_DIR}" \
-        -DPI_AA_AASDK_SOURCE_DIR="${AASDK_DIR}" \
-        -DPI_AA_ENABLE_AASDK_LIVE=ON \
-        -DCMAKE_BUILD_TYPE=Release
-    cmake --build "${BUILD_DIR}" -j$(nproc)
-    cp "${BUILD_DIR}/openautolink-headless" "${INSTALL_DIR}/bin/"
-    echo "  Installed openautolink-headless"
+# Avahi service (mDNS discovery)
+if [ -d /etc/avahi/services ] && [ -f "${TMP_DIR}/openautolink.service" ]; then
+    # Avoid conflict with the systemd service file name
+    local_avahi="${TMP_DIR}/openautolink.service"
+    # Check if it's actually an avahi service file (XML)
+    if head -1 "$local_avahi" | grep -q "xml" 2>/dev/null; then
+        cp "$local_avahi" /etc/avahi/services/openautolink.service
+    fi
 fi
 echo ""
 
-# 4. USB gadget kernel support (platform-specific)
-echo ">>> Configuring USB gadget support..."
+# ── 4. USB gadget + kernel modules ───────────────────────────────────
+echo ">>> [4/6] Configuring USB gadget support..."
 source /etc/openautolink.env 2>/dev/null || true
-if [ "${OAL_CAR_NET_MODE:-usb-gadget}" = "usb-gadget" ]; then
-    # Detect platform and configure USB gadget overlay
+if [ "${OAL_CAR_NET_MODE:-auto}" != "external-nic" ]; then
     if [ -f /boot/firmware/config.txt ]; then
-        # Raspberry Pi (CM4, CM5, Pi 4, Pi Zero 2 W)
         grep -q "^dtoverlay=dwc2" /boot/firmware/config.txt || \
             echo "dtoverlay=dwc2,dr_mode=peripheral" >> /boot/firmware/config.txt
         echo "  Raspberry Pi: dwc2 overlay configured"
     elif [ -f /boot/config.txt ]; then
-        # Older Raspberry Pi OS layout
         grep -q "^dtoverlay=dwc2" /boot/config.txt || \
             echo "dtoverlay=dwc2,dr_mode=peripheral" >> /boot/config.txt
         echo "  Raspberry Pi (legacy): dwc2 overlay configured"
     else
-        echo "  Non-RPi platform detected."
-        echo "  USB gadget may need manual DT configuration for your SBC."
-        echo "  Supported SBCs with USB OTG:"
-        echo "    - Raspberry Pi CM4/CM5, Pi 4B, Pi Zero 2 W (dwc2)"
-        echo "    - Rockchip RK3568/RK3588 boards (dwc3)"
-        echo "    - Amlogic S905/A311D boards (crgudc2)"
-        echo "  Check your board's docs for 'dr_mode=peripheral' or OTG configuration."
-        echo "  Or use OAL_CAR_NET_MODE=external-nic to avoid USB gadget entirely."
+        echo "  Non-RPi platform — see docs for USB gadget setup"
     fi
     for mod in libcomposite usb_f_ecm usb_f_mass_storage; do
         grep -q "^${mod}$" /etc/modules 2>/dev/null || echo "$mod" >> /etc/modules
@@ -120,26 +156,39 @@ else
 fi
 echo ""
 
-# 5. Hostname + mDNS
+# ── 5. Hostname + mDNS ───────────────────────────────────────────────
+echo ">>> [5/6] Setting hostname..."
 hostnamectl set-hostname openautolink 2>/dev/null || true
 grep -q "openautolink" /etc/hosts || echo "127.0.1.1 openautolink" >> /etc/hosts
+echo "  Hostname: openautolink"
+echo ""
 
-# 6. systemd services
-echo ">>> Installing systemd services..."
-cp "${SCRIPT_DIR}/openautolink-car-net.service" /etc/systemd/system/
-cp "${SCRIPT_DIR}/openautolink.service" /etc/systemd/system/
-cp "${SCRIPT_DIR}/openautolink-wireless.service" /etc/systemd/system/ 2>/dev/null || true
-[ -f "${SCRIPT_DIR}/openautolink-bt.service" ] && \
-    cp "${SCRIPT_DIR}/openautolink-bt.service" /etc/systemd/system/
-[ -f "${SCRIPT_DIR}/openautolink-eth-ssh.service" ] && \
-    cp "${SCRIPT_DIR}/openautolink-eth-ssh.service" /etc/systemd/system/
+# ── 6. Systemd services ──────────────────────────────────────────────
+echo ">>> [6/6] Installing systemd services..."
+for svc in openautolink.service openautolink-car-net.service \
+           openautolink-wireless.service openautolink-bt.service \
+           openautolink-eth-ssh.service openautolink-network.service; do
+    if [ -f "${TMP_DIR}/${svc}" ]; then
+        cp "${TMP_DIR}/${svc}" /etc/systemd/system/
+    fi
+done
 
 systemctl daemon-reload
-systemctl disable pi-aa-bridge pi-aa-gadget pi-aa-headless pi-aa-tcp pi-aa-wireless pi-aa-bt 2>/dev/null || true
-systemctl enable openautolink-car-net openautolink openautolink-wireless openautolink-bt 2>/dev/null || true
+systemctl enable openautolink-car-net openautolink openautolink-wireless 2>/dev/null || true
+systemctl enable openautolink-bt 2>/dev/null || true
+
+# Clean up
+rm -rf "$TMP_DIR"
 
 echo ""
 echo "=== Installation complete ==="
-echo "Config: /etc/openautolink.env"
-echo "Mode:   ${OAL_CAR_NET_MODE:-usb-gadget}"
-echo "Reboot to activate."
+echo ""
+echo "  Binary:  ${INSTALL_DIR}/bin/openautolink-headless"
+echo "  Config:  /etc/openautolink.env"
+echo "  Version: ${LATEST_TAG}"
+echo ""
+echo "  Next steps:"
+echo "    1. Edit /etc/openautolink.env to match your setup"
+echo "    2. Reboot: sudo reboot"
+echo "    3. Check status: systemctl status openautolink"
+echo ""
