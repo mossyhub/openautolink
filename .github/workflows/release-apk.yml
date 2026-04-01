@@ -10,6 +10,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +26,9 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Decode keystore
-        run: echo "${{ secrets.UPLOAD_KEYSTORE_BASE64 }}" | base64 -d > secrets/upload-key.jks
+        run: |
+          mkdir -p secrets
+          echo "${{ secrets.UPLOAD_KEYSTORE_BASE64 }}" | base64 -d > secrets/upload-key.jks
 
       - name: Build release APK
         env:
