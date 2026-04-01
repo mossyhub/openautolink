@@ -4,17 +4,20 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.util.Log
-import com.openautolink.app.transport.AudioPurpose
 
 /**
- * Manages Android audio focus for the projection session.
+ * Session-level Android audio focus management.
  *
- * - MEDIA gets AUDIOFOCUS_GAIN (long-term, exclusive)
- * - NAVIGATION/ALERT get AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK (short, ducks media)
- * - PHONE_CALL gets AUDIOFOCUS_GAIN_TRANSIENT (pauses media)
- * - ASSISTANT gets AUDIOFOCUS_GAIN_TRANSIENT (pauses media)
+ * Requests AUDIOFOCUS_GAIN once at session start with USAGE_MEDIA — the primary
+ * audio type for projection. Holds focus for the entire session lifetime.
  *
- * On focus loss: pause but don't release AudioTracks. Resume on focus regain.
+ * Cross-purpose ducking (e.g., duck media during a call) is handled by
+ * AudioPurposeCoordinator adjusting AudioTrack volumes directly, NOT by
+ * requesting/releasing focus per purpose. AAOS also applies hardware-level
+ * mixing via AudioAttributes on each AudioTrack.
+ *
+ * On external focus loss (e.g., AAOS voice assistant): pauses all audio.
+ * On focus regain: resumes paused audio.
  */
 class AudioFocusManager(private val audioManager: AudioManager) {
 
@@ -25,60 +28,47 @@ class AudioFocusManager(private val audioManager: AudioManager) {
     private var currentRequest: AudioFocusRequest? = null
     private var onFocusLost: (() -> Unit)? = null
     private var onFocusRegained: (() -> Unit)? = null
+    private var hasFocus = false
 
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 Log.d(TAG, "Audio focus gained")
+                hasFocus = true
                 onFocusRegained?.invoke()
             }
             AudioManager.AUDIOFOCUS_LOSS,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 Log.d(TAG, "Audio focus lost: $focusChange")
+                hasFocus = false
                 onFocusLost?.invoke()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 // AAOS handles ducking via AudioAttributes automatically
-                Log.d(TAG, "Audio focus: can duck")
+                Log.d(TAG, "Audio focus: can duck (AAOS handles)")
             }
         }
     }
 
     /**
-     * Request audio focus appropriate for the given purpose.
-     * Call before writing to AudioTrack.
+     * Request session-level audio focus. Call once at session start.
+     * Uses AUDIOFOCUS_GAIN with USAGE_MEDIA — held for the entire projection session.
      */
-    fun requestFocus(
-        purpose: AudioPurpose,
+    fun requestSessionFocus(
         onLost: (() -> Unit)? = null,
         onRegained: (() -> Unit)? = null
     ): Boolean {
+        if (hasFocus) return true
+
         this.onFocusLost = onLost
         this.onFocusRegained = onRegained
 
-        releaseFocus()
-
-        val focusGain = when (purpose) {
-            AudioPurpose.MEDIA -> AudioManager.AUDIOFOCUS_GAIN
-            AudioPurpose.NAVIGATION -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-            AudioPurpose.ALERT -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-            AudioPurpose.PHONE_CALL -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
-            AudioPurpose.ASSISTANT -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
-        }
-
-        val usage = when (purpose) {
-            AudioPurpose.MEDIA -> AudioAttributes.USAGE_MEDIA
-            AudioPurpose.NAVIGATION -> AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
-            AudioPurpose.ASSISTANT -> AudioAttributes.USAGE_ASSISTANT
-            AudioPurpose.PHONE_CALL -> AudioAttributes.USAGE_VOICE_COMMUNICATION
-            AudioPurpose.ALERT -> AudioAttributes.USAGE_NOTIFICATION_RINGTONE
-        }
-
         val attributes = AudioAttributes.Builder()
-            .setUsage(usage)
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
             .build()
 
-        val request = AudioFocusRequest.Builder(focusGain)
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(attributes)
             .setOnAudioFocusChangeListener(focusChangeListener)
             .setAcceptsDelayedFocusGain(true)
@@ -87,17 +77,21 @@ class AudioFocusManager(private val audioManager: AudioManager) {
         val result = audioManager.requestAudioFocus(request)
         currentRequest = request
 
-        val granted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        Log.d(TAG, "Focus request for $purpose: ${if (granted) "granted" else "denied"}")
-        return granted
+        hasFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        Log.d(TAG, "Session focus request: ${if (hasFocus) "granted" else "denied"}")
+        return hasFocus
     }
 
-    /** Release audio focus. Call when all audio purposes stop. */
+    /** Release audio focus. Call at session end. */
     fun releaseFocus() {
         currentRequest?.let { request ->
             audioManager.abandonAudioFocusRequest(request)
             currentRequest = null
+            hasFocus = false
             Log.d(TAG, "Audio focus released")
         }
     }
+
+    /** Whether the app currently holds audio focus. */
+    fun hasFocus(): Boolean = hasFocus
 }

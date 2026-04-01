@@ -72,7 +72,8 @@ object ControlMessageSerializer {
                 maneuver = obj["maneuver"]?.jsonPrimitive?.content,
                 distanceMeters = obj["distance_meters"]?.jsonPrimitive?.content?.toIntOrNull(),
                 road = obj["road"]?.jsonPrimitive?.content,
-                etaSeconds = obj["eta_seconds"]?.jsonPrimitive?.content?.toIntOrNull()
+                etaSeconds = obj["eta_seconds"]?.jsonPrimitive?.content?.toIntOrNull(),
+                navImageBase64 = obj["nav_image_base64"]?.jsonPrimitive?.content
             )
 
             "media_metadata" -> ControlMessage.MediaMetadata(
@@ -81,7 +82,8 @@ object ControlMessageSerializer {
                 album = obj["album"]?.jsonPrimitive?.content,
                 durationMs = obj["duration_ms"]?.jsonPrimitive?.content?.toLongOrNull(),
                 positionMs = obj["position_ms"]?.jsonPrimitive?.content?.toLongOrNull(),
-                playing = obj["playing"]?.jsonPrimitive?.content?.toBooleanStrictOrNull()
+                playing = obj["playing"]?.jsonPrimitive?.content?.toBooleanStrictOrNull(),
+                albumArtBase64 = obj["album_art_base64"]?.jsonPrimitive?.content
             )
 
             "config_echo" -> {
@@ -166,6 +168,14 @@ object ControlMessageSerializer {
             is ControlMessage.ConfigUpdate -> buildJsonObject {
                 put("type", "config_update")
                 message.config.forEach { (k, v) -> put(k, v) }
+            }
+
+            is ControlMessage.Button -> buildJsonObject {
+                put("type", "button")
+                put("keycode", message.keycode)
+                put("down", message.down)
+                put("metastate", message.metastate)
+                put("longpress", message.longpress)
             }
 
             is ControlMessage.KeyframeRequest -> buildJsonObject {

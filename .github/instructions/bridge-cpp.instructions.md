@@ -29,15 +29,14 @@ applyTo: "bridge/openautolink/headless/**"
 - Video: 16-byte header + raw codec to TCP 5290
 - Audio: 8-byte header + raw PCM to TCP 5289
 
-## Current State: CPC200 Legacy
-The bridge code currently uses CPC200 framing (16-byte magic header + payload-specific sub-headers). The OAL protocol spec in docs/protocol.md is the target design. Bridge migration from CPC200 → OAL is tracked in docs/work-plan.md under "Bridge Protocol Migration".
+## Current State: OAL Protocol
 
-### CPC200 Wire Format (current implementation)
-- **Magic header**: 4B magic (0x55AA55AA) + 4B payload_length + 4B message_type + 4B ~message_type
-- **Video payload**: 4B width + 4B height + 4B encoder_state + 4B pts_ms + 4B flags + raw codec data
-- **Audio payload**: 4B decode_type + 4B volume + 4B audio_type + raw PCM
-- **Heartbeat-gated writes**: Legacy from USB FFS — should be removed for TCP
-- No heartbeat-gated writes, no deferred bootstrap, no magic headers
+### OAL Protocol
+- **OalSession** manages the OAL protocol session
+- **Control (5288)**: newline-delimited JSON lines
+- **Video (5290)**: 16-byte header (payload_length, width, height, pts_ms, flags, reserved) + raw codec data
+- **Audio (5289)**: 8-byte header (direction, purpose, sample_rate, channels, payload_length) + raw PCM
+- OAL is the only protocol — CPC200 legacy code was removed in B3
 - See docs/protocol.md for full spec
 
 ## Session Modes
@@ -49,4 +48,6 @@ The bridge code currently uses CPC200 framing (16-byte magic header + payload-sp
 - `LiveAasdkSession` — real aasdk transport, owns HeadlessAutoEntity
 - `HeadlessAutoEntity` — control channel orchestration, service handlers
 - `TcpCarTransport` — TCP server for app connections (ICarTransport interface)
+- `OalSession` — OAL protocol session, routes audio/video between aasdk and TCP
+- `ScoAudio` — BT SCO socket for HFP phone call audio (listen, read/write threads)
 - `HeadlessConfig` — shared config (video dims, DPI, codec, resolution tier)

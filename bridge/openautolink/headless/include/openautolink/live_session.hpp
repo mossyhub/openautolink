@@ -26,6 +26,10 @@
 #include <aasdk/Channel/InputSource/InputSourceService.hpp>
 #include <aasdk/Channel/SensorSource/ISensorSourceServiceEventHandler.hpp>
 #include <aasdk/Channel/SensorSource/SensorSourceService.hpp>
+#include <aasdk/Channel/NavigationStatus/INavigationStatusServiceEventHandler.hpp>
+#include <aasdk/Channel/NavigationStatus/NavigationStatusService.hpp>
+#include <aasdk/Channel/MediaPlaybackStatus/IMediaPlaybackStatusServiceEventHandler.hpp>
+#include <aasdk/Channel/MediaPlaybackStatus/MediaPlaybackStatusService.hpp>
 #include <aasdk/Messenger/ICryptor.hpp>
 #include <aasdk/Messenger/IMessenger.hpp>
 #include <aasdk/Transport/ITransport.hpp>
@@ -37,9 +41,6 @@
 
 #include "openautolink/session.hpp"
 #include "openautolink/headless_config.hpp"
-
-// Forward declaration for FFS direct video/audio write path
-namespace openautolink { class CpcSession; }
 
 namespace openautolink {
 
@@ -61,6 +62,8 @@ class HeadlessAudioInputHandler;
 class HeadlessSensorHandler;
 class HeadlessInputHandler;
 class HeadlessBluetoothHandler;
+class HeadlessNavStatusHandler;
+class HeadlessMediaStatusHandler;
 
 // The core entity that orchestrates the aasdk control channel.
 class HeadlessAutoEntity
@@ -137,18 +140,18 @@ private:
     std::shared_ptr<HeadlessSensorHandler> sensor_handler_;
     std::shared_ptr<HeadlessInputHandler> input_handler_;
     std::shared_ptr<HeadlessBluetoothHandler> bluetooth_handler_;
+    std::shared_ptr<HeadlessNavStatusHandler> nav_status_handler_;
+    std::shared_ptr<HeadlessMediaStatusHandler> media_status_handler_;
 
-    // Direct FFS session — propagated to video/audio handlers
-    CpcSession* cpc_session_ = nullptr;
+    // OAL session — propagated to video/audio handlers
+    class OalSession* oal_session_ = nullptr;
 
     // Mutex for binary media pipe (fd 3) writes — shared by video + audio handlers
     std::mutex media_pipe_mutex_;
 
 public:
-    // Set CPC session for direct FFS video/audio writes.
-    // Propagates to all video/audio handlers. Defined in live_session.cpp
-    // (not inline, because handler types are forward-declared here).
-    void set_cpc_session(CpcSession* session);
+    // Set OAL session for OAL protocol writes.
+    void set_oal_session(class OalSession* session);
 };
 
 // Active transport type for dual-mode (wired + wireless)
@@ -172,15 +175,25 @@ public:
     void replay_cached_keyframe() override;
     const BackendState& state() const override;
 
-    // Set CPC session for direct FFS video/audio writes.
-    // Called before the FFS run loop starts; propagated to entity handlers.
-    void set_cpc_session(CpcSession* session) { cpc_session_ = session; }
+    // Set OAL session for OAL protocol video/audio writes.
+    void set_oal_session(class OalSession* session) { oal_session_ = session; }
 
     // Forward touch data from CPC host to the AA input channel.
     void forward_touch(const uint8_t* payload, size_t len);
 
+    // Forward OAL touch (already in AA pixel coordinates).
+    void forward_oal_touch(int action, uint32_t x, uint32_t y);
+    void forward_oal_multi_touch(int action, uint32_t action_index,
+                                  const std::vector<HeadlessInputHandler::PointerInfo>& pointers);
+
+    // Forward OAL button (key event) to the AA input channel.
+    void forward_oal_button(uint32_t keycode, bool down, uint32_t metastate, bool longpress);
+
     // Forward mic audio from CPC host to the AA audio-input channel.
     void forward_audio_input(const uint8_t* payload, size_t len);
+
+    // Forward OAL mic audio (raw PCM, no CPC header).
+    void forward_oal_mic_audio(const uint8_t* pcm, size_t len);
 
     // Forward vehicle sensor data (JSON) to aasdk SensorBatch.
     void on_vehicle_data(const std::string& json);
@@ -188,7 +201,16 @@ public:
     // Forward GNSS NMEA data to aasdk sensor channel.
     void on_vehicle_gnss(const uint8_t* nmea, size_t len);
 
-    // Restart the AA session with updated config (disconnects phone, phone auto-reconnects).
+    // Forward OAL GNSS (NMEA string).
+    void forward_oal_gnss(const std::string& nmea);
+
+    // Forward OAL vehicle data (JSON string).
+    void forward_oal_vehicle_data(const std::string& json);
+
+    // Request fresh IDR from phone (sends VideoFocusIndication).
+    void request_fresh_idr();
+
+    // Restart the AA session with updated config.
     void restart_with_config(const HeadlessConfig& new_config);
 
 private:
@@ -226,8 +248,7 @@ private:
     std::thread usb_event_thread_;
     std::chrono::steady_clock::time_point last_frame_request_time_{};
 
-    // Direct FFS session reference — propagated to entity handlers on creation.
-    CpcSession* cpc_session_ = nullptr;
+    class OalSession* oal_session_ = nullptr;
 
     // Raw SSL for TCP wireless (TLS at socket level, not in aasdk cryptor)
     void* ssl_ = nullptr;      // SSL*
@@ -261,8 +282,8 @@ public:
     // Forward a touch event into the AA input channel (if input handler is set)
     void set_input_handler(std::shared_ptr<HeadlessInputHandler> handler) { input_handler_ = handler; }
 
-    // Set CPC session for direct FFS video writes (bypasses media pipe).
-    void set_cpc_session(CpcSession* session) { cpc_session_ = session; }
+    // Set OAL session for OAL protocol video writes.
+    void set_oal_session(class OalSession* session) { oal_session_ = session; }
 
 private:
     void onChannelOpenRequest(const aap_protobuf::service::control::message::ChannelOpenRequest& request) override;
@@ -284,7 +305,7 @@ private:
     int32_t session_ = -1;
     uint32_t frame_counter_ = 0;
     std::shared_ptr<HeadlessInputHandler> input_handler_;
-    CpcSession* cpc_session_ = nullptr;
+    class OalSession* oal_session_ = nullptr;
     // Cached SPS/PPS + first IDR for replay when car app connects late
     std::vector<uint8_t> cached_sps_pps_;
     std::vector<uint8_t> cached_idr_;
@@ -308,8 +329,8 @@ public:
     void start();
     void stop();
 
-    // Set CPC session for direct FFS audio writes.
-    void set_cpc_session(CpcSession* session) { cpc_session_ = session; }
+    // Set OAL session for OAL protocol audio writes.
+    void set_oal_session(class OalSession* session) { oal_session_ = session; }
 
 private:
     void onChannelOpenRequest(const aap_protobuf::service::control::message::ChannelOpenRequest& request) override;
@@ -329,7 +350,7 @@ private:
     std::mutex* pipe_mutex_;
     int32_t session_ = -1;
     uint64_t audio_frame_count_ = 0;
-    CpcSession* cpc_session_ = nullptr;
+    class OalSession* oal_session_ = nullptr;
 };
 
 class HeadlessAudioInputHandler
@@ -347,6 +368,9 @@ public:
     // Feed microphone audio from host into the AA channel.
     void feedAudio(const uint8_t* data, size_t size);
 
+    // Set OAL session for mic_start/mic_stop signals.
+    void set_oal_session(class OalSession* session) { oal_session_ = session; }
+
 private:
     void onChannelOpenRequest(const aap_protobuf::service::control::message::ChannelOpenRequest& request) override;
     void onMediaChannelSetupRequest(const aap_protobuf::service::media::shared::message::Setup& request) override;
@@ -359,6 +383,7 @@ private:
     ThreadSafeOutputSink& output_;
     bool open_ = false;
     uint32_t session_ = 0;
+    class OalSession* oal_session_ = nullptr;
 };
 
 class HeadlessSensorHandler
@@ -420,6 +445,9 @@ public:
     void sendMultiTouchEvent(uint32_t action, uint32_t action_index,
                              const std::vector<PointerInfo>& pointers);
 
+    // Send a key event (button press) from host to phone.
+    void sendKeyEvent(uint32_t keycode, bool down, uint32_t metastate, bool longpress);
+
 private:
     void onChannelOpenRequest(const aap_protobuf::service::control::message::ChannelOpenRequest& request) override;
     void onKeyBindingRequest(const aap_protobuf::service::media::sink::message::KeyBindingRequest& request) override;
@@ -453,6 +481,74 @@ private:
     std::shared_ptr<aasdk::channel::bluetooth::BluetoothService> channel_;
     ThreadSafeOutputSink& output_;
     bool bt_connect_attempted_ = false;
+};
+
+class HeadlessNavStatusHandler
+    : public aasdk::channel::navigationstatus::INavigationStatusServiceEventHandler
+    , public std::enable_shared_from_this<HeadlessNavStatusHandler>
+{
+public:
+    HeadlessNavStatusHandler(boost::asio::io_service& io_service,
+                             aasdk::messenger::IMessenger::Pointer messenger,
+                             ThreadSafeOutputSink& output);
+
+    void start();
+    void stop();
+
+    void set_oal_session(class OalSession* session) { oal_session_ = session; }
+
+private:
+    void onChannelOpenRequest(const aap_protobuf::service::control::message::ChannelOpenRequest& request) override;
+    void onChannelError(const aasdk::error::Error& e) override;
+    void onStatusUpdate(const aap_protobuf::service::navigationstatus::message::NavigationStatus& navStatus) override;
+    void onTurnEvent(const aap_protobuf::service::navigationstatus::message::NavigationNextTurnEvent& turnEvent) override;
+    void onDistanceEvent(const aap_protobuf::service::navigationstatus::message::NavigationNextTurnDistanceEvent& distanceEvent) override;
+
+    boost::asio::io_service::strand strand_;
+    std::shared_ptr<aasdk::channel::navigationstatus::NavigationStatusService> channel_;
+    ThreadSafeOutputSink& output_;
+    class OalSession* oal_session_ = nullptr;
+
+    // Cached nav state for composing full updates
+    std::string last_road_;
+    std::string last_maneuver_;
+    int last_distance_m_ = 0;
+    int last_eta_s_ = 0;
+};
+
+class HeadlessMediaStatusHandler
+    : public aasdk::channel::mediaplaybackstatus::IMediaPlaybackStatusServiceEventHandler
+    , public std::enable_shared_from_this<HeadlessMediaStatusHandler>
+{
+public:
+    HeadlessMediaStatusHandler(boost::asio::io_service& io_service,
+                               aasdk::messenger::IMessenger::Pointer messenger,
+                               ThreadSafeOutputSink& output);
+
+    void start();
+    void stop();
+
+    void set_oal_session(class OalSession* session) { oal_session_ = session; }
+
+private:
+    void onChannelOpenRequest(const aap_protobuf::service::control::message::ChannelOpenRequest& request) override;
+    void onChannelError(const aasdk::error::Error& e) override;
+    void onMetadataUpdate(const aap_protobuf::service::mediaplayback::message::MediaPlaybackMetadata& metadata) override;
+    void onPlaybackUpdate(const aap_protobuf::service::mediaplayback::message::MediaPlaybackStatus& playback) override;
+
+    boost::asio::io_service::strand strand_;
+    std::shared_ptr<aasdk::channel::mediaplaybackstatus::MediaPlaybackStatusService> channel_;
+    ThreadSafeOutputSink& output_;
+    class OalSession* oal_session_ = nullptr;
+
+    // Cached metadata for composing full updates
+    std::string last_title_;
+    std::string last_artist_;
+    std::string last_album_;
+    std::string last_album_art_base64_;
+    int last_duration_ms_ = 0;
+    int last_position_ms_ = 0;
+    bool last_playing_ = false;
 };
 
 } // namespace openautolink

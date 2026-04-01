@@ -88,6 +88,13 @@ dependencies {
     // Serialization
     implementation(libs.kotlinx.serialization.json)
 
+    // Car App Library (cluster navigation)
+    implementation(libs.car.app)
+    implementation(libs.car.app.automotive)
+
+    // MediaSession for AAOS integration
+    implementation(libs.media)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.turbine)

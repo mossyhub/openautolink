@@ -1,7 +1,7 @@
 # OpenAutoLink — Open-Source Wireless Android Auto Bridge
 
 An open-source wireless Android Auto adapter that runs on any Linux SBC
-with WiFi and Bluetooth. Replaces closed-source CPC200/Carlinkit dongles.
+with WiFi and Bluetooth. A fully open-source wireless Android Auto bridge.
 
 ## How It Works
 
@@ -104,7 +104,7 @@ The installer:
 
 | Service | Purpose |
 |---|---|
-| `openautolink.service` | Main AA bridge — aasdk + CPC200 over TCP |
+| `openautolink.service` | Main AA bridge — aasdk + OAL protocol over TCP |
 | `openautolink-car-net.service` | Car network setup (USB gadget or external NIC) |
 | `openautolink-wireless.service` | WiFi AP for phone (hostapd + dnsmasq) |
 | `openautolink-bt.service` | Bluetooth (BLE + HSP + AA RFCOMM ch8) |
@@ -121,9 +121,7 @@ The installer:
 
 ### Android App
 
-The companion AAOS app supports two adapter types:
-- **USB mode** — OEM CPC200/Carlinkit adapters (legacy, plug into car USB)
-- **TCP mode** — OpenAutoLink bridge (Settings → Control → Bridge Connection)
+The companion AAOS app connects to the bridge over TCP.
 
 The app auto-discovers the bridge via mDNS (`_openautolink._tcp`) or manual IP entry.
 
@@ -142,11 +140,11 @@ The app auto-discovers the bridge via mDNS (`_openautolink._tcp`) or manual IP e
 - Auto-generated SSID: `OpenAutoLink-{MAC4}`
 
 ### Car Integration
-- CPC200 protocol over TCP (bootstrap, heartbeat, video/audio/touch/mic/sensors)
+- OAL protocol over TCP (JSON control, binary video/audio)
 - mDNS discovery (`_openautolink._tcp`)
-- Vehicle sensor forwarding: app reads AAOS VHAL (37 properties via reflection), sends VEHICLE_DATA (0x30) to bridge, bridge builds SensorBatch protobuf → phone AA
+- Vehicle sensor forwarding: app reads AAOS VHAL (37 properties via reflection), sends vehicle data JSON to bridge, bridge builds SensorBatch protobuf → phone AA
 - Multi-codec video: H.264, H.265 (HEVC), VP9 — selectable in app settings
-- Bidirectional mic/touch: coordinate scaling, CPC200→aasdk action mapping
+- Bidirectional mic/touch: coordinate scaling, OAL→aasdk action mapping
 
 ## Configuration
 
@@ -189,14 +187,14 @@ bridge/
       include/openautolink/
         headless_config.hpp  — Shared configuration struct
         live_session.hpp     — aasdk AA session (TCP + USB host)
-        cpc_session.hpp      — CPC200 protocol state machine
+        oal_session.hpp      — OAL protocol session state machine
         tcp_car_transport.hpp — TCP server for car app
         i_car_transport.hpp  — Abstract transport interface
-        cpc200.hpp           — CPC200 constants and packet builders
+        oal_protocol.hpp     — OAL wire format (video/audio headers)
       src/
         main.cpp         — CLI entry point (--usb, --aa-resolution, etc.)
         live_session.cpp — AA session + USB scanning + disconnect callback
-        cpc_session.cpp  — CPC200 bootstrap, heartbeat, media relay
+        oal_session.cpp  — OAL session, video/audio relay
       CMakeLists.txt     — Build with PI_AA_ENABLE_AASDK_LIVE=ON
     scripts/             — BT service, helpers
   sbc/                   — Deployment (SBC-agnostic)

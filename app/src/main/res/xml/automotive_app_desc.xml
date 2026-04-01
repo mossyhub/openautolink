@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <automotiveApp xmlns:android="http://schemas.android.com/apk/res/android">
     <uses name="projection" />
+    <uses name="template" />
+    <uses name="navigation" />
 </automotiveApp>

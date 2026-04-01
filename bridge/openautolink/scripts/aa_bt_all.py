@@ -1,8 +1,43 @@
-﻿import dbus, dbus.service, dbus.mainloop.glib
+﻿"""OpenAutoLink Bluetooth setup — D-Bus registrations for BlueZ.
+
+Architecture:
+  This script is a D-Bus callback handler, NOT a processing daemon.
+  It registers profiles/agent with BlueZ at startup, then idles on
+  GLib.MainLoop waiting for D-Bus events. All work is reactive:
+
+  SETUP (one-shot, at startup):
+    - Configure BT adapter (class, SSP, discoverable)
+    - Register pairing agent (auto-accept)
+    - Register AA RFCOMM profile (channel 8) + SDP record
+    - Register HSP profile
+    - Register BLE advertisement
+    - Attempt HSP connection to previously paired phone
+
+  EVENT HANDLERS (reactive, idle 99.99% of the time):
+    - Agent callbacks: auto-accept pairing requests
+    - AAProfile.NewConnection: WiFi credential exchange over
+      RFCOMM (~3 messages, <1 second, then close fd)
+    - HSPProfile: connection logging
+
+  WHY PYTHON:
+    BlueZ's primary API is D-Bus. D-Bus object ownership requires a
+    running process — if we exit, BlueZ unregisters our profiles.
+    Python + dbus + GLib is the standard BlueZ integration stack.
+    The GLib.MainLoop is NOT doing real-time processing — it's an
+    idle event loop that wakes only for BT pairing/connect events.
+
+  WHAT MUST STAY IN NATIVE CODE (C++ bridge):
+    - SCO audio capture/playback (real-time)
+    - All audio/video streaming
+    - AA session management (aasdk)
+"""
+import dbus, dbus.service, dbus.mainloop.glib
 from gi.repository import GLib
 import os, time, threading, struct, fcntl
 
 AA_UUID = "4de17a00-52cb-11e6-bdf4-0800200c9a66"
+HFP_HF_UUID = "0000111e-0000-1000-8000-00805f9b34fb"  # Hands-Free (our role: car kit)
+HFP_AG_UUID = "0000111f-0000-1000-8000-00805f9b34fb"  # Audio Gateway (phone's role)
 HSP_HS_UUID = "00001108-0000-1000-8000-00805f9b34fb"
 HSP_AG_UUID = "00001112-0000-1000-8000-00805f9b34fb"
 AGENT_IFACE = "org.bluez.Agent1"
@@ -124,6 +159,238 @@ class HSPProfile(dbus.service.Object):
     @dbus.service.method(PROFILE_IFACE, in_signature="", out_signature="")
     def Release(self): print("HSP Released", flush=True)
 
+# ── HFP Hands-Free Profile (car kit role) ─────────────────────────────
+# The bridge is the HF (Hands-Free) unit. The phone is the AG (Audio Gateway).
+# When the phone connects HFP, we do an AT command handshake to establish
+# the service level connection. Once established, the phone can route
+# call audio via SCO. SCO audio capture/playback is handled in C++.
+#
+# This handler does NOT process audio — it only handles the RFCOMM control
+# channel for AT commands. The SCO socket is opened separately by C++.
+
+# HFP HF supported features bitmask (AT+BRSF):
+#   Bit 0: EC/NR (echo cancel / noise reduction) — 0 (not supported, phone handles it)
+#   Bit 1: Three-way calling — 0
+#   Bit 2: CLI presentation — 1 (we accept caller ID)
+#   Bit 3: Voice recognition activation — 1 (forward to AA)
+#   Bit 4: Remote volume control — 1
+#   Bit 5: Enhanced call status — 0
+#   Bit 6: Enhanced call control — 0
+#   Bit 7: Codec negotiation (mSBC/CVSD) — 1
+#   Bit 8: HF indicators — 0
+#   Bit 9: eSCO S4 settings — 0
+HFP_HF_FEATURES = (1 << 2) | (1 << 3) | (1 << 4) | (1 << 7)  # = 156
+
+# Track HFP state
+hfp_connected_device = None  # D-Bus path of connected phone
+hfp_slc_established = False  # Service Level Connection up
+
+def handle_hfp_rfcomm(fd, device):
+    """Handle HFP AT command exchange on RFCOMM fd.
+    
+    This runs the HFP Service Level Connection (SLC) setup, then enters
+    an AT command response loop. The fd is an RFCOMM socket from BlueZ
+    Profile1.NewConnection — it's the control channel only, NOT audio.
+    SCO audio is a separate BT connection handled by the C++ bridge.
+    """
+    global hfp_connected_device, hfp_slc_established
+
+    fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, fl & ~os.O_NONBLOCK)
+
+    hfp_connected_device = device
+    ag_features = 0
+    ag_indicators = []
+
+    def send_at(response):
+        """Send an AT response line to the phone (AG)."""
+        line = response + "\r"
+        os.write(fd, line.encode("utf-8"))
+
+    def send_ok():
+        send_at("\r\nOK")
+
+    try:
+        buf = b""
+        while True:
+            data = os.read(fd, 1024)
+            if not data:
+                break
+            buf += data
+
+            # Process complete AT commands (terminated by \r)
+            while b"\r" in buf:
+                line_bytes, buf = buf.split(b"\r", 1)
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+
+                print(f"[HFP] << {line}", flush=True)
+
+                # ── SLC Setup Phase ──────────────────────────────
+                if line.startswith("AT+BRSF="):
+                    # Phone sends its AG features
+                    try:
+                        ag_features = int(line.split("=")[1])
+                    except ValueError:
+                        pass
+                    print(f"[HFP] AG features: {ag_features}", flush=True)
+                    send_at(f"\r\n+BRSF: {HFP_HF_FEATURES}")
+                    send_ok()
+
+                elif line == "AT+CIND=?":
+                    # Phone asks for indicator mapping
+                    send_at('\r\n+CIND: ("service",(0,1)),("call",(0,1)),'
+                            '("callsetup",(0-3)),("callheld",(0-2)),'
+                            '("signal",(0-5)),("roam",(0,1)),'
+                            '("battchg",(0-5))')
+                    send_ok()
+
+                elif line == "AT+CIND?":
+                    # Phone asks for current indicator values
+                    # service=1, call=0, callsetup=0, callheld=0,
+                    # signal=5, roam=0, battery=5
+                    send_at("\r\n+CIND: 1,0,0,0,5,0,5")
+                    send_ok()
+
+                elif line.startswith("AT+CMER="):
+                    # Phone enables indicator event reporting
+                    send_ok()
+
+                elif line.startswith("AT+CHLD=?"):
+                    # Phone asks for call hold capabilities
+                    send_at("\r\n+CHLD: (0,1,2,3)")
+                    send_ok()
+
+                elif line.startswith("AT+BIND=?"):
+                    # HF indicators feature list query
+                    send_at("\r\n+BIND: (1,2)")
+                    send_ok()
+
+                elif line.startswith("AT+BIND?"):
+                    # HF indicators status query
+                    send_at("\r\n+BIND: 1,1")
+                    send_at("\r\n+BIND: 2,1")
+                    send_ok()
+
+                elif line.startswith("AT+BIND="):
+                    # HF indicators enable
+                    send_ok()
+
+                # ── Codec Negotiation ────────────────────────────
+                elif line.startswith("AT+BAC="):
+                    # Phone sends available codecs (1=CVSD, 2=mSBC)
+                    print(f"[HFP] codecs: {line.split('=')[1]}", flush=True)
+                    send_ok()
+
+                elif line.startswith("+BCS:"):
+                    # AG selected codec — confirm it
+                    codec = line.split(":")[1].strip()
+                    print(f"[HFP] codec selected: {codec}", flush=True)
+                    send_at(f"AT+BCS={codec}")
+
+                # ── Call Control ──────────────────────────────────
+                elif line == "ATA":
+                    # Answer incoming call
+                    send_ok()
+                    print("[HFP] call answered", flush=True)
+
+                elif line == "AT+CHUP":
+                    # Hang up
+                    send_ok()
+                    print("[HFP] call hung up", flush=True)
+
+                elif line.startswith("ATD"):
+                    # Dial
+                    number = line[3:].rstrip(";")
+                    print(f"[HFP] dial: {number}", flush=True)
+                    send_ok()
+
+                elif line.startswith("AT+BVRA="):
+                    # Voice recognition — forward to AA via bridge
+                    vr_state = line.split("=")[1]
+                    print(f"[HFP] voice recognition: {vr_state}", flush=True)
+                    send_ok()
+
+                elif line.startswith("AT+VGS="):
+                    # Speaker volume
+                    send_ok()
+
+                elif line.startswith("AT+VGM="):
+                    # Mic volume
+                    send_ok()
+
+                elif line.startswith("AT+NREC="):
+                    # Noise reduction / echo cancel request
+                    send_ok()
+
+                elif line.startswith("AT+BTRH?"):
+                    # Bluetooth Response and Hold status
+                    send_ok()
+
+                elif line.startswith("AT+CLIP="):
+                    # Calling Line ID enable
+                    send_ok()
+
+                elif line.startswith("AT+CCWA="):
+                    # Call waiting notification enable
+                    send_ok()
+
+                elif line.startswith("AT+CMEE="):
+                    # Extended error codes enable
+                    send_ok()
+
+                elif line.startswith("AT+CLCC"):
+                    # List current calls
+                    send_ok()
+
+                elif line.startswith("AT+COPS"):
+                    # Operator selection
+                    if "=?" in line:
+                        send_ok()
+                    elif "?" in line:
+                        send_at('\r\n+COPS: 0,0,"Carrier"')
+                        send_ok()
+                    else:
+                        send_ok()
+
+                elif line.startswith("AT+CNUM"):
+                    # Subscriber number
+                    send_ok()
+
+                else:
+                    # Unknown AT command — OK to avoid phone disconnect
+                    print(f"[HFP] unknown AT: {line}", flush=True)
+                    send_ok()
+
+                # After SLC setup, mark connection as established
+                if not hfp_slc_established and ag_features > 0:
+                    hfp_slc_established = True
+                    print("[HFP] SLC established", flush=True)
+
+    except Exception as e:
+        print(f"[HFP] RFCOMM error: {e}", flush=True)
+    finally:
+        os.close(fd)
+        hfp_connected_device = None
+        hfp_slc_established = False
+        print("[HFP] disconnected", flush=True)
+
+
+class HFPProfile(dbus.service.Object):
+    """HFP Hands-Free profile — receives RFCOMM connections from phone's AG."""
+    @dbus.service.method(PROFILE_IFACE, in_signature="oha{sv}", out_signature="")
+    def NewConnection(self, device, fd, props):
+        fd = fd.take()
+        print(f"[HFP] NewConnection from {device} fd={fd}", flush=True)
+        threading.Thread(target=handle_hfp_rfcomm, args=(fd, device), daemon=True).start()
+    @dbus.service.method(PROFILE_IFACE, in_signature="o", out_signature="")
+    def RequestDisconnection(self, dev):
+        print(f"[HFP] disconnect {dev}", flush=True)
+    @dbus.service.method(PROFILE_IFACE, in_signature="", out_signature="")
+    def Release(self):
+        print("[HFP] Released", flush=True)
+
 class BLEAd(dbus.service.Object):
     @dbus.service.method("org.freedesktop.DBus.Properties", in_signature="ss", out_signature="v")
     def Get(self, i, p): return self.GetAll(i)[p]
@@ -174,13 +441,25 @@ try:
 except dbus.exceptions.DBusException as e:
     print(f"AA profile: {e} (continuing)", flush=True)
 
-# HSP HS Profile
+# HSP HS Profile (kept for backward compat — some phones only do HSP)
 hsp = HSPProfile(bus, "/pi_aa/hsp")
 try:
     pm.RegisterProfile("/pi_aa/hsp", HSP_HS_UUID, {"Name": "HSP HS"})
     print("HSP HS profile", flush=True)
 except dbus.exceptions.DBusException as e:
     print(f"HSP profile: {e} (continuing)", flush=True)
+
+# HFP HF Profile (Hands-Free — car kit role, primary for phone calls)
+hfp = HFPProfile(bus, "/pi_aa/hfp")
+try:
+    pm.RegisterProfile("/pi_aa/hfp", HFP_HF_UUID, {
+        "Name": "HFP HF", "Role": "client",
+        "RequireAuthentication": False, "RequireAuthorization": False,
+        "Features": dbus.UInt16(HFP_HF_FEATURES),
+        "Version": dbus.UInt16(0x0108)})  # HFP 1.8
+    print("HFP HF profile registered", flush=True)
+except dbus.exceptions.DBusException as e:
+    print(f"HFP profile: {e} (continuing)", flush=True)
 
 # BLE Advertisement
 ble = BLEAd(bus, "/pi_aa/ble")
@@ -200,11 +479,13 @@ ap.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(True))
 ap.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
 ap.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(0))
 ap.Set("org.bluez.Adapter1", "Alias", "OpenAutoLink")
-# Set device class to Car Audio (0x200418) for proper phone recognition
-# Keep SSP enabled — modern phones require it. JustWorks pairing is handled
-# by our NoInputNoOutput agent which auto-accepts without any PIN prompt.
-os.system("hciconfig hci0 class 0x200418 2>/dev/null")
-os.system("hciconfig hci0 sspmode 1 2>/dev/null")
+# Set device class and SSP mode. These require raw HCI ioctls that BlueZ
+# doesn't expose via D-Bus. hciconfig wraps them — one-shot, not a process.
+import subprocess
+subprocess.run(["hciconfig", "hci0", "class", "0x200418"],
+               capture_output=True, timeout=5)
+subprocess.run(["hciconfig", "hci0", "sspmode", "1"],
+               capture_output=True, timeout=5)
 print("Adapter set (class=0x200418 Car Audio, SSP=on)", flush=True)
 
 # Try to read wlan0 BSSID at startup
@@ -215,7 +496,9 @@ try:
 except Exception:
     pass
 
-# Connect to first paired phone's HSP AG after delay
+# Connect to first paired phone's HFP AG (then HSP AG as fallback) after delay.
+# This triggers BT reconnection on boot — the phone sees the connection and
+# may auto-start Android Auto (which initiates WiFi TCP to the bridge).
 def do_connect():
     time.sleep(5)
     try:
@@ -232,11 +515,26 @@ def do_connect():
                     dp = dbus.Interface(bus.get_object("org.bluez", path),
                                         "org.freedesktop.DBus.Properties")
                     dp.Set("org.bluez.Device1", "Trusted", dbus.Boolean(True))
+                    # Try HFP AG first (primary for phone calls)
                     try:
-                        dev.ConnectProfile(HSP_AG_UUID)
-                        print(f"Connected HSP AG to {path}", flush=True)
+                        dev.ConnectProfile(HFP_AG_UUID)
+                        print(f"Connected HFP AG to {path}", flush=True)
                     except Exception as e2:
-                        print(f"HSP connect {path}: {e2}", flush=True)
+                        print(f"HFP AG connect {path}: {e2}", flush=True)
+                        # Fall back to HSP AG
+                        try:
+                            dev.ConnectProfile(HSP_AG_UUID)
+                            print(f"Connected HSP AG to {path}", flush=True)
+                        except Exception as e3:
+                            print(f"HSP AG connect {path}: {e3}", flush=True)
+                    # Also try a generic Connect() to trigger AA auto-connect
+                    # This tells the phone "I'm your car" which may kick off
+                    # the Android Auto WiFi connection sequence automatically.
+                    try:
+                        dev.Connect()
+                        print(f"Generic Connect to {path}", flush=True)
+                    except Exception:
+                        pass  # Already connected via profile, this is fine
                     break
     except Exception as e:
         print(f"Phone connect: {e}", flush=True)

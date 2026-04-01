@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
 
     <uses-feature
         android:name="android.hardware.type.automotive"
@@ -49,5 +52,64 @@
         <receiver
             android:name=".update.InstallResultReceiver"
             android:exported="false" />
+
+        <!-- Hidden CarAppActivity — triggers Templates Host binding for cluster.
+             Not a launcher. Lives in separate task. Excluded from recents. -->
+        <activity
+            android:name="androidx.car.app.activity.CarAppActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.openautolink.app.templates"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
+        </activity>
+
+        <!-- MediaBrowserService for AAOS media source integration -->
+        <service
+            android:name=".media.OalMediaBrowserService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+            <meta-data
+                android:name="com.gm.homescreen.visibility"
+                android:value="HIDDEN" />
+        </service>
+
+        <!-- Cluster Navigation CarAppService (headless — no UI on main display) -->
+        <service
+            android:name=".cluster.OalClusterService"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+                <category android:name="androidx.car.app.category.FEATURE_CLUSTER" />
+            </intent-filter>
+            <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="6" />
+            <meta-data android:name="com.gm.homescreen.visibility" android:value="HIDDEN" />
+        </service>
+
+        <!-- Required at application level — Templates Host reads minCarApiLevel
+             from application metadata, not from service element -->
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="6" />
+
+        <!-- Application-level distraction optimization declaration -->
+        <meta-data
+            android:name="com.android.automotive.application.DISTRACTION_OPTIMIZED"
+            android:value="true" />
+
+        <!-- Shim for Templates Host's unregistered ClusterIconContentProvider -->
+        <provider
+            android:name=".cluster.ClusterIconShimProvider"
+            android:authorities="com.google.android.apps.automotive.templates.host.ClusterIconContentProvider"
+            android:exported="true"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

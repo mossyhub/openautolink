@@ -37,6 +37,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val MIC_SOURCE = stringPreferencesKey("mic_source")
         val SELF_UPDATE_ENABLED = stringPreferencesKey("self_update_enabled")
         val UPDATE_MANIFEST_URL = stringPreferencesKey("update_manifest_url")
+        val NETWORK_INTERFACE = stringPreferencesKey("network_interface")
 
         const val DEFAULT_BRIDGE_HOST = "192.168.0.100"
         const val DEFAULT_BRIDGE_PORT = 5288
@@ -46,6 +47,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_MIC_SOURCE = "car"
         const val DEFAULT_SELF_UPDATE_ENABLED = "off"
         const val DEFAULT_UPDATE_MANIFEST_URL = "https://mossyhub.github.io/openautolink/update.json"
+        const val DEFAULT_NETWORK_INTERFACE = "" // empty = auto-select first available
     }
 
     val bridgeHost: Flow<String> = dataStore.data.map { prefs ->
@@ -80,6 +82,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         prefs[UPDATE_MANIFEST_URL] ?: DEFAULT_UPDATE_MANIFEST_URL
     }
 
+    val networkInterface: Flow<String> = dataStore.data.map { prefs ->
+        prefs[NETWORK_INTERFACE] ?: DEFAULT_NETWORK_INTERFACE
+    }
+
     suspend fun setBridgeHost(host: String) {
         dataStore.edit { it[BRIDGE_HOST] = host }
     }
@@ -110,5 +116,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setUpdateManifestUrl(url: String) {
         dataStore.edit { it[UPDATE_MANIFEST_URL] = url }
+    }
+
+    suspend fun setNetworkInterface(interfaceName: String) {
+        dataStore.edit { it[NETWORK_INTERFACE] = interfaceName }
     }
 }

@@ -33,4 +33,6 @@ else
     echo "[run] Phone mode: wireless AA (TCP ${OAL_PHONE_TCP_PORT:-5277})"
 fi
 
+echo "[run] Protocol: OAL (control:${OAL_CAR_TCP_PORT:-5288} audio:$((${OAL_CAR_TCP_PORT:-5288}+1)) video:$((${OAL_CAR_TCP_PORT:-5288}+2)))"
+
 exec /opt/openautolink/bin/openautolink-headless "${ARGS[@]}"

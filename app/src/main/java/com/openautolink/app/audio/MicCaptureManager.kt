@@ -8,6 +8,7 @@ import android.util.Log
 import com.openautolink.app.transport.AudioPurpose
 import com.openautolink.app.transport.BridgeConnection
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Captures audio from the car's built-in mic (AAOS AudioRecord) and sends
@@ -15,6 +16,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Only active when mic source preference is "car". When "phone", the bridge
  * handles mic capture via BT HFP from the phone directly.
+ *
+ * The mic purpose is set based on the current call state:
+ *   - IN_CALL → PHONE_CALL purpose (bridge routes to BT SCO)
+ *   - Otherwise → ASSISTANT purpose (bridge routes to aasdk for AA voice)
  *
  * Timer-based sampling at ~40ms intervals (~25 Hz), 512-sample circular reads.
  * Sample rate comes from bridge mic_start control message (typically 16000 Hz).
@@ -26,13 +31,24 @@ class MicCaptureManager(private val bridgeConnection: BridgeConnection) {
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_ENCODING = AudioFormat.ENCODING_PCM_16BIT
         private const val SAMPLES_PER_READ = 512
-        private const val READ_INTERVAL_MS = 40L
     }
 
     private val capturing = AtomicBoolean(false)
     private var captureThread: Thread? = null
     private var audioRecord: AudioRecord? = null
     private var currentSampleRate: Int = 16000
+
+    /** Current purpose for outgoing mic frames. Updated by SessionManager on call state changes. */
+    private val micPurpose = AtomicReference(AudioPurpose.ASSISTANT)
+
+    /**
+     * Update the purpose tag on outgoing mic frames.
+     * Call when call state changes (IN_CALL → PHONE_CALL, otherwise → ASSISTANT).
+     */
+    fun setMicPurpose(purpose: AudioPurpose) {
+        micPurpose.set(purpose)
+        Log.d(TAG, "Mic purpose set to $purpose")
+    }
 
     /**
      * Start mic capture from the car's AudioRecord.
@@ -65,6 +81,7 @@ class MicCaptureManager(private val bridgeConnection: BridgeConnection) {
     /** Release all resources. Call on session end. */
     fun release() {
         stop()
+        micPurpose.set(AudioPurpose.ASSISTANT)
     }
 
     private fun captureLoop(sampleRate: Int) {
@@ -108,7 +125,7 @@ class MicCaptureManager(private val bridgeConnection: BridgeConnection) {
                 if (bytesRead > 0) {
                     val frame = AudioFrame(
                         direction = AudioFrame.DIRECTION_MIC,
-                        purpose = AudioPurpose.ASSISTANT,
+                        purpose = micPurpose.get(),
                         sampleRate = sampleRate,
                         channels = 1,
                         data = readBuf.copyOf(bytesRead)

@@ -6,7 +6,7 @@
 namespace openautolink {
 
 // Configuration for the headless Android Auto head unit.
-// Shared between CpcSession, LiveAasdkSession, and HeadlessAutoEntity.
+// Shared between OalSession, LiveAasdkSession, and HeadlessAutoEntity.
 struct HeadlessConfig {
     int video_width = 2400;
     int video_height = 960;

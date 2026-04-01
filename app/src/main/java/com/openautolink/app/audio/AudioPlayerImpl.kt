@@ -9,7 +9,11 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * 5-purpose AudioTrack management — routes incoming audio frames to
- * pre-allocated per-purpose slots.
+ * pre-allocated per-purpose slots with cross-purpose ducking.
+ *
+ * Both AA session audio (media, navigation, alerts) and BT HFP audio
+ * (phone calls, voice assistant) arrive as OAL PCM frames with different
+ * purpose values. This class handles both paths uniformly.
  *
  * Default sample rates/channels per protocol spec:
  *   MEDIA:      48000 Hz, Stereo
@@ -42,9 +46,12 @@ class AudioPlayerImpl(private val audioManager: AudioManager) : AudioPlayer {
     private val slots = mutableMapOf<AudioPurpose, AudioPurposeSlot>()
     private val slotFormats = mutableMapOf<AudioPurpose, AudioFormat>()
     private val focusManager = AudioFocusManager(audioManager)
+    private val coordinator = AudioPurposeCoordinator()
 
     private val _stats = MutableStateFlow(AudioStats())
     override val stats: StateFlow<AudioStats> = _stats.asStateFlow()
+
+    override val callState: StateFlow<CallState> = coordinator.callState
 
     private var initialized = false
 
@@ -60,6 +67,12 @@ class AudioPlayerImpl(private val audioManager: AudioManager) : AudioPlayer {
             slotFormats[purpose] = fmt
         }
 
+        // Request session-level audio focus once
+        focusManager.requestSessionFocus(
+            onLost = { pauseAllActive() },
+            onRegained = { resumeAllPaused() }
+        )
+
         initialized = true
         Log.i(TAG, "Audio player initialized with ${slots.size} purpose slots")
         updateStats()
@@ -74,6 +87,7 @@ class AudioPlayerImpl(private val audioManager: AudioManager) : AudioPlayer {
         slots.clear()
         slotFormats.clear()
         focusManager.releaseFocus()
+        coordinator.reset()
         initialized = false
 
         Log.i(TAG, "Audio player released")
@@ -110,31 +124,25 @@ class AudioPlayerImpl(private val audioManager: AudioManager) : AudioPlayer {
         }
 
         val slot = slots[purpose] ?: return
-
-        // Request audio focus before starting playback.
-        // Wire focus loss/regain to pause/resume active slots.
-        focusManager.requestFocus(
-            purpose = purpose,
-            onLost = { pauseAllActive() },
-            onRegained = { resumeAllPaused() }
-        )
-
         slot.start()
-        Log.i(TAG, "Started $purpose: ${sampleRate}Hz ${channels}ch")
+
+        // Notify coordinator and apply volume ducking
+        val actions = coordinator.onPurposeStarted(purpose)
+        applyVolumeActions(actions)
+
+        Log.i(TAG, "Started $purpose: ${sampleRate}Hz ${channels}ch (call=${coordinator.callState.value})")
         updateStats()
     }
 
     override fun stopPurpose(purpose: AudioPurpose) {
         val slot = slots[purpose] ?: return
         slot.stop()
-        Log.i(TAG, "Stopped $purpose")
 
-        // Release focus if no purposes are active
-        val anyActive = slots.values.any { it.isActive }
-        if (!anyActive) {
-            focusManager.releaseFocus()
-        }
+        // Notify coordinator and restore volumes
+        val actions = coordinator.onPurposeStopped(purpose)
+        applyVolumeActions(actions)
 
+        Log.i(TAG, "Stopped $purpose (call=${coordinator.callState.value})")
         updateStats()
     }
 
@@ -143,7 +151,21 @@ class AudioPlayerImpl(private val audioManager: AudioManager) : AudioPlayer {
     }
 
     /**
-     * Pause all active slots on audio focus loss.
+     * Apply a batch of volume actions from the coordinator.
+     * Sets each active purpose's AudioTrack volume.
+     */
+    private fun applyVolumeActions(actions: List<VolumeAction>) {
+        for (action in actions) {
+            val slot = slots[action.purpose] ?: continue
+            slot.setVolume(action.volume)
+            if (action.volume < AudioPurposeCoordinator.NORMAL_VOLUME) {
+                Log.d(TAG, "Ducked ${action.purpose} to ${action.volume}")
+            }
+        }
+    }
+
+    /**
+     * Pause all active slots on external audio focus loss.
      * Does NOT clear ring buffers — overflow drops oldest naturally.
      */
     private fun pauseAllActive() {
@@ -157,20 +179,27 @@ class AudioPlayerImpl(private val audioManager: AudioManager) : AudioPlayer {
     }
 
     /**
-     * Resume all previously-active slots on audio focus regain.
+     * Resume all previously-active slots on external audio focus regain.
      * Slots that were explicitly stopped (not paused) won't resume.
      */
     private fun resumeAllPaused() {
         for ((purpose, slot) in slots) {
-            // Resume slots that have an initialized AudioTrack but aren't active
-            // (they were paused by focus loss, not explicitly stopped)
-            if (!slot.isActive) {
+            if (!slot.isActive && slot.isPausedByFocus) {
                 slot.resume()
                 if (slot.isActive) {
                     Log.d(TAG, "Resumed $purpose (focus regain)")
                 }
             }
         }
+        // Re-apply coordinator volumes after resuming
+        val actions = AudioPurpose.entries
+            .filter { slots[it]?.isActive == true }
+            .let { activePurposes ->
+                activePurposes.map { purpose ->
+                    coordinator.onPurposeStarted(purpose)
+                }.flatten()
+            }
+        applyVolumeActions(actions)
         updateStats()
     }
 

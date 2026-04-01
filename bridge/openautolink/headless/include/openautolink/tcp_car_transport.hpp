@@ -14,23 +14,24 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "openautolink/cpc200.hpp"
 #include "openautolink/i_car_transport.hpp"
+#include "openautolink/oal_protocol.hpp"
 
 namespace openautolink {
 
-// TCP transport for CPC200 protocol.
-// Serves CPC200 packets over a TCP socket to the car's app.
+// TCP transport for the OAL protocol.
+// Serves data over a TCP socket to the car app.
 // Car app connects via Ethernet (USB NIC or CDC-ECM gadget).
 //
 // The app connects as TCP client; this is the server.
-// Same CPC200 framing (16-byte header + payload) over the TCP stream.
-// No write-budget limitation — TCP handles flow control natively.
+// Three channels: control (JSON lines), video (binary), audio (binary).
 class TcpCarTransport : public ICarTransport {
 public:
-    using PacketCallback = std::function<void(CpcMessageType type, const uint8_t* payload, size_t len)>;
+    using LineCallback = std::function<void(const std::string& line)>;
     using EnableCallback = std::function<void()>;
+    using DisconnectCallback = std::function<void()>;
     using FlushCallback = std::function<bool()>;
+    using AudioFrameCallback = std::function<void(const OalAudioHeader& hdr, const uint8_t* pcm, size_t len)>;
 
     explicit TcpCarTransport(int port) : port_(port) {}
     ~TcpCarTransport() { stop(); stop_discovery(); }
@@ -113,13 +114,25 @@ public:
         if (discovery_thread_.joinable()) discovery_thread_.join();
     }
 
-    // Start listening and accept one client. Blocks in run().
-    void run(PacketCallback packet_cb, EnableCallback enable_cb, FlushCallback flush_cb) {
+    void stop() {
+        running_.store(false);
+        // Close listen socket to unblock accept()
+        if (listen_fd_ >= 0) { close(listen_fd_); listen_fd_ = -1; }
+        std::lock_guard<std::mutex> lock(write_mutex_);
+        if (client_fd_ >= 0) { close(client_fd_); client_fd_ = -1; }
+    }
+
+    // ── JSON-lines control channel ───────────────────────────────────
+
+    // Run in OAL mode: reads newline-delimited JSON lines from app.
+    // For video/audio channels, use run_oal_sink (bridge→app, write-only + flush).
+    void run_oal_control(LineCallback line_cb, EnableCallback connect_cb,
+                         DisconnectCallback disconnect_cb) {
         running_.store(true);
 
         listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
         if (listen_fd_ < 0) {
-            fprintf(stderr, "[TcpCar] socket() failed: %s\n", strerror(errno));
+            fprintf(stderr, "[TcpCar:%d] socket() failed: %s\n", port_, strerror(errno));
             return;
         }
 
@@ -132,92 +145,64 @@ public:
         addr.sin_port = htons(port_);
 
         if (bind(listen_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            fprintf(stderr, "[TcpCar] bind(%d) failed: %s\n", port_, strerror(errno));
+            fprintf(stderr, "[TcpCar:%d] bind failed: %s\n", port_, strerror(errno));
             close(listen_fd_); listen_fd_ = -1;
             return;
         }
 
         if (listen(listen_fd_, 1) < 0) {
-            fprintf(stderr, "[TcpCar] listen() failed: %s\n", strerror(errno));
+            fprintf(stderr, "[TcpCar:%d] listen failed: %s\n", port_, strerror(errno));
             close(listen_fd_); listen_fd_ = -1;
             return;
         }
 
-        fprintf(stderr, "[TcpCar] listening on port %d for car app connection\n", port_);
+        fprintf(stderr, "[TcpCar:%d] OAL control listening\n", port_);
 
         while (running_.load()) {
             struct sockaddr_in client_addr{};
             socklen_t client_len = sizeof(client_addr);
             int client = accept(listen_fd_, (struct sockaddr*)&client_addr, &client_len);
             if (client < 0) {
-                if (running_.load()) fprintf(stderr, "[TcpCar] accept() failed: %s\n", strerror(errno));
+                if (running_.load()) fprintf(stderr, "[TcpCar:%d] accept failed: %s\n", port_, strerror(errno));
                 break;
             }
 
-            // Low-latency settings
             int nodelay = 1;
             setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
             char ip_str[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
-            fprintf(stderr, "[TcpCar] car app connected from %s:%d\n", ip_str, ntohs(client_addr.sin_port));
+            fprintf(stderr, "[TcpCar:%d] app connected from %s\n", port_, ip_str);
 
             {
                 std::lock_guard<std::mutex> lock(write_mutex_);
                 client_fd_ = client;
             }
 
-            // Fire enable callback (equivalent of FFS ENABLE)
-            if (enable_cb) enable_cb();
+            if (connect_cb) connect_cb();
 
-            // Start a flush thread that continuously drains pending writes
-            std::atomic<bool> flush_running{true};
-            std::thread flush_thread([&flush_cb, &flush_running]() {
-                while (flush_running.load()) {
-                    if (flush_cb && flush_cb()) {
-                        // Flushed a frame — keep going without delay
-                        continue;
-                    }
-                    // Nothing to flush — short sleep
-                    std::this_thread::sleep_for(std::chrono::microseconds(500));
-                }
-            });
-
-            // Read loop — read CPC200 packets from car app
-            uint8_t header_buf[CPC200_HEADER_SIZE];
+            // Read JSON lines (newline-delimited)
+            std::string line_buf;
+            char buf[4096];
             while (running_.load()) {
-                if (!read_fully(client, header_buf, CPC200_HEADER_SIZE)) {
-                    fprintf(stderr, "[TcpCar] client disconnected (header read)\n");
+                ssize_t n = ::read(client, buf, sizeof(buf));
+                if (n <= 0) {
+                    fprintf(stderr, "[TcpCar:%d] client disconnected\n", port_);
                     break;
                 }
-
-                CpcHeader hdr;
-                if (!parse_header(header_buf, hdr)) {
-                    fprintf(stderr, "[TcpCar] bad header magic/checksum\n");
-                    continue;
-                }
-
-                auto type = static_cast<CpcMessageType>(hdr.message_type);
-                uint32_t payload_len = hdr.payload_length;
-
-                std::vector<uint8_t> payload;
-                if (payload_len > 0 && payload_len < 2 * 1024 * 1024) {
-                    payload.resize(payload_len);
-                    if (!read_fully(client, payload.data(), payload_len)) {
-                        fprintf(stderr, "[TcpCar] client disconnected (payload read)\n");
-                        break;
+                for (ssize_t i = 0; i < n; i++) {
+                    if (buf[i] == '\n') {
+                        if (!line_buf.empty() && line_cb) {
+                            line_cb(line_buf);
+                        }
+                        line_buf.clear();
+                    } else {
+                        line_buf += buf[i];
                     }
                 }
-
-                if (packet_cb) {
-                    packet_cb(type, payload.empty() ? nullptr : payload.data(), payload.size());
-                }
-                // Flush is handled by the flush thread — no need to flush here
             }
 
-            // Stop flush thread
-            flush_running.store(false);
-            if (flush_thread.joinable()) flush_thread.join();
+            if (disconnect_cb) disconnect_cb();
 
             {
                 std::lock_guard<std::mutex> lock(write_mutex_);
@@ -225,9 +210,7 @@ public:
                 client_fd_ = -1;
             }
 
-            fprintf(stderr, "[TcpCar] client session ended, waiting for reconnect\n");
-
-            // Re-listen for next connection
+            fprintf(stderr, "[TcpCar:%d] control session ended, waiting for reconnect\n", port_);
         }
 
         close(listen_fd_);
@@ -235,31 +218,222 @@ public:
         running_.store(false);
     }
 
-    void stop() {
-        running_.store(false);
-        // Close listen socket to unblock accept()
-        if (listen_fd_ >= 0) { close(listen_fd_); listen_fd_ = -1; }
-        std::lock_guard<std::mutex> lock(write_mutex_);
-        if (client_fd_ >= 0) { close(client_fd_); client_fd_ = -1; }
-    }
+    // Run in OAL mode: write-only sink with flush. For video/audio channels.
+    void run_oal_sink(EnableCallback connect_cb, FlushCallback flush_cb) {
+        running_.store(true);
 
-    // Write a CPC200 packet (header + payload) — thread-safe.
-    bool write_packet(CpcMessageType type, const uint8_t* payload, size_t len) override {
-        uint8_t header[CPC200_HEADER_SIZE];
-        auto hdr = make_header(type, static_cast<uint32_t>(len));
-        pack_header(header, hdr);
-
-        std::lock_guard<std::mutex> lock(write_mutex_);
-        if (client_fd_ < 0) return false;
-
-        if (!write_fully(client_fd_, header, CPC200_HEADER_SIZE)) return false;
-        if (len > 0 && payload) {
-            if (!write_fully(client_fd_, payload, len)) return false;
+        listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_fd_ < 0) {
+            fprintf(stderr, "[TcpCar:%d] socket() failed: %s\n", port_, strerror(errno));
+            return;
         }
-        return true;
+
+        int opt = 1;
+        setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+        struct sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = INADDR_ANY;
+        addr.sin_port = htons(port_);
+
+        if (bind(listen_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+            fprintf(stderr, "[TcpCar:%d] bind failed: %s\n", port_, strerror(errno));
+            close(listen_fd_); listen_fd_ = -1;
+            return;
+        }
+
+        if (listen(listen_fd_, 1) < 0) {
+            fprintf(stderr, "[TcpCar:%d] listen failed: %s\n", port_, strerror(errno));
+            close(listen_fd_); listen_fd_ = -1;
+            return;
+        }
+
+        fprintf(stderr, "[TcpCar:%d] OAL sink listening\n", port_);
+
+        while (running_.load()) {
+            struct sockaddr_in client_addr{};
+            socklen_t client_len = sizeof(client_addr);
+            int client = accept(listen_fd_, (struct sockaddr*)&client_addr, &client_len);
+            if (client < 0) {
+                if (running_.load()) fprintf(stderr, "[TcpCar:%d] accept failed: %s\n", port_, strerror(errno));
+                break;
+            }
+
+            int nodelay = 1;
+            setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+            {
+                std::lock_guard<std::mutex> lock(write_mutex_);
+                client_fd_ = client;
+            }
+
+            fprintf(stderr, "[TcpCar:%d] sink client connected\n", port_);
+            if (connect_cb) connect_cb();
+
+            // Flush loop — continuously drain pending writes
+            while (running_.load()) {
+                if (flush_cb && flush_cb()) {
+                    continue;
+                }
+                // Nothing to flush — check if client is still connected
+                // Use recv with MSG_PEEK | MSG_DONTWAIT as a non-blocking connection check
+                uint8_t peek;
+                ssize_t r = recv(client, &peek, 1, MSG_PEEK | MSG_DONTWAIT);
+                if (r == 0) {
+                    // Client disconnected
+                    fprintf(stderr, "[TcpCar:%d] sink client disconnected\n", port_);
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::microseconds(500));
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(write_mutex_);
+                close(client_fd_);
+                client_fd_ = -1;
+            }
+        }
+
+        close(listen_fd_);
+        listen_fd_ = -1;
+        running_.store(false);
     }
 
-    // Write raw pre-built CPC200 data (header already included) — thread-safe.
+    // ── Bidirectional audio channel ──────────────────────────────────
+
+    // Run OAL audio channel: bidirectional (flush writes + read mic frames).
+    // Reads 8-byte OAL audio headers from the app for mic data (direction=1),
+    // while flushing bridge→app playback frames in parallel.
+    void run_oal_audio(EnableCallback connect_cb, FlushCallback flush_cb,
+                       AudioFrameCallback mic_cb) {
+        running_.store(true);
+
+        listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_fd_ < 0) {
+            fprintf(stderr, "[TcpCar:%d] socket() failed: %s\n", port_, strerror(errno));
+            return;
+        }
+
+        int opt = 1;
+        setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+        struct sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = INADDR_ANY;
+        addr.sin_port = htons(port_);
+
+        if (bind(listen_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+            fprintf(stderr, "[TcpCar:%d] bind failed: %s\n", port_, strerror(errno));
+            close(listen_fd_); listen_fd_ = -1;
+            return;
+        }
+
+        if (listen(listen_fd_, 1) < 0) {
+            fprintf(stderr, "[TcpCar:%d] listen failed: %s\n", port_, strerror(errno));
+            close(listen_fd_); listen_fd_ = -1;
+            return;
+        }
+
+        fprintf(stderr, "[TcpCar:%d] OAL audio (bidirectional) listening\n", port_);
+
+        while (running_.load()) {
+            struct sockaddr_in client_addr{};
+            socklen_t client_len = sizeof(client_addr);
+            int client = accept(listen_fd_, (struct sockaddr*)&client_addr, &client_len);
+            if (client < 0) {
+                if (running_.load()) fprintf(stderr, "[TcpCar:%d] accept failed: %s\n", port_, strerror(errno));
+                break;
+            }
+
+            int nodelay = 1;
+            setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+            {
+                std::lock_guard<std::mutex> lock(write_mutex_);
+                client_fd_ = client;
+            }
+
+            fprintf(stderr, "[TcpCar:%d] audio client connected (bidirectional)\n", port_);
+            if (connect_cb) connect_cb();
+
+            // Flush thread: drain bridge→app audio writes
+            std::atomic<bool> session_running{true};
+            std::thread flush_thread([&flush_cb, &session_running]() {
+                while (session_running.load()) {
+                    if (flush_cb && flush_cb()) continue;
+                    std::this_thread::sleep_for(std::chrono::microseconds(500));
+                }
+            });
+
+            // Read loop: read app→bridge mic frames (OAL 8-byte header + PCM)
+            uint8_t hdr_buf[OAL_AUDIO_HEADER_SIZE];
+            while (running_.load()) {
+                // Non-blocking peek to check for incoming data
+                uint8_t peek;
+                ssize_t r = recv(client, &peek, 1, MSG_PEEK | MSG_DONTWAIT);
+                if (r == 0) {
+                    // Client disconnected
+                    fprintf(stderr, "[TcpCar:%d] audio client disconnected\n", port_);
+                    break;
+                }
+                if (r < 0) {
+                    // EAGAIN/EWOULDBLOCK = no data yet, yield
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                        std::this_thread::sleep_for(std::chrono::microseconds(500));
+                        continue;
+                    }
+                    // Real error
+                    fprintf(stderr, "[TcpCar:%d] audio recv error: %s\n", port_, strerror(errno));
+                    break;
+                }
+
+                // Data available — read the 8-byte header (blocking)
+                if (!read_fully(client, hdr_buf, OAL_AUDIO_HEADER_SIZE)) {
+                    fprintf(stderr, "[TcpCar:%d] audio header read failed\n", port_);
+                    break;
+                }
+
+                OalAudioHeader hdr{};
+                if (!parse_oal_audio_header(hdr_buf, hdr)) {
+                    fprintf(stderr, "[TcpCar:%d] bad audio header\n", port_);
+                    break;
+                }
+
+                if (hdr.payload_length == 0 || hdr.payload_length > 1024 * 1024) {
+                    fprintf(stderr, "[TcpCar:%d] bad audio payload length: %u\n",
+                            port_, hdr.payload_length);
+                    break;
+                }
+
+                // Read PCM payload
+                std::vector<uint8_t> pcm(hdr.payload_length);
+                if (!read_fully(client, pcm.data(), hdr.payload_length)) {
+                    fprintf(stderr, "[TcpCar:%d] audio payload read failed\n", port_);
+                    break;
+                }
+
+                // Forward to callback (mic data from app)
+                if (mic_cb) {
+                    mic_cb(hdr, pcm.data(), pcm.size());
+                }
+            }
+
+            session_running.store(false);
+            flush_thread.join();
+
+            {
+                std::lock_guard<std::mutex> lock(write_mutex_);
+                close(client_fd_);
+                client_fd_ = -1;
+            }
+        }
+
+        close(listen_fd_);
+        listen_fd_ = -1;
+        running_.store(false);
+    }
+
+    // Write raw pre-built data — thread-safe.
     bool write_raw(const uint8_t* data, size_t len) override {
         std::lock_guard<std::mutex> lock(write_mutex_);
         if (client_fd_ < 0) return false;
@@ -272,6 +446,12 @@ public:
     }
 
     bool is_running() const override { return running_.load(); }
+
+    bool is_connected() const override {
+        // Lock-free check (client_fd_ is only set/cleared under write_mutex_,
+        // but reading a stale value is harmless here)
+        return client_fd_ >= 0;
+    }
 
 private:
     static bool read_fully(int fd, uint8_t* buf, size_t count) {

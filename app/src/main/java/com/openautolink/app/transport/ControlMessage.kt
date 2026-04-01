@@ -43,7 +43,8 @@ sealed class ControlMessage {
         val maneuver: String?,
         val distanceMeters: Int?,
         val road: String?,
-        val etaSeconds: Int?
+        val etaSeconds: Int?,
+        val navImageBase64: String? = null
     ) : ControlMessage()
 
     data class MediaMetadata(
@@ -52,7 +53,8 @@ sealed class ControlMessage {
         val album: String?,
         val durationMs: Long?,
         val positionMs: Long?,
-        val playing: Boolean?
+        val playing: Boolean?,
+        val albumArtBase64: String? = null
     ) : ControlMessage()
 
     data class ConfigEcho(val config: Map<String, String>) : ControlMessage()
@@ -99,6 +101,13 @@ sealed class ControlMessage {
         val steeringAngleDeg: Float? = null,
         val headlight: Int? = null,
         val hazardLights: Boolean? = null
+    ) : ControlMessage()
+
+    data class Button(
+        val keycode: Int,
+        val down: Boolean,
+        val metastate: Int = 0,
+        val longpress: Boolean = false
     ) : ControlMessage()
 
     data class ConfigUpdate(val config: Map<String, String>) : ControlMessage()

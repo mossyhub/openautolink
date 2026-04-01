@@ -29,9 +29,9 @@ endif()
 add_executable(openautolink-headless
     src/aasdk_control.cpp
     src/contract.cpp
-    src/cpc_session.cpp
     src/engine.cpp
     src/main.cpp
+    src/oal_session.cpp
     src/service_catalog.cpp
     src/session.cpp
 )
@@ -76,7 +76,12 @@ if(PI_AA_ENABLE_AASDK_LIVE)
     # Add live session sources
     target_sources(openautolink-headless PRIVATE
         src/live_session.cpp
+        src/sco_audio.cpp
     )
+
+    # Find libbluetooth for SCO audio (BT HFP phone calls)
+    find_library(BLUETOOTH_LIBRARY bluetooth)
+    find_path(BLUETOOTH_INCLUDE_DIR bluetooth/bluetooth.h)
 
     # Link against the aasdk shared library and its transitive dependencies
     target_link_libraries(openautolink-headless PRIVATE
@@ -86,6 +91,12 @@ if(PI_AA_ENABLE_AASDK_LIVE)
         ${OPENSSL_LIBRARIES}
         ${LIBUSB_1_LIBRARIES}
     )
+    if(BLUETOOTH_LIBRARY)
+        target_link_libraries(openautolink-headless PRIVATE ${BLUETOOTH_LIBRARY})
+        message(STATUS "libbluetooth found: ${BLUETOOTH_LIBRARY}")
+    else()
+        message(WARNING "libbluetooth not found — SCO audio (HFP) will not build")
+    endif()
     target_include_directories(openautolink-headless PRIVATE
         "${PI_AA_AASDK_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_BINARY_DIR}/aasdk_build"              # for generated Version.hpp
@@ -95,6 +106,9 @@ if(PI_AA_ENABLE_AASDK_LIVE)
         ${OPENSSL_INCLUDE_DIR}
         ${LIBUSB_1_INCLUDE_DIRS}
     )
+    if(BLUETOOTH_INCLUDE_DIR)
+        target_include_directories(openautolink-headless PRIVATE ${BLUETOOTH_INCLUDE_DIR})
+    endif()
     target_compile_definitions(openautolink-headless PRIVATE
         PI_AA_ENABLE_AASDK_LIVE=1
         BOOST_ALL_DYN_LINK

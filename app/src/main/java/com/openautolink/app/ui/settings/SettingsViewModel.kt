@@ -4,6 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openautolink.app.data.AppPreferences
+import com.openautolink.app.transport.BridgeDiscovery
+import com.openautolink.app.transport.DiscoveredBridge
+import com.openautolink.app.transport.NetworkInterfaceInfo
+import com.openautolink.app.transport.NetworkInterfaceScanner
 import com.openautolink.app.update.AppInstaller
 import com.openautolink.app.update.UpdateChecker
 import com.openautolink.app.update.UpdateManifest
@@ -24,6 +28,7 @@ data class SettingsUiState(
     val micSource: String = AppPreferences.DEFAULT_MIC_SOURCE,
     val selfUpdateEnabled: String = AppPreferences.DEFAULT_SELF_UPDATE_ENABLED,
     val updateManifestUrl: String = AppPreferences.DEFAULT_UPDATE_MANIFEST_URL,
+    val networkInterface: String = AppPreferences.DEFAULT_NETWORK_INTERFACE,
 )
 
 sealed class UpdateStatus {
@@ -41,8 +46,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val preferences = AppPreferences.getInstance(application)
     private val updateChecker = UpdateChecker(application)
     private val appInstaller = AppInstaller(application)
+    private val bridgeDiscovery = BridgeDiscovery(application)
+    private val interfaceScanner = NetworkInterfaceScanner()
 
     val updateStatus = MutableStateFlow<UpdateStatus>(UpdateStatus.Idle)
+    val discoveredBridges: StateFlow<List<DiscoveredBridge>> = bridgeDiscovery.discoveredBridges
+    val isDiscovering: StateFlow<Boolean> = bridgeDiscovery.isDiscovering
+    val networkInterfaces: StateFlow<List<NetworkInterfaceInfo>> = interfaceScanner.interfaces
 
     val uiState: StateFlow<SettingsUiState> = combine(
         preferences.bridgeHost,
@@ -53,6 +63,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         preferences.micSource,
         preferences.selfUpdateEnabled,
         preferences.updateManifestUrl,
+        preferences.networkInterface,
     ) { values: Array<Any> ->
         SettingsUiState(
             bridgeHost = values[0] as String,
@@ -63,6 +74,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             micSource = values[5] as String,
             selfUpdateEnabled = values[6] as String,
             updateManifestUrl = values[7] as String,
+            networkInterface = values[8] as String,
         )
     }.stateIn(
         viewModelScope,
@@ -151,4 +163,35 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun canInstallPackages(): Boolean = appInstaller.canInstallPackages()
+
+    fun startDiscovery() {
+        bridgeDiscovery.startDiscovery()
+    }
+
+    fun stopDiscovery() {
+        bridgeDiscovery.stopDiscovery()
+    }
+
+    fun selectBridge(bridge: DiscoveredBridge) {
+        viewModelScope.launch {
+            preferences.setBridgeHost(bridge.host)
+            preferences.setBridgePort(bridge.port)
+        }
+        bridgeDiscovery.stopDiscovery()
+    }
+
+    fun scanNetworkInterfaces() {
+        viewModelScope.launch(Dispatchers.IO) {
+            interfaceScanner.scan()
+        }
+    }
+
+    fun selectNetworkInterface(interfaceName: String) {
+        viewModelScope.launch { preferences.setNetworkInterface(interfaceName) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        bridgeDiscovery.stopDiscovery()
+    }
 }

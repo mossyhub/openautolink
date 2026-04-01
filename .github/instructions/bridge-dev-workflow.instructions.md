@@ -60,8 +60,9 @@ Output: `build-bridge-arm64/openautolink-headless-stripped`
 
 1. **WSL cross-compiles** using `aarch64-linux-gnu-g++` with a CMake toolchain file
 2. Binary is built in `build-bridge-arm64/` (on the Windows filesystem, accessible from both WSL and PowerShell)
-3. **PowerShell SCPs** the stripped binary to `/tmp/` on the SBC
-4. **SSH** stops the service, copies binary to `/opt/openautolink/bin/`, restarts service
+3. **SSH** stops the service
+4. **PowerShell SCPs** the stripped binary directly to `/opt/openautolink/bin/` on the SBC
+5. **SSH** restarts the service
 
 ## Troubleshooting
 
@@ -107,9 +108,11 @@ Windows (PowerShell)
   │     │        └── cmake cross-compile (x86_64 host → aarch64 target)
   │     │        └── output: build-bridge-arm64/openautolink-headless-stripped
   │     │
-  │     ├── 2. scp binary → SBC:/tmp/
+  │     ├── 2. ssh: stop service
   │     │
-  │     └── 3. ssh: stop service → install binary → start service
+  │     ├── 3. scp binary → SBC:/opt/openautolink/bin/
+  │     │
+  │     └── 4. ssh: restart service
   │
   └── SBC running at 192.168.137.x (via Windows ICS)
 ```

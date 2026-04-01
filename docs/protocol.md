@@ -48,6 +48,7 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 {"type":"hello","version":1,"name":"OpenAutoLink App","display_width":2628,"display_height":800,"display_dpi":160}
 {"type":"touch","action":0,"x":500,"y":300,"pointer_id":0}
 {"type":"touch","action":2,"pointers":[{"id":0,"x":100,"y":200},{"id":1,"x":300,"y":400}]}
+{"type":"button","keycode":87,"down":true,"metastate":0,"longpress":false}
 {"type":"gnss","nmea":"$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A"}
 {"type":"vehicle_data","speed_kmh":65.0,"gear":"D","battery_pct":72,"turn_signal":"left"}
 {"type":"config_update","video_codec":"h265","video_fps":30}
@@ -66,6 +67,32 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 
 Single-touch: `x`, `y`, `pointer_id` fields.
 Multi-touch: `pointers` array with `id`, `x`, `y` per pointer.
+
+### Button (Key Event)
+
+Steering wheel and media button presses. Keycodes use Android/AA numeric values (identical numbering).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `keycode` | int | AA keycode (e.g. 87=MEDIA_NEXT, 84=SEARCH/voice) |
+| `down` | bool | `true` = key pressed, `false` = key released |
+| `metastate` | int | Modifier flags (0 = none) |
+| `longpress` | bool | `true` if long-press repeat |
+
+Common keycodes:
+| Code | Key |
+|------|-----|
+| 84 | SEARCH (voice assistant trigger) |
+| 85 | MEDIA_PLAY_PAUSE |
+| 86 | MEDIA_STOP |
+| 87 | MEDIA_NEXT |
+| 88 | MEDIA_PREVIOUS |
+| 89 | MEDIA_REWIND |
+| 90 | MEDIA_FAST_FORWARD |
+| 126 | MEDIA_PLAY |
+| 127 | MEDIA_PAUSE |
+
+Volume keys (VOLUME_UP=24, VOLUME_DOWN=25) are handled locally by the app via AudioManager and are NOT forwarded to the bridge.
 
 ### Audio Purpose Values
 | Purpose | Description |

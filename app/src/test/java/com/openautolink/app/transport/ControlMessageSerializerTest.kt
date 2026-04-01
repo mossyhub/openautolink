@@ -237,6 +237,27 @@ class ControlMessageSerializerTest {
         assertTrue(json.contains(""""video_codec":"h265""""))
     }
 
+    @Test
+    fun `serialize button`() {
+        val msg = ControlMessage.Button(keycode = 87, down = true, metastate = 0, longpress = false)
+        val json = ControlMessageSerializer.serialize(msg)
+
+        assertTrue(json.contains(""""type":"button""""))
+        assertTrue(json.contains(""""keycode":87"""))
+        assertTrue(json.contains(""""down":true"""))
+        assertTrue(json.contains(""""metastate":0"""))
+        assertTrue(json.contains(""""longpress":false"""))
+    }
+
+    @Test
+    fun `serialize button with longpress`() {
+        val msg = ControlMessage.Button(keycode = 84, down = true, metastate = 0, longpress = true)
+        val json = ControlMessageSerializer.serialize(msg)
+
+        assertTrue(json.contains(""""keycode":84"""))
+        assertTrue(json.contains(""""longpress":true"""))
+    }
+
     // --- Round-trip ---
 
     @Test

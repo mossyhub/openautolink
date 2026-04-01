@@ -5,9 +5,10 @@
 #include <string_view>
 
 #include "openautolink/engine.hpp"
-#include "openautolink/cpc200.hpp"
+#include "openautolink/oal_protocol.hpp"
+#include "openautolink/oal_session.hpp"
+#include "openautolink/sco_audio.hpp"
 #include "openautolink/tcp_car_transport.hpp"
-#include "openautolink/cpc_session.hpp"
 
 #ifdef PI_AA_ENABLE_AASDK_LIVE
 #include "openautolink/live_session.hpp"
@@ -152,24 +153,28 @@ int main(int argc, char* argv[])
     };
 
 #ifdef PI_AA_ENABLE_AASDK_LIVE
-    // ── TCP car transport mode ───────────────────────────────────────
-    // Bridge serves CPC200 over TCP to the car's app.
-    // Car app connects via Ethernet (USB NIC or CDC-ECM gadget).
+    // ── OAL protocol mode ────────────────────────────────────────────
+    // Bridge speaks OAL protocol (JSON control, binary video/audio) to car app.
+    // 3 TCP channels: control(5288), audio(5289), video(5290).
     if (tcp_car_port > 0 && session_mode == openautolink::SessionMode::AasdkLive) {
-        std::cerr << "[main] TCP car transport mode: port " << tcp_car_port << std::endl;
+        std::cerr << "[main] OAL protocol mode: control=" << tcp_car_port
+                  << " audio=" << (tcp_car_port + 1)
+                  << " video=" << (tcp_car_port + 2) << std::endl;
 
         auto config = build_config();
         config.media_fd = -1;
 
-        openautolink::TcpCarTransport tcp_car(tcp_car_port);
-        openautolink::TcpCarTransport tcp_audio(tcp_car_port + 1);  // Audio on port+1 (5289)
+        // 3 TCP transports: control(5288), audio(5289), video(5290)
+        openautolink::TcpCarTransport tcp_control(tcp_car_port);
+        openautolink::TcpCarTransport tcp_audio(tcp_car_port + 1);
+        openautolink::TcpCarTransport tcp_video(tcp_car_port + 2);
 
-        // Start UDP discovery responder + mDNS via avahi-publish
-        tcp_car.start_discovery();
+        // Start UDP discovery responder + mDNS
+        tcp_control.start_discovery();
 
-        openautolink::CpcSession cpc(tcp_car, config, &tcp_audio);
+        openautolink::OalSession oal(tcp_control, tcp_video, tcp_audio, config);
 
-        cpc.set_control_forward([&output_mutex](const std::string& json_line) {
+        oal.set_control_forward([&output_mutex](const std::string& json_line) {
             std::lock_guard<std::mutex> lock(output_mutex);
             std::cout << json_line << '\n';
             std::cout.flush();
@@ -178,33 +183,49 @@ int main(int argc, char* argv[])
         auto live_session = std::make_unique<openautolink::LiveAasdkSession>(
             sink, phone_name, config);
 
-        live_session->set_cpc_session(&cpc);
-        cpc.set_aa_session(live_session.get());
+        live_session->set_oal_session(&oal);
+        oal.set_aa_session(live_session.get());
 
-        // Audio transport: accept connection + flush thread in background
-        int audio_port = tcp_car_port + 1;
-        std::thread audio_thread([&tcp_audio, &cpc, audio_port]() {
-            std::cerr << "[main] audio TCP listening on port " << audio_port << std::endl;
-            tcp_audio.run(
-                // Audio transport doesn't receive packets from car (one-way: bridge → car)
-                [](openautolink::CpcMessageType, const uint8_t*, size_t) {},
-                []() { std::cerr << "[main] audio client connected" << std::endl; },
-                [&cpc]() -> bool { return cpc.flush_one_audio(); }
+        // SCO audio: listen for incoming BT SCO connections (HFP call audio)
+        openautolink::ScoAudio sco_audio(oal);
+        oal.set_sco_audio(&sco_audio);
+        sco_audio.start();
+
+        // Video transport: accept connection + flush in background
+        std::thread video_thread([&tcp_video, &oal]() {
+            std::cerr << "[main] video TCP (OAL) listening" << std::endl;
+            tcp_video.run_oal_sink(
+                []() { std::cerr << "[main] video client connected (OAL)" << std::endl; },
+                [&oal]() -> bool { return oal.flush_one_video(); }
+            );
+        });
+        video_thread.detach();
+
+        // Audio transport: bidirectional — flush writes + read mic frames
+        std::thread audio_thread([&tcp_audio, &oal]() {
+            std::cerr << "[main] audio TCP (OAL, bidirectional) listening" << std::endl;
+            tcp_audio.run_oal_audio(
+                []() { std::cerr << "[main] audio client connected (OAL)" << std::endl; },
+                [&oal]() -> bool { return oal.flush_one_audio(); },
+                [&oal](const openautolink::OalAudioHeader& hdr,
+                       const uint8_t* pcm, size_t len) {
+                    oal.on_app_audio_frame(hdr, pcm, len);
+                }
             );
         });
         audio_thread.detach();
 
-        std::cerr << "[main] starting TCP car packet loop on port " << tcp_car_port << std::endl;
-        tcp_car.run(
-            [&cpc](openautolink::CpcMessageType type,
-                   const uint8_t* payload, size_t len) {
-                cpc.on_host_packet(type, payload, len);
+        // Control transport: accept + read JSON lines (blocking)
+        std::cerr << "[main] starting OAL control loop on port " << tcp_car_port << std::endl;
+        tcp_control.run_oal_control(
+            [&oal](const std::string& line) {
+                oal.on_app_json_line(line);
             },
-            [&cpc]() {
-                cpc.on_enable();
+            [&oal]() {
+                oal.on_app_connected();
             },
-            [&cpc]() -> bool {
-                return cpc.flush_one_pending();
+            [&oal]() {
+                oal.on_app_disconnected();
             }
         );
         return 0;

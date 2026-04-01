@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A wireless Android Auto bridge for AAOS head units. Purpose-built from scratch — NO legacy CPC200/USB adapter code.
+A wireless Android Auto bridge for AAOS head units. Purpose-built from scratch.
 
 ```
 Phone ──WiFi TCP:5277──▶ SBC (openautolink-headless, aasdk v1.6)
@@ -54,12 +54,12 @@ When modifying **app** code that talks to the bridge, **read the bridge source c
 
 - **Min SDK 32**, target SDK 36, Kotlin, Jetpack Compose, DataStore preferences
 - **MVVM** with `StateFlow` — ViewModels own UI state, repositories own data
-- **No CPC200** — uses OAL protocol (see [docs/protocol.md](docs/protocol.md))
+- Uses OAL protocol exclusively (see [docs/protocol.md](docs/protocol.md))
 - **No USB adapter support** — TCP-only, bridge-only
 
 ### Bridge (`bridge/`)
 
-Carried forward from the proven carlink_native bridge — already TCP-native.
+The bridge binary speaks OAL protocol over TCP to the car app.
 
 | Directory | Purpose |
 |-----------|---------|
@@ -67,7 +67,7 @@ Carried forward from the proven carlink_native bridge — already TCP-native.
 | `bridge/openautolink/scripts/` | `aa_bt_all.py` — BLE, BT pairing, HSP, RFCOMM WiFi credential exchange |
 | `bridge/sbc/` | Systemd services, env config, install script, build guide |
 
-**Key change from carlink_native**: Bridge no longer wraps data in CPC200 framing. Sends OAL protocol directly.
+The bridge speaks OAL protocol directly on all three TCP channels.
 
 ## Build & Test
 
@@ -129,7 +129,7 @@ scripts/deploy-to-sbc.ps1
 |-----|---------|
 | [docs/architecture.md](docs/architecture.md) | Component island architecture, milestone plan |
 | [docs/protocol.md](docs/protocol.md) | OAL wire protocol specification |
-| [docs/embedded-knowledge.md](docs/embedded-knowledge.md) | Hardware lessons from carlink_native (MUST READ before touching video/audio/VHAL) |
+| [docs/embedded-knowledge.md](docs/embedded-knowledge.md) | Hardware lessons (MUST READ before touching video/audio/VHAL) |
 | [docs/networking.md](docs/networking.md) | Three-network architecture (phone, car, SSH) |
 | [bridge/sbc/BUILD.md](bridge/sbc/BUILD.md) | SBC build and deployment guide |
 | [docs/testing.md](docs/testing.md) | Local testing with AAOS emulator + SBC |

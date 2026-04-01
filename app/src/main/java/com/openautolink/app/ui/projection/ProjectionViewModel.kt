@@ -3,12 +3,14 @@ package com.openautolink.app.ui.projection
 import android.app.Application
 import android.content.Context
 import android.media.AudioManager
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openautolink.app.audio.AudioStats
 import com.openautolink.app.data.AppPreferences
+import com.openautolink.app.input.SteeringWheelController
 import com.openautolink.app.input.TouchForwarder
 import com.openautolink.app.input.TouchForwarderImpl
 import com.openautolink.app.navigation.ManeuverState
@@ -47,6 +49,15 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             sessionManager.sendControlMessage(touchMessage)
         }
     }
+
+    private val steeringWheelController = SteeringWheelController(
+        sendMessage = { buttonMessage ->
+            viewModelScope.launch {
+                sessionManager.sendControlMessage(buttonMessage)
+            }
+        },
+        audioManager = audioManager
+    )
 
     private val _phoneName = MutableStateFlow<String?>(null)
     private val _videoStats = MutableStateFlow(VideoStats())
@@ -144,6 +155,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         val stats = _videoStats.value
         if (stats.width <= 0 || stats.height <= 0) return
         touchForwarder.onTouch(event, surfaceWidth, surfaceHeight, stats.width, stats.height)
+    }
+
+    /** Handle a steering wheel key event. Returns true if consumed. */
+    fun onKeyEvent(event: KeyEvent): Boolean {
+        return steeringWheelController.onKeyEvent(event)
     }
 
     /** Called when the SurfaceView surface is created or changed. */

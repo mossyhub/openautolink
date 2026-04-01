@@ -5,10 +5,14 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Audio playback interface — manages 5 pre-allocated AudioTrack slots,
- * one per purpose. Routes incoming audio frames by purpose.
+ * one per purpose. Routes incoming audio frames by purpose and coordinates
+ * cross-purpose ducking (e.g., duck media during a phone call).
  */
 interface AudioPlayer {
     val stats: StateFlow<AudioStats>
+
+    /** Current phone call lifecycle state (IDLE/RINGING/IN_CALL). */
+    val callState: StateFlow<CallState>
 
     /** Pre-allocate all AudioTrack slots. Call at session start. */
     fun initialize()

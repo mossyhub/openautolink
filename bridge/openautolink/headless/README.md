@@ -7,8 +7,8 @@ C++ headless Android Auto head unit that bridges phone AA sessions to the car's 
 ### Wireless Mode (default)
 ```
 Phone → WiFi → SBC:5277 (aasdk AA protocol v1.6, TCP)
-                    ↓ CPC200 framing
-               SBC:5288 (TcpCarTransport)
+                    ↓ OAL protocol
+               SBC:5288 (control), SBC:5289 (audio), SBC:5290 (video)
                     ↓ TCP/IP over Ethernet
                Car App on AAOS head unit
 ```
@@ -17,16 +17,16 @@ Phone → WiFi → SBC:5277 (aasdk AA protocol v1.6, TCP)
 ```
 Phone → USB cable → SBC USB host port (libusb AOA mode)
                     ↓ aasdk AA protocol v1.6 (USB transport)
-               SBC:5288 (TcpCarTransport)
+               SBC:5288 (control), SBC:5289 (audio), SBC:5290 (video)
                     ↓ TCP/IP over Ethernet
                Car App on AAOS head unit
 ```
 
 ## Key Components
 
-- **TcpCarTransport** (`tcp_car_transport.hpp`) — TCP server serving CPC200 packets to car app
+- **TcpCarTransport** (`tcp_car_transport.hpp`) — TCP server for OAL protocol to car app
 - **ICarTransport** (`i_car_transport.hpp`) — abstract transport interface
-- **CpcSession** (`cpc_session.hpp/cpp`) — CPC200 protocol state machine (bootstrap, heartbeat, media relay)
+- **OalSession** (`oal_session.hpp/cpp`) — OAL protocol session (JSON control, binary video/audio)
 - **LiveAasdkSession** (`live_session.hpp/cpp`) — aasdk v1.6 AA session (TCP wireless or USB wired)
 - **HeadlessAutoEntity** (in `live_session.hpp/cpp`) — aasdk control channel orchestration + service handlers
 - **HeadlessConfig** (`headless_config.hpp`) — shared configuration
@@ -230,7 +230,7 @@ Android phone
   -> aasdk transport + SSL handshake + service discovery
   -> HeadlessAutoEntity orchestrates control channel
   -> Service handlers receive video/audio/input from phone
-  -> NDJSON subprocess output -> Python CPC200 bridge -> GM AAOS app
+  -> NDJSON subprocess output -> OAL protocol -> AAOS car app
 ```
 
 Threading model:

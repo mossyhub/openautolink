@@ -7,11 +7,15 @@ import com.openautolink.app.audio.AudioFrame
 import com.openautolink.app.audio.AudioPlayer
 import com.openautolink.app.audio.AudioPlayerImpl
 import com.openautolink.app.audio.AudioStats
+import com.openautolink.app.audio.CallState
 import com.openautolink.app.audio.MicCaptureManager
+import com.openautolink.app.cluster.ClusterNavigationState
 import com.openautolink.app.input.GnssForwarder
 import com.openautolink.app.input.GnssForwarderImpl
 import com.openautolink.app.input.VehicleDataForwarder
 import com.openautolink.app.input.VehicleDataForwarderImpl
+import com.openautolink.app.media.OalMediaBrowserService
+import com.openautolink.app.media.OalMediaSessionManager
 import com.openautolink.app.navigation.ManeuverState
 import com.openautolink.app.navigation.NavigationDisplay
 import com.openautolink.app.navigation.NavigationDisplayImpl
@@ -80,6 +84,10 @@ class SessionManager(
     private var _micCaptureManager: MicCaptureManager? = null
     private var micSource: String = "car"
 
+    // Call state from audio player — exposed for UI/diagnostics
+    val callState: StateFlow<CallState>?
+        get() = _audioPlayer?.callState
+
     // GNSS forwarder — sends car GPS to bridge → phone
     private var _gnssForwarder: GnssForwarder? = null
 
@@ -93,10 +101,14 @@ class SessionManager(
     val currentManeuver: StateFlow<ManeuverState?>
         get() = _navigationDisplay.currentManeuver
 
+    // Media session — publishes now-playing to AAOS system UI + cluster
+    private var _mediaSessionManager: OalMediaSessionManager? = null
+
     private var observeJob: Job? = null
     private var videoCollectJob: Job? = null
     private var audioCollectJob: Job? = null
     private var decoderWatchJob: Job? = null
+    private var callStateJob: Job? = null
     private var targetHost: String? = null
 
     fun start(host: String, port: Int = 5288, codecPreference: String = "h264", micSourcePreference: String = "car") {
@@ -131,6 +143,14 @@ class SessionManager(
             VehicleDataForwarderImpl(ctx) { vehicleData ->
                 scope.launch { connectionManager.sendControlMessage(vehicleData) }
             }
+        }
+
+        // Create media session for AAOS media source integration
+        _mediaSessionManager?.release()
+        _mediaSessionManager = context?.let { OalMediaSessionManager(it) }
+        _mediaSessionManager?.initialize()
+        _mediaSessionManager?.getSessionToken()?.let { token ->
+            OalMediaBrowserService.updateSessionToken(token)
         }
 
         observeJob = scope.launch {
@@ -180,6 +200,12 @@ class SessionManager(
                 watchDecoderState()
             }
 
+            // Watch call state to route mic purpose (assistant vs call)
+            callStateJob?.cancel()
+            callStateJob = launch {
+                watchCallState()
+            }
+
             // Start connection
             connectionManager.connect(host, port)
         }
@@ -194,6 +220,8 @@ class SessionManager(
         audioCollectJob = null
         decoderWatchJob?.cancel()
         decoderWatchJob = null
+        callStateJob?.cancel()
+        callStateJob = null
         scope.launch {
             connectionManager.disconnectAudio()
             connectionManager.disconnectVideo()
@@ -210,6 +238,9 @@ class SessionManager(
         _vehicleDataForwarder?.stop()
         _vehicleDataForwarder = null
         _navigationDisplay.clear()
+        ClusterNavigationState.clear()
+        _mediaSessionManager?.release()
+        _mediaSessionManager = null
         _sessionState.value = SessionState.IDLE
         _statusMessage.value = "Disconnected"
         _bridgeInfo.value = null
@@ -264,6 +295,23 @@ class SessionManager(
         }
     }
 
+    /**
+     * Watches the audio player's call state to route mic purpose correctly.
+     * IN_CALL → mic frames tagged with PHONE_CALL purpose (bridge routes to BT SCO)
+     * Otherwise → mic frames tagged with ASSISTANT purpose (bridge routes to aasdk)
+     */
+    private suspend fun watchCallState() {
+        val player = _audioPlayer ?: return
+        player.callState.collect { state ->
+            val purpose = when (state) {
+                CallState.IN_CALL -> AudioPurpose.PHONE_CALL
+                else -> AudioPurpose.ASSISTANT
+            }
+            _micCaptureManager?.setMicPurpose(purpose)
+            Log.d(TAG, "Call state changed to $state — mic purpose set to $purpose")
+        }
+    }
+
     private fun handleControlMessage(message: ControlMessage) {
         when (message) {
             is ControlMessage.Hello -> {
@@ -297,9 +345,29 @@ class SessionManager(
                 _gnssForwarder?.stop()
                 _vehicleDataForwarder?.stop()
                 _navigationDisplay.clear()
+                ClusterNavigationState.clear()
             }
             is ControlMessage.NavState -> {
                 _navigationDisplay.onNavState(message)
+                // Also push to cluster singleton for CarAppService consumption
+                _navigationDisplay.currentManeuver.value?.let { maneuver ->
+                    ClusterNavigationState.update(maneuver)
+                }
+            }
+            is ControlMessage.MediaMetadata -> {
+                _mediaSessionManager?.updateMetadata(
+                    title = message.title,
+                    artist = message.artist,
+                    album = message.album,
+                    durationMs = message.durationMs,
+                    albumArtBase64 = message.albumArtBase64
+                )
+                if (message.playing != null) {
+                    _mediaSessionManager?.updatePlaybackState(
+                        playing = message.playing,
+                        positionMs = message.positionMs ?: 0
+                    )
+                }
             }
             is ControlMessage.AudioStart -> {
                 _audioPlayer?.startPurpose(message.purpose, message.sampleRate, message.channels)

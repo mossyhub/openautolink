@@ -24,10 +24,16 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.VideoSettings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -42,6 +48,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -186,11 +194,173 @@ fun SettingsScreen(
 
 @Composable
 private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
+    val discoveredBridges by viewModel.discoveredBridges.collectAsStateWithLifecycle()
+    val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
+    val networkInterfaces by viewModel.networkInterfaces.collectAsStateWithLifecycle()
+
+    // Scan interfaces on first composition
+    LaunchedEffect(Unit) {
+        viewModel.scanNetworkInterfaces()
+    }
+
+    // Stop discovery when leaving the Connection tab
+    DisposableEffect(Unit) {
+        onDispose { viewModel.stopDiscovery() }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        // --- Network Interface Section ---
+        SectionHeader("Network Interface")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Select the USB Ethernet adapter used to reach the bridge. " +
+                    "The selected interface is saved for automatic reconnection.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+
+        if (networkInterfaces.isEmpty()) {
+            Text(
+                text = "No Ethernet adapters detected.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            FilledTonalButton(
+                onClick = { viewModel.scanNetworkInterfaces() },
+                modifier = Modifier.testTag("rescanInterfacesButton"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Usb,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Rescan")
+            }
+        } else {
+            var dropdownExpanded by remember { mutableStateOf(false) }
+            val selectedIface = networkInterfaces.find { it.name == uiState.networkInterface }
+            // Auto-select the first/only interface if none saved yet
+            val effectiveSelection = selectedIface ?: networkInterfaces.firstOrNull()
+
+            LaunchedEffect(effectiveSelection, uiState.networkInterface) {
+                if (uiState.networkInterface.isBlank() && effectiveSelection != null) {
+                    viewModel.selectNetworkInterface(effectiveSelection.name)
+                }
+            }
+
+            @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+            ExposedDropdownMenuBox(
+                expanded = dropdownExpanded,
+                onExpandedChange = { dropdownExpanded = it },
+                modifier = Modifier
+                    .fillMaxWidth(0.5f)
+                    .testTag("networkInterfaceDropdown"),
+            ) {
+                OutlinedTextField(
+                    value = effectiveSelection?.let {
+                        "${it.name} — ${it.ipAddress ?: "no IP"}"
+                    } ?: "Select interface",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Ethernet Adapter") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
+                    modifier = Modifier
+                        .menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryNotEditable)
+                        .fillMaxWidth(),
+                )
+
+                ExposedDropdownMenu(
+                    expanded = dropdownExpanded,
+                    onDismissRequest = { dropdownExpanded = false },
+                ) {
+                    networkInterfaces.forEach { iface ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(
+                                        text = iface.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text = "MAC: ${iface.macAddress}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        text = "IP: ${iface.ipAddress ?: "not assigned"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (iface.ipAddress != null) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                viewModel.selectNetworkInterface(iface.name)
+                                dropdownExpanded = false
+                            },
+                            modifier = Modifier.testTag("networkInterface_${iface.name}"),
+                        )
+                    }
+                }
+            }
+
+            // Show details of the currently selected interface
+            if (effectiveSelection != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Surface(
+                    tonalElevation = 1.dp,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(0.5f),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        SettingRow("Interface", effectiveSelection.name)
+                        SettingRow("MAC", effectiveSelection.macAddress)
+                        SettingRow("IP", effectiveSelection.ipAddress ?: "not assigned")
+                        SettingRow("Status", if (effectiveSelection.isUp) "Up" else "Down")
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = { viewModel.scanNetworkInterfaces() },
+                    modifier = Modifier.testTag("rescanInterfacesButton"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Usb,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Rescan")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.5f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Bridge Connection Section ---
         SectionHeader("Bridge Connection")
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -239,6 +409,103 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.5f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        SectionHeader("Network Discovery")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Scan the local network for OpenAutoLink bridges via mDNS.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            FilledTonalButton(
+                onClick = {
+                    if (isDiscovering) viewModel.stopDiscovery() else viewModel.startDiscovery()
+                },
+                modifier = Modifier.testTag("discoverBridgesButton"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (isDiscovering) "Stop" else "Discover")
+            }
+
+            if (isDiscovering) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                Text(
+                    text = "Scanning...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        if (discoveredBridges.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            discoveredBridges.forEach { bridge ->
+                val isSelected = uiState.bridgeHost == bridge.host &&
+                        uiState.bridgePort == bridge.port
+
+                Surface(
+                    tonalElevation = if (isSelected) 4.dp else 1.dp,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier
+                        .fillMaxWidth(0.5f)
+                        .padding(vertical = 4.dp)
+                        .clickable { viewModel.selectBridge(bridge) }
+                        .testTag("discoveredBridge_${bridge.host}"),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = bridge.displayName,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = "${bridge.host}:${bridge.port}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (isSelected) {
+                            Text(
+                                text = "Selected",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        } else if (!isDiscovering) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "No bridges found. Make sure the bridge is running and on the same network.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

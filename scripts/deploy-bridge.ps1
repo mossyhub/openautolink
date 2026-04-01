@@ -38,22 +38,23 @@ if (-not (Test-Path $BinaryPath)) {
 $size = (Get-Item $BinaryPath).Length / 1MB
 Write-Host ">>> Binary: $([math]::Round($size, 1)) MB" -ForegroundColor Green
 
-# Step 2: SCP to SBC
+# Step 2: Stop service, SCP directly to /opt, restart
 Write-Host ">>> Deploying to ${SbcUser}@${SbcHost}..." -ForegroundColor Yellow
-scp $BinaryPath "${SbcUser}@${SbcHost}:/tmp/openautolink-headless"
+ssh "${SbcUser}@${SbcHost}" "sudo systemctl stop openautolink.service 2>/dev/null; sleep 1"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "WARNING: Could not stop service (may not be running)." -ForegroundColor Yellow
+}
+
+scp $BinaryPath "${SbcUser}@${SbcHost}:/opt/openautolink/bin/openautolink-headless"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: SCP failed. Is the SBC reachable at ${SbcHost}?" -ForegroundColor Red
     exit 1
 }
 
-# Step 3: Stop service, install binary, restart
-Write-Host ">>> Installing and restarting service..." -ForegroundColor Yellow
+# Step 3: Set permissions and restart service
+Write-Host ">>> Restarting service..." -ForegroundColor Yellow
 ssh "${SbcUser}@${SbcHost}" @"
-    sudo systemctl stop openautolink.service 2>/dev/null
-    sleep 1
-    sudo cp /tmp/openautolink-headless /opt/openautolink/bin/openautolink-headless
     sudo chmod +x /opt/openautolink/bin/openautolink-headless
-    rm /tmp/openautolink-headless
     sudo systemctl start openautolink.service
     echo '--- Service status ---'
     systemctl is-active openautolink.service

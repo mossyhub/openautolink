@@ -1,7 +1,8 @@
 #ifdef PI_AA_ENABLE_AASDK_LIVE
 
 #include "openautolink/live_session.hpp"
-#include "openautolink/cpc_session.hpp"
+#include "openautolink/oal_session.hpp"
+#include "openautolink/oal_protocol.hpp"
 
 #include <cstring>
 #include <chrono>
@@ -65,6 +66,11 @@
 #include <aap_protobuf/service/media/sink/message/VideoCodecResolutionType.pb.h>
 #include <aap_protobuf/service/media/sink/message/VideoFrameRateType.pb.h>
 #include <aap_protobuf/service/sensorsource/message/SensorType.pb.h>
+#include <aap_protobuf/service/navigationstatus/message/NavigationStatus.pb.h>
+#include <aap_protobuf/service/navigationstatus/message/NavigationNextTurnEvent.pb.h>
+#include <aap_protobuf/service/navigationstatus/message/NavigationNextTurnDistanceEvent.pb.h>
+#include <aap_protobuf/service/mediaplayback/message/MediaPlaybackMetadata.pb.h>
+#include <aap_protobuf/service/mediaplayback/message/MediaPlaybackStatus.pb.h>
 
 #include "openautolink/contract.hpp"
 
@@ -237,24 +243,21 @@ HeadlessAutoEntity::HeadlessAutoEntity(
     input_handler_ = std::make_shared<HeadlessInputHandler>(
         io_service_, messenger_, output_, config_.video_width, config_.video_height);
     bluetooth_handler_ = std::make_shared<HeadlessBluetoothHandler>(io_service_, messenger_, output_);
+    nav_status_handler_ = std::make_shared<HeadlessNavStatusHandler>(io_service_, messenger_, output_);
+    media_status_handler_ = std::make_shared<HeadlessMediaStatusHandler>(io_service_, messenger_, output_);
 
     video_handler_->set_input_handler(input_handler_);
-
-    // Propagate CPC session to handlers if set
-    if (cpc_session_) {
-        video_handler_->set_cpc_session(cpc_session_);
-        media_audio_handler_->set_cpc_session(cpc_session_);
-        speech_audio_handler_->set_cpc_session(cpc_session_);
-        system_audio_handler_->set_cpc_session(cpc_session_);
-    }
 }
 
-void HeadlessAutoEntity::set_cpc_session(CpcSession* session) {
-    cpc_session_ = session;
-    if (video_handler_) video_handler_->set_cpc_session(session);
-    if (media_audio_handler_) media_audio_handler_->set_cpc_session(session);
-    if (speech_audio_handler_) speech_audio_handler_->set_cpc_session(session);
-    if (system_audio_handler_) system_audio_handler_->set_cpc_session(session);
+void HeadlessAutoEntity::set_oal_session(OalSession* session) {
+    oal_session_ = session;
+    if (video_handler_) video_handler_->set_oal_session(session);
+    if (media_audio_handler_) media_audio_handler_->set_oal_session(session);
+    if (speech_audio_handler_) speech_audio_handler_->set_oal_session(session);
+    if (system_audio_handler_) system_audio_handler_->set_oal_session(session);
+    if (audio_input_handler_) audio_input_handler_->set_oal_session(session);
+    if (nav_status_handler_) nav_status_handler_->set_oal_session(session);
+    if (media_status_handler_) media_status_handler_->set_oal_session(session);
 }
 
 void HeadlessAutoEntity::start() {
@@ -515,6 +518,16 @@ void HeadlessAutoEntity::onServiceDiscoveryRequest(
       bs->set_car_address(bt_mac);
       bs->add_supported_pairing_methods(aap_protobuf::service::bluetooth::message::BLUETOOTH_PAIRING_PIN);
       bs->add_supported_pairing_methods(aap_protobuf::service::bluetooth::message::BLUETOOTH_PAIRING_NUMERIC_COMPARISON); }
+    // Navigation Status — receive turn-by-turn from phone
+    { auto* svc = response.add_channels();
+      svc->set_id(static_cast<int32_t>(aasdk::messenger::ChannelId::NAVIGATION_STATUS));
+      auto* ns = svc->mutable_navigation_status_service();
+      ns->set_minimum_interval_ms(500);
+      ns->set_type(aap_protobuf::service::navigationstatus::NavigationStatusService::ENUM); }
+    // Media Playback Status — receive track info from phone
+    { auto* svc = response.add_channels();
+      svc->set_id(static_cast<int32_t>(aasdk::messenger::ChannelId::MEDIA_PLAYBACK_STATUS));
+      svc->mutable_media_playback_service(); }
 
     std::cerr << "[aasdk] sending ServiceDiscoveryResponse with " << response.channels_size() << " channels" << std::endl;
     std::cerr << "[aasdk] Cryptor active=" << cryptor_->isActive() << std::endl;
@@ -537,11 +550,13 @@ void HeadlessAutoEntity::onServiceDiscoveryRequest(
             sensor_handler_->start();
             input_handler_->start();
             bluetooth_handler_->start();
+            nav_status_handler_->start();
+            media_status_handler_->start();
 
             // Start pinging to keep connection alive
             sendPing();
             schedulePing();
-            emitCommand(500); // REQUEST_VIDEO_FOCUS to CPC200 bridge
+            emitCommand(500); // REQUEST_VIDEO_FOCUS
         },
         [this, self = shared_from_this()](auto e) {
             std::cerr << "[aasdk] ServiceDiscoveryResponse send FAILED: " << e.what() << std::endl;
@@ -791,9 +806,8 @@ void LiveAasdkSession::on_host_command(int command_id) {
             entity_->video_handler()->sendVideoFocusIndication();
         }
     }
-    // AUDIO_TRANSFER_ON (22) / AUDIO_TRANSFER_OFF (23) ??? log for now.
-    // The AA protocol manages audio focus internally; these are informational
-    // from the CPC200 app perspective.
+    // AUDIO_TRANSFER_ON (22) / AUDIO_TRANSFER_OFF (23) — log for now.
+    // The AA protocol manages audio focus internally; these are informational.
     if (command_id == 22) {
         output_.emit(json_event("audio_transfer_on"));
     }
@@ -919,7 +933,7 @@ void LiveAasdkSession::on_touch(const ParsedInputMessage& message) {
     }
 
     if (entity_ && entity_->input_handler() && decoded.size() >= 12) {
-        // CPC200 touch format: [action:u32][x:u32][y:u32][flags:u32] (16 bytes)
+        // Stub touch format: [action:u32][x:u32][y:u32][flags:u32] (16 bytes)
         // Action codes from app: 14=DOWN, 15=MOVE, 16=UP
         // x/y are in 0-10000 range (normalized by app)
         uint32_t action_code = 0, raw_x = 0, raw_y = 0;
@@ -939,7 +953,7 @@ void LiveAasdkSession::on_touch(const ParsedInputMessage& message) {
         uint32_t x = static_cast<uint32_t>(raw_x * touch_w / 10000);
         uint32_t y = static_cast<uint32_t>(raw_y * touch_h / 10000);
 
-        // Map CPC200 action codes to aasdk PointerAction:
+        // Map action codes to aasdk PointerAction:
         // 14 (DOWN) → 0 (ACTION_DOWN), 15 (MOVE) → 2 (ACTION_MOVED), 16 (UP) → 1 (ACTION_UP)
         uint32_t aa_action = 0;
         if (action_code == 14) aa_action = 0;      // DOWN
@@ -960,7 +974,7 @@ void LiveAasdkSession::on_audio_input(const ParsedInputMessage& message) {
         state_.microphone_uplink_bytes += state_.last_audio_input_bytes;
 
         if (entity_ && entity_->audio_input_handler() && decoded.size() > 12) {
-            // Strip the 12-byte CPC200 audio header: [decode_type:i32][volume:f32][audio_type:i32]
+            // Strip the 12-byte stub audio header: [decode_type:i32][volume:f32][audio_type:i32]
             // Feed only the raw PCM data to the aasdk microphone channel
             const auto* pcm_start = reinterpret_cast<const uint8_t*>(decoded.data()) + 12;
             size_t pcm_size = decoded.size() - 12;
@@ -1156,7 +1170,7 @@ void LiveAasdkSession::forward_touch(const uint8_t* payload, size_t len) {
 
         size_t expected = 16 + pointer_count * 12;
         if (len < expected || pointer_count == 0 || pointer_count > 10) {
-            std::cerr << "[CPC] bad multi-touch: len=" << len << " count=" << pointer_count << std::endl;
+            std::cerr << "[touch] bad multi-touch: len=" << len << " count=" << pointer_count << std::endl;
             return;
         }
 
@@ -1173,7 +1187,7 @@ void LiveAasdkSession::forward_touch(const uint8_t* payload, size_t len) {
             });
         }
 
-        std::cerr << "[CPC] multi-touch: action=" << aa_action << " idx=" << action_index
+        std::cerr << "[touch] multi-touch: action=" << aa_action << " idx=" << action_index
                   << " ptrs=" << pointer_count << std::endl;
         entity_->input_handler()->sendMultiTouchEvent(aa_action, action_index, pointers);
     } else {
@@ -1184,15 +1198,60 @@ void LiveAasdkSession::forward_touch(const uint8_t* payload, size_t len) {
         uint32_t x = static_cast<uint32_t>(raw_x * touch_w / 10000);
         uint32_t y = static_cast<uint32_t>(raw_y * touch_h / 10000);
 
-        std::cerr << "[CPC] touch: action=" << aa_action << " x=" << x << " y=" << y << std::endl;
+        std::cerr << "[touch] touch: action=" << aa_action << " x=" << x << " y=" << y << std::endl;
         entity_->input_handler()->sendTouchEvent(aa_action, x, y);
     }
 }
 
 void LiveAasdkSession::forward_audio_input(const uint8_t* payload, size_t len) {
     if (!entity_ || !entity_->audio_input_handler() || len <= 12) return;
-    // Strip 12-byte CPC200 audio header, feed raw PCM
+    // Strip 12-byte stub audio header, feed raw PCM
     entity_->audio_input_handler()->feedAudio(payload + 12, len - 12);
+}
+
+// ── OAL forwarding methods (from OalSession) ────────────────────────
+
+void LiveAasdkSession::forward_oal_touch(int action, uint32_t x, uint32_t y) {
+    if (!entity_ || !entity_->input_handler()) return;
+    // OAL touch actions already match AA PointerAction codes (0=down, 1=up, 2=move, etc.)
+    entity_->input_handler()->sendTouchEvent(static_cast<uint32_t>(action), x, y);
+}
+
+void LiveAasdkSession::forward_oal_multi_touch(int action, uint32_t action_index,
+                                                const std::vector<HeadlessInputHandler::PointerInfo>& pointers) {
+    if (!entity_ || !entity_->input_handler()) return;
+    entity_->input_handler()->sendMultiTouchEvent(static_cast<uint32_t>(action), action_index, pointers);
+}
+
+void LiveAasdkSession::forward_oal_button(uint32_t keycode, bool down,
+                                           uint32_t metastate, bool longpress) {
+    if (!entity_ || !entity_->input_handler()) return;
+    entity_->input_handler()->sendKeyEvent(keycode, down, metastate, longpress);
+}
+
+void LiveAasdkSession::forward_oal_mic_audio(const uint8_t* pcm, size_t len) {
+    if (!entity_ || !entity_->audio_input_handler() || len == 0) return;
+    entity_->audio_input_handler()->feedAudio(pcm, len);
+}
+
+void LiveAasdkSession::forward_oal_gnss(const std::string& nmea) {
+    // TODO: Parse NMEA sentences and feed to sensor handler
+    if (!entity_ || !entity_->sensor_handler()) return;
+    std::cerr << "[aasdk] OAL gnss: " << nmea.substr(0, 40) << std::endl;
+    // Full NMEA parsing → sendGpsLocation() will come with the M7 integration
+}
+
+void LiveAasdkSession::forward_oal_vehicle_data(const std::string& json) {
+    if (!entity_ || !entity_->sensor_handler()) return;
+    // Reuse the existing vehicle data parsing logic
+    // This calls the same code path as the CPC vehicle_data handler
+    on_vehicle_data(json);
+}
+
+void LiveAasdkSession::request_fresh_idr() {
+    if (entity_ && entity_->video_handler()) {
+        entity_->video_handler()->sendVideoFocusIndication();
+    }
 }
 
 void LiveAasdkSession::on_vehicle_data(const std::string& json) {
@@ -1324,7 +1383,6 @@ void LiveAasdkSession::start_usb_scanning() {
                 std::cerr << "[aasdk] Preempting wireless session for wired USB" << std::endl;
                 entity_->stop();
                 entity_.reset();
-                if (cpc_session_) cpc_session_->on_phone_disconnected();
             }
             output_.emit(R"({"type":"event","event_type":"phone_connected","transport":"usb"})");
             active_transport_ = TransportType::USB;
@@ -1428,7 +1486,7 @@ void LiveAasdkSession::create_entity(aasdk::transport::ITransport::Pointer trans
         io_service_, std::move(cryptor), std::move(transport),
         std::move(messenger), output_, config_);
 
-    // On phone disconnect: notify CPC + restart scanning
+    // On phone disconnect: notify OAL + restart scanning
     entity_->set_disconnect_callback([this]() {
         auto was_transport = active_transport_;
         std::cerr << "[aasdk] disconnect callback: transport="
@@ -1438,8 +1496,8 @@ void LiveAasdkSession::create_entity(aasdk::transport::ITransport::Pointer trans
         state_.session_active = false;
         active_transport_ = TransportType::NONE;
         entity_.reset();
-        if (cpc_session_) {
-            cpc_session_->on_phone_disconnected();
+        if (oal_session_) {
+            oal_session_->on_phone_disconnected();
         }
         if (running_) {
             io_service_.post([this, was_transport]() {
@@ -1452,16 +1510,14 @@ void LiveAasdkSession::create_entity(aasdk::transport::ITransport::Pointer trans
                         if (!ec && running_) start_usb_scanning();
                     });
                 }
-                // If was USB, wireless TCP listener is still active — phone can reconnect wirelessly
-                // If was wireless, TCP listener re-accepts automatically via accept_connection()
             });
         }
     });
 
-    // Propagate CPC session to entity (which propagates to handlers)
-    if (cpc_session_) {
-        entity_->set_cpc_session(cpc_session_);
-        cpc_session_->on_phone_connected();
+    // Propagate session to entity (which propagates to handlers)
+    if (oal_session_) {
+        entity_->set_oal_session(oal_session_);
+        oal_session_->on_phone_connected(phone_name_);
     }
 
     entity_->start();
@@ -1502,8 +1558,8 @@ void LiveAasdkSession::create_entity_no_ssl(aasdk::transport::ITransport::Pointe
         state_.session_active = false;
         active_transport_ = TransportType::NONE;
         entity_.reset();
-        if (cpc_session_) {
-            cpc_session_->on_phone_disconnected();
+        if (oal_session_) {
+            oal_session_->on_phone_disconnected();
         }
         if (running_) {
             io_service_.post([this]() {
@@ -1518,10 +1574,10 @@ void LiveAasdkSession::create_entity_no_ssl(aasdk::transport::ITransport::Pointe
         }
     });
 
-    // Propagate CPC session to entity
-    if (cpc_session_) {
-        entity_->set_cpc_session(cpc_session_);
-        cpc_session_->on_phone_connected();
+    // Propagate session to entity
+    if (oal_session_) {
+        entity_->set_oal_session(oal_session_);
+        oal_session_->on_phone_connected(phone_name_);
     }
 
     // Start the entity — it will send version request as the first thing inside the TLS tunnel
@@ -1581,21 +1637,25 @@ void HeadlessVideoHandler::sendVideoFocusIndication() {
 }
 
 void HeadlessVideoHandler::replayCachedKeyframe() {
-    if (!cpc_session_ || !has_cached_keyframe_) return;
+    if (!has_cached_keyframe_) return;
     uint32_t w = static_cast<uint32_t>(width_);
     uint32_t h = static_cast<uint32_t>(height_);
-    uint32_t enc = 3;
-    // Replay SPS/PPS first if we have it
-    if (!cached_sps_pps_.empty()) {
-        std::cerr << "[aasdk] replaying cached SPS/PPS (" << cached_sps_pps_.size() << " bytes) to car app" << std::endl;
-        cpc_session_->write_video_frame(w, h, 0, enc, 1,
-                                        cached_sps_pps_.data(), cached_sps_pps_.size());
-    }
-    // Then replay IDR if we have it (and it's different from SPS/PPS)
-    if (!cached_idr_.empty() && cached_idr_ != cached_sps_pps_) {
-        std::cerr << "[aasdk] replaying cached IDR (" << cached_idr_.size() << " bytes) to car app" << std::endl;
-        cpc_session_->write_video_frame(w, h, 0, enc, 1,
-                                        cached_idr_.data(), cached_idr_.size());
+
+    if (oal_session_) {
+        if (!cached_sps_pps_.empty()) {
+            std::cerr << "[aasdk] replaying cached SPS/PPS (" << cached_sps_pps_.size() << " bytes)" << std::endl;
+            oal_session_->write_video_frame(
+                static_cast<uint16_t>(w), static_cast<uint16_t>(h), 0,
+                OalVideoFlags::CODEC_CONFIG | OalVideoFlags::KEYFRAME,
+                cached_sps_pps_.data(), cached_sps_pps_.size());
+        }
+        if (!cached_idr_.empty() && cached_idr_ != cached_sps_pps_) {
+            std::cerr << "[aasdk] replaying cached IDR (" << cached_idr_.size() << " bytes)" << std::endl;
+            oal_session_->write_video_frame(
+                static_cast<uint16_t>(w), static_cast<uint16_t>(h), 0,
+                OalVideoFlags::KEYFRAME,
+                cached_idr_.data(), cached_idr_.size());
+        }
     }
 }
 
@@ -1694,20 +1754,27 @@ void HeadlessVideoHandler::onMediaWithTimestampIndication(
         has_cached_keyframe_ = true;
     }
 
-    // Convert aasdk microsecond timestamp to millisecond PTS for CPC200
+    // Convert aasdk microsecond timestamp to millisecond PTS
     uint32_t pts_ms = static_cast<uint32_t>(timestamp / 1000);
     uint32_t w = static_cast<uint32_t>(width_);
     uint32_t h = static_cast<uint32_t>(height_);
-    uint32_t enc = 3; // encoder_state = 3 (CPC200 standard)
 
-    // Direct FFS path: write CPC200 VIDEO_DATA directly to USB (no Python)
-    if (cpc_session_) {
-        cpc_session_->write_video_frame(w, h, pts_ms, enc, flags,
-                                        buffer.cdata, buffer.size);
+    // OAL path: write OAL video frame directly
+    if (oal_session_) {
+        uint16_t oal_flags = 0;
+        if (has_sps) oal_flags |= OalVideoFlags::CODEC_CONFIG;
+        if (has_idr) oal_flags |= OalVideoFlags::KEYFRAME;
+        // For combined SPS+IDR frames, set both flags
+        if (has_sps && has_idr) oal_flags |= OalVideoFlags::CODEC_CONFIG | OalVideoFlags::KEYFRAME;
+
+        oal_session_->write_video_frame(
+            static_cast<uint16_t>(w), static_cast<uint16_t>(h),
+            pts_ms, oal_flags,
+            buffer.cdata, buffer.size);
     }
-    // Media pipe path: write to fd for Python to read (legacy)
+    // Media pipe path: write to fd for Python to read (legacy stub)
     else if (video_fd_ >= 0) {
-        // Format: [1-byte type=0x01][4-byte LE payload_len][20-byte CPC200 header][H.264 data]
+        uint32_t enc = 3;
         uint32_t payload_len = static_cast<uint32_t>(20 + buffer.size);
         uint8_t header[25];
         header[0] = 0x01; // VIDEO_DATA type tag
@@ -1842,16 +1909,23 @@ void HeadlessAudioHandler::onMediaChannelStartIndication(
     output_.emit(R"({"type":"event","event_type":"audio_stream_start","channel":")" +
                  std::string(name) + R"(","session":)" + std::to_string(session_) + "}");
 
-    // Emit audio START command so bridge sends AUDIO_DATA command to car app
-    // CPC200 AudioCommand: AUDIO_OUTPUT_START=1, AUDIO_MEDIA_START=10, AUDIO_NAVI_START=6
-    int cmd = 1; // AUDIO_OUTPUT_START (general)
-    int audio_type = 1;
-    if (type_ == ChannelType::Media) { cmd = 10; audio_type = 1; }      // AUDIO_MEDIA_START
-    else if (type_ == ChannelType::Speech) { cmd = 6; audio_type = 3; }  // AUDIO_NAVI_START
-    else if (type_ == ChannelType::System) { cmd = 12; audio_type = 2; } // AUDIO_ALERT_START
-    output_.emit(R"({"type":"audio_command","command":)" + std::to_string(cmd) +
-                 R"(,"decode_type":4,"audio_type":)" + std::to_string(audio_type) +
-                 R"(,"volume":0.0})");
+    // Send audio_start control message
+    if (oal_session_) {
+        uint8_t purpose = audio_channel_to_oal_purpose(name);
+        uint16_t sr; uint8_t ch;
+        audio_channel_params(name, sr, ch);
+        oal_session_->send_audio_start(purpose, sr, ch);
+    } else {
+        // Fallback: emit audio command to stdout
+        int cmd = 1;
+        int audio_type = 1;
+        if (type_ == ChannelType::Media) { cmd = 10; audio_type = 1; }
+        else if (type_ == ChannelType::Speech) { cmd = 6; audio_type = 3; }
+        else if (type_ == ChannelType::System) { cmd = 12; audio_type = 2; }
+        output_.emit(R"({"type":"audio_command","command":)" + std::to_string(cmd) +
+                     R"(,"decode_type":4,"audio_type":)" + std::to_string(audio_type) +
+                     R"(,"volume":0.0})");
+    }
 
     channel_->receive(shared_from_this());
 }
@@ -1864,15 +1938,21 @@ void HeadlessAudioHandler::onMediaChannelStopIndication(
     output_.emit(R"({"type":"event","event_type":"audio_stream_stop","channel":")" +
                  std::string(name) + R"("})");
 
-    // Emit audio STOP command
-    int cmd = 2; // AUDIO_OUTPUT_STOP
-    int audio_type = 1;
-    if (type_ == ChannelType::Media) { cmd = 11; audio_type = 1; }       // AUDIO_MEDIA_STOP
-    else if (type_ == ChannelType::Speech) { cmd = 7; audio_type = 3; }  // AUDIO_NAVI_STOP
-    else if (type_ == ChannelType::System) { cmd = 13; audio_type = 2; } // AUDIO_ALERT_STOP
-    output_.emit(R"({"type":"audio_command","command":)" + std::to_string(cmd) +
-                 R"(,"decode_type":2,"audio_type":)" + std::to_string(audio_type) +
-                 R"(,"volume":0.0})");
+    // Send audio_stop control message
+    if (oal_session_) {
+        uint8_t purpose = audio_channel_to_oal_purpose(name);
+        oal_session_->send_audio_stop(purpose);
+    } else {
+        // Fallback: emit audio command to stdout
+        int cmd = 2;
+        int audio_type = 1;
+        if (type_ == ChannelType::Media) { cmd = 11; audio_type = 1; }
+        else if (type_ == ChannelType::Speech) { cmd = 7; audio_type = 3; }
+        else if (type_ == ChannelType::System) { cmd = 13; audio_type = 2; }
+        output_.emit(R"({"type":"audio_command","command":)" + std::to_string(cmd) +
+                     R"(,"decode_type":2,"audio_type":)" + std::to_string(audio_type) +
+                     R"(,"volume":0.0})");
+    }
 
     channel_->receive(shared_from_this());
 }
@@ -1891,27 +1971,28 @@ void HeadlessAudioHandler::onMediaWithTimestampIndication(
                   << " size=" << buffer.size << std::endl;
     }
 
-    // Map aasdk channel type to CPC200 audio_type:
-    // media=1 (main music), speech=3 (navigation guidance), system=2 (alerts/notifications)
-    uint32_t audio_type = 1;
-    if (type_ == ChannelType::Speech) audio_type = 3;
-    else if (type_ == ChannelType::System) audio_type = 2;
+    // Determine OAL purpose and audio params from channel type
+    const char* channel_name = (type_ == ChannelType::Media) ? "media" :
+                               (type_ == ChannelType::Speech) ? "speech" : "system";
 
-    // decode_type maps to app AudioFormats:
-    // 4 = 48kHz stereo (media), 5 = 16kHz mono (speech/system/voice)
-    uint32_t decode_type = (type_ == ChannelType::Media) ? 4 : 5;
-    float volume = 0.0f;
-
-    // Direct FFS path: write CPC200 AUDIO_DATA directly to USB
-    if (cpc_session_) {
-        cpc_session_->write_audio_frame(buffer.cdata, buffer.size,
-                                        decode_type, volume, audio_type);
+    // Write OAL audio frame
+    if (oal_session_) {
+        uint8_t purpose = audio_channel_to_oal_purpose(channel_name);
+        uint16_t sr; uint8_t ch;
+        audio_channel_params(channel_name, sr, ch);
+        oal_session_->write_audio_frame(buffer.cdata, buffer.size,
+                                        purpose, sr, ch);
     }
-    // Media pipe path (legacy)
+    // Media pipe path (legacy stub)
     else if (media_fd_ >= 0) {
+        uint32_t audio_type = 1;
+        if (type_ == ChannelType::Speech) audio_type = 3;
+        else if (type_ == ChannelType::System) audio_type = 2;
+        uint32_t decode_type = (type_ == ChannelType::Media) ? 4 : 5;
+        float volume = 0.0f;
         uint32_t payload_len = static_cast<uint32_t>(12 + buffer.size);
         uint8_t header[17];
-        header[0] = 0x02; // AUDIO_DATA type tag
+        header[0] = 0x02;
         memcpy(header + 1,  &payload_len, 4);
         memcpy(header + 5,  &decode_type, 4);
         memcpy(header + 9,  &volume, 4);
@@ -2017,11 +2098,20 @@ void HeadlessAudioInputHandler::onMediaSourceOpenRequest(
     output_.emit(R"({"type":"event","event_type":"audio_input_open","open":)" +
                  std::string(open_ ? "true" : "false") + "}");
 
-    // Emit audio command so bridge tells car app about mic state
-    if (open_) {
-        output_.emit(R"({"type":"audio_command","command":8,"decode_type":5,"audio_type":3,"volume":0.0})"); // AUDIO_SIRI_START
+    // Send mic_start/mic_stop control messages
+    if (oal_session_) {
+        if (open_) {
+            oal_session_->send_mic_start(16000);
+        } else {
+            oal_session_->send_mic_stop();
+        }
     } else {
-        output_.emit(R"({"type":"audio_command","command":9,"decode_type":2,"audio_type":3,"volume":0.0})"); // AUDIO_SIRI_STOP
+        // Fallback: emit audio command to stdout
+        if (open_) {
+            output_.emit(R"({"type":"audio_command","command":8,"decode_type":5,"audio_type":3,"volume":0.0})");
+        } else {
+            output_.emit(R"({"type":"audio_command","command":9,"decode_type":2,"audio_type":3,"volume":0.0})");
+        }
     }
 
     aap_protobuf::service::media::source::message::MicrophoneResponse response;
@@ -2339,6 +2429,33 @@ void HeadlessInputHandler::sendMultiTouchEvent(uint32_t action, uint32_t action_
     channel_->sendInputReport(indication, std::move(promise));
 }
 
+void HeadlessInputHandler::sendKeyEvent(uint32_t keycode, bool down,
+                                         uint32_t metastate, bool longpress) {
+    aap_protobuf::service::inputsource::message::InputReport indication;
+
+    auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    indication.set_timestamp(static_cast<uint64_t>(now));
+
+    auto* key_event = indication.mutable_key_event();
+    auto* key = key_event->add_keys();
+    key->set_keycode(keycode);
+    key->set_down(down);
+    key->set_metastate(metastate);
+    key->set_longpress(longpress);
+
+    auto promise = aasdk::channel::SendPromise::defer(strand_);
+    promise->then(
+        [keycode, down]() {
+            std::cerr << "[aasdk] key SENT OK: keycode=" << keycode << " down=" << down << std::endl;
+        },
+        [keycode, down](const aasdk::error::Error& e) {
+            std::cerr << "[aasdk] key SEND FAILED: keycode=" << keycode << " down=" << down
+                      << " error=" << e.what() << std::endl;
+        });
+    channel_->sendInputReport(indication, std::move(promise));
+}
+
 void HeadlessInputHandler::onChannelOpenRequest(
     const aap_protobuf::service::control::message::ChannelOpenRequest&)
 {
@@ -2477,6 +2594,233 @@ void HeadlessBluetoothHandler::onBluetoothAuthenticationResult(
     std::cerr << "[aasdk] BT auth result" << std::endl;
     channel_->receive(shared_from_this());
 }
+
+// ============================================================================
+// HeadlessNavStatusHandler
+// ============================================================================
+
+HeadlessNavStatusHandler::HeadlessNavStatusHandler(
+    boost::asio::io_service& io_service,
+    aasdk::messenger::IMessenger::Pointer messenger,
+    ThreadSafeOutputSink& output)
+    : strand_(io_service)
+    , channel_(std::make_shared<aasdk::channel::navigationstatus::NavigationStatusService>(strand_, std::move(messenger)))
+    , output_(output)
+{
+}
+
+void HeadlessNavStatusHandler::start() {
+    strand_.dispatch([this, self = shared_from_this()]() {
+        channel_->receive(self);
+    });
+}
+
+void HeadlessNavStatusHandler::stop() {}
+
+void HeadlessNavStatusHandler::onChannelOpenRequest(
+    const aap_protobuf::service::control::message::ChannelOpenRequest&)
+{
+    std::cerr << "[aasdk] NAV STATUS CHANNEL OPEN REQUEST" << std::endl;
+    aap_protobuf::service::control::message::ChannelOpenResponse response;
+    response.set_status(aap_protobuf::shared::STATUS_SUCCESS);
+
+    auto promise = aasdk::channel::SendPromise::defer(strand_);
+    promise->then([]() {},
+        [this, self = shared_from_this()](auto e) { this->onChannelError(e); });
+    channel_->sendChannelOpenResponse(response, std::move(promise));
+    channel_->receive(shared_from_this());
+}
+
+void HeadlessNavStatusHandler::onStatusUpdate(
+    const aap_protobuf::service::navigationstatus::message::NavigationStatus& navStatus)
+{
+    auto status = navStatus.status();
+    const char* status_str = "unknown";
+    switch (status) {
+        case 0: status_str = "unavailable"; break;
+        case 1: status_str = "active"; break;
+        case 2: status_str = "inactive"; break;
+        case 3: status_str = "rerouting"; break;
+    }
+    std::cerr << "[aasdk] nav status: " << status_str << std::endl;
+    output_.emit(R"({"type":"event","event_type":"nav_status","status":")" +
+                 std::string(status_str) + R"("})");
+
+    // When navigation becomes inactive/unavailable, send cleared nav_state
+    if (status != 1) {
+        last_maneuver_.clear();
+        last_road_.clear();
+        last_distance_m_ = 0;
+        last_eta_s_ = 0;
+    }
+
+    channel_->receive(shared_from_this());
+}
+
+void HeadlessNavStatusHandler::onTurnEvent(
+    const aap_protobuf::service::navigationstatus::message::NavigationNextTurnEvent& turnEvent)
+{
+    last_road_ = turnEvent.road();
+
+    // Map turn event+side to maneuver string
+    std::string maneuver = "unknown";
+    if (turnEvent.has_event()) {
+        auto ev = turnEvent.event();
+        std::string side = "";
+        if (turnEvent.has_turn_side()) {
+            switch (turnEvent.turn_side()) {
+                case 1: side = "_left"; break;
+                case 2: side = "_right"; break;
+                default: break;
+            }
+        }
+        switch (ev) {
+            case 0: maneuver = "unknown"; break;
+            case 1: maneuver = "depart"; break;
+            case 2: maneuver = "name_change"; break;
+            case 3: maneuver = "slight_turn" + side; break;
+            case 4: maneuver = "turn" + side; break;
+            case 5: maneuver = "sharp_turn" + side; break;
+            case 6: maneuver = "u_turn" + side; break;
+            case 7: maneuver = "on_ramp" + side; break;
+            case 8: maneuver = "off_ramp" + side; break;
+            case 9: maneuver = "fork" + side; break;
+            case 10: maneuver = "merge" + side; break;
+            case 11: maneuver = "roundabout_enter"; break;
+            case 12: maneuver = "roundabout_exit"; break;
+            case 13: maneuver = "roundabout_enter_and_exit"; break;
+            case 14: maneuver = "straight"; break;
+            case 19: maneuver = "destination"; break;
+            default: maneuver = "turn_" + std::to_string(ev) + side; break;
+        }
+    }
+    last_maneuver_ = maneuver;
+
+    std::cerr << "[aasdk] nav turn: " << maneuver << " road=" << last_road_ << std::endl;
+
+    // Send combined nav_state to app
+    if (oal_session_) {
+        oal_session_->send_nav_state(last_maneuver_, last_distance_m_,
+                                     last_road_, last_eta_s_);
+    }
+
+    channel_->receive(shared_from_this());
+}
+
+void HeadlessNavStatusHandler::onDistanceEvent(
+    const aap_protobuf::service::navigationstatus::message::NavigationNextTurnDistanceEvent& distanceEvent)
+{
+    last_distance_m_ = distanceEvent.distance_meters();
+    last_eta_s_ = distanceEvent.time_to_turn_seconds();
+
+    std::cerr << "[aasdk] nav distance: " << last_distance_m_ << "m, "
+              << last_eta_s_ << "s" << std::endl;
+
+    if (oal_session_) {
+        oal_session_->send_nav_state(last_maneuver_, last_distance_m_,
+                                     last_road_, last_eta_s_);
+    }
+
+    channel_->receive(shared_from_this());
+}
+
+void HeadlessNavStatusHandler::onChannelError(const aasdk::error::Error& e) {
+    output_.emit(R"({"type":"event","event_type":"nav_status_error","error":")" +
+                 std::string(e.what()) + R"("})");
+}
+
+// ============================================================================
+// HeadlessMediaStatusHandler
+// ============================================================================
+
+HeadlessMediaStatusHandler::HeadlessMediaStatusHandler(
+    boost::asio::io_service& io_service,
+    aasdk::messenger::IMessenger::Pointer messenger,
+    ThreadSafeOutputSink& output)
+    : strand_(io_service)
+    , channel_(std::make_shared<aasdk::channel::mediaplaybackstatus::MediaPlaybackStatusService>(strand_, std::move(messenger)))
+    , output_(output)
+{
+}
+
+void HeadlessMediaStatusHandler::start() {
+    strand_.dispatch([this, self = shared_from_this()]() {
+        channel_->receive(self);
+    });
+}
+
+void HeadlessMediaStatusHandler::stop() {}
+
+void HeadlessMediaStatusHandler::onChannelOpenRequest(
+    const aap_protobuf::service::control::message::ChannelOpenRequest&)
+{
+    std::cerr << "[aasdk] MEDIA STATUS CHANNEL OPEN REQUEST" << std::endl;
+    aap_protobuf::service::control::message::ChannelOpenResponse response;
+    response.set_status(aap_protobuf::shared::STATUS_SUCCESS);
+
+    auto promise = aasdk::channel::SendPromise::defer(strand_);
+    promise->then([]() {},
+        [this, self = shared_from_this()](auto e) { this->onChannelError(e); });
+    channel_->sendChannelOpenResponse(response, std::move(promise));
+    channel_->receive(shared_from_this());
+}
+
+void HeadlessMediaStatusHandler::onMetadataUpdate(
+    const aap_protobuf::service::mediaplayback::message::MediaPlaybackMetadata& metadata)
+{
+    last_title_ = metadata.has_song() ? metadata.song() : "";
+    last_artist_ = metadata.has_artist() ? metadata.artist() : "";
+    last_album_ = metadata.has_album() ? metadata.album() : "";
+    if (metadata.has_duration_seconds())
+        last_duration_ms_ = metadata.duration_seconds() * 1000;
+
+    // Extract album art if present (PNG/JPEG bytes from the phone)
+    if (metadata.has_album_art() && !metadata.album_art().empty()) {
+        const auto& art = metadata.album_art();
+        last_album_art_base64_ = base64_encode(
+            reinterpret_cast<const uint8_t*>(art.data()), art.size());
+        std::cerr << "[aasdk] media album art: " << art.size() << " bytes" << std::endl;
+    }
+
+    std::cerr << "[aasdk] media metadata: \"" << last_title_
+              << "\" by \"" << last_artist_
+              << "\" (" << last_album_ << ")" << std::endl;
+
+    if (oal_session_) {
+        oal_session_->send_media_metadata(last_title_, last_artist_, last_album_,
+                                          last_duration_ms_, last_position_ms_,
+                                          last_playing_, last_album_art_base64_);
+    }
+
+    channel_->receive(shared_from_this());
+}
+
+void HeadlessMediaStatusHandler::onPlaybackUpdate(
+    const aap_protobuf::service::mediaplayback::message::MediaPlaybackStatus& playback)
+{
+    // state: STOPPED=1, PLAYING=2, PAUSED=3
+    last_playing_ = (playback.state() == aap_protobuf::service::mediaplayback::message::MediaPlaybackStatus::PLAYING);
+    if (playback.has_playback_seconds())
+        last_position_ms_ = static_cast<int>(playback.playback_seconds()) * 1000;
+
+    std::cerr << "[aasdk] media playback: " << (last_playing_ ? "playing" : "paused")
+              << " pos=" << last_position_ms_ << "ms" << std::endl;
+
+    if (oal_session_) {
+        // Don't resend album art on playback-only updates (position/state changes)
+        oal_session_->send_media_metadata(last_title_, last_artist_, last_album_,
+                                          last_duration_ms_, last_position_ms_,
+                                          last_playing_);
+    }
+
+    channel_->receive(shared_from_this());
+}
+
+void HeadlessMediaStatusHandler::onChannelError(const aasdk::error::Error& e) {
+    output_.emit(R"({"type":"event","event_type":"media_status_error","error":")" +
+                 std::string(e.what()) + R"("})");
+}
+
 } // namespace openautolink
 
 #endif // PI_AA_ENABLE_AASDK_LIVE

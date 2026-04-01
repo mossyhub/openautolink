@@ -28,6 +28,7 @@ sudo apt-get install -y -qq \
     libboost-thread-dev:arm64 \
     libssl-dev:arm64 \
     libusb-1.0-0-dev:arm64 \
+    libbluetooth-dev:arm64 \
     libprotobuf-dev:arm64 \
     libabsl-dev:arm64 \
     protobuf-compiler

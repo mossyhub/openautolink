@@ -14,12 +14,12 @@ These exist in the current bridge code and will need fixing regardless of the ap
 ### 2. Video FPS Below Target
 - Stats show 28-52fps (target 60fps)
 - May be bridge sending at 30fps despite `OAL_AA_FPS=60`
-- **Investigate:** Verify aasdk SDR actually requests 60fps from phone
+- **Verified:** SDR correctly requests `VIDEO_FPS_60` when `config_.video_fps >= 60` (default env = 60). If phone still sends 30fps, it's a phone-side limitation
 
 ### 3. Phone AA Session Drops (Error 33)
 - Phone occasionally drops TCP with EOF
 - Bridge cert files not deployed → search fails on restart
-- **Fix:** Deploy headunit.crt/key to `/opt/openautolink/cert/`
+- **Fixed:** `install.sh` now generates and deploys `headunit.crt/key` to `/etc/aasdk/`
 
 ### 4. Black Screen After Reconnect
 - Bridge rate-limits keyframe replay to 5s
@@ -43,34 +43,34 @@ These exist in the current bridge code and will need fixing regardless of the ap
 Replace CPC200 framing (16-byte magic headers, inverted checksums, heartbeat-gated writes) with OAL protocol on all three TCP channels. The app already speaks OAL — once this lands, end-to-end streaming works.
 
 **Control Channel (Port 5288) → JSON Lines**
-- [ ] JSON line messages for all control communication
-- [ ] Hello handshake with capabilities exchange
-- [ ] Phone connected/disconnected events
-- [ ] Audio start/stop per purpose
-- [ ] Nav state forwarding
-- [ ] Media metadata forwarding
-- [ ] Config echo on settings change
-- [ ] Mic start/stop signals
+- [x] JSON line messages for all control communication
+- [x] Hello handshake with capabilities exchange
+- [x] Phone connected/disconnected events
+- [x] Audio start/stop per purpose
+- [x] Nav state forwarding
+- [x] Media metadata forwarding
+- [x] Config echo on settings change
+- [x] Mic start/stop signals
 
 **Video Channel (Port 5290) → 16-byte Header**
-- [ ] OAL 16-byte header: payload_length, width, height, pts_ms, flags
-- [ ] Flags: keyframe bit, codec config bit, EOS bit
-- [ ] First frame must be codec config (SPS/PPS)
-- [ ] Fix carry-forward #1: don't queue video until app is connected
-- [ ] Fix carry-forward #4: bypass IDR rate limit on first keyframe after new app connection
+- [x] OAL 16-byte header: payload_length, width, height, pts_ms, flags
+- [x] Flags: keyframe bit, codec config bit, EOS bit
+- [x] First frame must be codec config (SPS/PPS)
+- [x] Fix carry-forward #1: don't queue video until app is connected
+- [x] Fix carry-forward #4: bypass IDR rate limit on first keyframe after new app connection
 
 **Audio Channel (Port 5289) → 8-byte Header**
-- [ ] OAL 8-byte header: direction, purpose, sample_rate, channels, length
-- [ ] Direction field (0=playback, 1=mic capture)
-- [ ] Purpose field for routing (media/nav/assistant/call/alert)
-- [ ] Bidirectional: bridge→app playback, app→bridge mic
+- [x] OAL 8-byte header: direction, purpose, sample_rate, channels, length
+- [x] Direction field (0=playback, 1=mic capture)
+- [x] Purpose field for routing (media/nav/assistant/call/alert)
+- [x] Bidirectional: bridge→app playback, app→bridge mic
 
 **Touch/Input Channel (via Control 5288)**
-- [ ] JSON touch events with action, coordinates, pointer array
-- [ ] GNSS NMEA forwarding
-- [ ] Vehicle data JSON
+- [x] JSON touch events with action, coordinates, pointer array
+- [x] GNSS NMEA forwarding
+- [x] Vehicle data JSON
 
-**Also resolves carry-forward issues:** #1 (video startup delay), #2 (fps — verify aasdk SDR config during migration), #4 (black screen after reconnect).
+**Also resolves carry-forward issues:** #1 (video startup delay — fixed), #2 (fps — verified SDR requests 60fps correctly), #4 (black screen after reconnect — fixed).
 
 ### B2: Bluetooth HFP + Auto-Connect
 
@@ -78,11 +78,26 @@ Replace CPC200 framing (16-byte magic headers, inverted checksums, heartbeat-gat
 
 Establish HFP profile so phone calls and voice assistant audio flow through the bridge.
 
-- [ ] Connect HFP profile after BT pairing (currently only BLE + RFCOMM ch8)
-- [ ] Capture SCO audio from HFP → forward as OAL PCM with call/assistant purpose
-- [ ] Forward mic PCM from app → BT SCO for phone call uplink
-- [ ] Fix carry-forward #3: deploy headunit.crt/key to `/opt/openautolink/cert/`
-- [ ] AA auto-connect via BT (phone discovers bridge, starts WiFi TCP automatically)
+- [x] Connect HFP profile after BT pairing (currently only BLE + RFCOMM ch8)
+- [x] Capture SCO audio from HFP → forward as OAL PCM with call/assistant purpose
+- [x] Forward mic PCM from app → BT SCO for phone call uplink
+- [x] Fix carry-forward #3: deploy headunit.crt/key to `/etc/aasdk/`
+- [x] AA auto-connect via BT (phone discovers bridge, starts WiFi TCP automatically)
+
+### B3: CPC200 Legacy Cleanup
+
+**Depends on:** B1, B2 (all OAL migration and HFP work complete)
+
+Full audit of the bridge codebase to remove any remaining CPC200/carlink_native artifacts. The bridge was carried forward from carlink_native — while major framing was replaced in B1, residual code patterns, unused helpers, dead config paths, or commented-out CPC200 logic may remain.
+
+- [x] Audit all `.cpp`/`.h` files for CPC200 references: magic bytes, inverted checksums, heartbeat logic, CPC200 header structs
+- [x] Remove dead code paths gated on CPC200 framing (unused branches, legacy frame builders/parsers)
+- [x] Remove any unused CPC200 helper functions, constants, or type definitions
+- [x] Clean up commented-out CPC200 code blocks — if it's not OAL, delete it
+- [x] Verify no CPC200 framing leaks into OAL protocol paths (regression check)
+- [x] Review CMakeLists.txt for unused source files or compile flags related to CPC200
+- [x] Update any remaining comments or documentation referencing CPC200 wire format
+- [x] Full build + test pass to confirm nothing broke
 
 ---
 
@@ -107,11 +122,11 @@ See [docs/architecture.md](architecture.md) for full component island breakdown 
 - [x] OAL audio frame parsing (8-byte header)
 - [x] Audio focus management (request/release/duck)
 - [x] Purpose routing (media/nav/assistant/call/alert)
-- [ ] Dual audio path support — all audio flows through the bridge via TCP: *(blocked by B1 + B2)*
-  - **AA session audio** (aasdk channels): media, navigation, alerts — decoded by aasdk, sent as PCM over OAL
-  - **BT HFP audio** (phone → SBC Bluetooth): phone calls, voice assistant — bridge captures SCO audio from HFP and forwards as PCM over OAL with call/assistant purpose
-- [ ] Detect active audio purpose and manage focus (e.g., duck media during call)
-- [ ] Handle call audio transitions: ring, in-call, call end
+- [x] Dual audio path support — all audio flows through the bridge via TCP: *(unblocked by B1 + B2)*
+  - **AA session audio** (aasdk channels): media, navigation, alerts — decoded by aasdk, sent as PCM over OAL *(B1 done — bridge sends OAL audio frames)*
+  - **BT HFP audio** (phone → SBC Bluetooth): phone calls, voice assistant — bridge captures SCO audio from HFP and forwards as PCM over OAL with call/assistant purpose *(B2 done — bridge has SCO↔OAL bridge)*
+- [x] Detect active audio purpose and manage focus (e.g., duck media during call)
+- [x] Handle call audio transitions: ring, in-call, call end
 
 ### M4: Touch + Input
 - [x] Touch forwarding with coordinate scaling
@@ -122,14 +137,14 @@ See [docs/architecture.md](architecture.md) for full component island breakdown 
 - [x] Timer-based mic capture from car's mic (via AAOS AudioRecord)
 - [x] Send on audio channel (direction=1)
 - [x] Mic source preference: car mic (default) or phone mic, toggled in Settings
-- [ ] Bridge mic_start/mic_stop control messages *(blocked by B1)*
-- [ ] Coordinate mic routing: bridge forwards mic PCM to aasdk for AA voice, and to BT SCO for phone calls *(blocked by B2)*
+- [x] Bridge mic_start/mic_stop control messages *(unblocked by B1)*
+- [x] Coordinate mic routing: bridge forwards mic PCM to aasdk for AA voice, and to BT SCO for phone calls *(unblocked by B2 — bridge routes by purpose)*
 
 ### M6: Settings + Config
 - [x] DataStore preferences (codec, resolution, fps, display mode) — basic prefs done in M1, display mode added with M2
 - [x] Settings Compose UI — bridge host/port, display mode selector
-- [ ] Config sync: app → bridge → echo *(blocked by B1)*
-- [ ] Bridge discovery (mDNS + manual IP)
+- [x] Config sync: app → bridge → echo *(unblocked by B1)*
+- [x] Bridge discovery (mDNS + manual IP)
 
 ### M6b: Self-Update via GitHub Pages
 
@@ -143,7 +158,7 @@ Enable OTA-style self-updating so new builds can be deployed without AAB/Play St
 - [x] DataStore preference: update manifest URL
 - [x] Settings UPDATES tab: toggle, URL field, Check Now button, download progress, changelog display
 - [x] Graceful failure if AAOS blocks `REQUEST_INSTALL_PACKAGES` (show user-friendly error)
-- [ ] ProGuard keep rules for serialization of `UpdateManifest`
+- [x] ProGuard keep rules for serialization of `UpdateManifest` — existing wildcard rules already cover all `@Serializable` classes
 - [ ] Verify on car: can AAOS install APKs from non-system sources?
 
 ### M7: Vehicle Integration
@@ -152,15 +167,29 @@ Enable OTA-style self-updating so new builds can be deployed without AAB/Play St
 - [x] Navigation state display + maneuver icons
 
 ### M8: Cluster Display
-- [ ] Cluster service for navigation: turn-by-turn maneuver icons, distance, road names
-- [ ] Cluster service for media: album artwork, track info from Spotify/Apple Music/etc.
+- [ ] Cluster `CarAppService` + `ClusterMainSession` (GM path: `NavigationManager.updateTrip()` relay)
+- [ ] `CarlinkClusterSession` fallback (standard AAOS path: direct `NavigationTemplate` rendering)
+- [ ] Cluster navigation: `Maneuver.TYPE_*` enums + distance + road name via `Trip` builder
+- [ ] `MediaBrowserService` + `MediaSession` for cluster media: album artwork, track info
+- [ ] Bridge → app: `album_art_base64` field in `media_metadata` control message
+- [ ] `ClusterIconShimProvider` for Templates Host icon caching (GM-specific workaround)
 - [ ] Handle GM restrictions (third-party cluster services may be killed — detect and recover)
 - [ ] Fallback rendering if cluster service is blocked
+- [ ] `ClusterBindingState` tracking + auto-relaunch after teardown
+
+**Deferred — M8b: Full-Featured Nav Icons**
+- [ ] Bridge: configure aasdk `NavigationStatusService` with `InstrumentClusterType::IMAGE` (currently uses `ENUM`) + set `image_options` (width, height, colour_depth_bits)
+- [ ] Bridge: handle `NavigationState` proto (newer API) in addition to legacy `NavigationNextTurnEvent`/`NavigationNextTurnDistanceEvent` — the `NavigationState` proto carries `NavigationManeuver` with richer type enum (42 types vs legacy's 20)
+- [ ] Bridge: forward maneuver icon PNG bytes from aasdk to app via new `nav_image_base64` field in `nav_state` control message (or dedicated binary message on control channel)
+- [ ] App: when `nav_image_base64` present, use `Maneuver.TYPE_UNKNOWN` + `CarIcon.Builder(IconCompat.createWithBitmap(...))` — AA icon is source of truth (pre-rendered by Google Maps with exact angle/lane data)
+- [ ] App: fall back to `Maneuver.TYPE_*` enum mapping when no image available (CarPlay path, or older bridge)
+- [ ] Consider bundling VectorDrawable icon set (54 drawables, `cp_maneuver_00` through `cp_maneuver_53`) as CarPlay/offline fallback — reference: `carlink_native` `ManeuverIconRenderer.kt`
+- [ ] Reference commits: `carlink_native` `7e20b7a` (AA Nav Icon Use), `9ccd3ff` (AA Cluster Test), `1a17840` (AA Album Art Fix)
 
 ### M9: Steering Wheel Controls
-- [ ] Media button mapping: skip forward, skip back, play/pause via `KeyEvent` interception
-- [ ] Volume controls via `AudioManager` or `KeyEvent`
-- [ ] Voice button interception: intercept the AAOS voice/assistant `KeyEvent` (currently launches Google Assistant) and forward as AA voice trigger to activate Gemini on the phone
+- [x] Media button mapping: skip forward, skip back, play/pause via `KeyEvent` interception
+- [x] Volume controls via `AudioManager` or `KeyEvent`
+- [x] Voice button interception: intercept the AAOS voice/assistant `KeyEvent` (currently launches Google Assistant) and forward as AA voice trigger to activate Gemini on the phone
 - [ ] Investigate `KEYCODE_VOICE_ASSIST` / `KEYCODE_SEARCH` interception feasibility on GM AAOS (may require accessibility service or input method)
 
 ### M10: Polish

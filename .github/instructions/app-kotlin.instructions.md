@@ -10,9 +10,9 @@ When implementing or modifying any app code that communicates with the bridge (t
 2. **Check for protocol mismatches.** The bridge may still use CPC200 framing while docs describe OAL. The app must match what the bridge actually outputs, OR the bridge must be updated first.
 3. **It is OK to modify the bridge C++ code** if it improves the protocol, simplifies the app, or fixes bugs. The bridge was written for the old CPC200 app and has room for rewrites. However, check `docs/work-plan.md` "Bridge Protocol Migration" section first — there may be a planned migration path that should be followed rather than ad-hoc changes.
 4. **Key bridge files to reference:**
-   - `bridge/openautolink/headless/include/openautolink/cpc200.hpp` — current wire format
+   - `bridge/openautolink/headless/include/openautolink/oal_protocol.hpp` — OAL wire format
    - `bridge/openautolink/headless/include/openautolink/tcp_car_transport.hpp` — TCP transport
-   - `bridge/openautolink/headless/src/cpc_session.cpp` — video/audio frame building
+   - `bridge/openautolink/headless/src/oal_session.cpp` — OAL session, video/audio routing
    - `bridge/openautolink/headless/src/live_session.cpp` — aasdk handler, keyframe detection
    - `bridge/openautolink/headless/include/openautolink/headless_config.hpp` — config/ports
 
