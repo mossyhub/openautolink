@@ -1,0 +1,7 @@
+{
+  "latest_version_code": 1,
+  "latest_version_name": "0.1.0",
+  "apk_url": "https://github.com/mossyhub/openautolink/releases/download/v0.1.0/openautolink-v0.1.0.apk",
+  "changelog": "Initial release with self-update support",
+  "min_android_sdk": 32
+}
