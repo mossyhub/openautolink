@@ -17,8 +17,6 @@
 
 > **Fair warning:** This is a free, hobby project that is very much under active development. It might work great, it might not work at all. My goal is to eventually make it stable and production-quality, but it's not there yet — and honestly, it may never be. I'm building this because it's fun and because I want Android Auto back in my car. If that sounds like your kind of adventure, give it a try.
 
-Wireless Android Auto for GM AAOS vehicles that lack native Android Auto support.
-
 > **What about CarPlay?** Right now this is Android Auto only — my daily driver is an Android phone, so that's where the focus is. CarPlay support is something I'd like to explore once I'm happy enough with the AA experience. I have a modern iPhone to test with when the time comes, but no promises or timeline. I am only taking a somewhat educated guess that this will even be possible.
 
 Starting with the 2024 model year, GM dropped Apple CarPlay and Android Auto from their electric vehicles (Blazer EV, Equinox EV, Silverado EV, Lyriq, etc.) in favor of Google built-in infotainment. GM has indicated this will expand to all GM vehicles in the 2025-2026+ timeframe. **OpenAutoLink brings Android Auto back** to these vehicles by bridging a phone's AA session to the car's AAOS head unit over the network — no USB adapter hardware needed.
