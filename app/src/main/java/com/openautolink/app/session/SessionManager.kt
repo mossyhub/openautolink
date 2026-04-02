@@ -251,6 +251,18 @@ class SessionManager(
                 }
             }
 
+            // Forward config updates from settings to bridge
+            launch {
+                com.openautolink.app.transport.ConfigUpdateSender.configUpdates.collect { config ->
+                    if (connectionManager.connectionState.value != ConnectionState.DISCONNECTED) {
+                        connectionManager.sendControlMessage(
+                            ControlMessage.ConfigUpdate(config)
+                        )
+                        Log.i(TAG, "Sent config_update to bridge: $config")
+                    }
+                }
+            }
+
             // Watch for decoder errors — auto-reset codec and request keyframe
             decoderWatchJob?.cancel()
             decoderWatchJob = launch {

@@ -45,6 +45,26 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val HIDE_AA_CLOCK = booleanPreferencesKey("hide_aa_clock")
         val SEND_IMU_SENSORS = booleanPreferencesKey("send_imu_sensors")
 
+        // Bridge config — AA stream settings (sent to bridge via config_update)
+        val AA_RESOLUTION = stringPreferencesKey("aa_resolution")
+        val AA_DPI = intPreferencesKey("aa_dpi")
+        val PHONE_MODE = stringPreferencesKey("phone_mode")
+        val WIFI_BAND = stringPreferencesKey("wifi_band")
+        val WIFI_COUNTRY = stringPreferencesKey("wifi_country")
+        val WIFI_SSID = stringPreferencesKey("wifi_ssid")
+        val WIFI_PASSWORD = stringPreferencesKey("wifi_password")
+        val HEAD_UNIT_NAME = stringPreferencesKey("head_unit_name")
+        val BT_MAC = stringPreferencesKey("bt_mac")
+
+        // App-side settings
+        val DRIVE_SIDE = stringPreferencesKey("drive_side")
+        val GPS_FORWARDING = booleanPreferencesKey("gps_forwarding")
+        val CLUSTER_NAVIGATION = booleanPreferencesKey("cluster_navigation")
+        val AUDIO_SOURCE = stringPreferencesKey("audio_source")
+        val CALL_QUALITY = stringPreferencesKey("call_quality")
+        val OVERLAY_SETTINGS_BUTTON = booleanPreferencesKey("overlay_settings_button")
+        val OVERLAY_STATS_BUTTON = booleanPreferencesKey("overlay_stats_button")
+
         const val DEFAULT_BRIDGE_HOST = "192.168.0.100"
         const val DEFAULT_BRIDGE_PORT = 5288
         const val DEFAULT_VIDEO_CODEC = "h264"
@@ -59,6 +79,22 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_SYNC_AA_THEME = true
         const val DEFAULT_HIDE_AA_CLOCK = true
         const val DEFAULT_SEND_IMU_SENSORS = true
+        const val DEFAULT_AA_RESOLUTION = "1080p"
+        const val DEFAULT_AA_DPI = 160
+        const val DEFAULT_PHONE_MODE = "wireless"
+        const val DEFAULT_WIFI_BAND = "5ghz"
+        const val DEFAULT_WIFI_COUNTRY = "US"
+        const val DEFAULT_WIFI_SSID = ""
+        const val DEFAULT_WIFI_PASSWORD = ""
+        const val DEFAULT_HEAD_UNIT_NAME = "OpenAutoLink"
+        const val DEFAULT_BT_MAC = ""
+        const val DEFAULT_DRIVE_SIDE = "left"
+        const val DEFAULT_GPS_FORWARDING = false
+        const val DEFAULT_CLUSTER_NAVIGATION = false
+        const val DEFAULT_AUDIO_SOURCE = "bridge"
+        const val DEFAULT_CALL_QUALITY = "hd"
+        const val DEFAULT_OVERLAY_SETTINGS_BUTTON = true
+        const val DEFAULT_OVERLAY_STATS_BUTTON = true
     }
 
     val bridgeHost: Flow<String> = dataStore.data.map { prefs ->
@@ -117,6 +153,70 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         prefs[SEND_IMU_SENSORS] ?: DEFAULT_SEND_IMU_SENSORS
     }
 
+    val aaResolution: Flow<String> = dataStore.data.map { prefs ->
+        prefs[AA_RESOLUTION] ?: DEFAULT_AA_RESOLUTION
+    }
+
+    val aaDpi: Flow<Int> = dataStore.data.map { prefs ->
+        prefs[AA_DPI] ?: DEFAULT_AA_DPI
+    }
+
+    val phoneMode: Flow<String> = dataStore.data.map { prefs ->
+        prefs[PHONE_MODE] ?: DEFAULT_PHONE_MODE
+    }
+
+    val wifiBand: Flow<String> = dataStore.data.map { prefs ->
+        prefs[WIFI_BAND] ?: DEFAULT_WIFI_BAND
+    }
+
+    val wifiCountry: Flow<String> = dataStore.data.map { prefs ->
+        prefs[WIFI_COUNTRY] ?: DEFAULT_WIFI_COUNTRY
+    }
+
+    val wifiSsid: Flow<String> = dataStore.data.map { prefs ->
+        prefs[WIFI_SSID] ?: DEFAULT_WIFI_SSID
+    }
+
+    val wifiPassword: Flow<String> = dataStore.data.map { prefs ->
+        prefs[WIFI_PASSWORD] ?: DEFAULT_WIFI_PASSWORD
+    }
+
+    val headUnitName: Flow<String> = dataStore.data.map { prefs ->
+        prefs[HEAD_UNIT_NAME] ?: DEFAULT_HEAD_UNIT_NAME
+    }
+
+    val btMac: Flow<String> = dataStore.data.map { prefs ->
+        prefs[BT_MAC] ?: DEFAULT_BT_MAC
+    }
+
+    val driveSide: Flow<String> = dataStore.data.map { prefs ->
+        prefs[DRIVE_SIDE] ?: DEFAULT_DRIVE_SIDE
+    }
+
+    val gpsForwarding: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[GPS_FORWARDING] ?: DEFAULT_GPS_FORWARDING
+    }
+
+    val clusterNavigation: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[CLUSTER_NAVIGATION] ?: DEFAULT_CLUSTER_NAVIGATION
+    }
+
+    val audioSource: Flow<String> = dataStore.data.map { prefs ->
+        prefs[AUDIO_SOURCE] ?: DEFAULT_AUDIO_SOURCE
+    }
+
+    val callQuality: Flow<String> = dataStore.data.map { prefs ->
+        prefs[CALL_QUALITY] ?: DEFAULT_CALL_QUALITY
+    }
+
+    val overlaySettingsButton: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[OVERLAY_SETTINGS_BUTTON] ?: DEFAULT_OVERLAY_SETTINGS_BUTTON
+    }
+
+    val overlayStatsButton: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[OVERLAY_STATS_BUTTON] ?: DEFAULT_OVERLAY_STATS_BUTTON
+    }
+
     suspend fun setBridgeHost(host: String) {
         dataStore.edit { it[BRIDGE_HOST] = host }
     }
@@ -171,5 +271,69 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setSendImuSensors(enabled: Boolean) {
         dataStore.edit { it[SEND_IMU_SENSORS] = enabled }
+    }
+
+    suspend fun setAaResolution(resolution: String) {
+        dataStore.edit { it[AA_RESOLUTION] = resolution }
+    }
+
+    suspend fun setAaDpi(dpi: Int) {
+        dataStore.edit { it[AA_DPI] = dpi }
+    }
+
+    suspend fun setPhoneMode(mode: String) {
+        dataStore.edit { it[PHONE_MODE] = mode }
+    }
+
+    suspend fun setWifiBand(band: String) {
+        dataStore.edit { it[WIFI_BAND] = band }
+    }
+
+    suspend fun setWifiCountry(country: String) {
+        dataStore.edit { it[WIFI_COUNTRY] = country }
+    }
+
+    suspend fun setWifiSsid(ssid: String) {
+        dataStore.edit { it[WIFI_SSID] = ssid }
+    }
+
+    suspend fun setWifiPassword(password: String) {
+        dataStore.edit { it[WIFI_PASSWORD] = password }
+    }
+
+    suspend fun setHeadUnitName(name: String) {
+        dataStore.edit { it[HEAD_UNIT_NAME] = name }
+    }
+
+    suspend fun setBtMac(mac: String) {
+        dataStore.edit { it[BT_MAC] = mac }
+    }
+
+    suspend fun setDriveSide(side: String) {
+        dataStore.edit { it[DRIVE_SIDE] = side }
+    }
+
+    suspend fun setGpsForwarding(enabled: Boolean) {
+        dataStore.edit { it[GPS_FORWARDING] = enabled }
+    }
+
+    suspend fun setClusterNavigation(enabled: Boolean) {
+        dataStore.edit { it[CLUSTER_NAVIGATION] = enabled }
+    }
+
+    suspend fun setAudioSource(source: String) {
+        dataStore.edit { it[AUDIO_SOURCE] = source }
+    }
+
+    suspend fun setCallQuality(quality: String) {
+        dataStore.edit { it[CALL_QUALITY] = quality }
+    }
+
+    suspend fun setOverlaySettingsButton(visible: Boolean) {
+        dataStore.edit { it[OVERLAY_SETTINGS_BUTTON] = visible }
+    }
+
+    suspend fun setOverlayStatsButton(visible: Boolean) {
+        dataStore.edit { it[OVERLAY_STATS_BUTTON] = visible }
     }
 }

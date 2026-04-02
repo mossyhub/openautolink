@@ -25,9 +25,12 @@ import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.VideoSettings
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -59,6 +62,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -68,6 +73,7 @@ private enum class SettingsTab(
     val icon: ImageVector,
 ) {
     CONNECTION("Connection", Icons.Default.Router),
+    BRIDGE("Bridge", Icons.Default.SettingsRemote),
     DISPLAY("Display", Icons.Default.DisplaySettings),
     VIDEO("Video", Icons.Default.VideoSettings),
     AUDIO("Audio", Icons.Default.Mic),
@@ -177,8 +183,9 @@ fun SettingsScreen(
             ) {
                 when (selectedTab) {
                     SettingsTab.CONNECTION -> ConnectionTab(viewModel, uiState)
+                    SettingsTab.BRIDGE -> BridgeTab(viewModel, uiState)
                     SettingsTab.DISPLAY -> DisplayTab(viewModel, uiState)
-                    SettingsTab.VIDEO -> VideoTab(uiState)
+                    SettingsTab.VIDEO -> VideoTab(viewModel, uiState)
                     SettingsTab.AUDIO -> AudioTab(viewModel, uiState)
                     SettingsTab.UPDATES -> UpdatesTab(viewModel, uiState, updateStatus)
                     SettingsTab.DIAGNOSTICS -> DiagnosticsSettingsTab(
@@ -554,29 +561,452 @@ private fun DisplayTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Drive Side ---
+        SectionHeader("Drive Side")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Select your driving side. Affects Android Auto UI layout.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        listOf("left" to "Left-Hand Drive (LHD)", "right" to "Right-Hand Drive (RHD)").forEach { (key, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .clickable { viewModel.updateDriveSide(key) }
+                    .padding(vertical = 10.dp)
+                    .testTag("driveSide_$key"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.driveSide == key,
+                    onClick = { viewModel.updateDriveSide(key) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (uiState.driveSide == key) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Features ---
+        SectionHeader("Features")
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // GPS Forwarding
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "GPS Forwarding",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Forward vehicle GPS to Android Auto for navigation.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = uiState.gpsForwarding,
+                onCheckedChange = { viewModel.updateGpsForwarding(it) },
+                modifier = Modifier.testTag("gpsForwardingToggle"),
+            )
+        }
+
+        // Cluster Navigation
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Cluster Navigation",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Show turn-by-turn directions on the instrument cluster.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = uiState.clusterNavigation,
+                onCheckedChange = { viewModel.updateClusterNavigation(it) },
+                modifier = Modifier.testTag("clusterNavigationToggle"),
+            )
+        }
+
+        // IMU Sensors
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Send IMU Sensors",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Send accelerometer, gyroscope, and compass data to the bridge.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = uiState.sendImuSensors,
+                onCheckedChange = { viewModel.updateSendImuSensors(it) },
+                modifier = Modifier.testTag("sendImuSensorsToggle"),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Overlay Buttons ---
+        SectionHeader("Overlay Buttons")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Show or hide floating overlay buttons during streaming.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Settings Button",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Floating gear icon to access settings during projection.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = uiState.overlaySettingsButton,
+                onCheckedChange = { viewModel.updateOverlaySettingsButton(it) },
+                modifier = Modifier.testTag("overlaySettingsToggle"),
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Stats Button",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Floating button to toggle performance stats overlay.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = uiState.overlayStatsButton,
+                onCheckedChange = { viewModel.updateOverlayStatsButton(it) },
+                modifier = Modifier.testTag("overlayStatsToggle"),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- AA UI Customization ---
+        SectionHeader("Android Auto UI")
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Sync AA Theme",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Sync Android Auto day/night theme with the car.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = uiState.syncAaTheme,
+                onCheckedChange = { viewModel.updateSyncAaTheme(it) },
+                modifier = Modifier.testTag("syncAaThemeToggle"),
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Hide AA Clock",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Hide Android Auto's clock (AAOS has its own).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = uiState.hideAaClock,
+                onCheckedChange = { viewModel.updateHideAaClock(it) },
+                modifier = Modifier.testTag("hideAaClockToggle"),
+            )
+        }
     }
 }
 
 @Composable
-private fun VideoTab(uiState: SettingsUiState) {
+private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        SectionHeader("Video Settings")
+        SectionHeader("Video Codec")
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
-        SettingRow("Codec", uiState.videoCodec.uppercase())
-        SettingRow("Target FPS", uiState.videoFps.toString())
+        Text(
+            text = "Video codec the phone uses to encode the AA stream. " +
+                    "H.264 is the safest choice. H.265 and VP9 support varies by phone.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        listOf(
+            "h264" to "H.264 (Recommended)",
+            "h265" to "H.265 / HEVC",
+            "vp9" to "VP9",
+        ).forEach { (key, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .clickable { viewModel.updateVideoCodec(key) }
+                    .padding(vertical = 10.dp)
+                    .testTag("videoCodec_$key"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.videoCodec == key,
+                    onClick = { viewModel.updateVideoCodec(key) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (uiState.videoCodec == key) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Frame Rate ---
+        SectionHeader("Frame Rate")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Video frame rate the phone encodes at. Most phones support 60 FPS at 1080p.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        listOf(30 to "30 FPS", 60 to "60 FPS").forEach { (fps, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .clickable { viewModel.updateVideoFps(fps) }
+                    .padding(vertical = 10.dp)
+                    .testTag("videoFps_$fps"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.videoFps == fps,
+                    onClick = { viewModel.updateVideoFps(fps) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (uiState.videoFps == fps) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Resolution Tier ---
+        SectionHeader("AA Resolution")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Resolution tier the phone encodes at. Higher = better quality, more bandwidth. " +
+                    "Resolutions above 1080p are in the AA spec but may not be supported by your phone.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        listOf(
+            "480p" to "480p (800×480)",
+            "720p" to "720p (1280×720)",
+            "1080p" to "1080p (1920×1080)",
+            "1440p" to "1440p (2560×1440)",
+            "4k" to "4K (3840×2160)",
+        ).forEach { (key, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .clickable { viewModel.updateAaResolution(key) }
+                    .padding(vertical = 10.dp)
+                    .testTag("aaResolution_$key"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.aaResolution == key,
+                    onClick = { viewModel.updateAaResolution(key) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (uiState.aaResolution == key) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- DPI ---
+        SectionHeader("AA Display Density (DPI)")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Controls how Android Auto lays out its UI. " +
+                    "Lower = more content visible, smaller controls. " +
+                    "Higher = bigger controls, less content.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        listOf(
+            120 to "120 — Ultra-wide, tiny controls",
+            160 to "160 — Standard (Recommended)",
+            200 to "200 — Compact, larger controls",
+            240 to "240 — Large, phone-like layout",
+        ).forEach { (dpi, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .clickable { viewModel.updateAaDpi(dpi) }
+                    .padding(vertical = 10.dp)
+                    .testTag("aaDpi_$dpi"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.aaDpi == dpi,
+                    onClick = { viewModel.updateAaDpi(dpi) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (uiState.aaDpi == dpi) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Codec and FPS selection will be configurable " +
-                    "once bridge config sync is implemented.",
-            style = MaterialTheme.typography.bodyMedium,
+            text = "Changes to video settings require an AA session restart. " +
+                    "The bridge will reconnect the phone with the new configuration.",
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -589,6 +1019,54 @@ private fun AudioTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        // --- Audio Source ---
+        SectionHeader("Audio Source")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "How audio from Android Auto reaches the head unit.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        audioSourceOptions.forEach { option ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .clickable { viewModel.updateAudioSource(option.key) }
+                    .padding(vertical = 10.dp)
+                    .testTag("audioSource_${option.key}"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.audioSource == option.key,
+                    onClick = { viewModel.updateAudioSource(option.key) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = option.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (uiState.audioSource == option.key) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                    Text(
+                        text = option.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Microphone Source ---
         SectionHeader("Microphone Source")
 
         Spacer(modifier = Modifier.height(4.dp))
@@ -629,6 +1107,53 @@ private fun AudioTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Call Quality ---
+        SectionHeader("Call Quality")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Audio quality for phone calls via Android Auto.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        callQualityOptions.forEach { option ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .clickable { viewModel.updateCallQuality(option.key) }
+                    .padding(vertical = 10.dp)
+                    .testTag("callQuality_${option.key}"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.callQuality == option.key,
+                    onClick = { viewModel.updateCallQuality(option.key) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = option.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (uiState.callQuality == option.key) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                    Text(
+                        text = option.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -651,6 +1176,37 @@ private val micSourceOptions = listOf(
     ),
 )
 
+private data class AudioSourceOption(
+    val key: String,
+    val label: String,
+    val description: String,
+)
+
+private val audioSourceOptions = listOf(
+    AudioSourceOption(
+        "bridge",
+        "Bridge (TCP)",
+        "Audio streams over TCP from the bridge. Recommended for OpenAutoLink."
+    ),
+    AudioSourceOption(
+        "bluetooth",
+        "Bluetooth",
+        "Audio via Bluetooth A2DP. Use if the bridge doesn't handle audio."
+    ),
+)
+
+private data class CallQualityOption(
+    val key: String,
+    val label: String,
+    val description: String,
+)
+
+private val callQualityOptions = listOf(
+    CallQualityOption("normal", "Normal", "Standard call audio quality."),
+    CallQualityOption("clear", "Clear", "Enhanced clarity for calls."),
+    CallQualityOption("hd", "HD", "Highest quality. Default."),
+)
+
 @Composable
 private fun SettingRow(label: String, value: String) {
     Row(
@@ -669,6 +1225,272 @@ private fun SettingRow(label: String, value: String) {
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+private fun BridgeTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        // --- Phone Connection ---
+        SectionHeader("Phone Connection")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "How the phone connects to the bridge.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        listOf(
+            "wireless" to "Wireless" to "Phone connects via WiFi (needs WiFi module on SBC).",
+            "usb" to "USB Wired" to "Phone plugs into SBC USB host port.",
+        ).forEach { (pair, desc) ->
+            val (key, label) = pair
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .clickable { viewModel.updatePhoneMode(key) }
+                    .padding(vertical = 10.dp)
+                    .testTag("phoneMode_$key"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.phoneMode == key,
+                    onClick = { viewModel.updatePhoneMode(key) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (uiState.phoneMode == key) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                    Text(
+                        text = desc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        // --- Wireless Settings (only when wireless mode) ---
+        if (uiState.phoneMode == "wireless") {
+            Spacer(modifier = Modifier.height(24.dp))
+
+            HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            SectionHeader("Wireless Settings")
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "WiFi hotspot configuration on the bridge. " +
+                        "The phone connects to this network for Android Auto.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // WiFi Band
+            Text(
+                text = "WiFi Band",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+
+            listOf("5ghz" to "5 GHz (Lower latency)", "24ghz" to "2.4 GHz (Better range)").forEach { (key, label) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(0.7f)
+                        .clickable { viewModel.updateWifiBand(key) }
+                        .padding(vertical = 6.dp)
+                        .testTag("wifiBand_$key"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = uiState.wifiBand == key,
+                        onClick = { viewModel.updateWifiBand(key) }
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (uiState.wifiBand == key) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Country Code
+            var countryInput by remember(uiState.wifiCountry) {
+                mutableStateOf(uiState.wifiCountry)
+            }
+            OutlinedTextField(
+                value = countryInput,
+                onValueChange = {
+                    val filtered = it.uppercase().take(2)
+                    countryInput = filtered
+                    if (filtered.length == 2) viewModel.updateWifiCountry(filtered)
+                },
+                label = { Text("Country Code") },
+                placeholder = { Text("US") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth(0.3f)
+                    .testTag("wifiCountryInput"),
+            )
+
+            Text(
+                text = "2-letter country code for WiFi regulatory domain (e.g., US, GB, DE).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // WiFi SSID
+            var ssidInput by remember(uiState.wifiSsid) {
+                mutableStateOf(uiState.wifiSsid)
+            }
+            OutlinedTextField(
+                value = ssidInput,
+                onValueChange = {
+                    ssidInput = it
+                    viewModel.updateWifiSsid(it)
+                },
+                label = { Text("WiFi Name (SSID)") },
+                placeholder = { Text("Auto-generated from MAC if empty") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth(0.5f)
+                    .testTag("wifiSsidInput"),
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // WiFi Password
+            var passwordInput by remember(uiState.wifiPassword) {
+                mutableStateOf(uiState.wifiPassword)
+            }
+            var passwordVisible by remember { mutableStateOf(false) }
+            OutlinedTextField(
+                value = passwordInput,
+                onValueChange = {
+                    passwordInput = it
+                    viewModel.updateWifiPassword(it)
+                },
+                label = { Text("WiFi Password") },
+                placeholder = { Text("Auto-generated if empty") },
+                singleLine = true,
+                visualTransformation = if (passwordVisible) VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                trailingIcon = {
+                    FilledTonalIconButton(
+                        onClick = { passwordVisible = !passwordVisible },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (passwordVisible) Icons.Default.VisibilityOff
+                                else Icons.Default.Visibility,
+                            contentDescription = if (passwordVisible) "Hide" else "Show",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth(0.5f)
+                    .testTag("wifiPasswordInput"),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Identity ---
+        SectionHeader("Identity")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "How the bridge identifies itself during Android Auto pairing.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        var headUnitInput by remember(uiState.headUnitName) {
+            mutableStateOf(uiState.headUnitName)
+        }
+        OutlinedTextField(
+            value = headUnitInput,
+            onValueChange = {
+                headUnitInput = it
+                viewModel.updateHeadUnitName(it)
+            },
+            label = { Text("Head Unit Name") },
+            placeholder = { Text("OpenAutoLink") },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth(0.5f)
+                .testTag("headUnitNameInput"),
+        )
+
+        Text(
+            text = "Display name shown to the phone during Android Auto pairing.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        var btMacInput by remember(uiState.btMac) {
+            mutableStateOf(uiState.btMac)
+        }
+        OutlinedTextField(
+            value = btMacInput,
+            onValueChange = {
+                btMacInput = it.uppercase()
+                viewModel.updateBtMac(it.uppercase())
+            },
+            label = { Text("Bluetooth MAC Override") },
+            placeholder = { Text("XX:XX:XX:XX:XX:XX (empty = auto-detect)") },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth(0.5f)
+                .testTag("btMacInput"),
+        )
+
+        Text(
+            text = "Manual Bluetooth MAC address override. Leave empty for auto-detection. " +
+                    "Set this if auto-detect fails on your SBC.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "Bridge settings are sent to the SBC and may require a session restart to take effect.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

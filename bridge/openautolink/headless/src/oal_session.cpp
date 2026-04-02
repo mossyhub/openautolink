@@ -354,7 +354,11 @@ void OalSession::send_config_echo() {
         << R"(","video_width":)" << config_.video_width
         << R"(,"video_height":)" << config_.video_height
         << R"(,"video_fps":)" << config_.video_fps
-        << R"(,"aa_resolution":")" << res_name << R"("})";
+        << R"(,"video_dpi":)" << config_.video_dpi
+        << R"(,"aa_resolution":")" << res_name
+        << R"(","drive_side":")" << (config_.left_hand_drive ? "left" : "right")
+        << R"(","head_unit_name":")" << oal_json_escape(config_.head_unit_name)
+        << R"("})";
     send_control_line(oss.str());
     std::cerr << "[OAL] config echo sent" << std::endl;
 }
@@ -584,6 +588,7 @@ void OalSession::handle_vehicle_data(const std::string& json) {
 
 void OalSession::handle_config_update(const std::string& json) {
     bool config_changed = false;
+    bool infra_changed = false;  // WiFi/BT/identity changes (don't restart AA session)
 
     std::string codec = oal_json_extract_string(json, "video_codec");
     if (!codec.empty()) {
@@ -617,27 +622,95 @@ void OalSession::handle_config_update(const std::string& json) {
         }
     }
 
-    if (config_changed) {
+    int dpi = 0;
+    if (oal_json_extract_int(json, "aa_dpi", dpi) && dpi > 0 && dpi != config_.video_dpi) {
+        config_.video_dpi = dpi;
+        config_changed = true;
+    }
+
+    std::string drive_side = oal_json_extract_string(json, "drive_side");
+    if (!drive_side.empty()) {
+        bool lhd = (drive_side == "left");
+        if (lhd != config_.left_hand_drive) {
+            config_.left_hand_drive = lhd;
+            config_changed = true;
+        }
+    }
+
+    std::string head_unit = oal_json_extract_string(json, "head_unit_name");
+    if (!head_unit.empty() && head_unit != config_.head_unit_name) {
+        config_.head_unit_name = head_unit;
+        infra_changed = true;
+    }
+
+    std::string bt_mac_val = oal_json_extract_string(json, "bt_mac");
+    if (!bt_mac_val.empty() && bt_mac_val != config_.bt_mac) {
+        config_.bt_mac = bt_mac_val;
+        infra_changed = true;
+    }
+
+    std::string phone_mode = oal_json_extract_string(json, "phone_mode");
+    std::string wifi_band = oal_json_extract_string(json, "wifi_band");
+    std::string wifi_country = oal_json_extract_string(json, "wifi_country");
+    std::string wifi_ssid = oal_json_extract_string(json, "wifi_ssid");
+    std::string wifi_password = oal_json_extract_string(json, "wifi_password");
+
+    if (!phone_mode.empty() || !wifi_band.empty() || !wifi_country.empty() ||
+        !wifi_ssid.empty() || !wifi_password.empty() || !head_unit.empty() || !bt_mac_val.empty()) {
+        infra_changed = true;
+    }
+
+    // Helper: sanitize a value for safe use in sed commands (strip shell-dangerous chars)
+    auto sanitize = [](const std::string& val) -> std::string {
+        std::string safe;
+        for (char c : val) {
+            if (c != '\'' && c != '"' && c != '\\' && c != '`' && c != '$' &&
+                c != '!' && c != ';' && c != '|' && c != '&' && c != '\n' && c != '\r') {
+                safe += c;
+            }
+        }
+        return safe;
+    };
+
+    if (config_changed || infra_changed) {
         std::cerr << "[OAL] config updated from app" << std::endl;
 
         // Persist to env file
         std::string env_update;
         if (!codec.empty())
-            env_update += "sed -i 's/^OAL_AA_CODEC=.*/OAL_AA_CODEC=" + codec + "/' /etc/openautolink.env 2>/dev/null\n";
+            env_update += "sed -i 's/^OAL_AA_CODEC=.*/OAL_AA_CODEC=" + sanitize(codec) + "/' /etc/openautolink.env 2>/dev/null\n";
         if (fps > 0)
             env_update += "sed -i 's/^OAL_AA_FPS=.*/OAL_AA_FPS=" + std::to_string(fps) + "/' /etc/openautolink.env 2>/dev/null\n";
         if (!aa_res.empty())
-            env_update += "sed -i 's/^OAL_AA_RESOLUTION=.*/OAL_AA_RESOLUTION=" + aa_res + "/' /etc/openautolink.env 2>/dev/null\n";
+            env_update += "sed -i 's/^OAL_AA_RESOLUTION=.*/OAL_AA_RESOLUTION=" + sanitize(aa_res) + "/' /etc/openautolink.env 2>/dev/null\n";
+        if (dpi > 0)
+            env_update += "sed -i 's/^OAL_AA_DPI=.*/OAL_AA_DPI=" + std::to_string(dpi) + "/' /etc/openautolink.env 2>/dev/null\n";
+        if (!phone_mode.empty())
+            env_update += "sed -i 's/^OAL_PHONE_MODE=.*/OAL_PHONE_MODE=" + sanitize(phone_mode) + "/' /etc/openautolink.env 2>/dev/null\n";
+        if (!wifi_band.empty())
+            env_update += "sed -i 's/^OAL_WIRELESS_BAND=.*/OAL_WIRELESS_BAND=" + sanitize(wifi_band) + "/' /etc/openautolink.env 2>/dev/null\n";
+        if (!wifi_country.empty())
+            env_update += "sed -i 's/^OAL_WIRELESS_COUNTRY=.*/OAL_WIRELESS_COUNTRY=" + sanitize(wifi_country) + "/' /etc/openautolink.env 2>/dev/null\n";
+        if (!wifi_ssid.empty())
+            env_update += "sed -i 's/^OAL_WIRELESS_SSID=.*/OAL_WIRELESS_SSID=" + sanitize(wifi_ssid) + "/' /etc/openautolink.env 2>/dev/null\n";
+        if (!wifi_password.empty())
+            env_update += "sed -i 's/^OAL_WIRELESS_PASSWORD=.*/OAL_WIRELESS_PASSWORD=" + sanitize(wifi_password) + "/' /etc/openautolink.env 2>/dev/null\n";
+        if (!head_unit.empty())
+            env_update += "sed -i 's/^OAL_HEAD_UNIT_NAME=.*/OAL_HEAD_UNIT_NAME=" + sanitize(head_unit) + "/' /etc/openautolink.env 2>/dev/null\n";
+        if (!bt_mac_val.empty())
+            env_update += "sed -i 's/^OAL_BT_MAC=.*/OAL_BT_MAC=" + sanitize(bt_mac_val) + "/' /etc/openautolink.env 2>/dev/null\n";
         if (!env_update.empty())
             system(env_update.c_str());
 
-        // Restart AA session with new config
+        // Only restart AA session for stream-affecting changes (codec, fps, resolution, dpi, drive side)
+        if (config_changed) {
 #ifdef PI_AA_ENABLE_AASDK_LIVE
-        if (aa_session_) {
-            aa_session_->restart_with_config(config_);
-            send_phone_disconnected("config_changed");
-        }
+            if (aa_session_) {
+                aa_session_->restart_with_config(config_);
+                send_phone_disconnected("config_changed");
+            }
 #endif
+        }
     }
 
     send_config_echo();
