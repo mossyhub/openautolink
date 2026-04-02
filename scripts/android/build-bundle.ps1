@@ -3,7 +3,8 @@ param(
     [string]$KeystorePath = '.\secrets\upload-key.jks',
     [string]$Alias = 'upload',
     [string]$Task = 'bundleRelease',
-    [string]$BuildScriptPath = (Join-Path $PSScriptRoot 'build-gradle.ps1')
+    [string]$BuildScriptPath = (Join-Path $PSScriptRoot 'build-gradle.ps1'),
+    [string[]]$AdditionalGradleArgs = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,7 +71,8 @@ try {
         -StoreFile $resolvedKeystorePath `
         -StorePassword $storePassword `
         -KeyAlias $Alias `
-        -KeyPassword $keyPassword
+        -KeyPassword $keyPassword `
+        -AdditionalGradleArgs $AdditionalGradleArgs
 }
 finally {
     $storePassword = $null

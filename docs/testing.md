@@ -381,7 +381,7 @@ In-car testing is harder than emulator testing but critical at key milestones �
 
 ```powershell
 # 1. Build signed AAB (prompts for keystore password)
-.\scripts\bundle-release-interactive.ps1
+.\scripts\bundle-release.ps1
 
 # 2. Upload to Play Console
 #    Play Console → OpenAutoLink → Testing → Internal testing → Create new release

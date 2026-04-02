@@ -74,7 +74,7 @@ Because this is an AAOS app (not a standard phone app), getting it onto your car
 
 5. **Build and sign the release AAB**:
    ```powershell
-   .\scripts\bundle-release-interactive.ps1
+   .\scripts\bundle-release.ps1
    ```
    The signed `.aab` will be in `app/build/outputs/bundle/release/`.
 

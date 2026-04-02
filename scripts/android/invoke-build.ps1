@@ -90,7 +90,7 @@ if (-not (Test-Path (Join-Path $resolvedProjectRoot 'gradlew.bat'))) {
 
 $selectedTask = Select-Task -CurrentTask $Task
 $buildScript = Join-Path $PSScriptRoot 'build-gradle.ps1'
-$bundleScript = Join-Path $PSScriptRoot 'build-bundle-interactive.ps1'
+$bundleScript = Join-Path $PSScriptRoot 'build-bundle.ps1'
 
 Write-Host "[invoke-build] Project root: $resolvedProjectRoot"
 Write-Host "[invoke-build] Task: $selectedTask"
