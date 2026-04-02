@@ -56,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/bridge/s
 
 ### App (AAOS Head Unit)
 
-Because this is an AAOS app (not a standard phone app), getting it onto your car requires publishing through the Google Play Console with an AAOS-specific release track. This is more involved than a typical Android app:
+Because this is an AAOS app (not a standard phone app), getting it onto your car requires publishing through the Google Play Console with an AAOS-specific release track. GM's AAOS head units have no known way to sideload APKs — ADB is locked down and there's no accessible install mechanism outside the Play Store. So the only path is publishing through a testing track on your own Play Console account. This is more involved than a typical Android app:
 
 1. **Create a [Google Play Console](https://play.google.com/console/) developer account** ($25 one-time fee)
 
