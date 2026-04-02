@@ -13,8 +13,8 @@
 - Full audio: media, navigation prompts, phone calls, voice assistant
 - Touch, steering wheel controls, and microphone input forwarded to the phone
 - Vehicle data (speed, gear, fuel/EV range, GPS, etc.) sent to Android Auto
-- Navigation turn-by-turn displayed on the instrument cluster
-- One-command SBC install, auto-reconnect on car startup, OTA app updates
+- Navigation turn-by-turn displayed on the instrument cluster *(experimental — GM may kill third-party cluster services)*
+- One-command SBC install, auto-reconnect on car startup, app updates via Play Store
 - Fully open-source — app, bridge, protocol, and deployment scripts
 
 > **Fair warning:** This is a free, hobby project that is very much under active development. It might work great, it might not work at all. Stated features may or may not actually work. My goal is to eventually make it stable and production-quality, but it's not there yet — and honestly, it may never be. I'm building this because it's fun and because I want Android Auto back in my car. If that sounds like your kind of adventure, give it a try.
@@ -23,7 +23,7 @@
 
 Starting with the 2024 model year, GM dropped Apple CarPlay and Android Auto from their electric vehicles (Blazer EV, Equinox EV, Silverado EV, Lyriq, etc.) in favor of Google built-in infotainment. GM has indicated this will expand to all GM vehicles in the 2025-2026+ timeframe. **OpenAutoLink brings Android Auto back** to these vehicles by bridging a phone's AA session to the car's AAOS head unit over the network — no USB adapter hardware needed.
 
-An SBC (Raspberry Pi CM5, Khadas VIM4, etc.) bridges your phone's Android Auto session to your car's display over WiFi + Ethernet. The car runs the OpenAutoLink app, the SBC runs the bridge.
+An SBC (Raspberry Pi 4/5, Khadas VIM4, etc.) bridges your phone's Android Auto session to your car's display over WiFi + Ethernet. The car runs the OpenAutoLink app, the SBC runs the bridge.
 
 ```
 Phone ──WiFi TCP:5277──▶ SBC Bridge ──Ethernet──▶ Car Head Unit App (AAOS)
@@ -33,6 +33,59 @@ Phone ──WiFi TCP:5277──▶ SBC Bridge ──Ethernet──▶ Car Head U
                               ├── Video   :5290 (binary frames)
                               └── Audio   :5289 (binary frames)
 ```
+
+## What You Need
+
+### Hardware
+
+| Item | Notes |
+|------|-------|
+| **Single-board computer (SBC)** | ARM64 with onboard Ethernet, 5 GHz WiFi, and Bluetooth 4.0+. See [SBC guidance](#choosing-an-sbc) below |
+| **USB Ethernet adapter** | USB-C strongly recommended so it plugs directly into the car's USB-C port. Any chipset that works with Linux (ASIX, Realtek, etc.) is fine |
+| **Short Ethernet cable** | Connects the SBC's onboard Ethernet port to the USB adapter. 1–2 ft / 30–60 cm is plenty |
+| **Power for the SBC** | USB-C power supply. In the car, a 12 V cigarette lighter USB-C adapter works, or use a spare USB port if one is available |
+| **microSD card (16 GB+)** | Or eMMC, depending on your SBC. Holds the Linux OS and bridge software |
+
+### Choosing an SBC
+
+The bridge is lightweight — it relays an already-encoded video/audio stream, so raw CPU and RAM matter much less than you'd think. What matters most:
+
+| Priority | Why |
+|----------|-----|
+| **Onboard Ethernet NIC** | Required. The SBC's built-in Ethernet connects to the car via the USB adapter + cable. USB Ethernet-to-USB Ethernet is a headache — avoid SBCs that only have WiFi |
+| **5 GHz WiFi (802.11ac or better)** | Required. The phone connects to the SBC's WiFi AP. 5 GHz gives the throughput and low latency needed for smooth 1080p60 video. 2.4 GHz alone is not sufficient |
+| **Bluetooth 4.0+** | Required for phone pairing and WiFi credential exchange |
+| **CPU / RAM** | Minimal impact on streaming — mostly affects boot time. A quad-core ARM64 with 1–2 GB RAM is more than enough |
+| **Size** | Smaller is better — it lives hidden in your center console |
+
+**Tested SBCs:**
+- **Raspberry Pi 5** — primary development board. Compact, reliable, good WiFi
+- **Khadas VIM4** — also works, overkill for this use case
+
+Most ARM64 SBCs with the above specs should work. The bridge binary is a generic aarch64 Linux executable.
+
+### How It Connects
+
+```
+┌─────────────┐    Ethernet     ┌─────────────────┐         ┌──────────────┐
+│     SBC     │───── cable ────▶│  USB Ethernet    │──USB-C─▶│  Car USB     │
+│  (bridge)   │                 │    adapter       │         │    port      │
+│             │                 └─────────────────┘         │ (head unit)  │
+│  WiFi AP ◀──── phone connects via BT + WiFi               └──────────────┘
+│  Power ◀────── USB-C from 12V adapter or spare USB port
+└─────────────┘
+```
+
+1. **Ethernet cable** goes from the SBC's onboard Ethernet port to the USB Ethernet adapter
+2. **USB Ethernet adapter** plugs into the car's USB port — the head unit sees it as a network device and assigns it an IP on the `192.168.222.x` subnet. In my 24 Blazer, it is always assigning 192.168.222.108 no matter waht SUB NIC I have tested with.
+3. **SBC gets power** from a 12 V USB-C adapter (cigarette lighter outlet) or a spare USB port in the car
+4. **Phone** pairs with the SBC over Bluetooth, joins the SBC's 5 GHz WiFi AP, and streams Android Auto wirelessly
+
+> **Blazer EV note:** Use the USB-C port inside the **center console armrest compartment** (the one behind the lid), not the two USB ports on the front of the center console. The armrest port is the one that enumerates USB network devices to the head unit. Other GM EVs may have a similar arrangement — check which USB port your AAOS head unit can see network devices on.
+
+### Where to Put It
+
+The SBC, adapter, and cable are small enough to live entirely inside the center console compartment. Tuck the SBC in, run power from a nearby outlet, and close the lid. Nothing is visible when the console is shut. The phone stays in your pocket — it connects wirelessly. If you SBC needs to breath more, just use a thin, longer ethernet cable and easily move it out to the front USB ports for power.
 
 ## Components
 
