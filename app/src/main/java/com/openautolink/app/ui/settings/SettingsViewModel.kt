@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.transport.BridgeDiscovery
 import com.openautolink.app.transport.ConfigUpdateSender
+import com.openautolink.app.transport.ControlMessage
 import com.openautolink.app.transport.DiscoveredBridge
 import com.openautolink.app.transport.NetworkInterfaceInfo
 import com.openautolink.app.transport.NetworkInterfaceScanner
@@ -50,6 +51,8 @@ data class SettingsUiState(
     val callQuality: String = AppPreferences.DEFAULT_CALL_QUALITY,
     val overlaySettingsButton: Boolean = AppPreferences.DEFAULT_OVERLAY_SETTINGS_BUTTON,
     val overlayStatsButton: Boolean = AppPreferences.DEFAULT_OVERLAY_STATS_BUTTON,
+    val overlayPhoneSwitchButton: Boolean = AppPreferences.DEFAULT_OVERLAY_PHONE_SWITCH_BUTTON,
+    val defaultPhoneMac: String = AppPreferences.DEFAULT_DEFAULT_PHONE_MAC,
     // UI customization
     val syncAaTheme: Boolean = AppPreferences.DEFAULT_SYNC_AA_THEME,
     val hideAaClock: Boolean = AppPreferences.DEFAULT_HIDE_AA_CLOCK,
@@ -83,6 +86,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val isDiscovering: StateFlow<Boolean> = bridgeDiscovery.isDiscovering
     val networkInterfaces: StateFlow<List<NetworkInterfaceInfo>> = interfaceScanner.interfaces
 
+    private val _pairedPhones = MutableStateFlow<List<ControlMessage.PairedPhone>>(emptyList())
+    val pairedPhones: StateFlow<List<ControlMessage.PairedPhone>> = _pairedPhones
+
+    private val _phonesLoading = MutableStateFlow(false)
+    val phonesLoading: StateFlow<Boolean> = _phonesLoading
+
     val uiState: StateFlow<SettingsUiState> = combine(
         preferences.bridgeHost,
         preferences.bridgePort,
@@ -111,6 +120,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         preferences.callQuality,
         preferences.overlaySettingsButton,
         preferences.overlayStatsButton,
+        preferences.overlayPhoneSwitchButton,
+        preferences.defaultPhoneMac,
         preferences.syncAaTheme,
         preferences.hideAaClock,
         preferences.sendImuSensors,
@@ -146,12 +157,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             callQuality = values[24] as String,
             overlaySettingsButton = values[25] as Boolean,
             overlayStatsButton = values[26] as Boolean,
-            syncAaTheme = values[27] as Boolean,
-            hideAaClock = values[28] as Boolean,
-            sendImuSensors = values[29] as Boolean,
-            customViewportWidth = values[30] as Int,
-            customViewportHeight = values[31] as Int,
-            viewportAspectRatioLocked = values[32] as Boolean,
+            overlayPhoneSwitchButton = values[27] as Boolean,
+            defaultPhoneMac = values[28] as String,
+            syncAaTheme = values[29] as Boolean,
+            hideAaClock = values[30] as Boolean,
+            sendImuSensors = values[31] as Boolean,
+            customViewportWidth = values[32] as Int,
+            customViewportHeight = values[33] as Int,
+            viewportAspectRatioLocked = values[34] as Boolean,
         )
     }.stateIn(
         viewModelScope,
@@ -289,6 +302,32 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateOverlayStatsButton(visible: Boolean) {
         viewModelScope.launch { preferences.setOverlayStatsButton(visible) }
+    }
+
+    fun updateOverlayPhoneSwitchButton(visible: Boolean) {
+        viewModelScope.launch { preferences.setOverlayPhoneSwitchButton(visible) }
+    }
+
+    fun updateDefaultPhoneMac(mac: String) {
+        viewModelScope.launch { preferences.setDefaultPhoneMac(mac) }
+    }
+
+    fun requestPairedPhones() {
+        _phonesLoading.value = true
+        viewModelScope.launch {
+            ConfigUpdateSender.sendControlMessage(ControlMessage.ListPairedPhones)
+        }
+    }
+
+    fun onPairedPhonesReceived(phones: List<ControlMessage.PairedPhone>) {
+        _pairedPhones.value = phones
+        _phonesLoading.value = false
+    }
+
+    fun switchPhone(mac: String) {
+        viewModelScope.launch {
+            ConfigUpdateSender.sendControlMessage(ControlMessage.SwitchPhone(mac))
+        }
     }
 
     fun updateSyncAaTheme(enabled: Boolean) {

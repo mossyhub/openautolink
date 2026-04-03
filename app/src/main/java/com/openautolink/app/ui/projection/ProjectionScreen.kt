@@ -6,12 +6,15 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,9 +24,11 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -56,6 +61,8 @@ fun ProjectionScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val carplayPin by viewModel.carplayPin.collectAsStateWithLifecycle()
+    val showPhoneSwitcher by viewModel.showPhoneSwitcher.collectAsStateWithLifecycle()
+    val pairedPhones by viewModel.pairedPhones.collectAsStateWithLifecycle()
 
     DisposableEffect(Unit) {
         viewModel.connect()
@@ -168,6 +175,42 @@ fun ProjectionScreen(
                     MaterialTheme.colorScheme.onSurface
                 },
                 modifier = Modifier.testTag("statsButton"),
+            )
+
+            // Phone switch button — draggable, togglable in settings
+            if (uiState.overlayPhoneSwitchButton) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                DraggableOverlayButton(
+                    icon = Icons.Default.PhoneAndroid,
+                    contentDescription = "Switch phone",
+                    onClick = { viewModel.togglePhoneSwitcher() },
+                    positionKey = "overlay_phone_switch",
+                    containerColor = if (showPhoneSwitcher) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                    } else {
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                    },
+                    tint = if (showPhoneSwitcher) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.testTag("phoneSwitchButton"),
+                )
+            }
+        }
+
+        // Phone switcher popup — bottom-right, above floating buttons
+        if (showPhoneSwitcher) {
+            PhoneSwitcherPopup(
+                phones = pairedPhones,
+                currentPhone = uiState.phoneName,
+                onSwitchPhone = { mac -> viewModel.switchPhone(mac) },
+                onDismiss = { viewModel.togglePhoneSwitcher() },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 180.dp)
             )
         }
 
@@ -304,6 +347,83 @@ private fun StatLine(
                 fontFamily = FontFamily.Monospace,
                 lineHeight = 16.sp,
             )
+        }
+    }
+}
+
+@Composable
+private fun PhoneSwitcherPopup(
+    phones: List<com.openautolink.app.transport.ControlMessage.PairedPhone>,
+    currentPhone: String?,
+    onSwitchPhone: (String) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .width(280.dp)
+            .testTag("phoneSwitcherPopup"),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Switch Phone",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            if (phones.isEmpty()) {
+                Text(
+                    text = "Loading paired phones...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                phones.forEach { phone ->
+                    val isCurrent = phone.connected ||
+                            (currentPhone != null && phone.name == currentPhone)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                if (!isCurrent) onSwitchPhone(phone.mac)
+                            }
+                            .background(
+                                if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                else Color.Transparent
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .testTag("switchPhone_${phone.mac}"),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = phone.name.ifBlank { "Unknown" },
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                            )
+                            Text(
+                                text = phone.mac,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        if (isCurrent) {
+                            Text(
+                                text = "Active",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

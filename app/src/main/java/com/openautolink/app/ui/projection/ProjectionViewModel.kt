@@ -42,6 +42,7 @@ data class ProjectionUiState(
     val displayMode: String = AppPreferences.DEFAULT_DISPLAY_MODE,
     val customViewportWidth: Int = 0,
     val customViewportHeight: Int = 0,
+    val overlayPhoneSwitchButton: Boolean = AppPreferences.DEFAULT_OVERLAY_PHONE_SWITCH_BUTTON,
 )
 
 class ProjectionViewModel(application: Application) : AndroidViewModel(application) {
@@ -70,9 +71,17 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private val _audioStats = MutableStateFlow(AudioStats())
     private val _showStats = MutableStateFlow(false)
     private val _carplayPin = MutableStateFlow<String?>(null)
+    private val _pairedPhones = MutableStateFlow<List<com.openautolink.app.transport.ControlMessage.PairedPhone>>(emptyList())
+    private val _showPhoneSwitcher = MutableStateFlow(false)
 
     /** CarPlay pairing PIN — non-null when the bridge is waiting for iPhone PIN entry. */
     val carplayPin: StateFlow<String?> = _carplayPin
+
+    /** Paired phones list for the phone switcher popup. */
+    val pairedPhones: StateFlow<List<com.openautolink.app.transport.ControlMessage.PairedPhone>> = _pairedPhones
+
+    /** Whether the phone switcher popup is shown. */
+    val showPhoneSwitcher: StateFlow<Boolean> = _showPhoneSwitcher
 
     // Pending surface — stored when surfaceCreated fires before decoder exists.
     // Attached to decoder on session start or when decoder becomes available.
@@ -96,6 +105,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         preferences.displayMode,
         preferences.customViewportWidth,
         preferences.customViewportHeight,
+        preferences.overlayPhoneSwitchButton,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         ProjectionUiState(
@@ -114,6 +124,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             displayMode = values[12] as String,
             customViewportWidth = values[13] as Int,
             customViewportHeight = values[14] as Int,
+            overlayPhoneSwitchButton = values[15] as Boolean,
         )
     }.stateIn(
         viewModelScope,
@@ -135,6 +146,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     }
                     is com.openautolink.app.transport.ControlMessage.CarPlayPin -> {
                         _carplayPin.value = message.pin
+                    }
+                    is com.openautolink.app.transport.ControlMessage.PairedPhones -> {
+                        _pairedPhones.value = message.phones
                     }
                     else -> {}
                 }
@@ -186,6 +200,27 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     fun toggleStats() {
         _showStats.value = !_showStats.value
+    }
+
+    fun togglePhoneSwitcher() {
+        if (!_showPhoneSwitcher.value) {
+            // Request fresh list when opening
+            viewModelScope.launch {
+                com.openautolink.app.transport.ConfigUpdateSender.sendControlMessage(
+                    com.openautolink.app.transport.ControlMessage.ListPairedPhones
+                )
+            }
+        }
+        _showPhoneSwitcher.value = !_showPhoneSwitcher.value
+    }
+
+    fun switchPhone(mac: String) {
+        viewModelScope.launch {
+            com.openautolink.app.transport.ConfigUpdateSender.sendControlMessage(
+                com.openautolink.app.transport.ControlMessage.SwitchPhone(mac)
+            )
+        }
+        _showPhoneSwitcher.value = false
     }
 
     /** Forward a touch event from the projection surface to the bridge. */

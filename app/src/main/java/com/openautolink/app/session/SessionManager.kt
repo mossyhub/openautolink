@@ -135,6 +135,16 @@ class SessionManager(
     private val _phoneSignalStrength = MutableStateFlow<Int?>(null)
     val phoneSignalStrength: StateFlow<Int?> = _phoneSignalStrength.asStateFlow()
 
+    // Paired phones callback — set by ViewModels to receive paired_phones responses
+    private var _pairedPhonesCallback: ((List<ControlMessage.PairedPhone>) -> Unit)? = null
+    fun setPairedPhonesCallback(callback: ((List<ControlMessage.PairedPhone>) -> Unit)?) {
+        _pairedPhonesCallback = callback
+    }
+
+    // Paired phones list — populated when bridge responds to list_paired_phones
+    private val _pairedPhones = MutableStateFlow<List<ControlMessage.PairedPhone>>(emptyList())
+    val pairedPhones: StateFlow<List<ControlMessage.PairedPhone>> = _pairedPhones.asStateFlow()
+
     // Media session — publishes now-playing to AAOS system UI + cluster
     private var _mediaSessionManager: OalMediaSessionManager? = null
 
@@ -276,6 +286,16 @@ class SessionManager(
                     if (connectionManager.connectionState.value != ConnectionState.DISCONNECTED) {
                         connectionManager.sendControlMessage(restart)
                         Log.i(TAG, "Sent restart_services to bridge: wireless=${restart.wireless} bt=${restart.bluetooth}")
+                    }
+                }
+            }
+
+            // Forward control messages from settings to bridge (list_paired_phones, switch_phone, etc.)
+            launch {
+                com.openautolink.app.transport.ConfigUpdateSender.controlMessages.collect { message ->
+                    if (connectionManager.connectionState.value != ConnectionState.DISCONNECTED) {
+                        connectionManager.sendControlMessage(message)
+                        Log.i(TAG, "Sent control message to bridge: ${message::class.simpleName}")
                     }
                 }
             }
@@ -525,6 +545,11 @@ class SessionManager(
                 if (message.calls.isNotEmpty()) {
                     Log.d(TAG, "Phone status: signal=${message.signalStrength}, calls=${message.calls.size}")
                 }
+            }
+            is ControlMessage.PairedPhones -> {
+                Log.d(TAG, "Received paired phones: ${message.phones.size}")
+                _pairedPhones.value = message.phones
+                _pairedPhonesCallback?.invoke(message.phones)
             }
             else -> {} // Other messages handled by island-specific collectors
         }

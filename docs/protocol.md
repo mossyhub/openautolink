@@ -50,6 +50,7 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 {"type":"phone_status","signal_strength":3,"calls":[{"state":"in_call","duration_s":45,"caller_number":"+15550123","caller_id":"Mom"}]}
 {"type":"phone_status","signal_strength":4,"calls":[]}
 {"type":"carplay_pin","pin":"4829"}
+{"type":"paired_phones","phones":[{"mac":"AA:BB:CC:DD:EE:FF","name":"Pixel 10","connected":true},{"mac":"11:22:33:44:55:66","name":"iPhone 15","connected":false}]}
 ```
 
 ### App → Bridge
@@ -65,6 +66,8 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 {"type":"vehicle_data","rpm_e3":2500000}
 {"type":"config_update","video_codec":"h265","video_fps":30}
 {"type":"keyframe_request"}
+{"type":"list_paired_phones"}
+{"type":"switch_phone","mac":"AA:BB:CC:DD:EE:FF"}
 ```
 
 ### Bridge → App: `phone_battery`
@@ -105,6 +108,29 @@ Sent when an iPhone is pairing with the bridge for the first time via HomeKit pa
 | Field | Type | Description |
 |-------|------|-------------|
 | `pin` | string | 4-digit PIN to display (e.g. `"4829"`) |
+
+### Bridge → App: `paired_phones`
+
+Sent in response to `list_paired_phones`. Contains all Bluetooth-paired devices on the bridge, with their connection status. Works for both Android and iPhone devices — phone type is irrelevant at the BT pairing level.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `phones` | array | List of paired phone objects |
+| `phones[].mac` | string | Bluetooth MAC address (e.g. `"AA:BB:CC:DD:EE:FF"`) |
+| `phones[].name` | string | Device name from BlueZ |
+| `phones[].connected` | bool | Whether the device is currently connected |
+
+### App → Bridge: `list_paired_phones`
+
+Request the bridge to enumerate all Bluetooth-paired devices and respond with `paired_phones`. No fields — just the type.
+
+### App → Bridge: `switch_phone`
+
+Request the bridge to disconnect the current phone and connect to a different paired device. The bridge disconnects all connected devices, then initiates a BT connection to the target MAC. This triggers the RFCOMM WiFi credential exchange, leading to a new AA/CarPlay session.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mac` | string | Bluetooth MAC of the target phone |
 
 ### App → Bridge: `vehicle_data`
 

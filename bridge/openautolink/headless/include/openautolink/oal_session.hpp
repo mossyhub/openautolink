@@ -102,6 +102,7 @@ public:
     void send_voice_session(bool started);
     void send_phone_status(int signal_strength, const std::string& calls_json);
     void send_carplay_pin(const std::string& pin);
+    void send_paired_phones();
 
     // ── Configuration ────────────────────────────────────────────────
 
@@ -130,6 +131,8 @@ private:
     void handle_keyframe_request();
     void handle_app_log(const std::string& json);
     void handle_app_telemetry(const std::string& json);
+    void handle_list_paired_phones();
+    void handle_switch_phone(const std::string& json);
 
     ICarTransport& control_transport_;
     ICarTransport& video_transport_;

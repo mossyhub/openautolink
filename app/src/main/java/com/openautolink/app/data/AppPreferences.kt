@@ -64,6 +64,8 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val CALL_QUALITY = stringPreferencesKey("call_quality")
         val OVERLAY_SETTINGS_BUTTON = booleanPreferencesKey("overlay_settings_button")
         val OVERLAY_STATS_BUTTON = booleanPreferencesKey("overlay_stats_button")
+        val OVERLAY_PHONE_SWITCH_BUTTON = booleanPreferencesKey("overlay_phone_switch_button")
+        val DEFAULT_PHONE_MAC = stringPreferencesKey("default_phone_mac")
 
         // Custom viewport
         val CUSTOM_VIEWPORT_WIDTH = intPreferencesKey("custom_viewport_width")
@@ -100,6 +102,8 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_CALL_QUALITY = "hd"
         const val DEFAULT_OVERLAY_SETTINGS_BUTTON = true
         const val DEFAULT_OVERLAY_STATS_BUTTON = true
+        const val DEFAULT_OVERLAY_PHONE_SWITCH_BUTTON = true
+        const val DEFAULT_DEFAULT_PHONE_MAC = ""
         const val DEFAULT_CUSTOM_VIEWPORT_WIDTH = 0 // 0 = use full usable width
         const val DEFAULT_CUSTOM_VIEWPORT_HEIGHT = 0 // 0 = use full usable height
         const val DEFAULT_VIEWPORT_ASPECT_RATIO_LOCKED = true
@@ -223,6 +227,14 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     val overlayStatsButton: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[OVERLAY_STATS_BUTTON] ?: DEFAULT_OVERLAY_STATS_BUTTON
+    }
+
+    val overlayPhoneSwitchButton: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[OVERLAY_PHONE_SWITCH_BUTTON] ?: DEFAULT_OVERLAY_PHONE_SWITCH_BUTTON
+    }
+
+    val defaultPhoneMac: Flow<String> = dataStore.data.map { prefs ->
+        prefs[DEFAULT_PHONE_MAC] ?: DEFAULT_DEFAULT_PHONE_MAC
     }
 
     val customViewportWidth: Flow<Int> = dataStore.data.map { prefs ->
@@ -355,6 +367,14 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setOverlayStatsButton(visible: Boolean) {
         dataStore.edit { it[OVERLAY_STATS_BUTTON] = visible }
+    }
+
+    suspend fun setOverlayPhoneSwitchButton(visible: Boolean) {
+        dataStore.edit { it[OVERLAY_PHONE_SWITCH_BUTTON] = visible }
+    }
+
+    suspend fun setDefaultPhoneMac(mac: String) {
+        dataStore.edit { it[DEFAULT_PHONE_MAC] = mac }
     }
 
     suspend fun setCustomViewportWidth(width: Int) {

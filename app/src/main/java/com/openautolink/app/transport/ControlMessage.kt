@@ -96,6 +96,16 @@ sealed class ControlMessage {
         val calls: List<PhoneCall>
     ) : ControlMessage()
 
+    data class PairedPhones(
+        val phones: List<PairedPhone>
+    ) : ControlMessage()
+
+    data class PairedPhone(
+        val mac: String,
+        val name: String,
+        val connected: Boolean
+    )
+
     data class PhoneCall(
         val state: String,
         val durationSeconds: Int,
@@ -169,6 +179,8 @@ sealed class ControlMessage {
         val bluetooth: Boolean = false
     ) : ControlMessage()
     object KeyframeRequest : ControlMessage()
+    object ListPairedPhones : ControlMessage()
+    data class SwitchPhone(val mac: String) : ControlMessage()
 
     // App → Bridge: diagnostic messages
     data class AppLog(

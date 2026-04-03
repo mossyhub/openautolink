@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SettingsRemote
@@ -70,11 +71,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
+import com.openautolink.app.transport.ControlMessage
+
 private enum class SettingsTab(
     val title: String,
     val icon: ImageVector,
 ) {
     CONNECTION("Connection", Icons.Default.Router),
+    PHONES("Phones", Icons.Default.PhoneAndroid),
     BRIDGE("Bridge", Icons.Default.SettingsRemote),
     DISPLAY("Display", Icons.Default.DisplaySettings),
     VIDEO("Video", Icons.Default.VideoSettings),
@@ -191,6 +195,7 @@ fun SettingsScreen(
             ) {
                 when (selectedTab) {
                     SettingsTab.CONNECTION -> ConnectionTab(viewModel, uiState)
+                    SettingsTab.PHONES -> PhonesTab(viewModel, uiState)
                     SettingsTab.BRIDGE -> BridgeTab(viewModel, uiState)
                     SettingsTab.DISPLAY -> DisplayTab(viewModel, uiState, onNavigateToViewportEditor)
                     SettingsTab.VIDEO -> VideoTab(viewModel, uiState)
@@ -498,6 +503,199 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
 }
 
 @Composable
+private fun PhonesTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
+    val pairedPhones by viewModel.pairedPhones.collectAsStateWithLifecycle()
+    val phonesLoading by viewModel.phonesLoading.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        viewModel.requestPairedPhones()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        SectionHeader("Paired Phones")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Phones paired with the bridge via Bluetooth. " +
+                    "Works with both Android Auto and CarPlay devices.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilledTonalButton(
+                onClick = { viewModel.requestPairedPhones() },
+                enabled = !phonesLoading,
+                modifier = Modifier.testTag("refreshPhonesButton"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Refresh")
+            }
+
+            if (phonesLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (pairedPhones.isNotEmpty()) {
+            pairedPhones.forEach { phone ->
+                val isDefault = uiState.defaultPhoneMac == phone.mac
+
+                Surface(
+                    tonalElevation = if (isDefault) 4.dp else 1.dp,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier
+                        .fillMaxWidth(0.7f)
+                        .padding(vertical = 4.dp)
+                        .testTag("pairedPhone_${phone.mac}"),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhoneAndroid,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = if (phone.connected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = phone.name.ifBlank { "Unknown Device" },
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = phone.mac,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (phone.connected) {
+                                Text(
+                                    text = "Connected",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            if (isDefault) {
+                                Text(
+                                    text = "Default",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            } else {
+                                FilledTonalButton(
+                                    onClick = { viewModel.updateDefaultPhoneMac(phone.mac) },
+                                    modifier = Modifier.testTag("setDefault_${phone.mac}"),
+                                ) {
+                                    Text("Set Default")
+                                }
+                            }
+                            if (!phone.connected) {
+                                FilledTonalButton(
+                                    onClick = { viewModel.switchPhone(phone.mac) },
+                                    modifier = Modifier.testTag("connect_${phone.mac}"),
+                                ) {
+                                    Text("Connect")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (!phonesLoading) {
+            Text(
+                text = "No paired phones found. Make sure the bridge is running and phones are paired via Bluetooth.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Default Phone ---
+        SectionHeader("Default Phone")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "When multiple paired phones are in range, the bridge will prefer " +
+                    "connecting to the default phone. " +
+                    "If no default is set, the bridge connects to the first phone it sees.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+
+        if (uiState.defaultPhoneMac.isNotBlank()) {
+            val defaultPhone = pairedPhones.find { it.mac == uiState.defaultPhoneMac }
+            Surface(
+                tonalElevation = 2.dp,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth(0.5f),
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = defaultPhone?.name ?: "Unknown",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = uiState.defaultPhoneMac,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    FilledTonalButton(
+                        onClick = { viewModel.updateDefaultPhoneMac("") },
+                        modifier = Modifier.testTag("clearDefaultPhone"),
+                    ) {
+                        Text("Clear")
+                    }
+                }
+            }
+        } else {
+            Text(
+                text = "No default phone set. The bridge will connect to the first paired phone it finds.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun DisplayTab(
     viewModel: SettingsViewModel,
     uiState: SettingsUiState,
@@ -771,6 +969,31 @@ private fun DisplayTab(
                 checked = uiState.overlayStatsButton,
                 onCheckedChange = { viewModel.updateOverlayStatsButton(it) },
                 modifier = Modifier.testTag("overlayStatsToggle"),
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Phone Switch Button",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Floating button to quickly switch between paired phones.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = uiState.overlayPhoneSwitchButton,
+                onCheckedChange = { viewModel.updateOverlayPhoneSwitchButton(it) },
+                modifier = Modifier.testTag("overlayPhoneSwitchToggle"),
             )
         }
 

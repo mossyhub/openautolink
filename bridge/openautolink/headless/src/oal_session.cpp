@@ -6,6 +6,7 @@
 #include "openautolink/live_session.hpp"
 #endif
 
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <sstream>
@@ -432,6 +433,10 @@ void OalSession::on_app_json_line(const std::string& line) {
         handle_app_log(line);
     } else if (type == "app_telemetry") {
         handle_app_telemetry(line);
+    } else if (type == "list_paired_phones") {
+        handle_list_paired_phones();
+    } else if (type == "switch_phone") {
+        handle_switch_phone(line);
     } else {
         std::cerr << "[OAL] unknown message type: " << type << std::endl;
     }
@@ -786,6 +791,106 @@ void OalSession::handle_app_telemetry(const std::string& json) {
     // Strip the "type" and "ts" wrappers — just forward the raw JSON content
     // so the full telemetry snapshot is visible in the journal
     std::cerr << "[CAR] TELEM " << json << std::endl;
+}
+
+void OalSession::send_paired_phones() {
+    // Query BlueZ for paired devices via bluetoothctl.
+    // Output format: "Device XX:XX:XX:XX:XX:XX DeviceName"
+    FILE* pipe = popen("bluetoothctl devices Paired 2>/dev/null || bluetoothctl paired-devices 2>/dev/null", "r");
+    if (!pipe) {
+        std::cerr << "[OAL] failed to run bluetoothctl for paired devices" << std::endl;
+        send_control_line(R"({"type":"paired_phones","phones":[]})");
+        return;
+    }
+
+    // Also get connected devices to mark connection status
+    std::string connected_macs;
+    FILE* conn_pipe = popen("bluetoothctl devices Connected 2>/dev/null", "r");
+    if (conn_pipe) {
+        char cbuf[256];
+        while (fgets(cbuf, sizeof(cbuf), conn_pipe)) {
+            connected_macs += cbuf;
+        }
+        pclose(conn_pipe);
+    }
+
+    std::ostringstream oss;
+    oss << R"({"type":"paired_phones","phones":[)";
+
+    char buf[256];
+    bool first = true;
+    while (fgets(buf, sizeof(buf), pipe)) {
+        // Parse "Device XX:XX:XX:XX:XX:XX Name..."
+        std::string line(buf);
+        // Trim trailing newline
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r'))
+            line.pop_back();
+
+        if (line.substr(0, 7) != "Device ") continue;
+        if (line.size() < 25) continue; // "Device " (7) + MAC (17) = 24 minimum
+
+        std::string mac = line.substr(7, 17);
+        std::string name = line.size() > 25 ? line.substr(25) : "";
+
+        bool connected = connected_macs.find(mac) != std::string::npos;
+
+        if (!first) oss << ",";
+        first = false;
+        oss << R"({"mac":")" << oal_json_escape(mac)
+            << R"(","name":")" << oal_json_escape(name)
+            << R"(","connected":)" << (connected ? "true" : "false") << "}";
+    }
+    pclose(pipe);
+
+    oss << "]}";
+    send_control_line(oss.str());
+    std::cerr << "[OAL] sent paired_phones" << std::endl;
+}
+
+void OalSession::handle_list_paired_phones() {
+    std::cerr << "[OAL] app requested paired phones list" << std::endl;
+    send_paired_phones();
+}
+
+void OalSession::handle_switch_phone(const std::string& json) {
+    std::string mac = oal_json_extract_string(json, "mac");
+    if (mac.empty()) {
+        std::cerr << "[OAL] switch_phone: no MAC provided" << std::endl;
+        send_error(400, "switch_phone requires a mac field");
+        return;
+    }
+
+    std::cerr << "[OAL] switching to phone: " << mac << std::endl;
+
+    // Disconnect current phone first (if connected), then connect to target.
+    // This runs asynchronously via bluetoothctl to avoid blocking the control thread.
+    // The BT script's event handler will pick up the new connection and trigger
+    // the RFCOMM WiFi credential exchange, leading to a new AA/CarPlay session.
+    std::string cmd = "( ";
+
+    // Disconnect all currently connected devices
+    cmd += "for dev in $(bluetoothctl devices Connected 2>/dev/null | awk '{print $2}'); do "
+           "bluetoothctl disconnect $dev 2>/dev/null; "
+           "done; ";
+
+    // Small delay for cleanup
+    cmd += "sleep 1; ";
+
+    // Connect to target device
+    cmd += "bluetoothctl connect " + mac + " 2>/dev/null; ";
+
+    cmd += ") &";
+
+    int ret = system(cmd.c_str());
+    if (ret != 0) {
+        std::cerr << "[OAL] switch_phone: command launch failed" << std::endl;
+    }
+
+    // Notify app that phone disconnected (the new connection will trigger
+    // a phone_connected message when the AA/CarPlay session starts)
+    if (phone_connected_) {
+        on_phone_disconnected("phone_switch");
+    }
 }
 
 } // namespace openautolink

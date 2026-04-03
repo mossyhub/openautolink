@@ -1,6 +1,7 @@
 package com.openautolink.app.transport
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -270,5 +271,47 @@ class ControlMessageSerializerTest {
         val hello = parsed as ControlMessage.Hello
         assertEquals(1, hello.version)
         assertEquals("Test App", hello.name)
+    }
+
+    // --- Multi-phone support ---
+
+    @Test
+    fun `deserialize paired_phones message`() {
+        val json = """{"type":"paired_phones","phones":[{"mac":"AA:BB:CC:DD:EE:FF","name":"Pixel 10","connected":true},{"mac":"11:22:33:44:55:66","name":"iPhone 15","connected":false}]}"""
+        val msg = ControlMessageSerializer.deserialize(json)
+
+        assertTrue(msg is ControlMessage.PairedPhones)
+        val pp = msg as ControlMessage.PairedPhones
+        assertEquals(2, pp.phones.size)
+        assertEquals("AA:BB:CC:DD:EE:FF", pp.phones[0].mac)
+        assertEquals("Pixel 10", pp.phones[0].name)
+        assertTrue(pp.phones[0].connected)
+        assertEquals("11:22:33:44:55:66", pp.phones[1].mac)
+        assertEquals("iPhone 15", pp.phones[1].name)
+        assertFalse(pp.phones[1].connected)
+    }
+
+    @Test
+    fun `deserialize paired_phones empty list`() {
+        val json = """{"type":"paired_phones","phones":[]}"""
+        val msg = ControlMessageSerializer.deserialize(json)
+
+        assertTrue(msg is ControlMessage.PairedPhones)
+        assertEquals(0, (msg as ControlMessage.PairedPhones).phones.size)
+    }
+
+    @Test
+    fun `serialize list_paired_phones`() {
+        val json = ControlMessageSerializer.serialize(ControlMessage.ListPairedPhones)
+        assertTrue(json.contains(""""type":"list_paired_phones""""))
+    }
+
+    @Test
+    fun `serialize switch_phone`() {
+        val msg = ControlMessage.SwitchPhone("AA:BB:CC:DD:EE:FF")
+        val json = ControlMessageSerializer.serialize(msg)
+
+        assertTrue(json.contains(""""type":"switch_phone""""))
+        assertTrue(json.contains(""""mac":"AA:BB:CC:DD:EE:FF""""))
     }
 }

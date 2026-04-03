@@ -15,6 +15,7 @@
 - Vehicle data (speed, gear, fuel/EV range, GPS, etc.) sent to Android Auto / CarPlay
 - Navigation turn-by-turn displayed on the instrument cluster *(experimental — GM may kill third-party cluster services)*
 - Auto mode: bridge accepts whichever phone connects first — Android or iPhone
+- Multi-phone support: pair multiple phones, set a default, switch between them with one tap
 - One-command SBC install, auto-reconnect on car startup, app updates via Play Store
 - Fully open-source — app, bridge, protocol, and deployment scripts
 

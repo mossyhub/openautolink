@@ -161,6 +161,18 @@ object ControlMessageSerializer {
                 )
             }
 
+            "paired_phones" -> {
+                val phones = obj["phones"]?.jsonArray?.map { phoneEl ->
+                    val phoneObj = phoneEl.jsonObject
+                    ControlMessage.PairedPhone(
+                        mac = phoneObj["mac"]?.jsonPrimitive?.content ?: "",
+                        name = phoneObj["name"]?.jsonPrimitive?.content ?: "",
+                        connected = phoneObj["connected"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+                    )
+                } ?: emptyList()
+                ControlMessage.PairedPhones(phones = phones)
+            }
+
             else -> null
         }
     }
@@ -255,6 +267,15 @@ object ControlMessageSerializer {
 
             is ControlMessage.KeyframeRequest -> buildJsonObject {
                 put("type", "keyframe_request")
+            }
+
+            is ControlMessage.ListPairedPhones -> buildJsonObject {
+                put("type", "list_paired_phones")
+            }
+
+            is ControlMessage.SwitchPhone -> buildJsonObject {
+                put("type", "switch_phone")
+                put("mac", message.mac)
             }
 
             is ControlMessage.AppLog -> buildJsonObject {
