@@ -29,9 +29,9 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
 
     companion object {
         private const val TAG = "MediaCodecDecoder"
-        private const val INPUT_TIMEOUT_US = 0L // Non-blocking dequeue for input
-        private const val OUTPUT_TIMEOUT_US = 5000L // 5ms timeout for output drain
-        private const val STATS_INTERVAL_MS = 1000L
+        private const val INPUT_TIMEOUT_US = 8000L // 8ms — wait for input buffer on dedicated thread
+        private const val OUTPUT_TIMEOUT_US = 1000L // 1ms timeout for output drain
+        private const val STATS_INTERVAL_MS = 500L
     }
 
     private val _decoderState = MutableStateFlow(DecoderState.IDLE)
@@ -129,11 +129,11 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
     }
 
     private fun handleCodecConfig(frame: VideoFrame) {
-        Log.i(TAG, "Codec config received: ${frame.data.size} bytes")
+        Log.i(TAG, "Codec config received: ${frame.data.size} bytes (flags=0x${frame.flags.toString(16)})")
         DiagnosticLog.i("video", "Codec config received: ${frame.data.size} bytes")
         codecConfigData = frame.data.copyOf()
         receivedIdr = false
-        _needsKeyframe = false
+        _needsKeyframe = true  // Request IDR after codec reconfigure
 
         if (surface != null) {
             configureCodec(frame.data)
@@ -146,6 +146,7 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
             framesDropped.incrementAndGet()
             return
         }
+        Log.i(TAG, "IDR keyframe received: ${frame.data.size} bytes")
         receivedIdr = true
         _needsKeyframe = false
         queueFrame(frame)
@@ -190,6 +191,9 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
 
             val format = MediaFormat.createVideoFormat(mimeType, videoWidth, videoHeight)
             format.setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(configData))
+            // Low-latency hints for real-time video stream
+            format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            try { format.setInteger("priority", 0) } catch (_: Exception) {} // 0 = realtime priority
 
             val mc = MediaCodec.createByCodecName(decoderName)
             mc.configure(format, surface, null, 0)

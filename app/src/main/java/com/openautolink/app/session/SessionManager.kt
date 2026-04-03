@@ -35,6 +35,7 @@ import com.openautolink.app.video.VideoDecoder
 import com.openautolink.app.video.VideoStats
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +57,12 @@ class SessionManager(
     }
 
     private val connectionManager = ConnectionManager(scope)
+
+    // Dedicated single-threaded dispatcher for video decode — keeps frame ordering
+    // and prevents blocking the main thread with MediaCodec input queueing.
+    private val videoDispatcher = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "VideoDecodeInput").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
 
     private val _sessionState = MutableStateFlow(SessionState.IDLE)
     val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
@@ -528,8 +535,9 @@ class SessionManager(
         scope.launch {
             connectionManager.connectVideo(host, videoPort)
         }
-        // Collect video frames and feed to decoder
-        videoCollectJob = scope.launch {
+        // Collect video frames on a dedicated thread — NEVER on Main.
+        // Video decode (MediaCodec input queueing) must not block the UI thread.
+        videoCollectJob = scope.launch(videoDispatcher) {
             connectionManager.videoFrames.collect { frame ->
                 _videoDecoder?.onFrame(frame)
             }

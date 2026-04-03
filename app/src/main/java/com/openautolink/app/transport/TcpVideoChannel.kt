@@ -34,6 +34,7 @@ class TcpVideoChannel {
         val s = Socket()
         s.tcpNoDelay = true
         s.soTimeout = 0 // No read timeout — we block waiting for frames
+        s.receiveBufferSize = 256 * 1024 // 256KB receive buffer for bursty keyframes
         s.connect(InetSocketAddress(host, port), timeoutMs)
         socket = s
         input = DataInputStream(s.getInputStream().buffered(65536))
