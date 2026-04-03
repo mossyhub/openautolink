@@ -1,6 +1,6 @@
 # Wireless CarPlay on OpenAutoLink — Implementation Plan
 
-> **Status**: Future feature — not yet planned for any milestone.
+> **Status**: Active implementation — see [work-plan.md](../work-plan.md) for milestone tracking.
 > **Last updated**: April 2026 (codebase audit + architecture review)
 
 ## Executive Summary

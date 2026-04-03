@@ -2,7 +2,7 @@
 
 ## Overview
 
-Three independent TCP connections between the car app and the bridge. Each connection carries one type of data. This replaces the CPC200 protocol (which wrapped everything in 16-byte magic headers with inverted checksums and heartbeat-gated writes).
+Three independent TCP connections between the car app and the bridge. Each connection carries one type of data. The OAL protocol is phone-protocol-agnostic — the same framing carries Android Auto and CarPlay streams. The car app does not know which phone protocol is active.
 
 ```
 App ──TCP:5288──▶ Bridge    (control: bidirectional JSON lines)
@@ -16,7 +16,7 @@ App ◀─TCP:5289──▶ Bridge    (audio: bidirectional binary frames)
 2. Bridge sends `hello` with capabilities
 3. App sends `hello` back with its capabilities
 4. App opens video (5290) and audio (5289) connections
-5. Bridge sends `phone_connected` when phone AA session starts
+5. Bridge sends `phone_connected` when phone session starts (AA or CarPlay)
 6. Media streams begin on video/audio channels
 7. `phone_disconnected` when phone leaves — app returns to waiting state
 8. App can disconnect at any time; bridge handles cleanup
@@ -30,6 +30,7 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 ```jsonl
 {"type":"hello","version":1,"name":"OpenAutoLink","capabilities":["h264","h265","vp9"],"video_port":5290,"audio_port":5289}
 {"type":"phone_connected","phone_name":"Pixel 10","phone_type":"android"}
+{"type":"phone_connected","phone_name":"iPhone","phone_type":"iphone"}
 {"type":"phone_disconnected","reason":"user_disconnect"}
 {"type":"audio_start","purpose":"media","sample_rate":48000,"channels":2}
 {"type":"audio_stop","purpose":"media"}
@@ -48,6 +49,7 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 {"type":"voice_session","status":"end"}
 {"type":"phone_status","signal_strength":3,"calls":[{"state":"in_call","duration_s":45,"caller_number":"+15550123","caller_id":"Mom"}]}
 {"type":"phone_status","signal_strength":4,"calls":[]}
+{"type":"carplay_pin","pin":"4829"}
 ```
 
 ### App → Bridge
@@ -95,6 +97,14 @@ Phone signal strength and active call state from the AA `PhoneStatusService` cha
 | `calls[].duration_s` | int | Call duration in seconds |
 | `calls[].caller_number` | string? | Phone number (optional) |
 | `calls[].caller_id` | string? | Contact name (optional) |
+
+### Bridge → App: `carplay_pin`
+
+Sent when an iPhone is pairing with the bridge for the first time via HomeKit pair-setup. The app must display this PIN so the user can confirm it on their iPhone.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pin` | string | 4-digit PIN to display (e.g. `"4829"`) |
 
 ### App → Bridge: `vehicle_data`
 

@@ -6,33 +6,38 @@
 
 [![CI](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml/badge.svg)](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml)
 
-**An open-source wireless Android Auto bridge for AAOS head units.** An SBC handles the phone's Android Auto session over WiFi, then streams video, audio, and touch to an app on your car's display over Ethernet — no janky, closed-source and hacky USB adapter hardware required.
+**An open-source wireless Android Auto and CarPlay bridge for AAOS head units.** An SBC handles the phone's Android Auto or CarPlay session over WiFi, then streams video, audio, and touch to an app on your car's display over Ethernet — no janky, closed-source and hacky USB adapter hardware required.
 
-- Wireless Android Auto — phone connects via Bluetooth + WiFi, no cables to the phone
+- Wireless Android Auto and CarPlay — phone connects via Bluetooth + WiFi, no cables
 - Up to 1080p60 video with H.264, H.265, or VP9 codec support
 - Full audio: media, navigation prompts, phone calls, voice assistant
 - Touch, steering wheel controls, and microphone input forwarded to the phone
-- Vehicle data (speed, gear, fuel/EV range, GPS, etc.) sent to Android Auto
+- Vehicle data (speed, gear, fuel/EV range, GPS, etc.) sent to Android Auto / CarPlay
 - Navigation turn-by-turn displayed on the instrument cluster *(experimental — GM may kill third-party cluster services)*
+- Auto mode: bridge accepts whichever phone connects first — Android or iPhone
 - One-command SBC install, auto-reconnect on car startup, app updates via Play Store
 - Fully open-source — app, bridge, protocol, and deployment scripts
 
-> **Fair warning:** This is a free, hobby project that is very much under active development. It might work great, it might not work at all. Stated features may or may not actually work. My goal is to eventually make it stable and production-quality, but it's not there yet — and honestly, it may never be. I'm building this because it's fun and because I want Android Auto back in my car. If that sounds like your kind of adventure, give it a try.
+> **Fair warning:** This is a free, hobby project that is very much under active development. It might work great, it might not work at all. Stated features may or may not actually work. My goal is to eventually make it stable and production-quality, but it's not there yet — and honestly, it may never be. I'm building this because it's fun and because I want Android Auto and CarPlay back in my car. If that sounds like your kind of adventure, give it a try.
 
-> **What about CarPlay?** Right now this is Android Auto only — my daily driver is an Android phone, so that's where the focus is. CarPlay support is something I'd like to explore once I'm happy enough with the AA experience. I have a modern iPhone to test with when the time comes, but no promises or timeline. I am only taking a somewhat educated guess that this will even be possible.
+Starting with the 2024 model year, GM dropped Apple CarPlay and Android Auto from their electric vehicles (Blazer EV, Equinox EV, Silverado EV, Lyriq, etc.) in favor of Google built-in infotainment. GM has indicated this will expand to all GM vehicles in the 2025-2026+ timeframe. **OpenAutoLink brings Android Auto and CarPlay back** to these vehicles by bridging a phone's AA or CarPlay session to the car's AAOS head unit over the network — no USB adapter hardware needed.
 
-Starting with the 2024 model year, GM dropped Apple CarPlay and Android Auto from their electric vehicles (Blazer EV, Equinox EV, Silverado EV, Lyriq, etc.) in favor of Google built-in infotainment. GM has indicated this will expand to all GM vehicles in the 2025-2026+ timeframe. **OpenAutoLink brings Android Auto back** to these vehicles by bridging a phone's AA session to the car's AAOS head unit over the network — no USB adapter hardware needed.
-
-An SBC (Raspberry Pi 4/5, Khadas VIM4, etc.) bridges your phone's Android Auto session to your car's display over WiFi + Ethernet. The car runs the OpenAutoLink app, the SBC runs the bridge.
+An SBC (Raspberry Pi 4/5, Khadas VIM4, etc.) bridges your phone's Android Auto or CarPlay session to your car's display over WiFi + Ethernet. The car runs the OpenAutoLink app, the SBC runs the bridge.
 
 ```
-Phone ──WiFi TCP:5277──▶ SBC Bridge ──Ethernet──▶ Car Head Unit App (AAOS)
-         BT pairing          │                      Renders video/audio
-         WiFi creds           │                      Forwards touch/GNSS
-                              ├── Control :5288 (JSON lines)
-                              ├── Video   :5290 (binary frames)
-                              └── Audio   :5289 (binary frames)
+Android Phone ──WiFi TCP:5277──▶                    ┌── Control :5288 (JSON lines)
+                  BT pairing    ▶ SBC Bridge ──Eth──▶├── Video   :5290 (binary frames)
+iPhone ──WiFi RTSP:5000────────▶   (AA or CarPlay)  └── Audio   :5289 (binary frames)
+                  BT pairing                              ▼
+                                                  Car Head Unit App (AAOS)
+                                                    Renders video/audio
+                                                    Forwards touch/GNSS
 ```
+
+The bridge supports three session modes:
+- **`android-auto`** (default) — Android Auto only
+- **`carplay`** — CarPlay only
+- **`auto`** — both listeners active, first phone to connect wins
 
 ## What You Need
 
@@ -79,13 +84,13 @@ Most ARM64 SBCs with the above specs should work. The bridge binary is a generic
 1. **Ethernet cable** goes from the SBC's onboard Ethernet port to the USB Ethernet adapter
 2. **USB Ethernet adapter** plugs into the car's USB port — the head unit sees it as a network device and assigns it an IP on the `192.168.222.x` subnet. In my 24 Blazer, it is always assigning 192.168.222.108 no matter what USB NIC I have tested with.
 3. **SBC gets power** from a 12 V USB-C adapter (cigarette lighter outlet) or a spare USB port in the car
-4. **Phone** pairs with the SBC over Bluetooth, joins the SBC's 5 GHz WiFi AP, and streams Android Auto wirelessly
+4. **Phone** pairs with the SBC over Bluetooth, joins the SBC's 5 GHz WiFi AP, and streams Android Auto or CarPlay wirelessly
 
 > **Blazer EV note:** Use the USB-C port inside the **center console armrest compartment** (the one behind the lid), not the two USB ports on the front of the center console. The armrest port is the one that enumerates USB network devices to the head unit. Other GM EVs may have a similar arrangement — check which USB port your AAOS head unit can see network devices on.
 
 ### Where to Put It
 
-The SBC, adapter, and cable are small enough to live entirely inside the center console compartment. Tuck the SBC in, run power from a nearby outlet, and close the lid. Nothing is visible when the console is shut. The phone stays in your pocket — it connects wirelessly. If you SBC needs to breath more, just use a thin, longer ethernet cable and easily move it out to the front USB ports for power.
+The SBC, adapter, and cable are small enough to live entirely inside the center console compartment. Tuck the SBC in, run power from a nearby outlet, and close the lid. Nothing is visible when the console is shut. The phone stays in your pocket — Android or iPhone, it connects wirelessly. If you SBC needs to breath more, just use a thin, longer ethernet cable and easily move it out to the front USB ports for power.
 
 ## Components
 
@@ -154,8 +159,7 @@ Because this is an AAOS app (not a standard phone app), getting it onto your car
 | [Networking](docs/networking.md) | Three-network architecture (phone, car, SSH) |
 | [Local Testing](docs/testing.md) | Emulator + SBC setup, in-car testing workflow |
 | [Work Plan](docs/work-plan.md) | Milestones and task tracking |
-| [Bridge Build Guide](bridge/sbc/BUILD.md) | SBC build and deployment |
-
+| [Bridge Build Guide](bridge/sbc/BUILD.md) | SBC build and deployment || [CarPlay Implementation](docs/future/carplay-bridge-implementation.md) | CarPlay bridge architecture and phased plan |
 ## Status
 
 Active development. See the [work plan](docs/work-plan.md) for current milestones.
@@ -166,7 +170,7 @@ Active development. See the [work plan](docs/work-plan.md) for current milestone
 
 ## Acknowledgments
 
-OpenAutoLink is built from scratch, but it wouldn't exist without the open-source Android Auto community. I want to recognize the projects I learned from and built upon.
+OpenAutoLink is built from scratch, but it wouldn't exist without the open-source Android Auto and AirPlay/CarPlay communities. I want to recognize the projects I learned from and built upon.
 
 ### Where It Started
 
@@ -185,6 +189,12 @@ OpenAutoLink is built from scratch, but it wouldn't exist without the open-sourc
 - **[nickel110/WirelessAndroidAutoDongle](https://github.com/nickel110/WirelessAndroidAutoDongle)** — Wireless AA dongle firmware. I referenced its Bluetooth pairing flow and WiFi credential exchange over RFCOMM, which informed the `aa_bt_all.py` implementation.
 
 None of the app or bridge code is derived from these projects, but the knowledge and patterns they established in the open-source AA ecosystem were invaluable.
+
+### CarPlay Protocol References
+
+- **[postlund/pyatv](https://github.com/postlund/pyatv)** — Apple TV protocol implementation with HomeKit pair-setup/verify. Referenced for SRP-6a and X25519 key exchange state machines.
+- **[openairplay/airplay2-receiver](https://github.com/openairplay/airplay2-receiver)** — AirPlay 2 receiver. Referenced for Bonjour TXT records, feature bitmaps, and RTSP control flow.
+- **[homebridge/HAP-nodejs](https://github.com/homebridge/HAP-nodejs)** — HomeKit Accessory Protocol. Referenced for HomeKit pairing v2 cryptography (the same protocol CarPlay uses for wireless authentication).
 
 ### On the Topic of Vibe-Coding
 

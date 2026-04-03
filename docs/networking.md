@@ -25,16 +25,20 @@ The OpenAutoLink bridge has **three network connections**, each serving a differ
 
 ## Network Roles
 
-### 1. Phone → Bridge (Android Auto stream)
+### 1. Phone → Bridge (Android Auto / CarPlay stream)
 
 **How the phone connects:**
-- **Wireless** (default): Phone pairs via Bluetooth, joins bridge's WiFi AP, connects AA over TCP port 5277
-- **Wired USB**: Phone plugs into bridge USB host port, uses AOA protocol
+- **Android (wireless AA)**: Phone pairs via Bluetooth, joins bridge's WiFi AP, connects AA over TCP port 5277
+- **iPhone (wireless CarPlay)**: iPhone pairs via Bluetooth, joins bridge's WiFi AP, connects CarPlay via RTSP port 5000 + AirPlay ports 7000/7001
+- **Wired USB**: Phone plugs into bridge USB host port, uses AOA protocol (AA only)
+
+Both phone types use the same WiFi AP and BT pairing infrastructure. The bridge advertises both AA and CarPlay BT UUIDs simultaneously (different RFCOMM channels, no conflict). Session mode is controlled by `OAL_PHONE_PROTOCOL`.
 
 **Configuration:**
 ```bash
-OAL_PHONE_MODE=wireless    # "wireless" or "usb"
-OAL_PHONE_TCP_PORT=5277    # TCP port for wireless AA (default 5277)
+OAL_PHONE_MODE=wireless        # "wireless" or "usb"
+OAL_PHONE_TCP_PORT=5277        # TCP port for wireless AA (default 5277)
+OAL_PHONE_PROTOCOL=android-auto  # "android-auto", "carplay", or "auto"
 ```
 
 ### 2. Bridge → Car (OAL protocol relay)

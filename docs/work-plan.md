@@ -99,6 +99,42 @@ Full audit of the bridge codebase to remove any remaining CPC200/carlink_native 
 - [x] Update any remaining comments or documentation referencing CPC200 wire format
 - [x] Full build + test pass to confirm nothing broke
 
+### B4: CarPlay Bridge Support
+
+**Depends on:** B1 (OAL protocol), B2 (BT/HFP infrastructure)
+
+Add wireless CarPlay as an alternative phone-side session. The bridge accepts either an Android phone (AA via aasdk) or an iPhone (CarPlay via HomeKit + AirPlay), runtime-selectable via `OAL_PHONE_PROTOCOL` env var. The car app is unchanged — it receives the same OAL frames regardless of source.
+
+See [CarPlay Implementation Plan](../docs/future/carplay-bridge-implementation.md) for full architecture and phased breakdown.
+
+**Phase 1: Discovery**
+- [ ] Bonjour advertisement (`_carplay._tcp` + `_airplay._tcp`) via avahi-client
+- [ ] Basic RTSP listener on TCP:5000 (OPTIONS/DESCRIBE)
+- [ ] `CarPlaySession` skeleton + `--session-mode=carplay-live` CLI
+- [ ] CarPlay BT profile in `aa_bt_all.py` (SDP UUID + BLE advertisement)
+- [ ] `OAL_PHONE_PROTOCOL` env var in `openautolink.env`
+
+**Phase 2: HomeKit Pairing**
+- [ ] SRP-6a pair-setup (first-time PIN-based pairing)
+- [ ] Pair-verify (X25519 + HKDF for subsequent reconnections)
+- [ ] Encrypted control channel (ChaCha20-Poly1305)
+- [ ] `carplay_pin` control message → app displays PIN screen
+- [ ] Long-term key storage on bridge
+
+**Phase 3: AirPlay Streams**
+- [ ] AirPlay video stream (H.264) decrypt + deframe → `oal.write_video_frame()`
+- [ ] AirPlay audio stream (ALAC/AAC→PCM decode) → `oal.write_audio_frame()`
+- [ ] libavcodec dependency for ALAC/AAC decoding
+
+**Phase 4: Input (Touch + HID)**
+- [ ] OAL touch → CarPlay HID touch reports
+- [ ] Siri button, home button via HID key events
+
+**Phase 5: Auto Mode**
+- [ ] Both AA + CarPlay listeners active simultaneously
+- [ ] `std::atomic<PhoneProtocol>` — first phone to connect wins
+- [ ] `OAL_PHONE_PROTOCOL=auto` support
+
 ---
 
 ## 📱 App Milestones (New Build)

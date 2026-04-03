@@ -2,14 +2,15 @@
 
 ## What This Is
 
-A wireless Android Auto bridge for AAOS head units. Purpose-built from scratch.
+A wireless Android Auto and CarPlay bridge for AAOS head units. Purpose-built from scratch.
 
 ```
-Phone ──WiFi TCP:5277──▶ SBC (openautolink-headless, aasdk v1.6)
-                              ↓ OAL protocol (simple framing)
-                         SBC TCP:5288 (control) ──Ethernet──▶ Car App (AAOS)
-                         SBC TCP:5290 (video)   ──Ethernet──▶ Car App (AAOS)
-                         SBC TCP:5289 (audio)   ──Ethernet──▶ Car App (AAOS)
+Android Phone ──WiFi TCP:5277──▶ SBC (openautolink-headless)
+iPhone ──WiFi RTSP:5000────▶    aasdk v1.6 (AA) / HomeKit+AirPlay (CarPlay)
+                                   ↓ OAL protocol (simple framing)
+                              SBC TCP:5288 (control) ──Ethernet──▶ Car App (AAOS)
+                              SBC TCP:5290 (video)   ──Ethernet──▶ Car App (AAOS)
+                              SBC TCP:5289 (audio)   ──Ethernet──▶ Car App (AAOS)
 ```
 
 Two components:
@@ -68,15 +69,15 @@ When modifying **app** code that talks to the bridge, **read the bridge source c
 
 ### Bridge (`bridge/`)
 
-The bridge binary speaks OAL protocol over TCP to the car app.
+The bridge binary speaks OAL protocol over TCP to the car app. It supports Android Auto (via aasdk) and CarPlay (via HomeKit pairing + AirPlay streams), selectable at runtime via `OAL_PHONE_PROTOCOL` env var.
 
 | Directory | Purpose |
-|-----------|---------|
-| `bridge/openautolink/headless/` | C++20 binary — aasdk v1.6 AA session + OAL protocol relay |
-| `bridge/openautolink/scripts/` | `aa_bt_all.py` — BLE, BT pairing, HSP, RFCOMM WiFi credential exchange |
+|-----------|--------|
+| `bridge/openautolink/headless/` | C++20 binary — aasdk v1.6 AA session + CarPlay session + OAL protocol relay |
+| `bridge/openautolink/scripts/` | `aa_bt_all.py` — BLE, BT pairing (AA + CarPlay profiles), HSP, RFCOMM WiFi credential exchange |
 | `bridge/sbc/` | Systemd services, env config, install script, build guide |
 
-The bridge speaks OAL protocol directly on all three TCP channels.
+The bridge speaks OAL protocol directly on all three TCP channels. The car app is protocol-agnostic — it renders the same OAL frames regardless of whether the source is Android Auto or CarPlay.
 
 ## Build & Test
 
@@ -141,8 +142,7 @@ scripts/deploy-to-sbc.ps1
 | [docs/embedded-knowledge.md](docs/embedded-knowledge.md) | Hardware lessons (MUST READ before touching video/audio/VHAL) |
 | [docs/networking.md](docs/networking.md) | Three-network architecture (phone, car, SSH) |
 | [bridge/sbc/BUILD.md](bridge/sbc/BUILD.md) | SBC build and deployment guide |
-| [docs/testing.md](docs/testing.md) | Local testing with AAOS emulator + SBC |
-
+| [docs/testing.md](docs/testing.md) | Local testing with AAOS emulator + SBC || [docs/future/carplay-bridge-implementation.md](docs/future/carplay-bridge-implementation.md) | CarPlay bridge architecture and phased implementation plan |
 ## Pitfalls
 
 - **CRLF**: SBC scripts and env files must be LF. Windows scp creates CRLF — always convert

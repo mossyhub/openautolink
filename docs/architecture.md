@@ -2,7 +2,7 @@
 
 ## Design Principles
 
-1. **Bridge-native**: The app exists to display what the bridge sends. No USB adapter abstraction layer
+1. **Bridge-native**: The app exists to display what the bridge sends. No USB adapter abstraction layer. The app is phone-protocol-agnostic — it speaks OAL and renders identically regardless of whether the bridge is running Android Auto or CarPlay
 2. **Island independence**: Each component is a self-contained package with public API, internal implementation, and its own test suite
 3. **Test-anchored**: Tests define the contract. Write interface → write tests → write implementation
 4. **Real-time first**: Video is disposable, audio is sacred, touch is immediate. Latency over completeness
@@ -270,9 +270,15 @@ enum class SessionState { IDLE, CONNECTING, BRIDGE_CONNECTED, PHONE_CONNECTED, S
       Transport    Video  Audio    Input    Navigation
            │                                    │
            └──── TCP ◄──── Bridge (SBC) ────────┘
+                         │
+                   ┌─────┴─────┐
+                   │ AA (aasdk) │  ── Android phone
+                   │ CarPlay   │  ── iPhone
+                   └───────────┘
 ```
 
 No island depends on another island directly. All communication flows through Session.
+The bridge handles phone-protocol specifics (AA vs CarPlay) — the app only sees OAL frames.
 
 ---
 
