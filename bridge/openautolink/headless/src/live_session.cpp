@@ -1861,7 +1861,7 @@ void HeadlessVideoHandler::replayCachedKeyframe() {
             std::cerr << "[aasdk] replaying cached SPS/PPS (" << cached_sps_pps_.size() << " bytes)" << std::endl;
             oal_session_->write_video_frame(
                 static_cast<uint16_t>(w), static_cast<uint16_t>(h), 0,
-                OalVideoFlags::CODEC_CONFIG | OalVideoFlags::KEYFRAME,
+                OalVideoFlags::CODEC_CONFIG,
                 cached_sps_pps_.data(), cached_sps_pps_.size());
         }
         if (!cached_idr_.empty() && cached_idr_ != cached_sps_pps_) {

@@ -29,7 +29,8 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
 
     companion object {
         private const val TAG = "MediaCodecDecoder"
-        private const val INPUT_TIMEOUT_US = 8000L // 8ms — wait for input buffer on dedicated thread
+        private const val INPUT_TIMEOUT_US = 16000L // 16ms — one frame period at 60fps
+        private const val INPUT_TIMEOUT_BEHIND_US = 5000L // 5ms — shorter when catching up
         private const val OUTPUT_TIMEOUT_US = 1000L // 1ms timeout for output drain
         private const val STATS_INTERVAL_MS = 500L
     }
@@ -78,14 +79,18 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
     private var consecutiveDrops = 0
 
     override fun attach(surface: Surface, width: Int, height: Int) {
+        val surfaceChanged = this.surface !== surface
         this.surface = surface
         this.surfaceWidth = width
         this.surfaceHeight = height
-        Log.i(TAG, "Surface attached: ${width}x${height}")
+        Log.i(TAG, "Surface attached: ${width}x${height} (surfaceChanged=$surfaceChanged)")
 
-        // If we already have codec config, reconfigure
-        codecConfigData?.let { config ->
-            configureCodec(config)
+        // Only reconfigure codec if the Surface object itself changed (e.g., after surfaceDestroyed).
+        // Size-only changes don't require codec reset — MediaCodec renders to whatever size the surface is.
+        if (surfaceChanged) {
+            codecConfigData?.let { config ->
+                configureCodec(config)
+            }
         }
     }
 
@@ -110,10 +115,14 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
         when {
             frame.isCodecConfig && frame.isKeyframe -> {
                 // Combined SPS/PPS + IDR frame — configure codec, then queue the keyframe.
-                // The bridge may send these combined; if we only handle as codec config,
-                // we lose the IDR and drop P-frames until the next standalone IDR.
+                // But verify the data actually contains IDR NALs — the bridge replay may
+                // incorrectly flag SPS/PPS-only data as keyframe.
                 handleCodecConfig(frame)
-                handleKeyframe(frame)
+                if (NalParser.containsIdr(frame.data)) {
+                    handleKeyframe(frame)
+                } else {
+                    Log.w(TAG, "Frame flagged as codec_config+keyframe but no IDR NAL found (${frame.data.size} bytes)")
+                }
             }
             frame.isCodecConfig -> handleCodecConfig(frame)
             frame.isEndOfStream -> handleEndOfStream()
@@ -163,9 +172,19 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
 
     private fun handleKeyframe(frame: VideoFrame) {
         if (codec == null) {
-            Log.w(TAG, "IDR received but codec not configured, dropping")
-            framesDropped.incrementAndGet()
-            return
+            // Codec not configured yet — try to extract SPS/PPS from the IDR frame.
+            // Many phone encoders prepend SPS/PPS to IDR frames, and the bridge replay
+            // may send a standalone IDR after a separate SPS/PPS that we missed.
+            val nalTypes = NalParser.collectH264NalTypes(frame.data)
+            if (nalTypes.contains(NalParser.H264_NAL_SPS) && nalTypes.contains(NalParser.H264_NAL_IDR)) {
+                Log.i(TAG, "IDR contains inline SPS/PPS — extracting codec config")
+                handleCodecConfig(frame)
+                // Fall through to queue as keyframe below
+            } else {
+                Log.w(TAG, "IDR received but codec not configured (no inline SPS), dropping")
+                framesDropped.incrementAndGet()
+                return
+            }
         }
         Log.i(TAG, "IDR keyframe received: ${frame.data.size} bytes")
         receivedIdr = true
@@ -273,11 +292,12 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
         }
 
         // Adaptive timeout: keyframes always wait, P-frames use shorter timeout when behind
+        // but never drop to 0 — that creates a vicious cycle where ALL frames are dropped
         val timeout = if (frame.isKeyframe) {
             INPUT_TIMEOUT_US
-        } else if (consecutiveDrops >= 3) {
-            // Decoder is behind — use non-blocking check for P-frames
-            0L
+        } else if (consecutiveDrops >= 5) {
+            // Decoder is significantly behind — use shorter timeout but still try
+            INPUT_TIMEOUT_BEHIND_US
         } else {
             INPUT_TIMEOUT_US
         }
@@ -287,7 +307,7 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
             if (inputIndex < 0) {
                 framesDropped.incrementAndGet()
                 consecutiveDrops++
-                if (consecutiveDrops == 5) {
+                if (consecutiveDrops == 5 || (consecutiveDrops > 5 && consecutiveDrops % 30 == 0)) {
                     Log.w(TAG, "Decoder behind: $consecutiveDrops consecutive frame drops")
                 }
                 return
@@ -366,6 +386,7 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
             }
         }, "VideoDecoder-drain").apply {
             isDaemon = true
+            priority = Thread.MAX_PRIORITY  // Drain thread should never be starved
             start()
         }
     }

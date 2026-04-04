@@ -163,14 +163,29 @@ fi
 echo ""
 
 # ── 5. Hostname + mDNS ───────────────────────────────────────────────
-echo ">>> [5/6] Setting hostname..."
+echo ">>> [5/7] Setting hostname..."
 hostnamectl set-hostname openautolink 2>/dev/null || true
 grep -q "openautolink" /etc/hosts || echo "127.0.1.1 openautolink" >> /etc/hosts
 echo "  Hostname: openautolink"
 echo ""
 
-# ── 6. Systemd services ──────────────────────────────────────────────
-echo ">>> [6/6] Installing systemd services..."
+# ── 6. Service user ──────────────────────────────────────────────────
+echo ">>> [6/7] Setting up openautolink user..."
+if ! id openautolink &>/dev/null; then
+    useradd -m -s /bin/bash -G sudo openautolink
+    echo "openautolink:openautolink" | chpasswd
+    echo "  Created user 'openautolink' (change password with: passwd openautolink)"
+else
+    echo "  User 'openautolink' already exists"
+fi
+# Passwordless sudo for deploy scripts
+echo "openautolink ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/openautolink
+chmod 440 /etc/sudoers.d/openautolink
+echo "  Passwordless sudo configured"
+echo ""
+
+# ── 7. Systemd services ──────────────────────────────────────────────
+echo ">>> [7/7] Installing systemd services..."
 for svc in openautolink.service openautolink-network.service \
            openautolink-wireless.service openautolink-bt.service; do
     if [ -f "${TMP_DIR}/${svc}" ]; then
@@ -193,10 +208,13 @@ echo "=== Installation complete ==="
 echo ""
 echo "  Binary:  ${INSTALL_DIR}/bin/openautolink-headless"
 echo "  Config:  /etc/openautolink.env"
+echo "  SSH user: openautolink (passwordless sudo)"
 echo "  Version: ${LATEST_TAG}"
 echo ""
 echo "  Next steps:"
 echo "    1. Edit /etc/openautolink.env to match your setup"
-echo "    2. Reboot: sudo reboot"
-echo "    3. Check status: systemctl status openautolink"
+echo "    2. (Optional) Copy your SSH public key for key-based auth:"
+echo "       ssh-copy-id openautolink@<SBC_IP>"
+echo "    3. Reboot: sudo reboot"
+echo "    4. Check status: systemctl status openautolink"
 echo ""

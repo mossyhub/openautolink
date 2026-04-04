@@ -45,7 +45,7 @@ class ConnectionManager(private val scope: CoroutineScope) : BridgeConnection {
     override val controlMessages: Flow<ControlMessage> = _controlMessages.asSharedFlow()
 
     private val _videoFrames = MutableSharedFlow<VideoFrame>(
-        extraBufferCapacity = 8,
+        extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     override val videoFrames: Flow<VideoFrame> = _videoFrames.asSharedFlow()

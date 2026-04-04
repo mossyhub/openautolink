@@ -252,8 +252,22 @@ private fun ConnectionStatusBar(
             .fillMaxWidth()
             .padding(bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        // Save & Connect button — left-aligned, first element
+        Button(
+            onClick = onSaveAndConnect,
+            modifier = Modifier.testTag("saveAndConnectButton"),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Save & Connect")
+        }
+
         // Status indicator dot + text
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -273,22 +287,6 @@ private fun ConnectionStatusBar(
             if (sessionState == SessionState.CONNECTING) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Save & Connect button
-        Button(
-            onClick = onSaveAndConnect,
-            modifier = Modifier.testTag("saveAndConnectButton"),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Refresh,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Save & Connect")
         }
     }
 }

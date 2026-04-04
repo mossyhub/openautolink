@@ -1,6 +1,6 @@
 param(
     [string]$SbcHost = "192.168.137.2",
-    [string]$SbcUser = "lance",
+    [string]$SbcUser = "openautolink",
     [switch]$Clean,
     [switch]$SkipBuild,
     [switch]$Full

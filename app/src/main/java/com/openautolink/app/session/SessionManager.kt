@@ -563,15 +563,18 @@ class SessionManager(
 
     private fun startVideoChannel(host: String, videoPort: Int) {
         videoCollectJob?.cancel()
-        scope.launch {
-            connectionManager.connectVideo(host, videoPort)
-        }
-        // Collect video frames on a dedicated thread — NEVER on Main.
-        // Video decode (MediaCodec input queueing) must not block the UI thread.
+        // Start collecting video frames FIRST so the SharedFlow has an active subscriber
+        // before the bridge starts sending replay frames.
         videoCollectJob = scope.launch(videoDispatcher) {
             connectionManager.videoFrames.collect { frame ->
                 _videoDecoder?.onFrame(frame)
             }
+        }
+        scope.launch {
+            connectionManager.connectVideo(host, videoPort)
+            // Request keyframe after video channel connects — ensures the bridge
+            // replays cached SPS/PPS+IDR now that the video sink is ready.
+            requestKeyframe()
         }
     }
 

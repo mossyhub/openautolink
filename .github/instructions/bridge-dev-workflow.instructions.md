@@ -36,7 +36,7 @@ scripts\deploy-bridge.ps1 -SkipBuild
 scripts\deploy-bridge.ps1 -Full -SkipBuild
 
 # Custom SBC address:
-scripts\deploy-bridge.ps1 -SbcHost 10.0.0.1 -SbcUser pi
+scripts\deploy-bridge.ps1 -SbcHost 10.0.0.1 -SbcUser openautolink
 ```
 
 ## Build Only (No Deploy)

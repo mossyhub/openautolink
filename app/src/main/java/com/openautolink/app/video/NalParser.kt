@@ -125,6 +125,27 @@ object NalParser {
     }
 
     /**
+     * Check if data contains an IDR NAL unit (H.264 type 5, or H.265 types 19/20).
+     * Scans all NAL units in the buffer — handles combined SPS+PPS+IDR frames.
+     */
+    fun containsIdr(data: ByteArray): Boolean {
+        var offset = 0
+        while (offset < data.size) {
+            val pos = findStartCode(data, offset)
+            if (pos < 0) break
+            val nalBytePos = pos + startCodeLength(data, pos)
+            if (nalBytePos >= data.size) break
+            val h264Type = h264NalType(data[nalBytePos])
+            if (h264Type == H264_NAL_IDR) return true
+            // Also check H.265 IDR types
+            val h265Type = h265NalType(data[nalBytePos])
+            if (h265Type == H265_NAL_IDR_W_RADL || h265Type == H265_NAL_IDR_N_LP) return true
+            offset = nalBytePos + 1
+        }
+        return false
+    }
+
+    /**
      * Find the position of the next start code (0x000001 or 0x00000001) starting from offset.
      * Returns -1 if not found.
      */

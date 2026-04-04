@@ -98,6 +98,14 @@ The GM Blazer EV has a 2914×1134 display (~2.57:1 aspect ratio). Standard phone
 ## AAOS Display Constraints
 - GM Blazer EV: 2914×1134 physical, ~2628×800 usable with nav bar hidden
 - App should request fullscreen (hide status bar + nav bar) in projection mode
+
+### Display Safe Zones (CRITICAL)
+- The GM Blazer EV has a **curved/tapered right edge** that clips content in the rightmost ~150px of the display
+- **NEVER place interactive elements (buttons, toggles, inputs) at the far right** of any screen — they will be partially or fully hidden by the physical screen bezel
+- Prefer **left-aligned** or **center-left** placement for all interactive controls
+- Use `fillMaxWidth(0.5f)` to `fillMaxWidth(0.7f)` for content to naturally stay within the safe zone
+- Status indicators and read-only labels are acceptable further right, but buttons and touch targets must stay within the left ~85% of the content pane
+- This applies to **all screens**: Settings, Diagnostics, any future UI
 - Use `WindowInsetsController.hide(WindowInsets.Type.systemBars())` — NOT legacy flags
 - Respect display cutouts: `layoutInDisplayCutoutMode = LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES`
 

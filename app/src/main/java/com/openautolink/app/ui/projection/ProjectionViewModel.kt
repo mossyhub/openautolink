@@ -97,6 +97,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private var pendingSurface: Surface? = null
     private var pendingSurfaceWidth: Int = 0
     private var pendingSurfaceHeight: Int = 0
+    private var surfaceDebounceJob: kotlinx.coroutines.Job? = null
 
     val uiState: StateFlow<ProjectionUiState> = combine(
         sessionManager.sessionState,
@@ -287,7 +288,15 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         pendingSurface = surface
         pendingSurfaceWidth = width
         pendingSurfaceHeight = height
-        sessionManager.videoDecoder?.attach(surface, width, height)
+
+        // Debounce surface changes — AAOS animates surface size on launch (788→864 in ~30 steps).
+        // Without debounce, each step resets the codec, losing the codec config frame.
+        surfaceDebounceJob?.cancel()
+        surfaceDebounceJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(150)
+            Log.d(TAG, "Surface stabilized at ${width}x${height}")
+            sessionManager.videoDecoder?.attach(surface, width, height)
+        }
     }
 
     /** Called when the SurfaceView surface is destroyed. */

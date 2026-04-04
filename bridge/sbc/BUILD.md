@@ -69,7 +69,26 @@ The installer will:
 3. Deploy scripts and config to `/opt/openautolink/`
 4. Create `/etc/openautolink.env` (your main config file)
 5. Configure USB gadget support (Raspberry Pi auto-detected)
-6. Install and enable systemd services
+6. Create an `openautolink` user with passwordless sudo (for SSH deploy)
+7. Install and enable systemd services
+
+### SSH Key Auth (recommended)
+
+After installation, set up SSH key auth so deploy scripts don't prompt for a password:
+
+```bash
+# From your development machine (Windows/Mac/Linux):
+ssh-copy-id openautolink@<SBC_IP>
+
+# Or if you already have a key, add an SSH config entry:
+# ~/.ssh/config
+Host oal-sbc
+    HostName 192.168.137.2
+    User openautolink
+    IdentityFile ~/.ssh/id_ed25519_openautolink
+```
+
+The deploy script (`scripts/deploy-bridge.ps1`) uses `openautolink` as the default SSH user.
 
 ## Step 4: Configure
 
