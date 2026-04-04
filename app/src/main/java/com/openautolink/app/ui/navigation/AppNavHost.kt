@@ -1,6 +1,7 @@
 package com.openautolink.app.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -44,6 +45,13 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         }
         composable(AppDestinations.SETTINGS) {
             val projectionUiState by projectionViewModel.uiState.collectAsStateWithLifecycle()
+            val pairedPhones by projectionViewModel.pairedPhones.collectAsStateWithLifecycle()
+
+            // Forward paired phones from session to settings ViewModel
+            LaunchedEffect(pairedPhones) {
+                settingsViewModel.onPairedPhonesReceived(pairedPhones)
+            }
+
             SettingsScreen(
                 viewModel = settingsViewModel,
                 sessionState = projectionUiState.sessionState,

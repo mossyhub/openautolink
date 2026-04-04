@@ -1829,22 +1829,11 @@ private fun BridgeTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             modifier = Modifier.padding(bottom = 12.dp),
         )
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        FilledTonalButton(
+            onClick = { viewModel.saveAndRestart(restartWireless = true, restartBluetooth = true) },
+            modifier = Modifier.testTag("fullRestartButton"),
         ) {
-            Button(
-                onClick = { viewModel.saveAndRestart(restartWireless = true, restartBluetooth = false) },
-                modifier = Modifier.testTag("saveAndRestartButton"),
-            ) {
-                Text("Save & Restart Bridge")
-            }
-
-            FilledTonalButton(
-                onClick = { viewModel.saveAndRestart(restartWireless = true, restartBluetooth = true) },
-                modifier = Modifier.testTag("fullRestartButton"),
-            ) {
-                Text("Full Restart (+ WiFi/BT)")
-            }
+            Text("Restart Bridge Services")
         }
     }
 }
