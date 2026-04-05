@@ -22,13 +22,11 @@ class AudioPurposeSlot(
 ) {
     companion object {
         private const val TAG = "AudioPurposeSlot"
-        private const val TRACK_BUFFER_MULTIPLIER = 8
-        private const val TRACK_BUFFER_MIN_BYTES = 38400
+        private const val TRACK_BUFFER_MULTIPLIER = 16 // Large buffer absorbs SSH tunnel jitter
+        private const val TRACK_BUFFER_MIN_BYTES = 76800 // ~200ms at 48kHz stereo 16-bit
     }
 
     private var audioTrack: AudioTrack? = null
-    private var ringBuffer: AudioRingBuffer? = null
-    private var playbackThread: Thread? = null
 
     private val active = AtomicBoolean(false)
     private val released = AtomicBoolean(false)
@@ -60,14 +58,10 @@ class AudioPurposeSlot(
                 .build())
             .setBufferSizeInBytes(trackBufSize)
             .setTransferMode(AudioTrack.MODE_STREAM)
+            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .build()
 
-        val bytesPerSample = 2
-        val ringCapacity = sampleRate * channelCount * bytesPerSample * bufferDurationMs / 1000
-        ringBuffer = AudioRingBuffer(ringCapacity)
-
-        Log.d(TAG, "Initialized $purpose: ${sampleRate}Hz ${channelCount}ch, " +
-                "track=${trackBufSize}B, ring=${ringCapacity}B")
+        Log.d(TAG, "Initialized $purpose: ${sampleRate}Hz ${channelCount}ch, track=${trackBufSize}B")
     }
 
     fun start() {

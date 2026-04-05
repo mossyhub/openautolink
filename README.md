@@ -173,8 +173,6 @@ Active development. See the [work plan](docs/work-plan.md) for current milestone
 
 - **Audio playback quality on AAOS emulator**: Audio may sound choppy or stuttery when testing on the Android Automotive emulator. The emulator's virtual audio HAL (`audio_hw_generic_caremu`) is significantly slower than real hardware — blocking AudioTrack writes can stall for 2+ seconds, and non-blocking writes lose data when the HAL can't keep up. Audio on real AAOS hardware (e.g., GM Blazer EV with Snapdragon) is expected to perform normally. The bridge-side `max_unacked` flow control fix (increased from 1 to 50) ensures the phone streams audio at the full ~25 fps rate.
 
-- **Phone WiFi disconnects**: The phone may occasionally disassociate from the bridge's WiFi AP after several minutes, causing all channels (video, audio, input) to drop simultaneously (AASDK Error 33 / SSL transport error). The bridge auto-restarts its USB scan and the phone typically reconnects within 30-60 seconds. Investigation ongoing — may be related to Android's WiFi power management when connected to a "no internet" AP.
-
 ## Acknowledgments
 
 OpenAutoLink is built from scratch, but it wouldn't exist without the open-source Android Auto and AirPlay/CarPlay communities. I want to recognize the projects I learned from and built upon.
