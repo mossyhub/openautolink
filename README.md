@@ -68,6 +68,18 @@ The bridge is lightweight — it relays an already-encoded video/audio stream, s
 - **Khadas VIM4** — also works, overkill for this use case
 - **ROCK 3A** — works (wired phone mode if no WiFi module)
 
+**Budget-friendly SBCs that should work:**
+
+Any ARM64 board with onboard Ethernet, 5 GHz WiFi, and Bluetooth 4.0+ should work. Here are some popular, lower-cost options:
+
+| Board | Approx. Price | Notes |
+|-------|--------------|-------|
+| **Raspberry Pi 4 Model B (2 GB)** | ~$35 | The classic. Gigabit Ethernet, dual-band WiFi, BT 5.0. Widely available with excellent Linux support. The 2 GB model is plenty for the bridge |
+| **Orange Pi 5** | ~$55 | RK3588S, Gigabit Ethernet, WiFi 6 + BT 5.0 (via onboard module). Fast boot, compact form factor |
+| **Orange Pi 3B** | ~$30 | RK3566, Gigabit Ethernet, dual-band WiFi + BT 5.0. Good budget pick with solid mainline Linux support |
+| **ROCK Pi 4 Model B** | ~$50 | RK3399, Gigabit Ethernet, dual-band WiFi + BT 5.0. Well-supported by Armbian |
+| **Radxa ROCK 3C** | ~$35 | RK3566, Gigabit Ethernet, dual-band WiFi + BT 5.0. Compact and well-priced |
+
 Most ARM64 SBCs with the above specs should work. The bridge binary is a generic aarch64 Linux executable.
 
 ### How It Connects
