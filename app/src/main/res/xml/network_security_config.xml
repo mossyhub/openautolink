@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Allow cleartext TCP to the bridge device on the local network.
+     The bridge uses raw TCP (not HTTP/TLS) on ports 5288-5290. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

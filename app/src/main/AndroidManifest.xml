@@ -30,8 +30,14 @@
         android:name="android.hardware.type.automotive"
         android:required="true" />
 
+    <uses-feature
+        android:name="android.software.car.templates_host"
+        android:required="true" />
+
     <application
         android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="OpenAutoLink"
@@ -84,10 +90,24 @@
             android:name="androidx.car.app.minCarApiLevel"
             android:value="6" />
 
+        <!-- Declares automotive app capabilities to Templates Host -->
+        <meta-data
+            android:name="com.android.automotive"
+            android:resource="@xml/automotive_app_desc" />
+
         <!-- Application-level distraction optimization declaration -->
         <meta-data
             android:name="com.android.automotive.application.DISTRACTION_OPTIMIZED"
             android:value="true" />
+
+        <!-- Media source for AAOS system UI, cluster, and steering wheel controls -->
+        <service
+            android:name=".media.OalMediaBrowserService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
 
     </application>
 </manifest>
