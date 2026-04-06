@@ -10,15 +10,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -52,6 +49,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,6 +76,7 @@ fun SafeAreaEditorScreen(
     initialBottom: Int,
     initialLeft: Int,
     initialRight: Int,
+    displayMode: String = "fullscreen_immersive",
     onDone: (top: Int, bottom: Int, left: Int, right: Int) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -93,7 +96,8 @@ fun SafeAreaEditorScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
+            // No safeDrawing inset padding — editor must show the full physical display
+            // so the user can see bezel cutoffs and set safe area to account for them.
             .testTag("safeAreaEditorScreen")
     ) {
         val density = LocalDensity.current
@@ -363,10 +367,19 @@ fun SafeAreaEditorScreen(
             GripLines(horizontal = false, modifier = Modifier.fillMaxSize())
         }
 
-        // --- Toolbar: top center ---
+        // --- Toolbar: top center, respects display mode system bars ---
+        // Compute inset modifier matching the current display mode so buttons
+        // aren't rendered behind the status bar.
+        val toolbarInsetModifier = when (displayMode) {
+            "system_ui_visible" -> Modifier.windowInsetsPadding(WindowInsets.systemBars)
+            "status_bar_hidden" -> Modifier.windowInsetsPadding(WindowInsets.navigationBars)
+            "nav_bar_hidden" -> Modifier.windowInsetsPadding(WindowInsets.statusBars)
+            else -> Modifier // fullscreen_immersive, custom_viewport — no insets
+        }
         Row(
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .then(toolbarInsetModifier)
                 .padding(top = 12.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xCC1E1E1E))

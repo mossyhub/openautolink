@@ -66,7 +66,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private val preferences = AppPreferences.getInstance(application)
     private val audioManager = application.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    private val sessionManager = SessionManager(viewModelScope, application, audioManager)
+    private val sessionManager = SessionManager.getInstance(viewModelScope, application, audioManager)
 
     private val touchForwarder: TouchForwarder = TouchForwarderImpl { touchMessage ->
         viewModelScope.launch {
@@ -217,8 +217,12 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             val codec = preferences.videoCodec.first()
             val micSrc = preferences.micSource.first()
             val ifaceName = preferences.networkInterface.first()
+            val diagEnabled = preferences.remoteDiagnosticsEnabled.first()
+            val diagMinLevel = preferences.remoteDiagnosticsMinLevel.first()
             val network = resolveNetwork(ifaceName)
-            sessionManager.start(host, port, codec, micSrc, network = network)
+            sessionManager.start(host, port, codec, micSrc,
+                diagnosticsEnabled = diagEnabled, diagnosticsMinLevel = diagMinLevel,
+                network = network)
         }
     }
 
@@ -312,6 +316,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             kotlinx.coroutines.delay(150)
             Log.d(TAG, "Surface stabilized at ${width}x${height}")
             sessionManager.videoDecoder?.attach(surface, width, height)
+            // Surface may have attached after the bridge's SPS/PPS+IDR replay arrived,
+            // meaning the IDR was dropped (codec wasn't configured yet). Request a
+            // fresh keyframe so the bridge sends a new IDR now that the codec is ready.
+            sessionManager.requestKeyframe()
         }
     }
 

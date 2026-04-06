@@ -90,6 +90,10 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
         if (surfaceChanged) {
             codecConfigData?.let { config ->
                 configureCodec(config)
+                // Codec configured from cached SPS/PPS, but the IDR that arrived with it
+                // was likely lost (surface wasn't attached when it arrived during replay).
+                // Reset the flag so the caller can request a fresh IDR.
+                _needsKeyframe = false
             }
         }
     }
@@ -161,6 +165,19 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
     private fun handleCodecConfig(frame: VideoFrame) {
         Log.i(TAG, "Codec config received: ${frame.data.size} bytes (flags=0x${frame.flags.toString(16)})")
         DiagnosticLog.i("video", "Codec config received: ${frame.data.size} bytes")
+
+        // Skip reconfigure if the codec is already running.
+        // H.265 SPS/PPS varies slightly between frames (timing metadata changes),
+        // but the resolution and codec profile stay the same. Reconfiguring on every
+        // SPS change creates an infinite reset loop where receivedIdr never becomes true.
+        // Only reconfigure if we don't have a codec yet (first config) or codec errored out.
+        if (codec != null && _decoderState.value == DecoderState.DECODING) {
+            Log.d(TAG, "Codec already active — skipping reconfigure")
+            // Still save the latest config data for potential future codec reset
+            codecConfigData = frame.data.copyOf()
+            return
+        }
+
         codecConfigData = frame.data.copyOf()
         receivedIdr = false
         _needsKeyframe = true  // Request IDR after codec reconfigure
@@ -172,18 +189,30 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
 
     private fun handleKeyframe(frame: VideoFrame) {
         if (codec == null) {
-            // Codec not configured yet — try to extract SPS/PPS from the IDR frame.
-            // Many phone encoders prepend SPS/PPS to IDR frames, and the bridge replay
-            // may send a standalone IDR after a separate SPS/PPS that we missed.
-            val nalTypes = NalParser.collectH264NalTypes(frame.data)
-            if (nalTypes.contains(NalParser.H264_NAL_SPS) && nalTypes.contains(NalParser.H264_NAL_IDR)) {
-                Log.i(TAG, "IDR contains inline SPS/PPS — extracting codec config")
-                handleCodecConfig(frame)
-                // Fall through to queue as keyframe below
+            if (CodecSelector.isNalCodec(codecPreference)) {
+                // H.264/H.265: try to extract SPS/PPS from the IDR frame.
+                val nalTypes = NalParser.collectH264NalTypes(frame.data)
+                if (nalTypes.contains(NalParser.H264_NAL_SPS) && nalTypes.contains(NalParser.H264_NAL_IDR)) {
+                    Log.i(TAG, "IDR contains inline SPS/PPS — extracting codec config")
+                    handleCodecConfig(frame)
+                    // Fall through to queue as keyframe below
+                } else {
+                    Log.w(TAG, "IDR received but codec not configured (no inline SPS), dropping")
+                    framesDropped.incrementAndGet()
+                    return
+                }
             } else {
-                Log.w(TAG, "IDR received but codec not configured (no inline SPS), dropping")
-                framesDropped.incrementAndGet()
-                return
+                // VP9/AV1: no SPS/PPS needed — configure codec from frame dimensions
+                Log.i(TAG, "Non-NAL keyframe, configuring codec directly (${frame.width}x${frame.height})")
+                val w = if (frame.width > 0) frame.width else pendingWidth ?: surfaceWidth
+                val h = if (frame.height > 0) frame.height else pendingHeight ?: surfaceHeight
+                if (surface != null && w > 0 && h > 0) {
+                    configureCodecDirect(w, h)
+                } else {
+                    Log.w(TAG, "Keyframe but no surface or dimensions, dropping")
+                    framesDropped.incrementAndGet()
+                    return
+                }
             }
         }
         Log.i(TAG, "IDR keyframe received: ${frame.data.size} bytes")
@@ -270,6 +299,50 @@ class MediaCodecDecoder(private val codecPreference: String = "h264") : VideoDec
             DiagnosticLog.i("video", "Codec selected: $decoderName ($mimeType)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to configure codec", e)
+            DiagnosticLog.e("video", "Failed to configure codec: ${e.message}")
+            _decoderState.value = DecoderState.ERROR
+        }
+    }
+
+    /**
+     * Configure codec without SPS/PPS (for VP9/AV1 which are self-describing).
+     * MediaCodec auto-detects codec parameters from the bitstream.
+     */
+    private fun configureCodecDirect(width: Int, height: Int) {
+        releaseCodec()
+        _decoderState.value = DecoderState.CONFIGURING
+
+        try {
+            val decoderName = CodecSelector.findDecoder(mimeType)
+            if (decoderName == null) {
+                Log.e(TAG, "No decoder available for $mimeType")
+                DiagnosticLog.e("video", "No decoder available for $mimeType")
+                _decoderState.value = DecoderState.ERROR
+                return
+            }
+
+            Log.i(TAG, "Configuring codec direct: ${width}x${height} ($mimeType)")
+
+            val format = MediaFormat.createVideoFormat(mimeType, width, height)
+            // No csd-0 — VP9/AV1 decoders extract params from the bitstream
+            format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            try { format.setInteger("priority", 0) } catch (_: Exception) {}
+
+            val mc = MediaCodec.createByCodecName(decoderName)
+            mc.configure(format, surface, null, 0)
+            mc.start()
+            codec = mc
+            firstFrameRendered = false
+            decodeStartTimeMs = System.currentTimeMillis()
+
+            startDrainThread(mc)
+
+            _decoderState.value = DecoderState.DECODING
+            updateStats(decoderName)
+            Log.i(TAG, "Codec configured direct: $decoderName ($mimeType)")
+            DiagnosticLog.i("video", "Codec selected: $decoderName ($mimeType)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to configure codec direct", e)
             DiagnosticLog.e("video", "Failed to configure codec: ${e.message}")
             _decoderState.value = DecoderState.ERROR
         }

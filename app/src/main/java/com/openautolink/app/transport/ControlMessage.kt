@@ -57,6 +57,8 @@ sealed class ControlMessage {
         val timeToArrivalSeconds: Long? = null
     ) : ControlMessage()
 
+    object NavStateClear : ControlMessage()
+
     data class NavLane(val directions: List<NavLaneDirection>)
     data class NavLaneDirection(val shape: String, val highlighted: Boolean)
 

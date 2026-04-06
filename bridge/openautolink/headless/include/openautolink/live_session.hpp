@@ -285,6 +285,7 @@ public:
                          aasdk::messenger::IMessenger::Pointer messenger,
                          ThreadSafeOutputSink& output,
                          int width, int height, int fps, int dpi,
+                         int video_codec,
                          const HeadlessConfig::UiConfigExperiment& ui_experiment,
                          int video_fd = 3,
                          std::mutex* pipe_mutex = nullptr);
@@ -328,6 +329,7 @@ private:
     std::shared_ptr<aasdk::channel::mediasink::video::channel::VideoChannel> channel_;
     ThreadSafeOutputSink& output_;
     int width_, height_, fps_, dpi_;
+    int video_codec_;  // 3=H264, 5=VP9, 6=AV1, 7=H265
     HeadlessConfig::UiConfigExperiment ui_experiment_;
     int video_fd_;
     std::mutex* pipe_mutex_;

@@ -312,7 +312,10 @@ int main(int argc, char* argv[])
         std::thread video_thread([&tcp_video, &oal]() {
             std::cerr << "[main] video TCP (mock) listening" << std::endl;
             tcp_video.run_oal_sink(
-                []() { std::cerr << "[main] video client connected (mock)" << std::endl; },
+                [&oal]() {
+                    std::cerr << "[main] video client connected (mock)" << std::endl;
+                    oal.on_video_client_connected();
+                },
                 [&oal]() -> bool { return oal.flush_one_video(); }
             );
         });
@@ -402,7 +405,10 @@ int main(int argc, char* argv[])
         std::thread video_thread([&tcp_video, &oal]() {
             std::cerr << "[main] video TCP (OAL) listening" << std::endl;
             tcp_video.run_oal_sink(
-                []() { std::cerr << "[main] video client connected (OAL)" << std::endl; },
+                [&oal]() {
+                    std::cerr << "[main] video client connected (OAL)" << std::endl;
+                    oal.on_video_client_connected();
+                },
                 [&oal]() -> bool { return oal.flush_one_video(); }
             );
         });

@@ -125,10 +125,9 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     private val preferences = AppPreferences.getInstance(application)
 
-    // Shared SessionManager — retrieved from ProjectionViewModel via singleton pattern
-    // For diagnostics, we observe the same session manager instance
+    // Shared SessionManager — same instance used by ProjectionViewModel
     private val audioManager = application.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val sessionManager = SessionManager(viewModelScope, application, audioManager)
+    private val sessionManager = SessionManager.getInstance(viewModelScope, application, audioManager)
 
     private val _system = MutableStateFlow(gatherSystemInfo(application))
     private val _network = MutableStateFlow(DiagnosticsUiState().network)

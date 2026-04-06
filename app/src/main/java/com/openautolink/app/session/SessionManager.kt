@@ -55,6 +55,20 @@ class SessionManager(
 
     companion object {
         private const val TAG = "SessionManager"
+
+        @Volatile
+        private var instance: SessionManager? = null
+
+        /**
+         * Get or create the shared SessionManager instance.
+         * Both ProjectionViewModel and DiagnosticsViewModel must use the same instance
+         * so diagnostics can observe live vehicle data, video stats, etc.
+         */
+        fun getInstance(scope: CoroutineScope, context: Context, audioManager: AudioManager): SessionManager {
+            return instance ?: synchronized(this) {
+                instance ?: SessionManager(scope, context, audioManager).also { instance = it }
+            }
+        }
     }
 
     private val connectionManager = ConnectionManager(scope)
@@ -507,6 +521,10 @@ class SessionManager(
                 _navigationDisplay.currentManeuver.value?.let { maneuver ->
                     ClusterNavigationState.update(maneuver)
                 }
+            }
+            is ControlMessage.NavStateClear -> {
+                _navigationDisplay.clear()
+                ClusterNavigationState.clear()
             }
             is ControlMessage.MediaMetadata -> {
                 _mediaSessionManager?.updateMetadata(

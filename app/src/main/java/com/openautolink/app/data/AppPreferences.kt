@@ -89,7 +89,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_DISPLAY_MODE = "system_ui_visible"
         const val DEFAULT_MIC_SOURCE = "car"
         const val DEFAULT_NETWORK_INTERFACE = "" // empty = auto-select first available
-        const val DEFAULT_REMOTE_DIAGNOSTICS_ENABLED = false
+        const val DEFAULT_REMOTE_DIAGNOSTICS_ENABLED = true
         const val DEFAULT_REMOTE_DIAGNOSTICS_MIN_LEVEL = "INFO"
         const val DEFAULT_SYNC_AA_THEME = true
         const val DEFAULT_HIDE_AA_CLOCK = true
@@ -115,7 +115,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_SAFE_AREA_TOP = 0
         const val DEFAULT_SAFE_AREA_BOTTOM = 0
         const val DEFAULT_SAFE_AREA_LEFT = 0
-        const val DEFAULT_SAFE_AREA_RIGHT = 110 // 2024 Blazer EV curved right bezel
+        const val DEFAULT_SAFE_AREA_RIGHT = 184 // 2024 Blazer EV curved right bezel
         const val DEFAULT_CONTENT_INSET_TOP = 0
         const val DEFAULT_CONTENT_INSET_BOTTOM = 0
         const val DEFAULT_CONTENT_INSET_LEFT = 0

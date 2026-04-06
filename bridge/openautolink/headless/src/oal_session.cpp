@@ -46,12 +46,9 @@ void OalSession::on_app_connected() {
         send_phone_connected(phone_name_, "android");
         std::cerr << "[OAL] app connected (phone already connected, sent phone_connected)" << std::endl;
 
-        // Replay cached SPS/PPS+IDR so app gets video immediately
-#ifdef PI_AA_ENABLE_AASDK_LIVE
-        if (aa_session_) {
-            aa_session_->replay_cached_keyframe();
-        }
-#endif
+        // Note: SPS/PPS+IDR replay is deferred to on_video_client_connected()
+        // so frames go directly to the connected video sink, not into a queue
+        // that might be interleaved with live P-frames.
 
         // Replay active audio purposes so app starts AudioTracks
         {
@@ -85,6 +82,19 @@ void OalSession::on_app_disconnected() {
         audio_writes_.clear();
     }
     std::cerr << "[OAL] app disconnected" << std::endl;
+}
+
+void OalSession::on_video_client_connected() {
+    if (!phone_connected_) return;
+
+    // Replay cached SPS/PPS+IDR now that the video sink is connected.
+    // This ensures frames go directly to the TCP client, not into a queue
+    // that might be flushed before the client connects.
+#ifdef PI_AA_ENABLE_AASDK_LIVE
+    if (aa_session_) {
+        aa_session_->replay_cached_keyframe();
+    }
+#endif
 }
 
 // ── Phone lifecycle (from aasdk thread) ──────────────────────────────
@@ -364,6 +374,10 @@ void OalSession::send_nav_state(const std::string& maneuver, int distance_m,
 
 void OalSession::send_nav_state_modern(const std::string& json_line) {
     send_control_line(json_line);
+}
+
+void OalSession::send_nav_state_clear() {
+    send_control_line(R"({"type":"nav_state_clear"})");
 }
 
 void OalSession::send_media_metadata(const std::string& title, const std::string& artist,
@@ -855,9 +869,9 @@ void OalSession::handle_keyframe_request() {
     std::cerr << "[OAL] keyframe request from app" << std::endl;
 #ifdef PI_AA_ENABLE_AASDK_LIVE
     if (aa_session_) {
-        // Carry-forward fix #4: bypass rate limit on first keyframe after reconnect
-        // Always replay cached + request fresh IDR from phone
-        aa_session_->replay_cached_keyframe();
+        // Don't replay cached frames here — on_video_client_connected() handles that.
+        // Just ask the phone for a fresh IDR so the next keyframe is up-to-date.
+        aa_session_->request_fresh_idr();
         aa_session_->request_fresh_idr();
     }
 #endif

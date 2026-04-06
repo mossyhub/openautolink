@@ -246,14 +246,15 @@ This unblocks all car-specific validation items listed in the Car Testing Unknow
 These items can only be validated on the actual GM head unit. No emulator can answer them. Remote diagnostics (M11) is the primary tool for investigating each one — the app logs relevant events, and we observe via SSH on the bridge.
 
 ### Cluster Service (M8)
-| Unknown | How to test | What to log |
-|---------|------------|-------------|
-| Does GM kill third-party cluster services? | Deploy app, bind cluster, monitor lifetime | `tag=cluster`: bind time, alive duration, destroy event, reason if available |
-| How long does it stay alive before kill? | Timestamp bind vs destroy, compute delta | `tag=cluster`: `ClusterMainSession created`, `destroyed after Nms` |
-| Does GM's Templates Host work with our `NavigationTemplate`? | Send nav state, check cluster display | `tag=cluster`: `Trip.Builder` success/failure, any `RemoteException` |
-| `ClusterIconShimProvider` — does GM query it? | Deploy, log `ContentProvider.query()` calls | `tag=cluster`: query events with URI and caller package |
-| Is re-binding after kill effective? | Track rebind count over a drive session | `tag=cluster`: `rebind attempt #N`, success/failure |
-| Fallback if cluster is fully blocked | No cluster display — degrade gracefully, hide cluster settings | Log final determination so we can document for users |
+| Unknown | How to test | What to log | Status |
+|---------|------------|-------------|--------|
+| Does GM kill third-party cluster services? | Deploy app, bind cluster, monitor lifetime | `tag=cluster`: bind time, alive duration, destroy event, reason if available | **Unknown** — needs longer drive session |
+| How long does it stay alive before kill? | Timestamp bind vs destroy, compute delta | `tag=cluster`: `ClusterMainSession created`, `destroyed after Nms` | **Unknown** — needs longer drive session |
+| Does GM's Templates Host work with our `NavigationTemplate`? | Send nav state, check cluster display | `tag=cluster`: `Trip.Builder` success/failure, any `RemoteException` | **CONFIRMED** — GM renders Trip data via OnStarTurnByTurnManager. Arrow + road name displayed correctly on instrument cluster |
+| `ClusterIconShimProvider` — does GM query it? | Deploy, log `ContentProvider.query()` calls | `tag=cluster`: query events with URI and caller package | **Unknown** |
+| Is re-binding after kill effective? | Track rebind count over a drive session | `tag=cluster`: `rebind attempt #N`, success/failure | **Unknown** |
+| Fallback if cluster is fully blocked | No cluster display — degrade gracefully, hide cluster settings | Log final determination so we can document for users | N/A — cluster works |
+| Nav cancel clears cluster | Cancel nav on phone, verify cluster clears | `tag=cluster`: `navigationEnded()` called | **FIXED** — was missing `nav_state_clear` message. Bridge now sends it on `status!=active` |
 
 ### Steering Wheel Controls (M9)
 | Unknown | How to test | What to log |

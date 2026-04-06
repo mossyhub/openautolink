@@ -68,6 +68,8 @@ object ControlMessageSerializer {
 
             "mic_stop" -> ControlMessage.MicStop
 
+            "nav_state_clear" -> ControlMessage.NavStateClear
+
             "nav_state" -> {
                 val lanes = obj["lanes"]?.jsonArray?.map { laneEl ->
                     val laneObj = laneEl.jsonObject

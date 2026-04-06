@@ -1,5 +1,7 @@
 package com.openautolink.app
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
@@ -7,6 +9,8 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -20,9 +24,27 @@ import kotlinx.coroutines.runBlocking
 
 class MainActivity : ComponentActivity() {
 
+    private val requiredPermissions = arrayOf(
+        Manifest.permission.RECORD_AUDIO,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+    )
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val denied = results.filterValues { !it }.keys
+        if (denied.isNotEmpty()) {
+            Log.w("MainActivity", "Permissions denied: $denied")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Request runtime permissions on first launch
+        requestMissingPermissions()
 
         // Apply saved display mode (sync read — instant from DataStore cache)
         val prefs = AppPreferences.getInstance(this)
@@ -83,6 +105,16 @@ class MainActivity : ComponentActivity() {
                 controller.systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
+        }
+    }
+
+    private fun requestMissingPermissions() {
+        val missing = requiredPermissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            Log.i("MainActivity", "Requesting permissions: $missing")
+            permissionLauncher.launch(missing.toTypedArray())
         }
     }
 }

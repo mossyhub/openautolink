@@ -265,7 +265,7 @@ HeadlessAutoEntity::HeadlessAutoEntity(
     }
     video_handler_ = std::make_shared<HeadlessVideoHandler>(
         io_service_, messenger_, output_, aa_w, aa_h, config_.video_fps, config_.video_dpi,
-        config_.aa_ui_experiment,
+        config_.video_codec, config_.aa_ui_experiment,
         config_.media_fd, &media_pipe_mutex_);
 
     media_audio_handler_ = std::make_shared<HeadlessAudioHandler>(
@@ -1852,6 +1852,7 @@ HeadlessVideoHandler::HeadlessVideoHandler(
     aasdk::messenger::IMessenger::Pointer messenger,
     ThreadSafeOutputSink& output,
     int width, int height, int fps, int dpi,
+    int video_codec,
     const HeadlessConfig::UiConfigExperiment& ui_experiment,
     int video_fd,
     std::mutex* pipe_mutex)
@@ -1860,6 +1861,7 @@ HeadlessVideoHandler::HeadlessVideoHandler(
     , channel_(std::make_shared<aasdk::channel::mediasink::video::channel::VideoChannel>(strand_, std::move(messenger)))
     , output_(output)
     , width_(width), height_(height), fps_(fps), dpi_(dpi)
+    , video_codec_(video_codec)
     , ui_experiment_(ui_experiment)
     , video_fd_(video_fd)
     , pipe_mutex_(pipe_mutex)
@@ -2065,41 +2067,74 @@ void HeadlessVideoHandler::onMediaWithTimestampIndication(
                   << " size=" << buffer.size << " ts=" << timestamp << std::endl;
     }
 
-    // Detect IDR (keyframe) by scanning for H.264 start codes + NAL type
+    // Detect keyframes — codec-aware.
+    // H.264/H.265: scan for Annex B start codes + NAL type
+    // VP9: check frame header byte (no start codes)
+    // AV1: treat all frames as potential keyframes for now
     int flags = 0;
     bool has_sps = false;
     bool has_idr = false;
-    if (buffer.size >= 5) {
-        for (size_t i = 0; i + 4 < buffer.size; ++i) {
-            // Check for start code 00 00 00 01 or 00 00 01
-            bool sc4 = (buffer.cdata[i] == 0 && buffer.cdata[i+1] == 0 &&
-                        buffer.cdata[i+2] == 0 && buffer.cdata[i+3] == 1);
-            bool sc3 = (buffer.cdata[i] == 0 && buffer.cdata[i+1] == 0 &&
-                        buffer.cdata[i+2] == 1);
-            if (sc4 || sc3) {
-                size_t nal_offset = sc4 ? i + 4 : i + 3;
-                if (nal_offset < buffer.size) {
-                    uint8_t nal_type = buffer.cdata[nal_offset] & 0x1f;
-                    if (nal_type == 7) has_sps = true;  // SPS
-                    if (nal_type == 5) has_idr = true;   // IDR slice
+
+    if (video_codec_ == 5) {
+        // VP9: keyframe detection from frame header
+        // VP9 uncompressed header: bit 0 = frame_marker (2 bits), then profile,
+        // then show_existing_frame, then frame_type (0=key, 1=inter)
+        // Simplified: for profile 0/1, (first_byte & 0x04) == 0 means keyframe
+        if (buffer.size >= 1) {
+            // VP9 has no SPS/PPS concept — each keyframe is self-contained
+            bool is_keyframe = (buffer.cdata[0] & 0x04) == 0;
+            if (is_keyframe) {
+                has_idr = true;
+            }
+        }
+    } else if (video_codec_ == 3 || video_codec_ == 7) {
+        // H.264 (3) or H.265 (7): scan for Annex B start codes
+        bool is_h265 = (video_codec_ == 7);
+
+        if (buffer.size >= 5) {
+            for (size_t i = 0; i + 4 < buffer.size; ++i) {
+                bool sc4 = (buffer.cdata[i] == 0 && buffer.cdata[i+1] == 0 &&
+                            buffer.cdata[i+2] == 0 && buffer.cdata[i+3] == 1);
+                bool sc3 = (buffer.cdata[i] == 0 && buffer.cdata[i+1] == 0 &&
+                            buffer.cdata[i+2] == 1);
+                if (sc4 || sc3) {
+                    size_t nal_offset = sc4 ? i + 4 : i + 3;
+                    if (nal_offset < buffer.size) {
+                        uint8_t first_byte = buffer.cdata[nal_offset];
+                        if (is_h265) {
+                            uint8_t nal_type = (first_byte >> 1) & 0x3f;
+                            if (nal_type >= 32 && nal_type <= 34) has_sps = true;  // VPS/SPS/PPS
+                            if (nal_type == 19 || nal_type == 20) has_idr = true;  // IDR
+                        } else {
+                            uint8_t nal_type = first_byte & 0x1f;
+                            if (nal_type == 7 || nal_type == 8) has_sps = true;  // SPS/PPS
+                            if (nal_type == 5) has_idr = true;  // IDR
+                        }
+                    }
                 }
             }
         }
-        if (has_sps || has_idr) flags = 1;
+    } else {
+        // AV1 or unknown: treat first frame as keyframe, rest as regular
+        if (frame_counter_ == 1) {
+            has_idr = true;
+        }
     }
 
-    // Cache SPS/PPS and IDR for replay when car app connects late
-    if (has_sps) {
+    // Cache SPS/PPS and IDR for replay when car app connects late.
+    // Only cache standalone SPS/PPS (no IDR in same frame). When SPS/PPS is
+    // prepended to an IDR (common in H.265), cache the whole thing as IDR instead.
+    if (has_sps && !has_idr) {
         cached_sps_pps_.assign(buffer.cdata, buffer.cdata + buffer.size);
+        has_cached_keyframe_ = true;
         std::cerr << "[aasdk] cached SPS/PPS (" << buffer.size << " bytes)" << std::endl;
     }
     if (has_idr) {
         cached_idr_.assign(buffer.cdata, buffer.cdata + buffer.size);
         has_cached_keyframe_ = true;
-        std::cerr << "[aasdk] cached IDR (" << buffer.size << " bytes)" << std::endl;
-    } else if (has_sps && !has_idr) {
-        // SPS/PPS only (no IDR in same frame) - mark as having keyframe material
-        has_cached_keyframe_ = true;
+        if (frame_counter_ % 300 == 0 || frame_counter_ <= 5) {
+            std::cerr << "[aasdk] cached IDR (" << buffer.size << " bytes)" << std::endl;
+        }
     }
 
     // Convert aasdk microsecond timestamp to millisecond PTS
@@ -2110,10 +2145,13 @@ void HeadlessVideoHandler::onMediaWithTimestampIndication(
     // OAL path: write OAL video frame directly
     if (oal_session_) {
         uint16_t oal_flags = 0;
-        if (has_sps) oal_flags |= OalVideoFlags::CODEC_CONFIG;
-        if (has_idr) oal_flags |= OalVideoFlags::KEYFRAME;
-        // For combined SPS+IDR frames, set both flags
-        if (has_sps && has_idr) oal_flags |= OalVideoFlags::CODEC_CONFIG | OalVideoFlags::KEYFRAME;
+        if (has_idr) {
+            // IDR frame (may include inline VPS/SPS/PPS — codec handles it)
+            oal_flags |= OalVideoFlags::KEYFRAME;
+        } else if (has_sps) {
+            // Standalone SPS/PPS/VPS (no IDR in same frame)
+            oal_flags |= OalVideoFlags::CODEC_CONFIG;
+        }
 
         oal_session_->write_video_frame(
             static_cast<uint16_t>(w), static_cast<uint16_t>(h),
@@ -3044,7 +3082,7 @@ void HeadlessNavStatusHandler::onStatusUpdate(
     output_.emit(R"({"type":"event","event_type":"nav_status","status":")" +
                  std::string(status_str) + R"("})");
 
-    // When navigation becomes inactive/unavailable, send cleared nav_state
+    // When navigation becomes inactive/unavailable, clear state and notify app
     if (status != 1) {
         last_maneuver_.clear();
         last_road_.clear();
@@ -3052,6 +3090,9 @@ void HeadlessNavStatusHandler::onStatusUpdate(
         last_distance_m_ = 0;
         last_eta_s_ = 0;
         has_modern_nav_ = false;
+        if (oal_session_) {
+            oal_session_->send_nav_state_clear();
+        }
     }
 
     channel_->receive(shared_from_this());

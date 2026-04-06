@@ -50,6 +50,10 @@ public:
     // Called when car app disconnects.
     void on_app_disconnected();
 
+    // Called when the video TCP client connects.
+    // Replays cached SPS/PPS+IDR so the app gets video immediately.
+    void on_video_client_connected();
+
     // Write ONE pending video packet. Returns true if a packet was written.
     bool flush_one_video();
 
@@ -93,6 +97,7 @@ public:
                         const std::string& road, int eta_s,
                         const std::string& nav_image_base64 = "");
     void send_nav_state_modern(const std::string& json_line);
+    void send_nav_state_clear();
     void send_media_metadata(const std::string& title, const std::string& artist,
                              const std::string& album, int duration_ms, int position_ms, bool playing,
                              const std::string& album_art_base64 = "");

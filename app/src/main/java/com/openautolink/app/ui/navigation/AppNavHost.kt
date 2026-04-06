@@ -98,6 +98,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 initialBottom = uiState.safeAreaBottom,
                 initialLeft = uiState.safeAreaLeft,
                 initialRight = uiState.safeAreaRight,
+                displayMode = uiState.displayMode,
                 onDone = { top, bottom, left, right ->
                     settingsViewModel.updateSafeAreaInsets(top, bottom, left, right)
                     navController.popBackStack()
@@ -112,6 +113,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 initialBottom = uiState.contentInsetBottom,
                 initialLeft = uiState.contentInsetLeft,
                 initialRight = uiState.contentInsetRight,
+                displayMode = uiState.displayMode,
                 onDone = { top, bottom, left, right ->
                     settingsViewModel.updateContentInsets(top, bottom, left, right)
                     navController.popBackStack()

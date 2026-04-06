@@ -38,6 +38,7 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 {"type":"nav_state","maneuver":"turn_right","distance_meters":150,"road":"Main St","eta_seconds":420}
 {"type":"nav_state","maneuver":"turn_right","distance_meters":150,"road":"Main St","eta_seconds":420,"nav_image_base64":"iVBORw0KGgo..."}
 {"type":"nav_state","maneuver":"turn_right","distance_meters":150,"road":"Main St","eta_seconds":420,"cue":"Turn right onto Main St","lanes":[{"directions":[{"shape":"straight","highlighted":false},{"shape":"normal_right","highlighted":true}]}],"current_road":"Highway 101","destination":"123 Elm St","eta_formatted":"2:45 PM","time_to_arrival_seconds":1800}
+{"type":"nav_state_clear"}
 {"type":"media_metadata","title":"Song Name","artist":"Artist","album":"Album","duration_ms":240000,"position_ms":60000,"playing":true}
 {"type":"media_metadata","title":"Song Name","artist":"Artist","album":"Album","duration_ms":240000,"position_ms":60000,"playing":true,"album_art_base64":"iVBORw0KGgo..."}
 {"type":"config_echo","video_codec":"h264","video_width":1920,"video_height":1080,"video_fps":60,"aa_resolution":"1080p"}
