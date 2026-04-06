@@ -94,9 +94,9 @@ jobs:
             -DBUILD_AASDK_STATIC=ON
 
           cmake --build . --target openautolink-headless -j$(nproc)
-          aarch64-linux-gnu-strip -o openautolink-headless-stripped openautolink-headless
+          aarch64-linux-gnu-strip openautolink-headless
 
       - name: Upload bridge binary to release
         uses: softprops/action-gh-release@v2
         with:
-          files: build-bridge/openautolink-headless-stripped
+          files: build-bridge/openautolink-headless

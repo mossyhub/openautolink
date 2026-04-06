@@ -61,7 +61,7 @@ RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${LATEST_TAG}"
 # Download the bridge binary
 echo "  Downloading bridge binary..."
 if ! curl -fsSL -o "${TMP_DIR}/openautolink-headless" \
-    "${RELEASE_URL}/openautolink-headless-stripped"; then
+    "${RELEASE_URL}/openautolink-headless"; then
     echo "ERROR: Failed to download bridge binary." >&2
     echo "  The release may not have finished building yet." >&2
     echo "  Check: https://github.com/${GITHUB_REPO}/releases/tag/${LATEST_TAG}" >&2
