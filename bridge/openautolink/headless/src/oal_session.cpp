@@ -871,9 +871,11 @@ void OalSession::handle_keyframe_request() {
     std::cerr << "[OAL] keyframe request from app" << std::endl;
 #ifdef PI_AA_ENABLE_AASDK_LIVE
     if (aa_session_) {
-        // Don't replay cached frames here — on_video_client_connected() handles that.
-        // Just ask the phone for a fresh IDR so the next keyframe is up-to-date.
-        aa_session_->request_fresh_idr();
+        // Replay cached SPS/PPS+IDR for instant recovery (e.g. app surface recreated
+        // after navigating away and back — video TCP stayed open so
+        // on_video_client_connected() didn't fire).
+        aa_session_->replay_cached_keyframe();
+        // Also ask the phone for a fresh IDR so content updates promptly.
         aa_session_->request_fresh_idr();
     }
 #endif

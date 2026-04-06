@@ -1,6 +1,7 @@
 package com.openautolink.app.input
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Log
 import com.openautolink.app.diagnostics.DiagnosticLog
 import com.openautolink.app.transport.ControlMessage
@@ -86,15 +87,35 @@ class VehicleDataForwarderImpl(
     }
 
     private fun connectToCar() {
-        // Use reflection to access android.car.Car
+        // Check FEATURE_AUTOMOTIVE first — matches app_v1 pattern
+        if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)) {
+            Log.w(TAG, "FEATURE_AUTOMOTIVE not available on this device")
+            DiagnosticLog.w("vhal", "FEATURE_AUTOMOTIVE not available — vehicle data unavailable")
+            throw IllegalStateException("Not an automotive device")
+        }
+
+        // Use reflection to access android.car.Car — single-arg createCar (synchronous)
         val carClass = Class.forName("android.car.Car")
-        val createMethod = carClass.getMethod(
-            "createCar",
-            Context::class.java,
-            android.os.Handler::class.java
-        )
-        carObject = createMethod.invoke(null, context, null)
+        val createMethod = carClass.getMethod("createCar", Context::class.java)
+        val car = createMethod.invoke(null, context)
             ?: throw IllegalStateException("Car.createCar returned null")
+
+        // Ensure connected (match app_v1 pattern)
+        val isConnected = try {
+            carClass.getMethod("isConnected").invoke(car) as? Boolean ?: false
+        } catch (_: Exception) { false }
+        val isConnecting = try {
+            carClass.getMethod("isConnecting").invoke(car) as? Boolean ?: false
+        } catch (_: Exception) { false }
+        if (!isConnected && !isConnecting) {
+            try {
+                carClass.getMethod("connect").invoke(car)
+            } catch (e: Exception) {
+                // May throw if already connected — that's fine
+                Log.d(TAG, "Car.connect(): ${e.message}")
+            }
+        }
+        carObject = car
 
         // Get CarPropertyManager
         val getManagerMethod = carClass.getMethod("getCarManager", String::class.java)
@@ -103,7 +124,7 @@ class VehicleDataForwarderImpl(
         propertyManager = getManagerMethod.invoke(carObject, propertyServiceName)
             ?: throw IllegalStateException("CarPropertyManager is null")
 
-        Log.i(TAG, "Connected to Car API via reflection")
+        Log.i(TAG, "Connected to Car API via reflection (connected=$isConnected)")
     }
 
     private fun registerProperties() {
@@ -134,13 +155,44 @@ class VehicleDataForwarderImpl(
             null
         }
 
+        // Per-property permission checking (matches app_v1 pattern)
+        val permissionMap = mapOf(
+            PERF_VEHICLE_SPEED to "android.car.permission.CAR_SPEED",
+            GEAR_SELECTION to "android.car.permission.CAR_POWERTRAIN",
+            PARKING_BRAKE_ON to "android.car.permission.CAR_POWERTRAIN",
+            NIGHT_MODE to null, // No permission required
+            EV_BATTERY_LEVEL to "android.car.permission.CAR_ENERGY",
+            INFO_EV_BATTERY_SIZE to "android.car.permission.CAR_INFO",
+            ENV_OUTSIDE_TEMPERATURE to "android.car.permission.CAR_EXTERIOR_ENVIRONMENT",
+            EV_BATTERY_INSTANTANEOUS_CHARGE_RATE to "android.car.permission.CAR_ENERGY",
+            RANGE_REMAINING to "android.car.permission.CAR_ENERGY",
+            PERF_ENGINE_RPM to "android.car.permission.CAR_SPEED",
+            EV_CHARGE_PORT_OPEN to "android.car.permission.CAR_ENERGY_PORTS",
+            EV_CHARGE_PORT_CONNECTED to "android.car.permission.CAR_ENERGY_PORTS",
+            IGNITION_STATE to "android.car.permission.CAR_POWERTRAIN",
+        )
+
         for (propId in propertyIds) {
             try {
-                // Check if property is available (area 0 = global)
-                val available = isAvailableMethod?.invoke(pm, propId, 0) as? Boolean ?: true
-                if (!available) {
+                // Check permission before subscribing (matches app_v1)
+                val perm = permissionMap[propId]
+                if (perm != null && context.checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+                    Log.d(TAG, "Property $propId: permission not granted ($perm)")
+                    DiagnosticLog.i("vhal", "Property $propId: permission not granted ($perm)")
+                    continue
+                }
+
+                // Check if property is available via config (matches app_v1 getCarPropertyConfig pattern)
+                val config = try {
+                    pmClass.getMethod("getCarPropertyConfig", Int::class.javaPrimitiveType)
+                        .invoke(pm, propId)
+                } catch (_: Exception) {
+                    // Fallback to isPropertyAvailable if getCarPropertyConfig not available
+                    if (isAvailableMethod?.invoke(pm, propId, 0) as? Boolean == false) null else "available"
+                }
+                if (config == null) {
                     Log.d(TAG, "Property $propId not available, skipping")
-                    DiagnosticLog.i("vhal", "Property $propId not available, skipping")
+                    DiagnosticLog.i("vhal", "Property $propId not exposed by this vehicle/HAL")
                     continue
                 }
 

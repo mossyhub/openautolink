@@ -13,8 +13,8 @@ class VehicleDataSerializationTest {
         val data = ControlMessage.VehicleData(
             speedKmh = 65.0f,
             gear = "D",
+            gearRaw = 8,           // GEAR_DRIVE — gearRaw is what gets serialized
             batteryPct = 72,
-            turnSignal = "left",
             parkingBrake = false,
             nightMode = false,
             fuelLevelPct = 80,
@@ -22,24 +22,32 @@ class VehicleDataSerializationTest {
             lowFuel = false,
             odometerKm = 12345.6f,
             ambientTempC = 22.5f,
-            steeringAngleDeg = 5.2f,
             headlight = 2,
-            hazardLights = false
+            hazardLights = false,
+            driving = true
         )
 
         val json = ControlMessageSerializer.serialize(data)
 
         assertTrue(json.contains(""""type":"vehicle_data""""))
-        assertTrue(json.contains(""""speed_kmh":65"""))
-        assertTrue(json.contains(""""gear":"D""""))
-        assertTrue(json.contains(""""battery_pct":72"""))
-        assertTrue(json.contains(""""turn_signal":"left""""))
+        // Bridge wire format: speed in mm/s (65 km/h ≈ 18055 mm/s)
+        assertTrue(json.contains(""""speed_mm_s":18055"""))
+        // gear serializes gearRaw (int), not display string
+        assertTrue(json.contains(""""gear":8"""))
+        // batteryPct wins over fuelLevelPct → fuel_level_pct
+        assertTrue(json.contains(""""fuel_level_pct":72"""))
         assertTrue(json.contains(""""parking_brake":false"""))
         assertTrue(json.contains(""""night_mode":false"""))
-        assertTrue(json.contains(""""fuel_level_pct":80"""))
         assertTrue(json.contains(""""low_fuel":false"""))
         assertTrue(json.contains(""""headlight":2"""))
-        assertTrue(json.contains(""""hazard_lights":false"""))
+        assertTrue(json.contains(""""hazard":false"""))
+        assertTrue(json.contains(""""driving":true"""))
+        // range in meters
+        assertTrue(json.contains(""""range_m":350500"""))
+        // odometer in km × 10
+        assertTrue(json.contains(""""odometer_km_e1":123456"""))
+        // temp in millidegrees
+        assertTrue(json.contains(""""temp_e3":22500"""))
     }
 
     @Test
@@ -49,10 +57,11 @@ class VehicleDataSerializationTest {
         val json = ControlMessageSerializer.serialize(data)
 
         assertTrue(json.contains(""""type":"vehicle_data""""))
-        assertTrue(json.contains(""""speed_kmh""""))
+        // Bridge wire format: speed_mm_s (100 km/h ≈ 27777 mm/s)
+        assertTrue(json.contains(""""speed_mm_s":27777"""))
         // Should not contain null fields
         assert(!json.contains("gear"))
-        assert(!json.contains("battery_pct"))
+        assert(!json.contains("fuel_level_pct"))
     }
 
     @Test

@@ -24,6 +24,7 @@
     <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
     <uses-permission android:name="android.car.permission.CAR_EXTERIOR_ENVIRONMENT" />
     <uses-permission android:name="android.car.permission.CAR_INFO" />
+    <uses-permission android:name="android.car.permission.CAR_ENERGY_PORTS" />
 
     <uses-feature
         android:name="android.hardware.type.automotive"
