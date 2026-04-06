@@ -57,7 +57,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="com.openautolink.app.templates"
             android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            android:theme="@style/Theme.OpenAutoLink.InvisibleActivity">
             <meta-data
                 android:name="distractionOptimized"
                 android:value="true" />
