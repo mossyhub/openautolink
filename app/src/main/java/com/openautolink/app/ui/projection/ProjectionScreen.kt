@@ -230,6 +230,12 @@ fun ProjectionScreen(
                 stats = uiState.videoStats,
                 audioStats = uiState.audioStats,
                 sessionState = uiState.sessionState,
+                bridgeName = uiState.bridgeName,
+                bridgeVersion = uiState.bridgeVersion,
+                bridgeUptimeSeconds = uiState.bridgeUptimeSeconds,
+                phoneName = uiState.phoneName,
+                phoneBatteryLevel = uiState.phoneBatteryLevel,
+                phoneSignalStrength = uiState.phoneSignalStrength,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(12.dp)
@@ -244,6 +250,12 @@ private fun VideoStatsOverlay(
     stats: VideoStats,
     audioStats: AudioStats,
     sessionState: SessionState,
+    bridgeName: String?,
+    bridgeVersion: Int?,
+    bridgeUptimeSeconds: Long,
+    phoneName: String?,
+    phoneBatteryLevel: Int?,
+    phoneSignalStrength: Int?,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -258,6 +270,22 @@ private fun VideoStatsOverlay(
             Spacer(modifier = Modifier.height(6.dp))
 
             StatLine("Session", sessionState.name)
+
+            // Bridge info
+            if (bridgeName != null) {
+                val versionStr = bridgeVersion?.let { " v$it" } ?: ""
+                StatLine("Bridge", "$bridgeName$versionStr")
+            }
+            if (bridgeUptimeSeconds > 0) {
+                StatLine("Uptime", formatUptime(bridgeUptimeSeconds))
+            }
+
+            // Phone info
+            if (phoneName != null) {
+                val batteryStr = phoneBatteryLevel?.let { " ($it%)" } ?: ""
+                val signalStr = phoneSignalStrength?.let { " ▮".repeat(it) + "▯".repeat((4 - it).coerceAtLeast(0)) } ?: ""
+                StatLine("Phone", "$phoneName$batteryStr$signalStr")
+            }
 
             if (stats.codec != "none") {
                 Spacer(modifier = Modifier.height(4.dp))
@@ -307,6 +335,10 @@ private fun VideoStatsOverlay(
                 if (audioStats.sampleRate > 0) {
                     StatLine("Rate", "${audioStats.sampleRate} Hz")
                 }
+                val totalFrames = audioStats.framesWritten.values.sum()
+                if (totalFrames > 0) {
+                    StatLine("Frames", totalFrames.toString())
+                }
                 audioStats.underruns.forEach { (purpose, count) ->
                     if (count > 0) {
                         StatLine("${purpose.name.lowercase()} xrun", count.toString(),
@@ -348,6 +380,13 @@ private fun StatLine(
             )
         }
     }
+}
+
+private fun formatUptime(seconds: Long): String {
+    val h = seconds / 3600
+    val m = (seconds % 3600) / 60
+    val s = seconds % 60
+    return if (h > 0) "${h}h ${m}m ${s}s" else if (m > 0) "${m}m ${s}s" else "${s}s"
 }
 
 @Composable

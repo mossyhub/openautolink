@@ -189,6 +189,7 @@ sealed class ControlMessage {
     object KeyframeRequest : ControlMessage()
     object ListPairedPhones : ControlMessage()
     data class SwitchPhone(val mac: String) : ControlMessage()
+    data class ForgetPhone(val mac: String) : ControlMessage()
 
     // App → Bridge: diagnostic messages
     data class AppLog(

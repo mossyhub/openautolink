@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -89,7 +90,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_DISPLAY_MODE = "system_ui_visible"
         const val DEFAULT_MIC_SOURCE = "car"
         const val DEFAULT_NETWORK_INTERFACE = "" // empty = auto-select first available
-        const val DEFAULT_REMOTE_DIAGNOSTICS_ENABLED = true
+        const val DEFAULT_REMOTE_DIAGNOSTICS_ENABLED = false
         const val DEFAULT_REMOTE_DIAGNOSTICS_MIN_LEVEL = "INFO"
         const val DEFAULT_SYNC_AA_THEME = true
         const val DEFAULT_HIDE_AA_CLOCK = true
@@ -451,5 +452,38 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setViewportAspectRatioLocked(locked: Boolean) {
         dataStore.edit { it[VIEWPORT_ASPECT_RATIO_LOCKED] = locked }
+    }
+
+    /**
+     * Read all bridge-relevant preferences and return as a config map
+     * suitable for sending as a config_update message on initial connection.
+     */
+    suspend fun getBridgeConfigSnapshot(): Map<String, String> {
+        val prefs = dataStore.data.first()
+        val config = mutableMapOf<String, String>()
+        prefs[VIDEO_CODEC]?.let { config["video_codec"] = it }
+        prefs[VIDEO_FPS]?.let { config["video_fps"] = it.toString() }
+        prefs[AA_RESOLUTION]?.let { config["aa_resolution"] = it }
+        prefs[AA_DPI]?.let { config["aa_dpi"] = it.toString() }
+        prefs[DRIVE_SIDE]?.let { config["drive_side"] = it }
+        prefs[HEAD_UNIT_NAME]?.let { config["head_unit_name"] = it }
+        prefs[BT_MAC]?.let { if (it.isNotBlank()) config["bt_mac"] = it }
+        prefs[PHONE_MODE]?.let { config["phone_mode"] = it }
+        prefs[WIFI_BAND]?.let { config["wifi_band"] = it }
+        prefs[WIFI_COUNTRY]?.let { config["wifi_country"] = it }
+        prefs[WIFI_SSID]?.let { if (it.isNotBlank()) config["wifi_ssid"] = it }
+        prefs[WIFI_PASSWORD]?.let { if (it.isNotBlank()) config["wifi_password"] = it }
+        // AA insets
+        val safeTop = prefs[SAFE_AREA_TOP] ?: DEFAULT_SAFE_AREA_TOP
+        val safeBottom = prefs[SAFE_AREA_BOTTOM] ?: DEFAULT_SAFE_AREA_BOTTOM
+        val safeLeft = prefs[SAFE_AREA_LEFT] ?: DEFAULT_SAFE_AREA_LEFT
+        val safeRight = prefs[SAFE_AREA_RIGHT] ?: DEFAULT_SAFE_AREA_RIGHT
+        config["aa_stable_insets"] = "$safeTop,$safeBottom,$safeLeft,$safeRight"
+        val contentTop = prefs[CONTENT_INSET_TOP] ?: DEFAULT_CONTENT_INSET_TOP
+        val contentBottom = prefs[CONTENT_INSET_BOTTOM] ?: DEFAULT_CONTENT_INSET_BOTTOM
+        val contentLeft = prefs[CONTENT_INSET_LEFT] ?: DEFAULT_CONTENT_INSET_LEFT
+        val contentRight = prefs[CONTENT_INSET_RIGHT] ?: DEFAULT_CONTENT_INSET_RIGHT
+        config["aa_content_insets"] = "$contentTop,$contentBottom,$contentLeft,$contentRight"
+        return config
     }
 }

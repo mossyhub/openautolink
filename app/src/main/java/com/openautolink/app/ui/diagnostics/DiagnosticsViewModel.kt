@@ -17,10 +17,13 @@ import com.openautolink.app.transport.ControlMessage
 import com.openautolink.app.video.CodecSelector
 import com.openautolink.app.video.VideoStats
 import com.openautolink.app.audio.AudioStats
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
@@ -252,27 +255,27 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        // Observe video/audio stats
+        // Observe video/audio stats — cancel stale collectors on state change
         viewModelScope.launch {
-            sessionManager.sessionState.collect { state ->
+            sessionManager.sessionState.collectLatest { state ->
                 if (state == SessionState.STREAMING) {
-                    sessionManager.videoStats?.let { flow ->
-                        launch { flow.collect { stats -> _bridge.value = _bridge.value.copy(videoStats = stats) } }
-                    }
-                    sessionManager.audioStats?.let { flow ->
-                        launch { flow.collect { stats -> _bridge.value = _bridge.value.copy(audioStats = stats) } }
+                    coroutineScope {
+                        sessionManager.videoStats?.let { flow ->
+                            launch { flow.collect { stats -> _bridge.value = _bridge.value.copy(videoStats = stats) } }
+                        }
+                        sessionManager.audioStats?.let { flow ->
+                            launch { flow.collect { stats -> _bridge.value = _bridge.value.copy(audioStats = stats) } }
+                        }
                     }
                 }
             }
         }
 
-        // Observe vehicle data for car tab
+        // Observe vehicle data for car tab — cancel stale collectors on state change
         viewModelScope.launch {
-            sessionManager.sessionState.collect { state ->
-                sessionManager.vehicleData?.let { flow ->
-                    launch {
-                        flow.collect { vd ->
-                            _car.value = CarInfo(
+            sessionManager.sessionState.collectLatest { state ->
+                sessionManager.vehicleData?.collect { vd ->
+                    _car.value = CarInfo(
                                 isActive = true,
                                 speedKmh = vd.speedKmh,
                                 gear = vd.gear,
@@ -297,8 +300,6 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                                 evBatteryCapacityWh = vd.evBatteryCapacityWh,
                             )
                         }
-                    }
-                }
             }
         }
 

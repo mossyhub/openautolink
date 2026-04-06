@@ -495,6 +495,8 @@ void OalSession::on_app_json_line(const std::string& line) {
         handle_list_paired_phones();
     } else if (type == "switch_phone") {
         handle_switch_phone(line);
+    } else if (type == "forget_phone") {
+        handle_forget_phone(line);
     } else {
         std::cerr << "[OAL] unknown message type: " << type << std::endl;
     }
@@ -993,6 +995,50 @@ void OalSession::handle_switch_phone(const std::string& json) {
     if (phone_connected_) {
         on_phone_disconnected("phone_switch");
     }
+}
+
+void OalSession::handle_forget_phone(const std::string& json) {
+    std::string mac = oal_json_extract_string(json, "mac");
+    if (mac.empty()) {
+        std::cerr << "[OAL] forget_phone: no MAC provided" << std::endl;
+        send_error(400, "forget_phone requires a mac field");
+        return;
+    }
+
+    // Validate MAC format (XX:XX:XX:XX:XX:XX) to prevent command injection
+    if (mac.size() != 17) {
+        send_error(400, "invalid MAC address");
+        return;
+    }
+    for (size_t i = 0; i < 17; ++i) {
+        if (i % 3 == 2) {
+            if (mac[i] != ':') { send_error(400, "invalid MAC address"); return; }
+        } else {
+            char c = mac[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))) {
+                send_error(400, "invalid MAC address");
+                return;
+            }
+        }
+    }
+
+    std::cerr << "[OAL] forgetting phone: " << mac << std::endl;
+
+    // If the phone being forgotten is currently connected, disconnect first
+    std::string cmd = "bluetoothctl disconnect " + mac + " 2>/dev/null; "
+                      "bluetoothctl remove " + mac + " 2>/dev/null";
+    int ret = system(cmd.c_str());
+    if (ret != 0) {
+        std::cerr << "[OAL] forget_phone: bluetoothctl command returned " << ret << std::endl;
+    }
+
+    // If we just removed the currently connected phone, notify
+    if (phone_connected_) {
+        on_phone_disconnected("phone_forgotten");
+    }
+
+    // Send updated paired phones list
+    send_paired_phones();
 }
 
 } // namespace openautolink

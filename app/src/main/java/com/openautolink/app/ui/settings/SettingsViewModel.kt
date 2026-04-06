@@ -334,6 +334,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun forgetPhone(mac: String) {
+        viewModelScope.launch {
+            ConfigUpdateSender.sendControlMessage(ControlMessage.ForgetPhone(mac))
+            // Remove from local list immediately for responsive UI
+            _pairedPhones.value = _pairedPhones.value.filter { it.mac != mac }
+        }
+    }
+
     fun updateSyncAaTheme(enabled: Boolean) {
         viewModelScope.launch { preferences.setSyncAaTheme(enabled) }
     }

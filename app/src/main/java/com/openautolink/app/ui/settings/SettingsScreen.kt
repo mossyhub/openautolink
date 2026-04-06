@@ -706,6 +706,12 @@ private fun PhonesTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                                     Text("Connect")
                                 }
                             }
+                            FilledTonalButton(
+                                onClick = { viewModel.forgetPhone(phone.mac) },
+                                modifier = Modifier.testTag("forget_${phone.mac}"),
+                            ) {
+                                Text("Forget", color = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
                 }

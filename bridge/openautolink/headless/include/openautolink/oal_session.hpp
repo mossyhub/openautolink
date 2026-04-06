@@ -137,6 +137,7 @@ private:
     void handle_app_telemetry(const std::string& json);
     void handle_list_paired_phones();
     void handle_switch_phone(const std::string& json);
+    void handle_forget_phone(const std::string& json);
 
     ICarTransport& control_transport_;
     ICarTransport& video_transport_;

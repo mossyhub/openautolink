@@ -34,6 +34,7 @@ data class ProjectionUiState(
     val sessionState: SessionState = SessionState.IDLE,
     val statusMessage: String = "Ready",
     val bridgeName: String? = null,
+    val bridgeVersion: Int? = null,
     val phoneName: String? = null,
     val bridgeHost: String = AppPreferences.DEFAULT_BRIDGE_HOST,
     val videoStats: VideoStats = VideoStats(),
@@ -43,6 +44,8 @@ data class ProjectionUiState(
     val phoneBatteryLevel: Int? = null,
     val phoneBatteryCritical: Boolean = false,
     val voiceSessionActive: Boolean = false,
+    val phoneSignalStrength: Int? = null,
+    val bridgeUptimeSeconds: Long = 0,
     val displayMode: String = AppPreferences.DEFAULT_DISPLAY_MODE,
     val customViewportWidth: Int = 0,
     val customViewportHeight: Int = 0,
@@ -87,6 +90,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private val _videoStats = MutableStateFlow(VideoStats())
     private val _audioStats = MutableStateFlow(AudioStats())
     private val _showStats = MutableStateFlow(false)
+    private val _bridgeUptimeSeconds = MutableStateFlow(0L)
     private val _pairedPhones = MutableStateFlow<List<com.openautolink.app.transport.ControlMessage.PairedPhone>>(emptyList())
     private val _showPhoneSwitcher = MutableStateFlow(false)
 
@@ -128,12 +132,16 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         preferences.contentInsetBottom,
         preferences.contentInsetLeft,
         preferences.contentInsetRight,
+        sessionManager.phoneSignalStrength,
+        _bridgeUptimeSeconds,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
+        val info = values[2] as? com.openautolink.app.session.BridgeInfo
         ProjectionUiState(
             sessionState = values[0] as SessionState,
             statusMessage = values[1] as String,
-            bridgeName = (values[2] as? com.openautolink.app.session.BridgeInfo)?.name,
+            bridgeName = info?.name,
+            bridgeVersion = info?.version,
             phoneName = values[3] as? String,
             bridgeHost = values[4] as String,
             videoStats = values[5] as VideoStats,
@@ -155,6 +163,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             contentInsetBottom = values[21] as Int,
             contentInsetLeft = values[22] as Int,
             contentInsetRight = values[23] as Int,
+            phoneSignalStrength = values[24] as? Int,
+            bridgeUptimeSeconds = values[25] as Long,
         )
     }.stateIn(
         viewModelScope,
@@ -175,6 +185,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     }
                     is com.openautolink.app.transport.ControlMessage.PairedPhones -> {
                         _pairedPhones.value = message.phones
+                    }
+                    is com.openautolink.app.transport.ControlMessage.Stats -> {
+                        _bridgeUptimeSeconds.value = message.uptimeSeconds
                     }
                     else -> {}
                 }

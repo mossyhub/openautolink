@@ -11,6 +11,7 @@ import com.openautolink.app.audio.AudioStats
 import com.openautolink.app.audio.CallState
 import com.openautolink.app.audio.MicCaptureManager
 import com.openautolink.app.cluster.ClusterNavigationState
+import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.diagnostics.DiagnosticLevel
 import com.openautolink.app.diagnostics.RemoteDiagnostics
 import com.openautolink.app.diagnostics.RemoteDiagnosticsImpl
@@ -410,6 +411,28 @@ class SessionManager(
         connectionManager.sendControlMessage(ControlMessage.KeyframeRequest)
     }
 
+    /**
+     * Send all bridge-relevant preferences as a config_update on initial connection.
+     * The bridge compares against its current config; if stream-affecting settings
+     * (codec, fps, resolution, dpi, drive_side) differ, it restarts the AA session
+     * and sends phone_disconnected("config_changed") so the phone renegotiates.
+     */
+    private suspend fun syncBridgeSettings() {
+        val ctx = context ?: return
+        try {
+            val prefs = AppPreferences.getInstance(ctx)
+            val config = prefs.getBridgeConfigSnapshot()
+            if (config.isNotEmpty()) {
+                connectionManager.sendControlMessage(ControlMessage.ConfigUpdate(config))
+                Log.i(TAG, "Synced bridge config on connect: ${config.keys}")
+                _remoteDiagnostics?.log(DiagnosticLevel.INFO, "config",
+                    "Synced bridge config on connect: ${config.keys}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to sync bridge settings: ${e.message}")
+        }
+    }
+
     /** Send a control message to the bridge (used by touch forwarding, etc.). */
     suspend fun sendControlMessage(message: ControlMessage) {
         connectionManager.sendControlMessage(message)
@@ -487,9 +510,12 @@ class SessionManager(
                     "Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT}), " +
                     "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
                     "SoC: ${android.os.Build.SOC_MANUFACTURER} ${android.os.Build.SOC_MODEL}")
-                // Send our hello back
+                // Send our hello back, then sync all bridge-relevant settings
                 scope.launch {
                     sendAppHello(displayWidth = 0, displayHeight = 0, displayDpi = 0)
+                    // Send all current bridge settings so bridge detects any diffs
+                    // and restarts AA session if stream-affecting settings changed
+                    syncBridgeSettings()
                 }
             }
             is ControlMessage.PhoneConnected -> {

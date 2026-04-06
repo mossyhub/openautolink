@@ -274,6 +274,11 @@ object ControlMessageSerializer {
                 put("mac", message.mac)
             }
 
+            is ControlMessage.ForgetPhone -> buildJsonObject {
+                put("type", "forget_phone")
+                put("mac", message.mac)
+            }
+
             is ControlMessage.AppLog -> buildJsonObject {
                 put("type", "app_log")
                 put("ts", message.ts)
