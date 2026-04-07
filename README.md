@@ -184,7 +184,7 @@ Active development. All core features are implemented and working on real hardwa
 
 - **Steering wheel buttons not working:** Track forward/back via steering wheel controls are not yet wired up but should be fixed soon. The voice button on the steering wheel may never work due to how GM's AAOS intercepts it. As a workaround, use the microphone button in the Android Auto UI on screen.
 
-- **AA projection doesn't scale to display modes:** The Android Auto UI does not properly resize when switching between display modes (e.g., full screen, split screen). This is a known layout issue and should be fixed soon.
+- **AA projection doesn't scale to display modes:** The Android Auto UI does not properly resize when switching between display modes (e.g., full screen). This is a known layout issue and should be fixed soon.
 
 - **Occasional audio jitter/cutout:** Audio may briefly cut out or jitter during playback. This is intermittent and under investigation.
 
