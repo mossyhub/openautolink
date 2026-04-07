@@ -21,6 +21,7 @@ import com.openautolink.app.input.GnssForwarderImpl
 import com.openautolink.app.input.ImuForwarder
 import com.openautolink.app.input.VehicleDataForwarder
 import com.openautolink.app.input.VehicleDataForwarderImpl
+import com.openautolink.app.media.OalMediaBrowserService
 import com.openautolink.app.media.OalMediaSessionManager
 import com.openautolink.app.navigation.ManeuverState
 import com.openautolink.app.navigation.NavigationDisplay
@@ -199,14 +200,14 @@ class SessionManager(
 
     fun start(host: String, port: Int = 5288, codecPreference: String = "h264", micSourcePreference: String = "car",
                diagnosticsEnabled: Boolean = false, diagnosticsMinLevel: String = "INFO",
-               network: Network? = null) {
+               network: Network? = null, scalingMode: String = "letterbox") {
         targetHost = host
         micSource = micSourcePreference
         observeJob?.cancel()
 
         // Create video decoder for this session
         _videoDecoder?.release()
-        _videoDecoder = MediaCodecDecoder(codecPreference)
+        _videoDecoder = MediaCodecDecoder(codecPreference, scalingMode)
 
         // Create audio player for this session
         _audioPlayer?.release()
@@ -245,6 +246,10 @@ class SessionManager(
         _mediaSessionManager?.release()
         _mediaSessionManager = context?.let { OalMediaSessionManager(it) }
         _mediaSessionManager?.initialize()
+        // Push session token to MediaBrowserService so AAOS system UI + cluster discover it
+        _mediaSessionManager?.getSessionToken()?.let { token ->
+            OalMediaBrowserService.updateSessionToken(token)
+        }
 
         // Enable and launch cluster service binding
         _clusterManager?.release()

@@ -2,12 +2,18 @@ package com.openautolink.app.input
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.SystemClock
 import android.util.Log
 import com.openautolink.app.diagnostics.DiagnosticLog
 import com.openautolink.app.transport.ControlMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -30,32 +36,19 @@ class VehicleDataForwarderImpl(
 
         // Minimum interval between vehicle data sends (ms)
         private const val SEND_INTERVAL_MS = 500L
-
-        // VHAL property IDs — only properties confirmed available on 2024 Blazer EV.
-        // Properties that are "not exposed by this vehicle / HAL" (odometer) or
-        // "permission not granted" (steering, lights, doors, HVAC) are excluded.
-        private const val PERF_VEHICLE_SPEED = 291504647        // float, m/s
-        private const val GEAR_SELECTION = 289408000             // int, gear enum
-        private const val PARKING_BRAKE_ON = 287310850           // boolean
-        private const val NIGHT_MODE = 287310855                 // boolean
-        private const val EV_BATTERY_LEVEL = 291504905           // float, Wh
-        private const val INFO_EV_BATTERY_SIZE = 291504390       // float, Wh (capacity)
-        private const val ENV_OUTSIDE_TEMPERATURE = 291505923    // float, celsius
-        private const val EV_BATTERY_INSTANTANEOUS_CHARGE_RATE = 291504908 // float, W
-        private const val RANGE_REMAINING = 291504904            // float, meters
-        private const val PERF_ENGINE_RPM = 291504901            // float, RPM (ICE only, likely unavailable on EV)
-        private const val EV_CHARGE_PORT_OPEN = 287310603        // boolean
-        private const val EV_CHARGE_PORT_CONNECTED = 287310604   // boolean
-        private const val IGNITION_STATE = 289408018             // int (0=undefined,1=lock,2=off,3=acc,4=on,5=start)
     }
 
     override var isActive: Boolean = false
         private set
 
+    // Background scope for Car API calls (matches app_v1 pattern)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     // Car API objects obtained via reflection
     private var carObject: Any? = null
     private var propertyManager: Any? = null
-    private val registeredCallbacks = mutableListOf<Any>()
+    private var callbackProxy: Any? = null  // ONE shared callback for all properties (app_v1 pattern)
+    private val trackedPropertyIds = mutableSetOf<Int>()  // registered property IDs for dispatch
 
     // Latest values — updated by property callbacks, sent as batch
     private val currentValues = ConcurrentHashMap<Int, Any>()
@@ -66,16 +59,22 @@ class VehicleDataForwarderImpl(
 
     override fun start() {
         if (isActive) return
-
-        try {
-            connectToCar()
-            registerProperties()
-            isActive = true
-            Log.i(TAG, "Vehicle data forwarding started")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to start vehicle data forwarding: ${e.message}")
-            DiagnosticLog.w("vhal", "Failed to start vehicle data forwarding: ${e.message}")
-            cleanup()
+        // Run on background thread — Car API calls can block (connect, waitForConnected)
+        scope.launch {
+            try {
+                connectToCar()
+                registerProperties()
+                isActive = true
+                Log.i(TAG, "Vehicle data forwarding started")
+                DiagnosticLog.i("vhal", "Vehicle data forwarding started")
+                // Re-emit current data so collectors see isActive=true
+                _latestVehicleData.value = buildVehicleData()
+            } catch (e: Exception) {
+                val root = e.rootCause()
+                Log.w(TAG, "Failed to start vehicle data forwarding: ${root.message}")
+                DiagnosticLog.w("vhal", "Failed to start: ${root.javaClass.simpleName}: ${root.message}")
+                cleanup()
+            }
         }
     }
 
@@ -94,169 +93,265 @@ class VehicleDataForwarderImpl(
             throw IllegalStateException("Not an automotive device")
         }
 
-        // Use reflection to access android.car.Car — single-arg createCar (synchronous)
-        val carClass = Class.forName("android.car.Car")
-        val createMethod = carClass.getMethod("createCar", Context::class.java)
-        val car = createMethod.invoke(null, context)
-            ?: throw IllegalStateException("Car.createCar returned null")
+        val carClass = try {
+            Class.forName("android.car.Car")
+        } catch (_: ClassNotFoundException) {
+            DiagnosticLog.w("vhal", "android.car APIs not present on this runtime")
+            throw IllegalStateException("android.car APIs not available")
+        }
 
-        // Ensure connected (match app_v1 pattern)
-        val isConnected = try {
-            carClass.getMethod("isConnected").invoke(car) as? Boolean ?: false
-        } catch (_: Exception) { false }
-        val isConnecting = try {
-            carClass.getMethod("isConnecting").invoke(car) as? Boolean ?: false
-        } catch (_: Exception) { false }
-        if (!isConnected && !isConnecting) {
+        // Try single-arg createCar(Context) first, fall back to createCar(Context, Handler)
+        val car = try {
+            carClass.getMethod("createCar", Context::class.java).invoke(null, context)
+        } catch (_: NoSuchMethodException) {
+            carClass.getMethod("createCar", Context::class.java, android.os.Handler::class.java)
+                .invoke(null, context, null)
+        } ?: throw IllegalStateException("Car.createCar returned null")
+
+        // Ensure connected (match app_v1 pattern — check state, connect if needed, wait)
+        val wasConnected = invokeBoolean(car, "isConnected") ?: false
+        val wasConnecting = invokeBoolean(car, "isConnecting") ?: false
+        if (!wasConnected && !wasConnecting) {
             try {
                 carClass.getMethod("connect").invoke(car)
             } catch (e: Exception) {
-                // May throw if already connected — that's fine
-                Log.d(TAG, "Car.connect(): ${e.message}")
+                // May throw if already connected/connecting — that's fine
+                val root = e.rootCause()
+                if (root is IllegalStateException &&
+                    (root.message?.contains("already connected", ignoreCase = true) == true ||
+                     root.message?.contains("already connecting", ignoreCase = true) == true)) {
+                    Log.d(TAG, "Car already connected/connecting")
+                } else {
+                    throw e
+                }
             }
+        }
+
+        // Wait for connection (app_v1 waits up to 2s)
+        if (!waitForConnected(car)) {
+            DiagnosticLog.i("vhal", "Car service did not report connected within timeout; continuing best-effort")
         }
         carObject = car
 
         // Get CarPropertyManager
-        val getManagerMethod = carClass.getMethod("getCarManager", String::class.java)
-        val propertyServiceField = carClass.getField("PROPERTY_SERVICE")
-        val propertyServiceName = propertyServiceField.get(null) as String
-        propertyManager = getManagerMethod.invoke(carObject, propertyServiceName)
+        val propertyServiceName = carClass.getField("PROPERTY_SERVICE").get(null) as String
+        propertyManager = carClass.getMethod("getCarManager", String::class.java)
+            .invoke(car, propertyServiceName)
             ?: throw IllegalStateException("CarPropertyManager is null")
 
-        Log.i(TAG, "Connected to Car API via reflection (connected=$isConnected)")
+        Log.i(TAG, "Connected to Car API via reflection")
+        DiagnosticLog.i("vhal", "Connected to Car API")
+    }
+
+    /** Poll isConnected() up to timeoutMs, matching app_v1's waitForConnected pattern. */
+    private fun waitForConnected(car: Any, timeoutMs: Long = 2000L): Boolean {
+        val start = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - start < timeoutMs) {
+            if (invokeBoolean(car, "isConnected") == true) return true
+            Thread.sleep(50)
+        }
+        return invokeBoolean(car, "isConnected") == true
+    }
+
+    private fun invokeBoolean(target: Any, methodName: String): Boolean? {
+        return try {
+            target.javaClass.getMethod(methodName).invoke(target) as? Boolean
+        } catch (_: Exception) { null }
+    }
+
+    private fun Throwable.rootCause(): Throwable {
+        val cause = if (this is InvocationTargetException) targetException else this.cause
+        return cause?.rootCause() ?: this
     }
 
     private fun registerProperties() {
         val pm = propertyManager ?: return
-
-        val propertyIds = listOf(
-            PERF_VEHICLE_SPEED,
-            GEAR_SELECTION,
-            PARKING_BRAKE_ON,
-            NIGHT_MODE,
-            EV_BATTERY_LEVEL,
-            INFO_EV_BATTERY_SIZE,
-            ENV_OUTSIDE_TEMPERATURE,
-            EV_BATTERY_INSTANTANEOUS_CHARGE_RATE,
-            RANGE_REMAINING,
-            PERF_ENGINE_RPM,
-            EV_CHARGE_PORT_OPEN,
-            EV_CHARGE_PORT_CONNECTED,
-            IGNITION_STATE
-        )
-
         val pmClass = pm::class.java
 
-        // Check property availability and register
-        val isAvailableMethod = try {
-            pmClass.getMethod("isPropertyAvailable", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
-        } catch (_: NoSuchMethodException) {
-            null
+        // Resolve callback interface ONCE and create ONE shared proxy (app_v1 pattern)
+        val callbackInterface = try {
+            Class.forName("android.car.hardware.property.CarPropertyManager\$CarPropertyEventCallback")
+        } catch (e: ClassNotFoundException) {
+            DiagnosticLog.w("vhal", "CarPropertyEventCallback class not found")
+            return
         }
+        callbackProxy = createCallbackProxy(callbackInterface)
 
-        // Per-property permission checking (matches app_v1 pattern)
-        val permissionMap = mapOf(
-            PERF_VEHICLE_SPEED to "android.car.permission.CAR_SPEED",
-            GEAR_SELECTION to "android.car.permission.CAR_POWERTRAIN",
-            PARKING_BRAKE_ON to "android.car.permission.CAR_POWERTRAIN",
-            NIGHT_MODE to null, // No permission required
-            EV_BATTERY_LEVEL to "android.car.permission.CAR_ENERGY",
-            INFO_EV_BATTERY_SIZE to "android.car.permission.CAR_INFO",
-            ENV_OUTSIDE_TEMPERATURE to "android.car.permission.CAR_EXTERIOR_ENVIRONMENT",
-            EV_BATTERY_INSTANTANEOUS_CHARGE_RATE to "android.car.permission.CAR_ENERGY",
-            RANGE_REMAINING to "android.car.permission.CAR_ENERGY",
-            PERF_ENGINE_RPM to "android.car.permission.CAR_SPEED",
-            EV_CHARGE_PORT_OPEN to "android.car.permission.CAR_ENERGY_PORTS",
-            EV_CHARGE_PORT_CONNECTED to "android.car.permission.CAR_ENERGY_PORTS",
-            IGNITION_STATE to "android.car.permission.CAR_POWERTRAIN",
+        // Property definitions: fieldName → (permission, rateField)
+        data class PropDef(val fieldName: String, val permission: String?, val rateField: String = "SENSOR_RATE_ONCHANGE")
+        val properties = listOf(
+            PropDef("PERF_VEHICLE_SPEED", "android.car.permission.CAR_SPEED", "SENSOR_RATE_FAST"),
+            PropDef("GEAR_SELECTION", "android.car.permission.CAR_POWERTRAIN"),
+            PropDef("PARKING_BRAKE_ON", "android.car.permission.CAR_POWERTRAIN"),
+            PropDef("NIGHT_MODE", null),
+            PropDef("EV_BATTERY_LEVEL", "android.car.permission.CAR_ENERGY"),
+            PropDef("INFO_EV_BATTERY_CAPACITY", "android.car.permission.CAR_INFO"),
+            PropDef("ENV_OUTSIDE_TEMPERATURE", "android.car.permission.CAR_EXTERIOR_ENVIRONMENT"),
+            PropDef("EV_BATTERY_INSTANTANEOUS_CHARGE_RATE", "android.car.permission.CAR_ENERGY"),
+            PropDef("RANGE_REMAINING", "android.car.permission.CAR_ENERGY"),
+            PropDef("PERF_ENGINE_RPM", "android.car.permission.CAR_SPEED"),
+            PropDef("EV_CHARGE_PORT_OPEN", "android.car.permission.CAR_ENERGY_PORTS"),
+            PropDef("EV_CHARGE_PORT_CONNECTED", "android.car.permission.CAR_ENERGY_PORTS"),
+            PropDef("IGNITION_STATE", "android.car.permission.CAR_POWERTRAIN"),
         )
 
-        for (propId in propertyIds) {
-            try {
-                // Check permission before subscribing (matches app_v1)
-                val perm = permissionMap[propId]
-                if (perm != null && context.checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
-                    Log.d(TAG, "Property $propId: permission not granted ($perm)")
-                    DiagnosticLog.i("vhal", "Property $propId: permission not granted ($perm)")
-                    continue
-                }
-
-                // Check if property is available via config (matches app_v1 getCarPropertyConfig pattern)
-                val config = try {
-                    pmClass.getMethod("getCarPropertyConfig", Int::class.javaPrimitiveType)
-                        .invoke(pm, propId)
-                } catch (_: Exception) {
-                    // Fallback to isPropertyAvailable if getCarPropertyConfig not available
-                    if (isAvailableMethod?.invoke(pm, propId, 0) as? Boolean == false) null else "available"
-                }
-                if (config == null) {
-                    Log.d(TAG, "Property $propId not available, skipping")
-                    DiagnosticLog.i("vhal", "Property $propId not exposed by this vehicle/HAL")
-                    continue
-                }
-
-                registerPropertyCallback(pm, propId)
-            } catch (e: Exception) {
-                Log.d(TAG, "Cannot register property $propId: ${e.message}")
-                DiagnosticLog.w("vhal", "Cannot register property $propId: ${e.message}")
+        var subscribed = 0
+        for (prop in properties) {
+            // Resolve property ID from VehiclePropertyIds at runtime (app_v1 pattern)
+            val propId = resolveIntConstant("android.car.VehiclePropertyIds", prop.fieldName)
+            if (propId == null) {
+                DiagnosticLog.d("vhal", "${prop.fieldName}: not in this SDK")
+                continue
             }
+
+            // Check permission before subscribing
+            if (prop.permission != null && context.checkSelfPermission(prop.permission) != PackageManager.PERMISSION_GRANTED) {
+                DiagnosticLog.i("vhal", "${prop.fieldName}: permission not granted (${prop.permission})")
+                continue
+            }
+
+            // Check if property is exposed by this vehicle's HAL
+            val config = try {
+                pmClass.getMethod("getCarPropertyConfig", Int::class.javaPrimitiveType)
+                    .invoke(pm, propId)
+            } catch (t: Throwable) {
+                DiagnosticLog.d("vhal", "${prop.fieldName}: config lookup failed: ${t.rootCause().message}")
+                null
+            }
+            if (config == null) {
+                DiagnosticLog.i("vhal", "${prop.fieldName}: not exposed by this vehicle/HAL")
+                continue
+            }
+
+            // Read initial value
+            try {
+                val pv = pmClass.getMethod("getProperty", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                    .invoke(pm, propId, 0)
+                if (pv != null) {
+                    handleChangeEvent(pv)
+                }
+            } catch (t: Throwable) {
+                DiagnosticLog.d("vhal", "${prop.fieldName}: initial read: ${t.rootCause().javaClass.simpleName}: ${t.rootCause().message}")
+            }
+
+            // Subscribe using shared callback (app_v1's subscribe pattern)
+            trackedPropertyIds.add(propId)
+            val ok = subscribe(pm, callbackInterface, callbackProxy!!, propId, prop.rateField)
+            if (ok) {
+                subscribed++
+                DiagnosticLog.d("vhal", "${prop.fieldName}: subscribed")
+            } else {
+                DiagnosticLog.w("vhal", "${prop.fieldName}: subscription rejected")
+            }
+        }
+
+        Log.i(TAG, "Subscribed to $subscribed/${properties.size} vehicle properties")
+        DiagnosticLog.i("vhal", "Subscribed to $subscribed/${properties.size} vehicle properties")
+
+        // Fire initial data if any values were read
+        if (currentValues.isNotEmpty()) {
+            val data = buildVehicleData()
+            _latestVehicleData.value = data
+            sendMessage(data)
         }
     }
 
-    private fun registerPropertyCallback(pm: Any, propertyId: Int) {
-        val pmClass = pm::class.java
-
-        // Create a CarPropertyEventCallback via dynamic proxy
-        val callbackInterface = Class.forName("android.car.hardware.property.CarPropertyManager\$CarPropertyEventCallback")
-
-        val callback = java.lang.reflect.Proxy.newProxyInstance(
+    /** Create ONE shared callback proxy for all properties (app_v1 pattern). */
+    private fun createCallbackProxy(callbackInterface: Class<*>): Any {
+        return java.lang.reflect.Proxy.newProxyInstance(
             callbackInterface.classLoader,
-            arrayOf(callbackInterface)
-        ) { _, method, args ->
+            arrayOf(callbackInterface),
+        ) { proxy, method, args ->
             when (method.name) {
                 "onChangeEvent" -> {
-                    args?.firstOrNull()?.let { event ->
-                        handlePropertyChange(propertyId, event)
-                    }
+                    args?.firstOrNull()?.let(::handleChangeEvent)
+                    null
                 }
                 "onErrorEvent" -> {
-                    Log.w(TAG, "Property error for $propertyId")
+                    val propertyId = (args?.getOrNull(0) as? Int) ?: -1
+                    Log.w(TAG, "Property error callback for $propertyId")
+                    null
                 }
-                "toString" -> "VehicleDataCallback($propertyId)"
-                "hashCode" -> propertyId
-                "equals" -> this === args?.firstOrNull()
+                "toString" -> "VehiclePropertyCallback"
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === args?.firstOrNull()
                 else -> null
             }
-            null
         }
-
-        // Register callback: registerCallback(callback, propertyId, rate)
-        // rate = SENSOR_RATE_ONCHANGE (0.0f) for most, SENSOR_RATE_NORMAL (1.0f) for continuous
-        val rate = when (propertyId) {
-            PERF_VEHICLE_SPEED -> 1.0f // SENSOR_RATE_NORMAL
-            else -> 0.0f // SENSOR_RATE_ONCHANGE
-        }
-
-        val registerMethod = pmClass.getMethod(
-            "registerCallback",
-            callbackInterface,
-            Int::class.javaPrimitiveType,
-            Float::class.javaPrimitiveType
-        )
-        registerMethod.invoke(pm, callback, propertyId, rate)
-        registeredCallbacks.add(callback)
     }
 
-    private fun handlePropertyChange(propertyId: Int, event: Any) {
-        try {
-            val valueMethod = event::class.java.getMethod("getValue")
-            val value = valueMethod.invoke(event) ?: return
+    /** Subscribe to a property — tries API 34+ subscribePropertyEvents first,
+     *  falls back to registerCallback. Exactly mirrors app_v1's subscribe(). */
+    private fun subscribe(
+        manager: Any,
+        callbackInterface: Class<*>,
+        callback: Any,
+        propertyId: Int,
+        rateField: String,
+    ): Boolean {
+        val managerClass = manager.javaClass
 
+        // API 34+ uses subscribePropertyEvents(int, float, callback)
+        val subscribeMethod = managerClass.methods.firstOrNull { m ->
+            m.name == "subscribePropertyEvents" &&
+                m.parameterTypes.size == 3 &&
+                m.parameterTypes[0] == Int::class.javaPrimitiveType &&
+                m.parameterTypes[1] == Float::class.javaPrimitiveType &&
+                m.parameterTypes[2] == callbackInterface
+        }
+        // Older API uses registerCallback(callback, int, float)
+        val registerMethod = managerClass.methods.firstOrNull { m ->
+            m.name == "registerCallback" &&
+                m.parameterTypes.size == 3 &&
+                m.parameterTypes[0] == callbackInterface &&
+                m.parameterTypes[1] == Int::class.javaPrimitiveType &&
+                m.parameterTypes[2] == Float::class.javaPrimitiveType
+        }
+
+        // Resolve sample rate from CarPropertyManager constants (app_v1 pattern)
+        val sampleRate = resolveFloatConstant(
+            "android.car.hardware.property.CarPropertyManager", rateField
+        ) ?: 0.0f
+
+        return try {
+            when {
+                subscribeMethod != null -> subscribeMethod.invoke(manager, propertyId, sampleRate, callback) as? Boolean ?: false
+                registerMethod != null -> registerMethod.invoke(manager, callback, propertyId, sampleRate) as? Boolean ?: false
+                else -> {
+                    DiagnosticLog.w("vhal", "No subscribe/registerCallback method found on ${managerClass.simpleName}")
+                    false
+                }
+            }
+        } catch (t: Throwable) {
+            DiagnosticLog.w("vhal", "subscribe($propertyId): ${t.rootCause().javaClass.simpleName}: ${t.rootCause().message}")
+            false
+        }
+    }
+
+    /** Resolve a static int constant from a class by field name (app_v1 pattern). */
+    private fun resolveIntConstant(className: String, fieldName: String): Int? {
+        return try {
+            Class.forName(className).getField(fieldName).getInt(null)
+        } catch (_: Throwable) { null }
+    }
+
+    /** Resolve a static float constant from a class by field name (app_v1 pattern). */
+    private fun resolveFloatConstant(className: String, fieldName: String): Float? {
+        return try {
+            Class.forName(className).getField(fieldName).getFloat(null)
+        } catch (_: Throwable) { null }
+    }
+
+    /** Handle property change event — extracts propertyId from event (app_v1 pattern). */
+    private fun handleChangeEvent(propertyValue: Any) {
+        try {
+            val propertyId = propertyValue.javaClass.getMethod("getPropertyId").invoke(propertyValue) as? Int ?: return
+            if (propertyId !in trackedPropertyIds) return
+            val value = propertyValue.javaClass.getMethod("getValue").invoke(propertyValue) ?: return
             currentValues[propertyId] = value
             throttledSend()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to extract property value for $propertyId: ${e.message}")
+        } catch (e: Throwable) {
+            Log.w(TAG, "handleChangeEvent: ${e.rootCause().message}")
         }
     }
 
@@ -272,28 +367,45 @@ class VehicleDataForwarderImpl(
     }
 
     private fun buildVehicleData(): ControlMessage.VehicleData {
-        val speed = (currentValues[PERF_VEHICLE_SPEED] as? Float)?.let { it * 3.6f } // m/s → km/h
-        val gearInt = currentValues[GEAR_SELECTION] as? Int
+        // Resolve property IDs from VehiclePropertyIds (same runtime resolution as registration)
+        fun propId(name: String): Int? = resolveIntConstant("android.car.VehiclePropertyIds", name)
+
+        val speedId = propId("PERF_VEHICLE_SPEED")
+        val gearId = propId("GEAR_SELECTION")
+        val parkBrakeId = propId("PARKING_BRAKE_ON")
+        val nightId = propId("NIGHT_MODE")
+        val evBatteryId = propId("EV_BATTERY_LEVEL")
+        val evCapId = propId("INFO_EV_BATTERY_CAPACITY")
+        val tempId = propId("ENV_OUTSIDE_TEMPERATURE")
+        val chargeRateId = propId("EV_BATTERY_INSTANTANEOUS_CHARGE_RATE")
+        val rangeId = propId("RANGE_REMAINING")
+        val rpmId = propId("PERF_ENGINE_RPM")
+        val portOpenId = propId("EV_CHARGE_PORT_OPEN")
+        val portConnId = propId("EV_CHARGE_PORT_CONNECTED")
+        val ignitionId = propId("IGNITION_STATE")
+
+        val speed = speedId?.let { (currentValues[it] as? Float)?.let { v -> v * 3.6f } } // m/s → km/h
+        val gearInt = gearId?.let { currentValues[it] as? Int }
         val gear = gearInt?.let { gearToString(it) }
-        val parkingBrake = currentValues[PARKING_BRAKE_ON] as? Boolean
-        val nightMode = currentValues[NIGHT_MODE] as? Boolean
+        val parkingBrake = parkBrakeId?.let { currentValues[it] as? Boolean }
+        val nightMode = nightId?.let { currentValues[it] as? Boolean }
 
         // EV battery: compute real % from level/capacity (both in Wh)
-        val batteryLevelWh = currentValues[EV_BATTERY_LEVEL] as? Float
-        val batteryCapacityWh = currentValues[INFO_EV_BATTERY_SIZE] as? Float
+        val batteryLevelWh = evBatteryId?.let { currentValues[it] as? Float }
+        val batteryCapacityWh = evCapId?.let { currentValues[it] as? Float }
         val batteryPct = if (batteryLevelWh != null && batteryCapacityWh != null && batteryCapacityWh > 0) {
             (batteryLevelWh / batteryCapacityWh * 100).toInt().coerceIn(0, 100)
         } else null
 
-        val ambientTemp = currentValues[ENV_OUTSIDE_TEMPERATURE] as? Float
-        val chargeRate = currentValues[EV_BATTERY_INSTANTANEOUS_CHARGE_RATE] as? Float
-        val rangeRemaining = (currentValues[RANGE_REMAINING] as? Float)?.let { it / 1000f } // m → km
-        val rpmRaw = currentValues[PERF_ENGINE_RPM] as? Float
-        val rpmE3 = rpmRaw?.let { (it * 1000).toInt() }  // RPM × 1000
+        val ambientTemp = tempId?.let { currentValues[it] as? Float }
+        val chargeRate = chargeRateId?.let { currentValues[it] as? Float }
+        val rangeRemaining = rangeId?.let { (currentValues[it] as? Float)?.let { v -> v / 1000f } } // m → km
+        val rpmRaw = rpmId?.let { currentValues[it] as? Float }
+        val rpmE3 = rpmRaw?.let { (it * 1000).toInt() }
 
-        val chargePortOpen = currentValues[EV_CHARGE_PORT_OPEN] as? Boolean
-        val chargePortConnected = currentValues[EV_CHARGE_PORT_CONNECTED] as? Boolean
-        val ignitionState = currentValues[IGNITION_STATE] as? Int
+        val chargePortOpen = portOpenId?.let { currentValues[it] as? Boolean }
+        val chargePortConnected = portConnId?.let { currentValues[it] as? Boolean }
+        val ignitionState = ignitionId?.let { currentValues[it] as? Int }
 
         // Derive driving status: in a drive gear (not P/N/Unknown)
         val driving = gearInt != null && gearInt !in listOf(0, 1, 4)
@@ -347,42 +459,29 @@ class VehicleDataForwarderImpl(
 
     private fun cleanup() {
         val pm = propertyManager
-        if (pm != null) {
-            val pmClass = pm::class.java
-            val callbackInterface = try {
-                Class.forName("android.car.hardware.property.CarPropertyManager\$CarPropertyEventCallback")
-            } catch (_: ClassNotFoundException) {
-                null
-            }
+        val callback = callbackProxy
 
-            if (callbackInterface != null) {
-                val unregisterMethod = try {
-                    pmClass.getMethod("unregisterCallback", callbackInterface)
-                } catch (_: NoSuchMethodException) {
-                    null
+        // Unregister the shared callback (app_v1 pattern)
+        if (pm != null && callback != null) {
+            val iface = callback.javaClass.interfaces.firstOrNull()
+            if (iface != null) {
+                runCatching {
+                    pm.javaClass.getMethod("unsubscribePropertyEvents", iface).invoke(pm, callback)
                 }
-
-                for (callback in registeredCallbacks) {
-                    try {
-                        unregisterMethod?.invoke(pm, callback)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to unregister callback: ${e.message}")
-                    }
+                runCatching {
+                    pm.javaClass.getMethod("unregisterCallback", iface).invoke(pm, callback)
                 }
             }
         }
-        registeredCallbacks.clear()
-        currentValues.clear()
 
         // Disconnect car
-        try {
-            carObject?.let { car ->
-                val disconnectMethod = car::class.java.getMethod("disconnect")
-                disconnectMethod.invoke(car)
-            }
-        } catch (e: Exception) {
-            Log.d(TAG, "Car disconnect: ${e.message}")
+        runCatching {
+            carObject?.javaClass?.getMethod("disconnect")?.invoke(carObject)
         }
+
+        trackedPropertyIds.clear()
+        currentValues.clear()
+        callbackProxy = null
         carObject = null
         propertyManager = null
     }

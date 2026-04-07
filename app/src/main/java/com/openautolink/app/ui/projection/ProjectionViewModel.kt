@@ -188,6 +188,18 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
 
+        // Push diagnostics setting changes to live session immediately
+        viewModelScope.launch {
+            preferences.remoteDiagnosticsEnabled.collect { enabled ->
+                sessionManager.setDiagnosticsEnabled(enabled)
+            }
+        }
+        viewModelScope.launch {
+            preferences.remoteDiagnosticsMinLevel.collect { level ->
+                sessionManager.setDiagnosticsMinLevel(level)
+            }
+        }
+
         // Collect video and audio stats when streaming
         viewModelScope.launch {
             sessionManager.sessionState.collect { state ->
@@ -235,10 +247,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             val ifaceName = preferences.networkInterface.first()
             val diagEnabled = preferences.remoteDiagnosticsEnabled.first()
             val diagMinLevel = preferences.remoteDiagnosticsMinLevel.first()
+            val scalingMode = preferences.videoScalingMode.first()
             val network = resolveNetwork(ifaceName)
             sessionManager.start(host, port, codec, micSrc,
                 diagnosticsEnabled = diagEnabled, diagnosticsMinLevel = diagMinLevel,
-                network = network)
+                network = network, scalingMode = scalingMode)
         }
     }
 
@@ -369,6 +382,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         surfaceDebounceJob = viewModelScope.launch {
             kotlinx.coroutines.delay(150)
             Log.d(TAG, "Surface stabilized at ${width}x${height}")
+            com.openautolink.app.diagnostics.DiagnosticLog.i("video",
+                "Surface stabilized: ${width}x${height}")
             sessionManager.videoDecoder?.attach(surface, width, height)
             // Surface may have attached after the bridge's SPS/PPS+IDR replay arrived,
             // meaning the IDR was dropped (codec wasn't configured yet). Request a

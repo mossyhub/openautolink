@@ -251,7 +251,7 @@ private fun ConnectionStatusBar(
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Save & Connect")
+            Text("Save & Restart")
         }
 
         // Status indicator dot + text
@@ -1400,6 +1400,51 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                     text = label,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (uiState.aaDpi == dpi) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Video Scaling Mode ---
+        SectionHeader("Video Scaling")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "How the 1920×1080 video fits your screen. " +
+                    "Letterbox shows the full frame with black bars on the sides. " +
+                    "Crop fills the screen but cuts off top/bottom. " +
+                    "Requires reconnect (Save & Restart).",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        listOf(
+            "letterbox" to "Letterbox (no crop, black bars on sides)",
+            "crop" to "Crop to fill (fills screen, cuts top/bottom)",
+        ).forEach { (key, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .clickable { viewModel.updateVideoScalingMode(key) }
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.videoScalingMode == key,
+                    onClick = { viewModel.updateVideoScalingMode(key) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (uiState.videoScalingMode == key) FontWeight.SemiBold else FontWeight.Normal,
                 )
             }
         }

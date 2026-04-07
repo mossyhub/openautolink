@@ -537,11 +537,11 @@ void OalSession::handle_app_hello(const std::string& json) {
               << " bars=T:" << bar_top << " B:" << bar_bottom
               << " L:" << bar_left << " R:" << bar_right << std::endl;
 
-    // Auto-compute AA video parameters from display aspect ratio.
-    // The app uses SCALE_TO_FIT_WITH_CROPPING — the video fills the display
-    // width proportionally, cropping top/bottom if the display is wider than 16:9.
-    // We auto-set pixel_aspect_ratio, height_margin, and stable_insets so AA
-    // layouts its UI correctly for the actual visible area.
+    // Auto-compute AA stable_insets from display cutout.
+    // The app uses SCALE_TO_FIT (letterbox) — the full 16:9 video frame is visible
+    // with black bars on the sides. No content is cropped, so height_margin stays 0.
+    // Stable insets tell AA where the physical screen curves are (in video coords)
+    // so interactive UI stays in the safe area. Maps still render edge-to-edge.
     if (display_w > 0 && display_h > 0) {
         int video_w = 1920, video_h = 1080;
         switch (config_.aa_resolution_tier) {
@@ -552,42 +552,30 @@ void OalSession::handle_app_hello(const std::string& json) {
             case 5: video_w = 3840; video_h = 2160; break;
         }
 
-        double display_ar = static_cast<double>(display_w) / display_h;
-        double video_ar = static_cast<double>(video_w) / video_h;
-
-        // Auto pixel_aspect_ratio: tells AA the pixels are wider than square,
-        // so it layouts UI for a wider display. Only set if not already overridden.
-        if (config_.aa_ui_experiment.pixel_aspect_ratio_e4 == 0 && display_ar > video_ar + 0.01) {
-            int par = static_cast<int>(display_ar / video_ar * 10000);
-            config_.aa_ui_experiment.pixel_aspect_ratio_e4 = par;
-            std::cerr << "[OAL] auto pixel_aspect_ratio=" << par
-                      << " (display " << display_ar << ":1 → AA sees ~"
-                      << (display_ar / video_ar) << "x wider)" << std::endl;
+        // pixel_aspect_ratio: NOT auto-computed — phone AA apps may not handle
+        // non-square pixel ratios correctly (can cause gray/blank panels).
+        // Leave at 0 (square pixels) by default. User can override via Settings.
+        if (config_.aa_ui_experiment.pixel_aspect_ratio_e4 > 0) {
+            std::cerr << "[OAL] pixel_aspect_ratio=" << config_.aa_ui_experiment.pixel_aspect_ratio_e4
+                      << " (manual override)" << std::endl;
         }
 
-        // Auto height_margin: with crop-to-fill on a wider display, vertical
-        // content is cropped. Tell AA to keep buttons in the visible center band.
-        if (display_ar > video_ar + 0.01) {
-            int visible_h = static_cast<int>(static_cast<double>(display_h) * video_w / display_w);
-            int margin = video_h - visible_h;
-            if (margin > 0 && margin < video_h &&
-                config_.aa_ui_experiment.height_margin == 0) {
-                config_.aa_ui_experiment.height_margin = margin;
-                std::cerr << "[OAL] auto height_margin=" << margin
-                          << " (visible " << visible_h << "/" << video_h << "px)" << std::endl;
-            }
+        // height_margin: NOT auto-computed for letterbox mode (no cropping).
+        // User can override via Settings for experimentation.
+        if (config_.aa_ui_experiment.height_margin > 0) {
+            std::cerr << "[OAL] height_margin=" << config_.aa_ui_experiment.height_margin
+                      << " (manual override)" << std::endl;
         }
 
-        // Auto stable_insets from display cutout.
-        // With crop-to-fill, scale = display_w / video_w (width fills the surface).
+        // Auto stable_insets from display cutout only.
+        // With letterbox, scale = display_h / video_h (height fills, bars on sides).
         if (cut_top > 0 || cut_bottom > 0 || cut_left > 0 || cut_right > 0) {
-            double scale = static_cast<double>(display_w) / video_w;
-            int crop_v = config_.aa_ui_experiment.height_margin / 2;
+            double letterbox_scale = static_cast<double>(display_h) / video_h;
 
-            int safe_top = (cut_top > 0) ? std::max(0, static_cast<int>(cut_top / scale) - crop_v) : 0;
-            int safe_bottom = (cut_bottom > 0) ? std::max(0, static_cast<int>(cut_bottom / scale) - crop_v) : 0;
-            int safe_left = (cut_left > 0) ? static_cast<int>(cut_left / scale) : 0;
-            int safe_right = (cut_right > 0) ? static_cast<int>(cut_right / scale) : 0;
+            int safe_top = (cut_top > 0) ? static_cast<int>(cut_top / letterbox_scale) : 0;
+            int safe_bottom = (cut_bottom > 0) ? static_cast<int>(cut_bottom / letterbox_scale) : 0;
+            int safe_left = (cut_left > 0) ? static_cast<int>(cut_left / letterbox_scale) : 0;
+            int safe_right = (cut_right > 0) ? static_cast<int>(cut_right / letterbox_scale) : 0;
 
             auto& si = config_.aa_ui_experiment.initial_stable_insets;
             auto& floor = config_.aa_ui_experiment.cutout_stable_floor;
@@ -804,7 +792,7 @@ void OalSession::handle_config_update(const std::string& json) {
         std::cerr << "[OAL] height_margin override: " << hm << std::endl;
     }
     int pa = 0;
-    if (oal_json_extract_int(json, "aa_pixel_aspect", pa) && pa > 0 &&
+    if (oal_json_extract_int(json, "aa_pixel_aspect", pa) && pa >= 0 &&
         pa != static_cast<int>(config_.aa_ui_experiment.pixel_aspect_ratio_e4)) {
         config_.aa_ui_experiment.pixel_aspect_ratio_e4 = pa;
         config_changed = true;

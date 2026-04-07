@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
-import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -65,8 +64,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        window.attributes.layoutInDisplayCutoutMode =
-            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        // Keep screen on during projection
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         setContent {
             OpenAutoLinkTheme {
@@ -110,65 +109,30 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    @Suppress("DEPRECATION") // Legacy flags needed for AAOS — WindowInsetsController alone is ignored
     private fun applyDisplayMode(mode: String) {
         Log.i("MainActivity", "applyDisplayMode: $mode")
         val controller = WindowCompat.getInsetsController(window, window.decorView)
-        val decorView = window.decorView
 
         when (mode) {
             "system_ui_visible" -> {
                 controller.show(WindowInsetsCompat.Type.systemBars())
-                controller.systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
-                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-                @Suppress("DEPRECATION")
-                decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             }
             "status_bar_hidden" -> {
                 controller.hide(WindowInsetsCompat.Type.statusBars())
                 controller.show(WindowInsetsCompat.Type.navigationBars())
                 controller.systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                // Legacy fallback for AAOS where WindowInsetsController may be ignored
-                window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-                @Suppress("DEPRECATION")
-                decorView.systemUiVisibility = (
-                    View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                )
             }
             "nav_bar_hidden" -> {
                 controller.show(WindowInsetsCompat.Type.statusBars())
                 controller.hide(WindowInsetsCompat.Type.navigationBars())
                 controller.systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-                @Suppress("DEPRECATION")
-                decorView.systemUiVisibility = (
-                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                )
             }
             "fullscreen_immersive" -> {
                 controller.hide(WindowInsetsCompat.Type.systemBars())
                 controller.systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                // Legacy fallback for AAOS where WindowInsetsController may be ignored
-                window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-                @Suppress("DEPRECATION")
-                decorView.systemUiVisibility = (
-                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                )
             }
         }
     }

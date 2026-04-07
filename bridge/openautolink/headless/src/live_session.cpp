@@ -2602,8 +2602,9 @@ void HeadlessSensorHandler::sendNightMode(bool night) {
 void HeadlessSensorHandler::sendDrivingStatus(bool moving) {
     aap_protobuf::service::sensorsource::message::SensorBatch indication;
     auto* driving = indication.add_driving_status_data();
-    driving->set_status(moving ? 0
-                               : 31);
+    // AA DrivingStatus: 0 = UNRESTRICTED (parked), non-zero = restriction flags
+    // moving=false (parked) → 0 (unrestricted), moving=true → 31 (fully restricted)
+    driving->set_status(moving ? 31 : 0);
 
     auto promise = aasdk::channel::SendPromise::defer(strand_);
     promise->then([]() {}, [](auto) {});

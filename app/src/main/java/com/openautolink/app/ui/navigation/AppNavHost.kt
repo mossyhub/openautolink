@@ -54,7 +54,10 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             SettingsScreen(
                 viewModel = settingsViewModel,
                 sessionState = projectionUiState.sessionState,
-                onSaveAndConnect = { projectionViewModel.reconnect() },
+                onSaveAndConnect = {
+                    settingsViewModel.saveAndRestart()
+                    navController.popBackStack()
+                },
                 onBack = { navController.popBackStack() },
                 onNavigateToDiagnostics = {
                     navController.navigate(AppDestinations.DIAGNOSTICS)

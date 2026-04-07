@@ -60,7 +60,7 @@ struct HeadlessConfig {
     int video_width = 2400;
     int video_height = 960;
     int video_fps = 60;
-    int video_dpi = 200;
+    int video_dpi = 160;
     // AA resolution tier for SDR (mapped from video_width)
     // 1=800x480, 2=1280x720, 3=1920x1080, 4=2560x1440, 5=3840x2160
     int aa_resolution_tier = 3;
