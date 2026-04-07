@@ -108,6 +108,11 @@ public:
     void send_phone_status(int signal_strength, const std::string& calls_json);
     void send_paired_phones();
 
+    // ── Bridge update ────────────────────────────────────────────────
+
+    // Returns the SHA-256 hex string of the running binary.
+    std::string compute_binary_sha256() const;
+
     // ── Configuration ────────────────────────────────────────────────
 
     void set_control_forward(ControlForwardCallback cb) { control_forward_ = std::move(cb); }
@@ -138,6 +143,9 @@ private:
     void handle_list_paired_phones();
     void handle_switch_phone(const std::string& json);
     void handle_forget_phone(const std::string& json);
+    void handle_bridge_update_offer(const std::string& json);
+    void handle_bridge_update_data(const std::string& json);
+    void handle_bridge_update_complete(const std::string& json);
 
     ICarTransport& control_transport_;
     ICarTransport& video_transport_;
@@ -178,6 +186,14 @@ private:
 
     ControlForwardCallback control_forward_;
     ScoAudio* sco_audio_ = nullptr;
+
+    // Bridge update state
+    std::string update_temp_path_;      // temp file being written
+    std::string update_expected_sha_;   // expected SHA-256 of complete binary
+    size_t update_expected_size_ = 0;   // expected total size
+    size_t update_bytes_received_ = 0;  // bytes written so far
+    int update_fd_ = -1;               // fd of temp file being written
+    std::string binary_sha256_cache_;   // cached SHA-256 of running binary
 #ifdef PI_AA_ENABLE_AASDK_LIVE
     LiveAasdkSession* aa_session_ = nullptr;
 #endif

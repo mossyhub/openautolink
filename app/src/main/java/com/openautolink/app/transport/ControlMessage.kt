@@ -19,6 +19,8 @@ sealed class ControlMessage {
         val capabilities: List<String>,
         val videoPort: Int,
         val audioPort: Int,
+        val bridgeVersion: String? = null,
+        val bridgeSha256: String? = null,
     ) : ControlMessage()
 
     data class PhoneConnected(
@@ -218,6 +220,26 @@ sealed class ControlMessage {
     object ListPairedPhones : ControlMessage()
     data class SwitchPhone(val mac: String) : ControlMessage()
     data class ForgetPhone(val mac: String) : ControlMessage()
+
+    // Bridge update protocol (App → Bridge)
+    data class BridgeUpdateOffer(
+        val version: String,
+        val size: Int,
+        val sha256: String
+    ) : ControlMessage()
+
+    data class BridgeUpdateData(
+        val offset: Int,
+        val length: Int,
+        val data: String  // base64
+    ) : ControlMessage()
+
+    data class BridgeUpdateComplete(val sha256: String) : ControlMessage()
+
+    // Bridge update protocol (Bridge → App)
+    data class BridgeUpdateAccept(val dummy: Unit = Unit) : ControlMessage()
+    data class BridgeUpdateReject(val reason: String) : ControlMessage()
+    data class BridgeUpdateStatus(val status: String, val message: String) : ControlMessage()
 
     // App → Bridge: diagnostic messages
     data class AppLog(

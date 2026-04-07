@@ -285,6 +285,11 @@ int main(int argc, char* argv[])
         c.hide_phone_signal = hide_phone_signal;
         c.hide_battery_level = hide_battery;
         c.aa_ui_experiment = aa_ui_experiment;
+
+        // Bridge update mode from env (read directly, not via CLI flag)
+        const char* update_env = std::getenv("OAL_BRIDGE_UPDATE_MODE");
+        if (update_env) c.update_mode = update_env;
+
         return c;
     };
 

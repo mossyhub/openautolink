@@ -32,7 +32,9 @@ object ControlMessageSerializer {
                 name = obj["name"]?.jsonPrimitive?.content ?: "",
                 capabilities = obj["capabilities"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
                 videoPort = obj["video_port"]?.jsonPrimitive?.content?.toIntOrNull() ?: 5290,
-                audioPort = obj["audio_port"]?.jsonPrimitive?.content?.toIntOrNull() ?: 5289
+                audioPort = obj["audio_port"]?.jsonPrimitive?.content?.toIntOrNull() ?: 5289,
+                bridgeVersion = obj["bridge_version"]?.jsonPrimitive?.content,
+                bridgeSha256 = obj["bridge_sha256"]?.jsonPrimitive?.content
             )
 
             "phone_connected" -> ControlMessage.PhoneConnected(

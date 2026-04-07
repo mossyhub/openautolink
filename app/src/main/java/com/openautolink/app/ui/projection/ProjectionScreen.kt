@@ -280,12 +280,17 @@ fun ProjectionScreen(
                 modifier = Modifier.layout { measurable, constraints ->
                     val placeable = measurable.measure(constraints)
                     layout(placeable.width, placeable.height) {
-                        // Right-align popup with button's right edge
-                        val x = (btnInBoxX + phoneSwitchBtnSize.width - placeable.width).toInt()
+                        // Try to right-align popup with button's right edge
+                        var x = (btnInBoxX + phoneSwitchBtnSize.width - placeable.width).toInt()
                         // Position popup's bottom edge at button's top edge minus gap
                         val gapPx = popupGapDp.toPx()
-                        val y = (btnInBoxY - placeable.height - gapPx).toInt()
-                        placeable.place(x.coerceAtLeast(0), y.coerceAtLeast(0))
+                        var y = (btnInBoxY - placeable.height - gapPx).toInt()
+                        // Clamp to stay within parent bounds
+                        val maxX = constraints.maxWidth - placeable.width
+                        val maxY = constraints.maxHeight - placeable.height
+                        x = x.coerceIn(0, maxX.coerceAtLeast(0))
+                        y = y.coerceIn(0, maxY.coerceAtLeast(0))
+                        placeable.place(x, y)
                     }
                 }
             )

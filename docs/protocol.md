@@ -338,6 +338,121 @@ The bridge treats `app_log` and `app_telemetry` as opaque — it writes them to 
 - Neither message type generates a response from the bridge
 - Log level filtering in Settings: choose minimum level to send (DEBUG sends everything, ERROR sends only errors)
 
+## Bridge Update Protocol
+
+The app can update the bridge binary over the existing control channel. This allows bridge-only releases without requiring users to rebuild their AAB.
+
+### Hello Extensions
+
+The bridge's `hello` message includes version and identity fields:
+
+```jsonl
+{"type":"hello","version":1,"name":"OpenAutoLink","capabilities":["h264","h265"],"video_port":5290,"audio_port":5289,"bridge_version":"0.1.53","bridge_sha256":"a1b2c3d4..."}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `bridge_version` | string | Semantic version from build (e.g. `"0.1.53"`) |
+| `bridge_sha256` | string | SHA-256 hex of the running binary (64 chars) |
+
+The app uses `bridge_sha256` (not version string) to determine if an update is needed. This handles the case where a developer builds locally with arbitrary version numbers — when they re-enable auto-update, the SHA mismatch triggers a pull from the GitHub release.
+
+### Update Flow
+
+```
+1. Bridge sends hello with bridge_version + bridge_sha256
+2. App compares bridge_sha256 against cached latest GitHub Release asset hash
+3. If mismatch AND auto-update enabled:
+   a. App downloads binary from GitHub (cached in app internal storage)
+   b. App sends bridge_update_offer
+   c. Bridge responds with bridge_update_accept (or bridge_update_reject)
+   d. App sends bridge_update_data chunks
+   e. App sends bridge_update_complete with SHA-256
+   f. Bridge verifies hash, swaps binary, sends bridge_update_status
+   g. Bridge restarts — app reconnects via existing reconnect logic
+```
+
+### App → Bridge: `bridge_update_offer`
+
+```jsonl
+{"type":"bridge_update_offer","version":"0.1.54","size":2845632,"sha256":"abc123..."}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | string | Version of the update |
+| `size` | int | Total binary size in bytes |
+| `sha256` | string | Expected SHA-256 of the complete binary |
+
+### Bridge → App: `bridge_update_accept`
+
+```jsonl
+{"type":"bridge_update_accept"}
+```
+
+Sent when the bridge is ready to receive update data. Bridge will not accept updates when `OAL_BRIDGE_UPDATE_MODE=disabled`.
+
+### Bridge → App: `bridge_update_reject`
+
+```jsonl
+{"type":"bridge_update_reject","reason":"disabled"}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `reason` | string | `"disabled"` (dev mode), `"in_session"` (phone connected), `"disk_space"` |
+
+### App → Bridge: `bridge_update_data`
+
+```jsonl
+{"type":"bridge_update_data","offset":0,"length":65536,"data":"base64..."}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `offset` | int | Byte offset in the binary |
+| `length` | int | Number of decoded bytes in this chunk |
+| `data` | string | Base64-encoded chunk (max 64KB decoded per chunk) |
+
+### App → Bridge: `bridge_update_complete`
+
+```jsonl
+{"type":"bridge_update_complete","sha256":"abc123..."}
+```
+
+Signals end of transfer. Bridge verifies reassembled binary matches SHA-256.
+
+### Bridge → App: `bridge_update_status`
+
+```jsonl
+{"type":"bridge_update_status","status":"verified","message":"Update verified, restarting..."}
+{"type":"bridge_update_status","status":"failed","message":"SHA-256 mismatch"}
+{"type":"bridge_update_status","status":"applying","message":"Swapping binary..."}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | `"verified"`, `"applying"`, `"applied"`, `"failed"` |
+| `message` | string | Human-readable status |
+
+### Dev Mode
+
+Bridge env `OAL_BRIDGE_UPDATE_MODE` controls update behavior:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` (default) | Accept updates from app |
+| `disabled` | Reject all update offers (for developers building locally) |
+
+App preference `bridge_auto_update` (default: true) controls whether the app checks for and pushes updates. When a user toggles this back on after developing locally, the SHA-256 mismatch against the GitHub release triggers a fresh download and push.
+
+### Security
+
+- Binary integrity verified by SHA-256 at both ends
+- SHA-256 sourced from GitHub Releases API over HTTPS
+- Bridge writes to temp file, verifies, then atomically replaces
+- Update rejected while phone session is active (prevents mid-drive restart)
+
 ## Error Handling
 
 - If control channel disconnects: app drops video/audio connections, returns to DISCONNECTED

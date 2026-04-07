@@ -3,6 +3,10 @@
 #include <cstdint>
 #include <string>
 
+#ifndef OAL_BRIDGE_VERSION
+#define OAL_BRIDGE_VERSION "dev"
+#endif
+
 namespace openautolink {
 
 // Configuration for the headless Android Auto head unit.
@@ -79,6 +83,12 @@ struct HeadlessConfig {
     bool hide_clock = true;          // AAOS has its own clock — hide AA's
     bool hide_phone_signal = false;
     bool hide_battery_level = false;
+
+    // Bridge version (injected at compile time)
+    std::string bridge_version = OAL_BRIDGE_VERSION;
+
+    // Bridge update mode: "auto" (accept OTA from app) or "disabled" (dev builds)
+    std::string update_mode = "auto";
 
     UiConfigExperiment aa_ui_experiment;
 };

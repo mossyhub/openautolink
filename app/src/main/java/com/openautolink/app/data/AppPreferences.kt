@@ -72,6 +72,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val OVERLAY_STATS_BUTTON = booleanPreferencesKey("overlay_stats_button")
         val OVERLAY_PHONE_SWITCH_BUTTON = booleanPreferencesKey("overlay_phone_switch_button")
         val DEFAULT_PHONE_MAC = stringPreferencesKey("default_phone_mac")
+        val BRIDGE_AUTO_UPDATE = booleanPreferencesKey("bridge_auto_update")
+        val GITHUB_REPO_OWNER = stringPreferencesKey("github_repo_owner")
+        val GITHUB_REPO_NAME = stringPreferencesKey("github_repo_name")
 
         // AA safe area (stable) insets — maps render, UI stays inside
         val SAFE_AREA_TOP = intPreferencesKey("safe_area_top")
@@ -127,6 +130,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_OVERLAY_STATS_BUTTON = true
         const val DEFAULT_OVERLAY_PHONE_SWITCH_BUTTON = true
         const val DEFAULT_DEFAULT_PHONE_MAC = ""
+        const val DEFAULT_BRIDGE_AUTO_UPDATE = true
+        const val DEFAULT_GITHUB_REPO_OWNER = "mossyhub"
+        const val DEFAULT_GITHUB_REPO_NAME = "openautolink"
         const val DEFAULT_SAFE_AREA_TOP = 0
         const val DEFAULT_SAFE_AREA_BOTTOM = 0
         const val DEFAULT_SAFE_AREA_LEFT = 0
@@ -286,6 +292,18 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     val defaultPhoneMac: Flow<String> = dataStore.data.map { prefs ->
         prefs[DEFAULT_PHONE_MAC] ?: DEFAULT_DEFAULT_PHONE_MAC
+    }
+
+    val bridgeAutoUpdate: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[BRIDGE_AUTO_UPDATE] ?: DEFAULT_BRIDGE_AUTO_UPDATE
+    }
+
+    val githubRepoOwner: Flow<String> = dataStore.data.map { prefs ->
+        prefs[GITHUB_REPO_OWNER] ?: DEFAULT_GITHUB_REPO_OWNER
+    }
+
+    val githubRepoName: Flow<String> = dataStore.data.map { prefs ->
+        prefs[GITHUB_REPO_NAME] ?: DEFAULT_GITHUB_REPO_NAME
     }
 
     val safeAreaTop: Flow<Int> = dataStore.data.map { prefs ->
@@ -478,6 +496,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setDefaultPhoneMac(mac: String) {
         dataStore.edit { it[DEFAULT_PHONE_MAC] = mac }
+    }
+
+    suspend fun setBridgeAutoUpdate(enabled: Boolean) {
+        dataStore.edit { it[BRIDGE_AUTO_UPDATE] = enabled }
     }
 
     suspend fun setSafeAreaTop(value: Int) {

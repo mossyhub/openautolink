@@ -8,9 +8,13 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
 #include <iostream>
 #include <sstream>
+#include <unistd.h>
+#include <sys/stat.h>
 
 namespace openautolink {
 
@@ -295,13 +299,21 @@ void OalSession::send_hello() {
     if (config_.video_codec == 7) caps = R"("h264","h265")";
     else if (config_.video_codec == 5) caps = R"("h264","vp9")";
 
+    // Compute binary SHA-256 once and cache
+    if (binary_sha256_cache_.empty()) {
+        binary_sha256_cache_ = compute_binary_sha256();
+    }
+
     std::ostringstream oss;
     oss << R"({"type":"hello","version":1,"name":")"
         << oal_json_escape(config_.head_unit_name)
         << R"(","capabilities":[)" << caps
-        << R"(],"video_port":5290,"audio_port":5289})";
+        << R"(],"video_port":5290,"audio_port":5289)"
+        << R"(,"bridge_version":")" << oal_json_escape(config_.bridge_version)
+        << R"(","bridge_sha256":")" << binary_sha256_cache_
+        << R"("})";
     send_control_line(oss.str());
-    std::cerr << "[OAL] sent hello" << std::endl;
+    std::cerr << "[OAL] sent hello (bridge " << config_.bridge_version << ")" << std::endl;
 }
 
 void OalSession::send_phone_connected(const std::string& phone_name,
@@ -497,6 +509,12 @@ void OalSession::on_app_json_line(const std::string& line) {
         handle_switch_phone(line);
     } else if (type == "forget_phone") {
         handle_forget_phone(line);
+    } else if (type == "bridge_update_offer") {
+        handle_bridge_update_offer(line);
+    } else if (type == "bridge_update_data") {
+        handle_bridge_update_data(line);
+    } else if (type == "bridge_update_complete") {
+        handle_bridge_update_complete(line);
     } else {
         std::cerr << "[OAL] unknown message type: " << type << std::endl;
     }
@@ -1183,6 +1201,221 @@ void OalSession::handle_forget_phone(const std::string& json) {
 
     // Send updated paired phones list
     send_paired_phones();
+}
+
+// ── Bridge update handlers ───────────────────────────────────────────
+
+std::string OalSession::compute_binary_sha256() const {
+    // Read /proc/self/exe and compute SHA-256 via sha256sum
+    FILE* pipe = popen("sha256sum /proc/self/exe 2>/dev/null", "r");
+    if (!pipe) return "";
+    char buf[128];
+    std::string result;
+    if (fgets(buf, sizeof(buf), pipe)) {
+        result = buf;
+        // sha256sum output: "hexhash  filename\n"
+        auto pos = result.find(' ');
+        if (pos != std::string::npos) result = result.substr(0, pos);
+        // Trim whitespace
+        while (!result.empty() && (result.back() == '\n' || result.back() == '\r' || result.back() == ' '))
+            result.pop_back();
+    }
+    pclose(pipe);
+    return result;
+}
+
+void OalSession::handle_bridge_update_offer(const std::string& json) {
+    std::string version = oal_json_extract_string(json, "version");
+    std::string sha256 = oal_json_extract_string(json, "sha256");
+    int size = 0;
+    oal_json_extract_int(json, "size", size);
+
+    std::cerr << "[OAL] bridge update offer: v" << version << " size=" << size << std::endl;
+
+    // Check if updates are disabled (dev mode)
+    if (config_.update_mode == "disabled") {
+        std::cerr << "[OAL] bridge update rejected: update mode disabled" << std::endl;
+        send_control_line(R"({"type":"bridge_update_reject","reason":"disabled"})");
+        return;
+    }
+
+    // Don't update while a phone session is active (safety)
+    if (phone_connected_) {
+        std::cerr << "[OAL] bridge update rejected: phone session active" << std::endl;
+        send_control_line(R"({"type":"bridge_update_reject","reason":"in_session"})");
+        return;
+    }
+
+    if (size <= 0 || sha256.empty()) {
+        std::cerr << "[OAL] bridge update rejected: invalid offer" << std::endl;
+        send_control_line(R"({"type":"bridge_update_reject","reason":"invalid_offer"})");
+        return;
+    }
+
+    // Clean up any previous partial update
+    if (update_fd_ >= 0) {
+        close(update_fd_);
+        update_fd_ = -1;
+    }
+    if (!update_temp_path_.empty()) {
+        unlink(update_temp_path_.c_str());
+    }
+
+    // Create temp file for incoming binary
+    update_temp_path_ = "/tmp/openautolink-update-XXXXXX";
+    // mkstemp needs a non-const char*
+    std::vector<char> tmpl(update_temp_path_.begin(), update_temp_path_.end());
+    tmpl.push_back('\0');
+    update_fd_ = mkstemp(tmpl.data());
+    if (update_fd_ < 0) {
+        std::cerr << "[OAL] bridge update: failed to create temp file" << std::endl;
+        send_control_line(R"({"type":"bridge_update_reject","reason":"disk_space"})");
+        return;
+    }
+    update_temp_path_ = tmpl.data();
+    update_expected_sha_ = sha256;
+    update_expected_size_ = static_cast<size_t>(size);
+    update_bytes_received_ = 0;
+
+    std::cerr << "[OAL] bridge update accepted, writing to " << update_temp_path_ << std::endl;
+    send_control_line(R"({"type":"bridge_update_accept"})");
+}
+
+// Simple base64 decode — no external dependency needed for this one-shot use
+static std::vector<uint8_t> base64_decode(const std::string& input) {
+    static const int b64_table[256] = {
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,
+        52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-1,-1,-1,
+        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
+        15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
+        -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,
+        41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    };
+
+    std::vector<uint8_t> out;
+    out.reserve(input.size() * 3 / 4);
+    uint32_t val = 0;
+    int bits = 0;
+    for (unsigned char c : input) {
+        if (c == '=' || c == '\n' || c == '\r') continue;
+        int v = b64_table[c];
+        if (v < 0) continue;
+        val = (val << 6) | static_cast<uint32_t>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<uint8_t>((val >> bits) & 0xFF));
+        }
+    }
+    return out;
+}
+
+void OalSession::handle_bridge_update_data(const std::string& json) {
+    if (update_fd_ < 0) {
+        std::cerr << "[OAL] bridge update data: no active update" << std::endl;
+        return;
+    }
+
+    std::string data_b64 = oal_json_extract_string(json, "data");
+    if (data_b64.empty()) return;
+
+    auto decoded = base64_decode(data_b64);
+    if (decoded.empty()) return;
+
+    ssize_t written = write(update_fd_, decoded.data(), decoded.size());
+    if (written < 0 || static_cast<size_t>(written) != decoded.size()) {
+        std::cerr << "[OAL] bridge update: write failed" << std::endl;
+        close(update_fd_);
+        update_fd_ = -1;
+        unlink(update_temp_path_.c_str());
+        send_control_line(R"({"type":"bridge_update_status","status":"failed","message":"Write failed"})");
+        return;
+    }
+
+    update_bytes_received_ += decoded.size();
+}
+
+void OalSession::handle_bridge_update_complete(const std::string& json) {
+    if (update_fd_ < 0) {
+        std::cerr << "[OAL] bridge update complete: no active update" << std::endl;
+        return;
+    }
+
+    std::string expected_sha = oal_json_extract_string(json, "sha256");
+    if (expected_sha.empty()) expected_sha = update_expected_sha_;
+
+    // Close the file so we can verify it
+    close(update_fd_);
+    update_fd_ = -1;
+
+    // Verify size
+    struct stat st;
+    if (stat(update_temp_path_.c_str(), &st) != 0 || st.st_size <= 0) {
+        std::cerr << "[OAL] bridge update: temp file stat failed" << std::endl;
+        unlink(update_temp_path_.c_str());
+        send_control_line(R"({"type":"bridge_update_status","status":"failed","message":"Empty or missing file"})");
+        return;
+    }
+
+    if (update_expected_size_ > 0 && static_cast<size_t>(st.st_size) != update_expected_size_) {
+        std::cerr << "[OAL] bridge update: size mismatch (got " << st.st_size
+                  << ", expected " << update_expected_size_ << ")" << std::endl;
+        unlink(update_temp_path_.c_str());
+        send_control_line(R"({"type":"bridge_update_status","status":"failed","message":"Size mismatch"})");
+        return;
+    }
+
+    // Verify SHA-256
+    std::string cmd = "sha256sum " + update_temp_path_ + " 2>/dev/null";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    std::string actual_sha;
+    if (pipe) {
+        char buf[128];
+        if (fgets(buf, sizeof(buf), pipe)) {
+            actual_sha = buf;
+            auto pos = actual_sha.find(' ');
+            if (pos != std::string::npos) actual_sha = actual_sha.substr(0, pos);
+            while (!actual_sha.empty() && (actual_sha.back() == '\n' || actual_sha.back() == '\r'))
+                actual_sha.pop_back();
+        }
+        pclose(pipe);
+    }
+
+    if (actual_sha.empty() || actual_sha != expected_sha) {
+        std::cerr << "[OAL] bridge update: SHA-256 mismatch (got " << actual_sha
+                  << ", expected " << expected_sha << ")" << std::endl;
+        unlink(update_temp_path_.c_str());
+        send_control_line(R"({"type":"bridge_update_status","status":"failed","message":"SHA-256 mismatch"})");
+        return;
+    }
+
+    std::cerr << "[OAL] bridge update: verified OK (" << st.st_size << " bytes)" << std::endl;
+    send_control_line(R"({"type":"bridge_update_status","status":"verified","message":"Update verified, applying..."})");
+
+    // Make executable
+    chmod(update_temp_path_.c_str(), 0755);
+
+    // Apply update via the update script
+    send_control_line(R"({"type":"bridge_update_status","status":"applying","message":"Swapping binary..."})");
+
+    std::string apply_cmd = "/opt/openautolink/bin/apply-bridge-update.sh " + update_temp_path_ + " &";
+    std::cerr << "[OAL] bridge update: running apply script" << std::endl;
+
+    // Give the status message time to reach the app before we restart
+    usleep(200000);
+    system(apply_cmd.c_str());
+    // The apply script will restart the service, killing this process.
+    // The app's auto-reconnect will handle reconnection.
 }
 
 } // namespace openautolink

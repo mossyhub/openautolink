@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Bridge version — injected as a compile definition.
+# Override at build time: cmake -DOAL_BRIDGE_VERSION="0.1.54" ..
+set(OAL_BRIDGE_VERSION "0.1.54" CACHE STRING "Bridge binary version string")
+add_compile_definitions(OAL_BRIDGE_VERSION="${OAL_BRIDGE_VERSION}")
+
 set(PI_AA_OPENAUTO_SOURCE_DIR "" CACHE PATH "Optional path to a local OpenAuto source tree")
 set(PI_AA_AASDK_SOURCE_DIR "" CACHE PATH "Optional path to a local aasdk source tree")
 set(PI_AA_AASDK_PROTO_DIR "" CACHE PATH "Optional path to local aasdk .proto files")
