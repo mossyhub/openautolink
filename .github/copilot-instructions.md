@@ -142,6 +142,7 @@ scripts/deploy-to-sbc.ps1
 | [docs/embedded-knowledge.md](docs/embedded-knowledge.md) | Hardware lessons (MUST READ before touching video/audio/VHAL) |
 | [docs/networking.md](docs/networking.md) | Three-network architecture (phone, car, SSH) |
 | [bridge/sbc/BUILD.md](bridge/sbc/BUILD.md) | SBC build and deployment guide |
+| [docs/bridge-update.md](docs/bridge-update.md) | Bridge OTA update system — as-built design, flow, security |
 | [docs/testing.md](docs/testing.md) | Local testing with AAOS emulator + SBC |
 ## Pitfalls
 
