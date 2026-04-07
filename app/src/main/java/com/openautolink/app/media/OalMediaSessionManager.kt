@@ -3,6 +3,7 @@ package com.openautolink.app.media
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
@@ -21,6 +22,8 @@ class OalMediaSessionManager(private val context: Context) {
 
     companion object {
         private const val TAG = "OalMediaSession"
+        /** Max album art dimension — keeps Binder IPC under transaction limit. */
+        private const val MAX_ART_SIZE = 320
     }
 
     private var mediaSession: MediaSessionCompat? = null
@@ -133,9 +136,21 @@ class OalMediaSessionManager(private val context: Context) {
                 } else {
                     try {
                         val bytes = Base64.decode(albumArtBase64, Base64.DEFAULT)
-                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.also {
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { raw ->
+                            // Scale down to fit Binder transaction limit for cross-process IPC
+                            val scaled = if (raw.width > MAX_ART_SIZE || raw.height > MAX_ART_SIZE) {
+                                val scale = MAX_ART_SIZE.toFloat() / maxOf(raw.width, raw.height)
+                                val w = (raw.width * scale).toInt()
+                                val h = (raw.height * scale).toInt()
+                                Bitmap.createScaledBitmap(raw, w, h, true).also {
+                                    if (it !== raw) raw.recycle()
+                                }
+                            } else {
+                                raw
+                            }
                             cachedArtHash = hash
-                            cachedBitmap = it
+                            cachedBitmap = scaled
+                            scaled
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to decode album art: ${e.message}")
