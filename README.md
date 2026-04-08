@@ -16,6 +16,7 @@ The CPC200-CCPA and similar USB adapters are closed-source hardware dongles that
 
 | | CPC200 / USB Adapter | OpenAutoLink (SBC Bridge) |
 |---|---|---|
+| **USB permission prompt** | Every startup — GM's AAOS prompts "Allow access to USB device?" each time, even if you check "Don't ask again" (known GM bug) | Never — connects over Ethernet/TCP, no USB device permission involved |
 | **Resolution** | Fixed 800×480 (some 720p) | Up to 1080p60, configurable per-session. 1440p/4K possible with AA dev mode |
 | **Codec** | H.264 only, hardcoded | H.264, H.265, VP9 — user selectable, phone negotiates best match |
 | **Display adaptation** | None — fixed output, black bars or stretched | Auto-reads AAOS display dimensions + cutout insets, computes pixel aspect ratio and crop margins. Maps render edge-to-edge on any screen shape |
