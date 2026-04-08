@@ -46,7 +46,7 @@ if (Test-Path $bridgeBinary) {
     Copy-Item -Path $bridgeBinary -Destination $bridgeAsset -Force
     Write-Host "[release] Bridge binary: $bridgeAsset"
 } else {
-    throw "No bridge binary found at $bridgeBinary — run build-bridge-wsl.sh first"
+    throw "No bridge binary found at $bridgeBinary - run build-bridge-wsl.sh first"
 }
 
 # Create release
