@@ -1318,40 +1318,83 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        SectionHeader("Video Negotiation")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "When enabled, the phone picks the best codec and resolution it supports. " +
+                    "Disable to manually choose a specific codec and resolution.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .clickable { viewModel.updateVideoAutoNegotiate(!uiState.videoAutoNegotiate) }
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Switch(
+                checked = uiState.videoAutoNegotiate,
+                onCheckedChange = { viewModel.updateVideoAutoNegotiate(it) }
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = if (uiState.videoAutoNegotiate) "Auto (Recommended)" else "Manual",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+
+        if (!uiState.videoAutoNegotiate) {
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         SectionHeader("Video Codec")
 
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             text = "Video codec the phone uses to encode the AA stream. " +
-                    "H.264 is the safest choice. H.265 and VP9 support varies by phone.",
+                    "H.264 works up to 1080p. H.265 and VP9 are required for 1440p/4K.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp)
         )
 
+        val isHighRes = uiState.aaResolution in listOf("1440p", "4k")
         listOf(
-            "h264" to "H.264 (Recommended)",
-            "h265" to "H.265 / HEVC",
-            "vp9" to "VP9",
-        ).forEach { (key, label) ->
+            Triple("h264", "H.264", if (isHighRes) " (max 1080p)" else " (Recommended)"),
+            Triple("h265", "H.265 / HEVC", if (isHighRes) " (Recommended)" else ""),
+            Triple("vp9", "VP9", ""),
+        ).forEach { (key, label, suffix) ->
+            val isDisabled = key == "h264" && isHighRes
             Row(
                 modifier = Modifier
                     .fillMaxWidth(0.7f)
-                    .clickable { viewModel.updateVideoCodec(key) }
+                    .then(if (isDisabled) Modifier else Modifier.clickable { viewModel.updateVideoCodec(key) })
                     .padding(vertical = 10.dp)
                     .testTag("videoCodec_$key"),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 RadioButton(
                     selected = uiState.videoCodec == key,
-                    onClick = { viewModel.updateVideoCodec(key) }
+                    onClick = { if (!isDisabled) viewModel.updateVideoCodec(key) },
+                    enabled = !isDisabled
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = label,
+                    text = label + suffix,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (uiState.videoCodec == key) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isDisabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else Color.Unspecified,
                 )
             }
         }
@@ -1409,31 +1452,35 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
 
         Text(
             text = "Resolution tier the phone encodes at. Higher = better quality, more bandwidth. " +
-                    "Resolutions above 1080p are in the AA spec but may not be supported by your phone.",
+                    "1440p and 4K require H.265 or VP9 codec. Phone AA developer settings may need " +
+                    "to be enabled for resolutions above 1080p.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp)
         )
 
+        val isH264 = uiState.videoCodec == "h264"
         listOf(
             Triple("480p", "480p (800×480)", false),
             Triple("720p", "720p (1280×720)", false),
             Triple("1080p", "1080p (1920×1080)", false),
             Triple("1440p", "1440p (2560×1440)", true),
             Triple("4k", "4K (3840×2160)", true),
-        ).forEach { (key, label, isUntested) ->
+        ).forEach { (key, label, isHighRes) ->
             val warningColor = Color(0xFFFFB74D)
+            val isDisabled = isHighRes && isH264
             Row(
                 modifier = Modifier
                     .fillMaxWidth(0.7f)
-                    .clickable { viewModel.updateAaResolution(key) }
+                    .then(if (isDisabled) Modifier else Modifier.clickable { viewModel.updateAaResolution(key) })
                     .padding(vertical = 10.dp)
                     .testTag("aaResolution_$key"),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 RadioButton(
                     selected = uiState.aaResolution == key,
-                    onClick = { viewModel.updateAaResolution(key) }
+                    onClick = { if (!isDisabled) viewModel.updateAaResolution(key) },
+                    enabled = !isDisabled
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
@@ -1441,18 +1488,21 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                         text = label,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = if (uiState.aaResolution == key) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isUntested) warningColor else Color.Unspecified,
+                        color = if (isDisabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                               else if (isHighRes) warningColor else Color.Unspecified,
                     )
-                    if (isUntested) {
+                    if (isDisabled) {
                         Text(
-                            text = "Untested — phone may ignore this resolution",
+                            text = "Requires H.265 or VP9 codec",
                             style = MaterialTheme.typography.bodySmall,
-                            color = warningColor,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         )
                     }
                 }
             }
         }
+
+        } // end if (!videoAutoNegotiate)
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -1513,7 +1563,7 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "How the 1920×1080 video fits your screen. " +
+            text = "How the video fits your screen. " +
                     "Letterbox shows the full frame with black bars on the sides. " +
                     "Crop fills the screen but cuts off top/bottom. " +
                     "Requires reconnect (Save & Restart).",

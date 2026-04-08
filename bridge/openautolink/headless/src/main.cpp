@@ -131,7 +131,8 @@ int main(int argc, char* argv[])
         if(argument.rfind(kVideoCodecFlag, 0) == 0) {
             // h264=3, vp9=5, av1=6, h265=7
             auto val = std::string(argument.substr(kVideoCodecFlag.size()));
-            if (val == "h264") video_codec = 3;
+            if (val == "auto") video_codec = 0;
+            else if (val == "h264") video_codec = 3;
             else if (val == "vp9") video_codec = 5;
             else if (val == "av1") video_codec = 6;
             else if (val == "h265") video_codec = 7;
@@ -141,7 +142,8 @@ int main(int argc, char* argv[])
         if(argument.rfind(kAaResolutionFlag, 0) == 0) {
             // 480p=1, 720p=2, 1080p=3, 1440p=4, 4k=5
             auto val = std::string(argument.substr(kAaResolutionFlag.size()));
-            if (val == "480p") aa_resolution = 1;
+            if (val == "auto") aa_resolution = 0;
+            else if (val == "480p") aa_resolution = 1;
             else if (val == "720p") aa_resolution = 2;
             else if (val == "1080p") aa_resolution = 3;
             else if (val == "1440p") aa_resolution = 4;
@@ -276,7 +278,9 @@ int main(int argc, char* argv[])
         if (video_fps > 0) c.video_fps = video_fps;
         if (video_dpi > 0) c.video_dpi = video_dpi;
         if (video_codec > 0) c.video_codec = video_codec;
+        else if (video_codec == 0) c.video_codec = 0; // auto-negotiate
         if (aa_resolution > 0) c.aa_resolution_tier = aa_resolution;
+        else if (aa_resolution == 0) c.aa_resolution_tier = 0; // auto-negotiate
         if (!head_unit_name.empty()) c.head_unit_name = head_unit_name;
         if (media_fd >= 0) c.media_fd = media_fd;
         c.use_usb_host = use_usb;

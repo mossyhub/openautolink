@@ -33,6 +33,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
         val BRIDGE_HOST = stringPreferencesKey("bridge_host")
         val BRIDGE_PORT = intPreferencesKey("bridge_port")
+        val VIDEO_AUTO_NEGOTIATE = booleanPreferencesKey("video_auto_negotiate")
         val VIDEO_CODEC = stringPreferencesKey("video_codec")
         val VIDEO_FPS = intPreferencesKey("video_fps")
         val DISPLAY_MODE = stringPreferencesKey("display_mode")
@@ -96,6 +97,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
         const val DEFAULT_BRIDGE_HOST = "192.168.222.222"
         const val DEFAULT_BRIDGE_PORT = 5288
+        const val DEFAULT_VIDEO_AUTO_NEGOTIATE = true
         const val DEFAULT_VIDEO_CODEC = "h264"
         const val DEFAULT_VIDEO_FPS = 60
         const val DEFAULT_DISPLAY_MODE = "system_ui_visible"
@@ -154,6 +156,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     val bridgePort: Flow<Int> = dataStore.data.map { prefs ->
         prefs[BRIDGE_PORT] ?: DEFAULT_BRIDGE_PORT
+    }
+
+    val videoAutoNegotiate: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[VIDEO_AUTO_NEGOTIATE] ?: DEFAULT_VIDEO_AUTO_NEGOTIATE
     }
 
     val videoCodec: Flow<String> = dataStore.data.map { prefs ->
@@ -364,6 +370,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         dataStore.edit { it[BRIDGE_PORT] = port }
     }
 
+    suspend fun setVideoAutoNegotiate(enabled: Boolean) {
+        dataStore.edit { it[VIDEO_AUTO_NEGOTIATE] = enabled }
+    }
+
     suspend fun setVideoCodec(codec: String) {
         dataStore.edit { it[VIDEO_CODEC] = codec }
     }
@@ -566,9 +576,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         // Always include defaults so bridge uses app defaults even when prefs are unset
         // (e.g. after clearing app data). Without this, the bridge would keep using
         // whatever value was sent in the hello message (device DPI, not user's AA DPI).
-        config["video_codec"] = prefs[VIDEO_CODEC] ?: DEFAULT_VIDEO_CODEC
+        val autoNegotiate = prefs[VIDEO_AUTO_NEGOTIATE] ?: DEFAULT_VIDEO_AUTO_NEGOTIATE
+        config["video_codec"] = if (autoNegotiate) "auto" else (prefs[VIDEO_CODEC] ?: DEFAULT_VIDEO_CODEC)
         config["video_fps"] = (prefs[VIDEO_FPS] ?: DEFAULT_VIDEO_FPS).toString()
-        config["aa_resolution"] = prefs[AA_RESOLUTION] ?: DEFAULT_AA_RESOLUTION
+        config["aa_resolution"] = if (autoNegotiate) "auto" else (prefs[AA_RESOLUTION] ?: DEFAULT_AA_RESOLUTION)
         config["aa_dpi"] = (prefs[AA_DPI] ?: DEFAULT_AA_DPI).toString()
         config["aa_width_margin"] = (prefs[AA_WIDTH_MARGIN] ?: DEFAULT_AA_WIDTH_MARGIN).toString()
         config["aa_height_margin"] = (prefs[AA_HEIGHT_MARGIN] ?: DEFAULT_AA_HEIGHT_MARGIN).toString()
@@ -611,9 +622,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
      */
     suspend fun applyConfigEcho(config: Map<String, String>) {
         dataStore.edit { prefs ->
-            config["video_codec"]?.let { prefs[VIDEO_CODEC] = it }
+            config["video_codec"]?.let { if (it != "auto") prefs[VIDEO_CODEC] = it }
             config["video_fps"]?.let { it.toIntOrNull()?.let { v -> prefs[VIDEO_FPS] = v } }
-            config["aa_resolution"]?.let { prefs[AA_RESOLUTION] = it }
+            config["aa_resolution"]?.let { if (it != "auto") prefs[AA_RESOLUTION] = it }
             config["video_dpi"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_DPI] = v } }
             config["aa_width_margin"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_WIDTH_MARGIN] = v } }
             config["aa_height_margin"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_HEIGHT_MARGIN] = v } }

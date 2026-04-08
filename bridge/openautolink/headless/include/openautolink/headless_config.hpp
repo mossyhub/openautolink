@@ -66,10 +66,10 @@ struct HeadlessConfig {
     int video_fps = 60;
     int video_dpi = 160;
     // AA resolution tier for SDR (mapped from video_width)
-    // 1=800x480, 2=1280x720, 3=1920x1080, 4=2560x1440, 5=3840x2160
-    int aa_resolution_tier = 3;
-    // Video codec: 3=H264_BP, 5=VP9, 6=AV1, 7=H265
-    int video_codec = 3;
+    // 0=auto, 1=800x480, 2=1280x720, 3=1920x1080, 4=2560x1440, 5=3840x2160
+    int aa_resolution_tier = 0;
+    // Video codec: 0=auto, 3=H264_BP, 5=VP9, 6=AV1, 7=H265
+    int video_codec = 0;
     bool left_hand_drive = true;
     std::string head_unit_name = "OpenAutoLink";
     std::string car_make = "OpenAutoLink";    // Updated from app VHAL INFO_MAKE

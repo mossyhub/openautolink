@@ -17,8 +17,8 @@ The CPC200-CCPA and similar USB adapters are closed-source hardware dongles that
 | | CPC200 / USB Adapter | OpenAutoLink (SBC Bridge) |
 |---|---|---|
 | **USB permission prompt** | Every startup — GM's AAOS prompts "Allow access to USB device?" each time, even if you check "Don't ask again" (known GM bug) | Never — connects over Ethernet/TCP, no USB device permission involved |
-| **Resolution** | Fixed 800×480 (some 720p) | Up to 1080p60, configurable per-session. 1440p/4K possible with AA dev mode |
-| **Codec** | H.264 only, hardcoded | H.264, H.265, VP9 — user selectable, phone negotiates best match |
+| **Resolution** | Fixed 800×480 (some 720p) | Up to 1080p60 by default, 1440p/4K with AA Developer Mode + H.265 or VP9 |
+| **Codec** | H.264 only, hardcoded | H.264, H.265, VP9 — auto-negotiated by default, phone picks best match. Manual override available |
 | **Display adaptation** | None — fixed output, black bars or stretched | Auto-reads AAOS display dimensions + cutout insets, computes pixel aspect ratio and crop margins. Maps render edge-to-edge on any screen shape |
 | **Vehicle data to AA** | None or minimal | Full sensor pipeline: speed, gear, parking brake, night mode, EV battery %, range, temperature, GPS, accelerometer, gyroscope, compass, tire pressure, HVAC — all from real VHAL, forwarded to phone |
 | **EV support** | None | Declares fuel type + connector type from VHAL to AA. Google Maps can use battery % and range for EV routing |
@@ -38,7 +38,8 @@ The short version: CPC200 adapters are dumb relays with fixed resolution and no 
 ### Features
 
 - Wireless Android Auto — phone connects via Bluetooth + WiFi, no cables
-- Up to 1080p60 video with H.264, H.265, or VP9 codec support
+- Up to 1080p60 video with H.264, H.265, or VP9 codec support. 1440p and 4K with AA Developer Mode enabled on the phone
+- Auto video negotiation — bridge offers all supported codecs and resolutions, phone picks the best match automatically
 - Auto wide-display adaptation — reads AAOS display dimensions and cutout insets, computes safe areas so AA fills your screen correctly on any head unit
 - Display safe zone / insets — auto-computed from AAOS display cutout (curved bezels, sloped edges), keeps interactive AA UI in the safe area while maps render edge-to-edge. Manually tweakable via visual drag editors
 - Full audio: media, navigation prompts, phone calls, voice assistant
@@ -52,6 +53,32 @@ The short version: CPC200 adapters are dumb relays with fixed resolution and no 
 - Remote diagnostics — structured logs and telemetry streamed to bridge over SSH (no ADB needed on GM)
 - Bridge auto-update — app checks GitHub Releases on connect, downloads and pushes new bridge binary over TCP. No user action needed for bridge-only releases
 - Fully open-source — app, bridge, protocol, and deployment scripts
+
+### Video Codecs & Higher Resolutions
+
+By default, OpenAutoLink uses **auto-negotiation** — the bridge offers multiple codecs and resolution tiers in the Service Discovery Response, and the phone picks the best combination it supports. No configuration needed.
+
+| Resolution | Codec | Notes |
+|-----------|-------|-------|
+| 480p (800×480) | H.264 | Always available |
+| 720p (1280×720) | H.264 | Always available |
+| 1080p (1920×1080) | H.264, H.265, VP9 | Default tier. H.264 is universally supported |
+| 1440p (2560×1440) | H.265, VP9 | Requires AA Developer Mode on phone |
+| 4K (3840×2160) | H.265, VP9 | Requires AA Developer Mode on phone |
+
+**H.264** maxes out at 1080p — phone encoders generally don't support H.264 at higher resolutions.
+**H.265 (HEVC)** and **VP9** support encoding up to 4K and are required for 1440p/4K tiers.
+
+#### Enabling Higher Resolutions
+
+1. **On your phone**, enable [AA Developer Mode](https://developer.android.com/training/cars/testing#developer-mode):
+   - Open Android Auto settings → About → tap "Version" 10 times → OK
+   - Open the overflow menu (⋮) → Developer settings → set **Video resolution** to the highest available
+2. **In the OpenAutoLink app**, go to Settings → Video:
+   - Leave **Auto** on (recommended) — the phone will pick 1080p or higher based on what it supports
+   - Or turn Auto off and manually select a codec + resolution (H.265 + 4K, etc.)
+
+The app's video decoder auto-detects the codec from the stream — if the bridge negotiates H.265 but the app was configured for H.264, it seamlessly switches to the correct decoder.
 
 Starting with the 2024 model year, GM dropped Apple CarPlay and Android Auto from their electric vehicles (Blazer EV, Equinox EV, Silverado EV, Lyriq, etc.) in favor of Google built-in infotainment. GM has indicated this will expand to all GM vehicles in the 2025-2026+ timeframe. **OpenAutoLink brings Android Auto back** to these vehicles by bridging a phone's Android Auto session to the car's AAOS head unit over the network — no USB adapter hardware needed.
 

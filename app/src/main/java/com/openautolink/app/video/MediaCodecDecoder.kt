@@ -52,7 +52,8 @@ class MediaCodecDecoder(
     private var codecConfigData: ByteArray? = null
     private var cachedIdrFrame: VideoFrame? = null  // IDR that arrived before surface was attached
     @Volatile private var receivedIdr = false
-    private val mimeType: String = CodecSelector.codecToMime(codecPreference)
+    private var mimeType: String = CodecSelector.codecToMime(codecPreference)
+    private var detectedCodec: String = codecPreference
 
     // Output drain thread
     private var drainThread: Thread? = null
@@ -189,6 +190,19 @@ class MediaCodecDecoder(
         Log.i(TAG, "Codec config received: ${frame.data.size} bytes (flags=0x${frame.flags.toString(16)})")
         DiagnosticLog.i("video", "Codec config received: ${frame.data.size} bytes")
 
+        // Auto-detect codec from NAL stream data — the bridge controls what codec
+        // the phone uses, so the actual stream may differ from the app's preference.
+        val streamCodec = detectCodecFromConfig(frame.data)
+        if (streamCodec != null && streamCodec != detectedCodec) {
+            val newMime = CodecSelector.codecToMime(streamCodec)
+            Log.i(TAG, "Codec auto-detected from stream: $streamCodec ($newMime) — was $detectedCodec ($mimeType)")
+            DiagnosticLog.i("video", "Codec auto-detected: $streamCodec (was $detectedCodec)")
+            detectedCodec = streamCodec
+            mimeType = newMime
+            // Force full reconfigure with new codec
+            releaseCodec()
+        }
+
         // New SPS/PPS means a new stream — any cached IDR from a previous session
         // is now invalid and would produce corrupt video if replayed. Clear it.
         if (cachedIdrFrame != null) {
@@ -220,10 +234,15 @@ class MediaCodecDecoder(
 
     private fun handleKeyframe(frame: VideoFrame) {
         if (codec == null) {
-            if (CodecSelector.isNalCodec(codecPreference)) {
-                // H.264/H.265: try to extract SPS/PPS from the IDR frame.
-                val nalTypes = NalParser.collectH264NalTypes(frame.data)
-                if (nalTypes.contains(NalParser.H264_NAL_SPS) && nalTypes.contains(NalParser.H264_NAL_IDR)) {
+            if (CodecSelector.isNalCodec(detectedCodec)) {
+                // H.264/H.265: try to extract SPS/PPS/VPS from the IDR frame.
+                val hasInlineConfig = if (detectedCodec == "h265" || detectedCodec == "hevc") {
+                    NalParser.isH265CodecConfig(frame.data)
+                } else {
+                    val nalTypes = NalParser.collectH264NalTypes(frame.data)
+                    nalTypes.contains(NalParser.H264_NAL_SPS)
+                }
+                if (hasInlineConfig) {
                     Log.i(TAG, "IDR contains inline SPS/PPS — extracting codec config")
                     handleCodecConfig(frame)
                     // Fall through to queue as keyframe below
@@ -284,6 +303,37 @@ class MediaCodecDecoder(
         Log.i(TAG, "End of stream received")
         releaseCodec()
         _decoderState.value = DecoderState.IDLE
+    }
+
+    /**
+     * Detect codec type from codec config data by examining NAL unit types.
+     * H.264: first NAL is SPS (type 7) or PPS (type 8)
+     * H.265: first NAL is VPS (type 32), SPS (type 33), or PPS (type 34)
+     * Returns "h264", "h265", or null if unknown.
+     */
+    private fun detectCodecFromConfig(data: ByteArray): String? {
+        // Try H.265 first — VPS (32) is unique to H.265
+        val h265Type = NalParser.findFirstH265NalType(data)
+        if (h265Type in listOf(NalParser.H265_NAL_VPS, NalParser.H265_NAL_SPS, NalParser.H265_NAL_PPS)) {
+            // Verify it's really H.265 by checking the raw byte — H.264 SPS (7) maps to
+            // H.265 NAL type 3 which is not VPS/SPS/PPS, so VPS (32) is unambiguous.
+            // But H.264 SPS byte 0x67 → h265NalType = (0x67 >> 1) & 0x3F = 0x33 = 51, not 32/33/34.
+            // H.264 PPS byte 0x68 → h265NalType = (0x68 >> 1) & 0x3F = 0x34 = 52, not 32/33/34.
+            // So if h265Type is exactly 32, 33, or 34, it's definitely H.265.
+            if (h265Type == NalParser.H265_NAL_VPS) return "h265"
+            // For SPS/PPS, double-check with H.264 parser to disambiguate
+            val h264Type = NalParser.findFirstH264NalType(data)
+            if (h264Type == NalParser.H264_NAL_SPS || h264Type == NalParser.H264_NAL_PPS) {
+                return "h264"
+            }
+            return "h265"
+        }
+        // Try H.264
+        val h264Type = NalParser.findFirstH264NalType(data)
+        if (h264Type == NalParser.H264_NAL_SPS || h264Type == NalParser.H264_NAL_PPS) {
+            return "h264"
+        }
+        return null
     }
 
     private fun trackBitrate(frameBytes: Int) {

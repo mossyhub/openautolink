@@ -495,11 +495,14 @@ void HeadlessAutoEntity::onServiceDiscoveryRequest(
                     << " runtime_stable={" << format_ui_insets(config_.aa_ui_experiment.runtime_stable_insets) << "}"
                     << std::endl;
       }
-      auto add_video_config = [&](int tier) {
+      auto add_video_config = [&](int tier, int codec_type) {
           auto* vc = ms->add_video_configs();
           vc->set_codec_resolution(static_cast<aap_protobuf::service::media::sink::message::VideoCodecResolutionType>(tier));
           vc->set_frame_rate(fps);
           vc->set_density(config_.video_dpi);
+          if (codec_type > 0) {
+              vc->set_video_codec_type(static_cast<aap_protobuf::service::media::shared::message::MediaCodecType>(codec_type));
+          }
           vc->set_height_margin(config_.aa_ui_experiment.height_margin);
           vc->set_width_margin(config_.aa_ui_experiment.width_margin);
           if (config_.aa_ui_experiment.decoder_additional_depth > 0) {
@@ -521,14 +524,27 @@ void HeadlessAutoEntity::onServiceDiscoveryRequest(
                               config_.aa_ui_experiment.initial_stable_insets);
           }
       };
-      // Offer multiple resolutions — phone picks the best it supports.
-      // Primary (configured) first, then alternatives in descending order.
-      add_video_config(config_.aa_resolution_tier);
-      // Add all resolutions the phone might support as alternatives
-      int tiers[] = {5, 4, 3}; // 4K, 1440p, 1080p
-      for (int t : tiers) {
-          if (t != config_.aa_resolution_tier) {
-              add_video_config(t);
+
+      int primary_tier = config_.aa_resolution_tier > 0 ? config_.aa_resolution_tier : 3; // default 1080p
+      int primary_codec = config_.video_codec; // 0=auto, 3=H264, 5=VP9, 7=H265
+
+      if (primary_codec == 0) {
+          // Auto-negotiate: offer H.265 at all tiers (phone picks best),
+          // then H.264 at ≤1080p as fallback
+          for (int t : {5, 4, 3, 2, 1}) {
+              add_video_config(t, 7); // H.265 at all tiers
+          }
+          for (int t : {3, 2, 1}) {
+              add_video_config(t, 3); // H.264 at ≤1080p only
+          }
+      } else {
+          // Manual: offer the configured codec at configured + alternative tiers
+          add_video_config(primary_tier, primary_codec);
+          int tiers[] = {5, 4, 3}; // 4K, 1440p, 1080p
+          for (int t : tiers) {
+              if (t != primary_tier) {
+                  add_video_config(t, primary_codec);
+              }
           }
       } }
     // Media Audio

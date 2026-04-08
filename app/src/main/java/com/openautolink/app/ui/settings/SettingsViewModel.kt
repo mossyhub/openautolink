@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 data class SettingsUiState(
     val bridgeHost: String = AppPreferences.DEFAULT_BRIDGE_HOST,
     val bridgePort: Int = AppPreferences.DEFAULT_BRIDGE_PORT,
+    val videoAutoNegotiate: Boolean = AppPreferences.DEFAULT_VIDEO_AUTO_NEGOTIATE,
     val videoCodec: String = AppPreferences.DEFAULT_VIDEO_CODEC,
     val videoFps: Int = AppPreferences.DEFAULT_VIDEO_FPS,
     val displayMode: String = AppPreferences.DEFAULT_DISPLAY_MODE,
@@ -93,6 +94,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<SettingsUiState> = combine(
         preferences.bridgeHost,
         preferences.bridgePort,
+        preferences.videoAutoNegotiate,
         preferences.videoCodec,
         preferences.videoFps,
         preferences.displayMode,
@@ -142,51 +144,52 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         SettingsUiState(
             bridgeHost = values[0] as String,
             bridgePort = values[1] as Int,
-            videoCodec = values[2] as String,
-            videoFps = values[3] as Int,
-            displayMode = values[4] as String,
-            micSource = values[5] as String,
-            networkInterface = values[6] as String,
-            remoteDiagnosticsEnabled = values[7] as Boolean,
-            remoteDiagnosticsMinLevel = values[8] as String,
-            aaResolution = values[9] as String,
-            aaDpi = values[10] as Int,
-            aaWidthMargin = values[11] as Int,
-            aaHeightMargin = values[12] as Int,
-            aaPixelAspect = values[13] as Int,
-            videoScalingMode = values[14] as String,
-            phoneMode = values[15] as String,
-            wifiBand = values[16] as String,
-            wifiCountry = values[17] as String,
-            wifiSsid = values[18] as String,
-            wifiPassword = values[19] as String,
-            headUnitName = values[20] as String,
-            btMac = values[21] as String,
-            driveSide = values[22] as String,
-            gpsForwarding = values[23] as Boolean,
-            clusterNavigation = values[24] as Boolean,
-            audioSource = values[25] as String,
-            callQuality = values[26] as String,
-            overlaySettingsButton = values[27] as Boolean,
-            overlayStatsButton = values[28] as Boolean,
-            overlayPhoneSwitchButton = values[29] as Boolean,
-            defaultPhoneMac = values[30] as String,
-            syncAaTheme = values[31] as Boolean,
-            hideAaClock = values[32] as Boolean,
-            hidePhoneSignal = values[33] as Boolean,
-            hideBatteryLevel = values[34] as Boolean,
-            sendImuSensors = values[35] as Boolean,
-            distanceUnits = values[36] as String,
-            bridgeAutoUpdate = values[37] as Boolean,
-            bridgeAutoApply = values[38] as Boolean,
-            safeAreaTop = values[39] as Int,
-            safeAreaBottom = values[40] as Int,
-            safeAreaLeft = values[41] as Int,
-            safeAreaRight = values[42] as Int,
-            contentInsetTop = values[43] as Int,
-            contentInsetBottom = values[44] as Int,
-            contentInsetLeft = values[45] as Int,
-            contentInsetRight = values[44] as Int,
+            videoAutoNegotiate = values[2] as Boolean,
+            videoCodec = values[3] as String,
+            videoFps = values[4] as Int,
+            displayMode = values[5] as String,
+            micSource = values[6] as String,
+            networkInterface = values[7] as String,
+            remoteDiagnosticsEnabled = values[8] as Boolean,
+            remoteDiagnosticsMinLevel = values[9] as String,
+            aaResolution = values[10] as String,
+            aaDpi = values[11] as Int,
+            aaWidthMargin = values[12] as Int,
+            aaHeightMargin = values[13] as Int,
+            aaPixelAspect = values[14] as Int,
+            videoScalingMode = values[15] as String,
+            phoneMode = values[16] as String,
+            wifiBand = values[17] as String,
+            wifiCountry = values[18] as String,
+            wifiSsid = values[19] as String,
+            wifiPassword = values[20] as String,
+            headUnitName = values[21] as String,
+            btMac = values[22] as String,
+            driveSide = values[23] as String,
+            gpsForwarding = values[24] as Boolean,
+            clusterNavigation = values[25] as Boolean,
+            audioSource = values[26] as String,
+            callQuality = values[27] as String,
+            overlaySettingsButton = values[28] as Boolean,
+            overlayStatsButton = values[29] as Boolean,
+            overlayPhoneSwitchButton = values[30] as Boolean,
+            defaultPhoneMac = values[31] as String,
+            syncAaTheme = values[32] as Boolean,
+            hideAaClock = values[33] as Boolean,
+            hidePhoneSignal = values[34] as Boolean,
+            hideBatteryLevel = values[35] as Boolean,
+            sendImuSensors = values[36] as Boolean,
+            distanceUnits = values[37] as String,
+            bridgeAutoUpdate = values[38] as Boolean,
+            bridgeAutoApply = values[39] as Boolean,
+            safeAreaTop = values[40] as Int,
+            safeAreaBottom = values[41] as Int,
+            safeAreaLeft = values[42] as Int,
+            safeAreaRight = values[43] as Int,
+            contentInsetTop = values[44] as Int,
+            contentInsetBottom = values[45] as Int,
+            contentInsetLeft = values[46] as Int,
+            contentInsetRight = values[47] as Int,
         )
     }.stateIn(
         viewModelScope,
@@ -202,8 +205,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { preferences.setBridgePort(port) }
     }
 
+    fun updateVideoAutoNegotiate(enabled: Boolean) {
+        viewModelScope.launch { preferences.setVideoAutoNegotiate(enabled) }
+    }
+
     fun updateVideoCodec(codec: String) {
-        viewModelScope.launch { preferences.setVideoCodec(codec) }
+        viewModelScope.launch {
+            preferences.setVideoCodec(codec)
+            // H.264 maxes out at 1080p — cap resolution if needed
+            if (codec == "h264") {
+                val currentRes = uiState.value.aaResolution
+                if (currentRes in listOf("1440p", "4k")) {
+                    preferences.setAaResolution("1080p")
+                }
+            }
+        }
     }
 
     fun updateVideoFps(fps: Int) {
@@ -227,7 +243,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateAaResolution(resolution: String) {
-        viewModelScope.launch { preferences.setAaResolution(resolution) }
+        viewModelScope.launch {
+            preferences.setAaResolution(resolution)
+            // 1440p/4K require H.265 or VP9 — auto-switch from H.264
+            if (resolution in listOf("1440p", "4k")) {
+                val currentCodec = uiState.value.videoCodec
+                if (currentCodec == "h264") {
+                    preferences.setVideoCodec("h265")
+                }
+            }
+        }
     }
 
     fun updateAaDpi(dpi: Int) {

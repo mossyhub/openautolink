@@ -439,6 +439,7 @@ void OalSession::send_media_metadata(const std::string& title, const std::string
 void OalSession::send_config_echo() {
     std::string codec_name;
     switch (config_.video_codec) {
+        case 0: codec_name = "auto"; break;
         case 3: codec_name = "h264"; break;
         case 5: codec_name = "vp9"; break;
         case 7: codec_name = "h265"; break;
@@ -446,6 +447,7 @@ void OalSession::send_config_echo() {
     }
     std::string res_name;
     switch (config_.aa_resolution_tier) {
+        case 0: res_name = "auto"; break;
         case 1: res_name = "480p"; break;
         case 2: res_name = "720p"; break;
         case 3: res_name = "1080p"; break;
@@ -822,7 +824,8 @@ void OalSession::handle_config_update(const std::string& json) {
     std::string codec = oal_json_extract_string(json, "video_codec");
     if (!codec.empty()) {
         int new_codec = config_.video_codec;
-        if (codec == "h264") new_codec = 3;
+        if (codec == "auto") new_codec = 0;
+        else if (codec == "h264") new_codec = 3;
         else if (codec == "h265") new_codec = 7;
         else if (codec == "vp9") new_codec = 5;
         if (new_codec != config_.video_codec) {
@@ -840,7 +843,8 @@ void OalSession::handle_config_update(const std::string& json) {
     std::string aa_res = oal_json_extract_string(json, "aa_resolution");
     if (!aa_res.empty()) {
         int tier = config_.aa_resolution_tier;
-        if (aa_res == "480p") tier = 1;
+        if (aa_res == "auto") tier = 0;
+        else if (aa_res == "480p") tier = 1;
         else if (aa_res == "720p") tier = 2;
         else if (aa_res == "1080p") tier = 3;
         else if (aa_res == "1440p") tier = 4;
