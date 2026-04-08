@@ -40,18 +40,17 @@ Three validated development environments. Choose based on what hardware is avail
 │                                                                  │
 │  WSL (Ubuntu) ── openautolink-headless (x86_64 native)          │
 │    ├── TCP:5288/5289/5290 ◄── AAOS Emulator app (adb reverse)  │
-│    └── TCP:5277 ──► Phone via adb forward                        │
-│                     (AA dev mode "Start head unit server")       │
+│    └── TCP:5277 ◄── Phone via adb reverse (bridge is server)   │
 │                                                                  │
 │  AAOS Emulator ── app connects to localhost bridge               │
-│  Phone ── USB + adb forward tcp:5277 tcp:5277                    │
+│  Phone ── USB + adb reverse tcp:5277 tcp:5277                    │
 └──────────────────────────────────────────────────────────────────┘
 ```
 - **No SBC hardware needed** — bridge builds and runs natively in WSL
 - **Fastest iteration**: no cross-compile, no SCP, instant restart
 - **Native debugging**: attach gdb/lldb directly to bridge process
-- **Phone AA**: Phone's AA dev mode → "Start head unit server" → `adb forward tcp:5277 tcp:5277`
-- **Limitations**: No BT pairing flow, no WiFi AP, no real car VHAL
+- **Phone AA**: `adb reverse tcp:5277 tcp:5277` — bridge stays the server, phone connects via USB tunnel
+- **Limitations**: No BT pairing flow (need BT to trigger phone AA connection), no WiFi AP, no real car VHAL
 - See "PC-Only Mode Setup" section below for details
 
 ---
@@ -343,19 +342,28 @@ localhost via WSL2's networking:
 ### Connect Real Phone for AA
 
 The phone needs to connect to the bridge on TCP 5277 for the AA protocol session.
-Since there's no BT/WiFi AP in this mode, use AA developer mode + ADB forwarding:
+Since there's no BT/WiFi AP in this mode, use `adb reverse` to expose the WSL
+bridge port to the phone over USB:
 
-1. **Enable AA developer mode on phone** (see [aa-developer-mode.instructions.md](aa-developer-mode.instructions.md))
-2. **Start head unit server** from AA developer overflow menu
-3. **Forward port via ADB** (phone connected via USB):
+1. **Connect phone via USB** to the dev PC
+2. **Reverse-forward port** so the phone can reach the bridge:
    ```powershell
-   adb forward tcp:5277 tcp:5277
+   adb reverse tcp:5277 tcp:5277
    ```
-4. The bridge connects to the phone's AA server at `localhost:5277`
+3. The phone's AA connects to `localhost:5277` which tunnels through USB to the
+   WSL bridge — same client/server roles as production (bridge listens, phone connects)
 
-> **Note**: This requires the bridge to operate in "connect to phone" mode rather than
-> "listen for phone" mode. The bridge's `OAL_PHONE_PROTOCOL` env var or a CLI flag
-> may need to support this. If not yet implemented, this is the missing piece for Mode 3.
+The phone still needs to initiate the AA connection. In production this happens
+after BT pairing + WiFi credential exchange. In Mode 3, the phone needs to be
+told to connect. Options:
+- **BT pairing on the PC** (if PC has BT) — pair with phone, the phone will try to connect
+  to the bridge on 5277 after WiFi credential exchange
+- **Manual trigger** — configure the phone to auto-connect to a known AA endpoint
+  (may require AA developer mode experimentation)
+
+> **Note**: The BT + WiFi pairing bootstrap is the main gap in Mode 3. The TCP
+> transport works perfectly via adb reverse, but triggering the phone to initiate
+> the AA session without real BT/WiFi hardware needs further investigation.
 
 ### What Works in Mode 3
 | Feature | Status | Notes |
@@ -365,8 +373,8 @@ Since there's no BT/WiFi AP in this mode, use AA developer mode + ADB forwarding
 | Audio streaming | ✅ | PCM over TCP |
 | Touch forwarding | ✅ | Emulator touch → bridge → phone |
 | Sensor data | ✅ | Emulator VHAL (fake data) |
-| Phone AA session | ⚠️ | Requires AA dev mode + adb forward; bridge may need connect-to-phone mode |
-| BT pairing | ❌ | No BT hardware in WSL |
+| Phone AA session | ⚠️ | TCP works via adb reverse; triggering AA connection without BT/WiFi TBD |
+| BT pairing | ❌ | No BT hardware in WSL (PC BT adapter possible) |
 | WiFi AP | ❌ | No WiFi hardware in WSL |
 | Real car VHAL | ❌ | Not connected to car |
 | Native debugging | ✅ | gdb/lldb attach directly to bridge process |
