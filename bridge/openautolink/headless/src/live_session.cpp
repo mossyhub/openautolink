@@ -1359,9 +1359,9 @@ void LiveAasdkSession::on_vehicle_data(const ParsedInputMessage& message) {
     }
 
     // Vehicle identity — persist to config if changed (used in next AA service discovery)
-    auto car_make = oal_json_extract_string(json, "car_make");
-    auto car_model = oal_json_extract_string(json, "car_model");
-    auto car_year = oal_json_extract_string(json, "car_year");
+    std::string car_make = std::string(oal_json_extract_string(json, "car_make"));
+    std::string car_model = std::string(oal_json_extract_string(json, "car_model"));
+    std::string car_year = std::string(oal_json_extract_string(json, "car_year"));
     bool identity_changed = false;
     if (!car_make.empty() && car_make != config_.car_make) {
         config_.car_make = car_make;

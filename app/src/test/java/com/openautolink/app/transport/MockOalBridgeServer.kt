@@ -60,9 +60,22 @@ class MockOalBridgeServer {
     }
 
     fun startOnPorts(controlPort: Int, videoPort: Int, audioPort: Int) {
-        controlServer = ServerSocket(controlPort)
-        videoServer = ServerSocket(videoPort)
-        audioServer = ServerSocket(audioPort)
+        // Retry port binding — OS may not have released ports from previous server yet
+        var lastError: Exception? = null
+        for (attempt in 1..10) {
+            try {
+                controlServer = ServerSocket(controlPort).apply { reuseAddress = true }
+                videoServer = ServerSocket(videoPort).apply { reuseAddress = true }
+                audioServer = ServerSocket(audioPort).apply { reuseAddress = true }
+                lastError = null
+                break
+            } catch (e: java.net.BindException) {
+                lastError = e
+                controlServer?.close(); videoServer?.close(); audioServer?.close()
+                Thread.sleep(200)
+            }
+        }
+        if (lastError != null) throw lastError!!
         running.set(true)
 
         // Accept control connection
