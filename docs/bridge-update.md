@@ -4,20 +4,72 @@
 
 The bridge binary (`openautolink-headless`) on the SBC is automatically updated by the car app over the existing OAL TCP control channel. This allows bridge-only releases without requiring users to rebuild their AAB or touch the SBC.
 
-```
-GitHub Release                    Car App (AAOS)                Bridge (SBC)
-────────────                    ──────────────                ─────────────
-openautolink-headless ◄──HTTPS── BridgeUpdateManager          oal_session.cpp
-  (asset, ~3MB)         download   │                              │
-                                   │ bridge_update_offer ────────►│
-                                   │◄──── bridge_update_accept ───│
-                                   │ bridge_update_data (×N) ────►│ write to /tmp
-                                   │ bridge_update_complete ─────►│ verify SHA-256
-                                   │◄──── bridge_update_status ───│ apply-bridge-update.sh
-                                   │                              │ systemctl restart
-                                   │◄──── (TCP drops) ───────────│
-                                   │ auto-reconnect ─────────────►│
-                                   │◄──── hello (new version) ───│
+```mermaid
+sequenceDiagram
+    participant GH as GitHub Releases
+    participant App as Car App (AAOS)
+    participant Bridge as Bridge (SBC)
+    participant FS as SBC Filesystem
+    participant SD as systemd
+
+    Note over Bridge: Car starts → SBC boots
+    Bridge->>App: hello (bridge_version, bridge_sha256)
+    App->>App: Compare SHA-256 vs cached
+
+    alt No internet or auto-update disabled
+        App->>App: Skip update check
+    else SHA matches
+        App->>App: "Up to date"
+    else SHA mismatch
+        App->>GH: GET /repos/.../releases/latest
+        GH-->>App: Release JSON (assets[])
+        App->>GH: Download openautolink-headless (~3MB)
+        GH-->>App: Binary data
+        App->>App: Cache to filesDir, compute SHA-256
+
+        App->>Bridge: bridge_update_offer (version, size, sha256)
+
+        alt Phone session active
+            Bridge-->>App: bridge_update_reject ("in_session")
+        else Update mode disabled
+            Bridge-->>App: bridge_update_reject ("disabled")
+        else Ready
+            Bridge->>FS: mkstemp(/tmp/openautolink-update-XXXXXX)
+            Bridge-->>App: bridge_update_accept
+
+            loop 48KB chunks (~60 iterations for 3MB)
+                App->>Bridge: bridge_update_data (offset, base64)
+                Bridge->>FS: write() decoded bytes to temp file
+            end
+
+            App->>Bridge: bridge_update_complete (sha256)
+
+            Bridge->>FS: close temp file
+            Bridge->>Bridge: sha256sum temp file
+
+            alt SHA mismatch
+                Bridge->>FS: unlink temp file
+                Bridge-->>App: bridge_update_status ("failed")
+            else SHA verified
+                Bridge-->>App: bridge_update_status ("verified")
+                Bridge-->>App: bridge_update_status ("applying")
+
+                Note over Bridge,FS: apply-bridge-update.sh
+                Bridge->>FS: cp binary → binary.bak (backup)
+                Bridge->>FS: mv temp → /opt/.../openautolink-headless
+                Bridge->>FS: chmod 755
+                Bridge->>SD: systemctl restart openautolink.service &
+
+                Note over Bridge: Process killed by systemd
+                SD->>Bridge: Start new binary
+
+                Note over App: TCP drops → auto-reconnect
+                App->>App: Backoff: 1s → 2s → 4s...
+                Bridge->>App: hello (new version, new sha256)
+                App->>App: SHA matches → "Up to date"
+            end
+        end
+    end
 ```
 
 ## Identity: SHA-256 vs Version String
@@ -157,6 +209,48 @@ Bridge sends status `"verified"`, then `"applying"`, then:
 ### 7. Reconnect
 
 The service restart kills the bridge process. The app's existing auto-reconnect logic (exponential backoff: 1s → 2s → 4s → ... → 30s cap) handles reconnection. On reconnect, the new bridge sends hello with the updated version and SHA-256. The app sees it's now up to date.
+
+## Robustness: TCP Drop Handling
+
+The update flow is designed to never get stuck, even if TCP drops at any point.
+
+### App State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> CHECKING : onBridgeConnected / manual check
+    CHECKING --> IDLE : no internet / no asset / disabled
+    CHECKING --> UP_TO_DATE : SHA matches
+    CHECKING --> OFFERING : SHA mismatch → send offer
+    OFFERING --> TRANSFERRING : bridge_update_accept
+    OFFERING --> IDLE : bridge_update_reject
+    OFFERING --> IDLE : reconnect (stale state reset)
+    TRANSFERRING --> APPLYING : bridge_update_status "verified"
+    TRANSFERRING --> FAILED : send error / status "failed"
+    TRANSFERRING --> IDLE : reconnect (transfer aborted)
+    APPLYING --> APPLIED : bridge_update_status "applied"
+    APPLIED --> IDLE : reconnect (re-check → up to date)
+    FAILED --> IDLE : reconnect (re-check)
+    UP_TO_DATE --> CHECKING : next reconnect
+```
+
+### TCP Drop Recovery
+
+| Drop point | App behavior | Bridge behavior |
+|---|---|---|
+| During OFFERING (waiting for accept) | State reset to IDLE on reconnect | Temp file cleaned up in `on_app_disconnected()` |
+| During TRANSFERRING (mid-chunk) | Transfer loop detects state ≠ TRANSFERRING, aborts. Job cancelled on reconnect | Temp file + fd cleaned up in `on_app_disconnected()` |
+| After bridge_update_complete sent | State stuck briefly, reset on reconnect | If bridge verified before disconnect → applies anyway. If not → temp file cleaned up |
+| After "applying" (bridge restarting) | TCP drops expected. Auto-reconnect finds new binary running | Bridge restarts via systemd with new binary |
+
+### Key Invariants
+
+- **Every state has an exit**: `onBridgeConnected()` resets stale APPLIED/FAILED/OFFERING to IDLE
+- **Transfer is cancellable**: `transferJob` tracked separately, cancelled on reconnect or `cancel()`
+- **Transfer loop guards**: checks `_updateState == TRANSFERRING` before each chunk; if state changed (reconnect reset it), loop exits
+- **Bridge cleanup**: `on_app_disconnected()` closes any open temp file fd and unlinks the temp path
+- **Version check cache cleared on reconnect**: ensures post-update reconnect re-checks and shows "Up to date"
 
 ## Security
 
