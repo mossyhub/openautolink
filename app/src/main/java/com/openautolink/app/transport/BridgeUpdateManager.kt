@@ -72,10 +72,12 @@ class BridgeUpdateManager(
     val updateHistory: StateFlow<List<UpdateHistoryEntry>> = _updateHistory.asStateFlow()
 
     private var updateJob: Job? = null
+    private var transferJob: Job? = null
     private var cachedBinaryPath: String? = null
     private var cachedBinarySha256: String? = null
     private var cachedBinaryVersion: String? = null
     private var lastVersionCheckMs = 0L
+    private var cachedRelease: GitHubRelease? = null
 
     /**
      * Called when bridge hello is received. Checks if an update is needed
@@ -83,7 +85,17 @@ class BridgeUpdateManager(
      */
     fun onBridgeConnected(bridgeInfo: BridgeInfo) {
         _bridgeVersion.value = bridgeInfo.bridgeVersion
+        // Reset state on reconnect — don't carry stale APPLIED/FAILED from last session
+        if (_updateState.value == BridgeUpdateState.APPLIED ||
+            _updateState.value == BridgeUpdateState.FAILED ||
+            _updateState.value == BridgeUpdateState.OFFERING) {
+            _updateState.value = BridgeUpdateState.IDLE
+            _updateMessage.value = ""
+        }
+        // Clear version check cache so we re-check after reconnect
+        lastVersionCheckMs = 0
         updateJob?.cancel()
+        transferJob?.cancel()
         updateJob = scope.launch {
             try {
                 checkAndUpdate(bridgeInfo)
@@ -108,7 +120,8 @@ class BridgeUpdateManager(
                 _updateState.value = BridgeUpdateState.TRANSFERRING
                 _updateMessage.value = "Transferring update..."
                 addHistory("Transfer started")
-                scope.launch { transferBinary() }
+                transferJob?.cancel()
+                transferJob = scope.launch { transferBinary() }
             }
             is ControlMessage.BridgeUpdateReject -> {
                 Log.i(TAG, "Bridge rejected update: ${message.reason}")
@@ -245,6 +258,12 @@ class BridgeUpdateManager(
                 var offset = 0
 
                 for (i in 0 until totalChunks) {
+                    // Abort if state was reset (e.g., TCP dropped, reconnect reset state)
+                    if (_updateState.value != BridgeUpdateState.TRANSFERRING) {
+                        Log.w(TAG, "Transfer aborted: state changed to ${_updateState.value}")
+                        return@withContext
+                    }
+
                     val chunkEnd = minOf(offset + CHUNK_SIZE, bytes.size)
                     val chunk = bytes.copyOfRange(offset, chunkEnd)
                     val b64 = Base64.encodeToString(chunk, Base64.NO_WRAP)
@@ -268,9 +287,11 @@ class BridgeUpdateManager(
                 }
             }
 
-            // Signal transfer complete
-            _updateMessage.value = "Transfer complete, verifying..."
-            sendMessage(ControlMessage.BridgeUpdateComplete(sha256 = sha))
+            // Signal transfer complete (only if still in TRANSFERRING state)
+            if (_updateState.value == BridgeUpdateState.TRANSFERRING) {
+                _updateMessage.value = "Transfer complete, verifying..."
+                sendMessage(ControlMessage.BridgeUpdateComplete(sha256 = sha))
+            }
             // Wait for bridge_update_status via onUpdateMessage()
 
         } catch (e: CancellationException) {
@@ -285,9 +306,8 @@ class BridgeUpdateManager(
     private suspend fun fetchLatestRelease(): GitHubRelease? {
         val now = System.currentTimeMillis()
         if (now - lastVersionCheckMs < VERSION_CHECK_CACHE_MS) {
-            // Use cached result if recent
-            val version = _latestVersion.value
-            if (version != null) return null // already checked recently
+            // Return cached result if recent
+            return cachedRelease
         }
 
         return withContext(Dispatchers.IO) {
@@ -311,7 +331,9 @@ class BridgeUpdateManager(
                 conn.disconnect()
                 lastVersionCheckMs = System.currentTimeMillis()
 
-                parseRelease(body)
+                val release = parseRelease(body)
+                cachedRelease = release
+                release
             } catch (e: Exception) {
                 Log.w(TAG, "GitHub API call failed: ${e.message}")
                 null
@@ -413,6 +435,8 @@ class BridgeUpdateManager(
     fun cancel() {
         updateJob?.cancel()
         updateJob = null
+        transferJob?.cancel()
+        transferJob = null
         _updateState.value = BridgeUpdateState.IDLE
     }
 

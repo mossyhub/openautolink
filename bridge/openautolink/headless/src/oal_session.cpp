@@ -85,6 +85,17 @@ void OalSession::on_app_disconnected() {
         std::lock_guard<std::mutex> lock(audio_mutex_);
         audio_writes_.clear();
     }
+    // Clean up any in-progress update transfer
+    if (update_fd_ >= 0) {
+        close(update_fd_);
+        update_fd_ = -1;
+    }
+    if (!update_temp_path_.empty()) {
+        unlink(update_temp_path_.c_str());
+        update_temp_path_.clear();
+    }
+    update_bytes_received_ = 0;
+    update_expected_size_ = 0;
     std::cerr << "[OAL] app disconnected" << std::endl;
 }
 
