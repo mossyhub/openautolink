@@ -1426,12 +1426,16 @@ void LiveAasdkSession::on_vehicle_data(const ParsedInputMessage& message) {
         std::string ft_str;
         for (auto ft : fuel_types) { if (!ft_str.empty()) ft_str += ","; ft_str += std::to_string(ft); }
         std::cerr << "[OAL] fuel_types updated: [" << ft_str << "]" << std::endl;
+        std::string cmd = "sed -i 's/^OAL_FUEL_TYPES=.*/OAL_FUEL_TYPES=" + ft_str + "/' /etc/openautolink.env 2>/dev/null";
+        (void)system(cmd.c_str());
     }
     if (!ev_connectors.empty() && ev_connectors != config_.ev_connector_types) {
         config_.ev_connector_types = ev_connectors;
         std::string ec_str;
         for (auto ec : ev_connectors) { if (!ec_str.empty()) ec_str += ","; ec_str += std::to_string(ec); }
         std::cerr << "[OAL] ev_connector_types updated: [" << ec_str << "]" << std::endl;
+        std::string cmd = "sed -i 's/^OAL_EV_CONNECTOR_TYPES=.*/OAL_EV_CONNECTOR_TYPES=" + ec_str + "/' /etc/openautolink.env 2>/dev/null";
+        (void)system(cmd.c_str());
     }
 
     std::cerr << "[aasdk] vehicle_data processed" << std::endl;

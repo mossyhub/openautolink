@@ -71,7 +71,7 @@ if [ -n "${OAL_BT_MAC:-}" ]; then
 fi
 
 # Session UI flags (P2: AA status bar)
-if [ "${OAL_AA_HIDE_CLOCK:-true}" = "true" ]; then
+if [ "${OAL_AA_HIDE_CLOCK:-false}" = "true" ]; then
     ARGS+=(--hide-clock)
 fi
 if [ "${OAL_AA_HIDE_PHONE_SIGNAL:-false}" = "true" ]; then

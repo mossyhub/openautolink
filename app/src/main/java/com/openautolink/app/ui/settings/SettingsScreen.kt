@@ -1631,7 +1631,7 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Text(
-                    text = "×10000. 10000=square. ${(2914f / 1134f * 10000 / (1920f / 1080f)).toInt()}=your display.",
+                    text = "×10000. 0 = auto from display. Only set to override.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1642,7 +1642,7 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                     val v = value.filter { it.isDigit() }.toIntOrNull() ?: 0
                     viewModel.updateAaPixelAspect(v.coerceIn(0, 30000))
                 },
-                placeholder = { Text("0 (square)") },
+                placeholder = { Text("0 (auto)") },
                 singleLine = true,
                 modifier = Modifier.width(120.dp).testTag("aaPixelAspect"),
             )

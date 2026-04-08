@@ -462,8 +462,24 @@ void OalSession::send_config_echo() {
         << R"(,"video_fps":)" << config_.video_fps
         << R"(,"video_dpi":)" << config_.video_dpi
         << R"(,"aa_resolution":")" << res_name
-        << R"(","drive_side":")" << (config_.left_hand_drive ? "left" : "right")
+        << R"(","aa_width_margin":)" << config_.aa_ui_experiment.width_margin
+        << R"(,"aa_height_margin":)" << config_.aa_ui_experiment.height_margin
+        << R"(,"aa_pixel_aspect":)" << config_.aa_ui_experiment.pixel_aspect_ratio_e4
+        << R"(,"drive_side":")" << (config_.left_hand_drive ? "left" : "right")
         << R"(","head_unit_name":")" << oal_json_escape(config_.head_unit_name)
+        << R"(","hide_clock":)" << (config_.hide_clock ? "true" : "false")
+        << R"(,"hide_phone_signal":)" << (config_.hide_phone_signal ? "true" : "false")
+        << R"(,"hide_battery_level":)" << (config_.hide_battery_level ? "true" : "false")
+        << R"(,"aa_stable_insets":")"
+            << config_.aa_ui_experiment.initial_stable_insets.top << ","
+            << config_.aa_ui_experiment.initial_stable_insets.bottom << ","
+            << config_.aa_ui_experiment.initial_stable_insets.left << ","
+            << config_.aa_ui_experiment.initial_stable_insets.right
+        << R"(","aa_content_insets":")"
+            << config_.aa_ui_experiment.initial_content_insets.top << ","
+            << config_.aa_ui_experiment.initial_content_insets.bottom << ","
+            << config_.aa_ui_experiment.initial_content_insets.left << ","
+            << config_.aa_ui_experiment.initial_content_insets.right
         << R"("})";
     send_control_line(oss.str());
     std::cerr << "[OAL] config echo sent" << std::endl;
@@ -558,7 +574,10 @@ void OalSession::handle_app_hello(const std::string& json) {
 
     if (display_w > 0) config_.video_width = display_w;
     if (display_h > 0) config_.video_height = display_h;
-    if (display_dpi > 0) config_.video_dpi = display_dpi;
+    // Don't overwrite video_dpi with device display DPI — video_dpi is the
+    // AA UI density configured via CLI/env (e.g., 160). Device DPI (e.g., 200)
+    // is for display metrics only. Overwriting would cause a config diff when
+    // the app sends its configured AA DPI via config_update → spurious restart.
 
     // Read display cutout insets (physically curved/missing screen areas)
     int cut_top = 0, cut_bottom = 0, cut_left = 0, cut_right = 0;
@@ -596,10 +615,21 @@ void OalSession::handle_app_hello(const std::string& json) {
             case 5: video_w = 3840; video_h = 2160; break;
         }
 
-        // pixel_aspect_ratio: NOT auto-computed — leave at 0 (square pixels)
-        // by default. User can override via Settings → Video → Pixel Aspect.
-        // Auto-computing caused double-stretch when combined with crop mode.
-        if (config_.aa_ui_experiment.pixel_aspect_ratio_e4 > 0) {
+        // Auto-compute pixel_aspect_ratio from display aspect ratio.
+        // When the display is wider than 16:9, this tells AA to layout its UI
+        // for the wider display so crop mode doesn't look stretched/zoomed.
+        // Only auto-compute when not already set (0 = auto, >0 = manual override).
+        if (config_.aa_ui_experiment.pixel_aspect_ratio_e4 == 0) {
+            double display_ar = static_cast<double>(display_w) / display_h;
+            double video_ar = static_cast<double>(video_w) / video_h;
+            if (display_ar > video_ar * 1.05) {
+                auto computed = static_cast<uint32_t>((display_ar / video_ar) * 10000);
+                config_.aa_ui_experiment.pixel_aspect_ratio_e4 = computed;
+                std::cerr << "[OAL] auto pixel_aspect_ratio=" << computed
+                          << " (display " << display_w << "x" << display_h
+                          << " AR=" << display_ar << " vs video AR=" << video_ar << ")" << std::endl;
+            }
+        } else {
             std::cerr << "[OAL] pixel_aspect_ratio=" << config_.aa_ui_experiment.pixel_aspect_ratio_e4
                       << " (manual override)" << std::endl;
         }
@@ -838,7 +868,7 @@ void OalSession::handle_config_update(const std::string& json) {
         std::cerr << "[OAL] height_margin override: " << hm << std::endl;
     }
     int pa = 0;
-    if (oal_json_extract_int(json, "aa_pixel_aspect", pa) && pa >= 0 &&
+    if (oal_json_extract_int(json, "aa_pixel_aspect", pa) && pa > 0 &&
         pa != static_cast<int>(config_.aa_ui_experiment.pixel_aspect_ratio_e4)) {
         config_.aa_ui_experiment.pixel_aspect_ratio_e4 = pa;
         config_changed = true;
@@ -921,11 +951,15 @@ void OalSession::handle_config_update(const std::string& json) {
             insets.bottom = std::max(insets.bottom, floor.bottom);
             insets.left = std::max(insets.left, floor.left);
             insets.right = std::max(insets.right, floor.right);
-            config_.aa_ui_experiment.initial_stable_insets = insets;
-            config_changed = true;
-            std::cerr << "[OAL] safe area insets updated (merged with cutout floor): "
-                      << "T:" << insets.top << " B:" << insets.bottom
-                      << " L:" << insets.left << " R:" << insets.right << std::endl;
+            auto& cur = config_.aa_ui_experiment.initial_stable_insets;
+            if (insets.top != cur.top || insets.bottom != cur.bottom ||
+                insets.left != cur.left || insets.right != cur.right) {
+                cur = insets;
+                config_changed = true;
+                std::cerr << "[OAL] safe area insets updated: "
+                          << "T:" << insets.top << " B:" << insets.bottom
+                          << " L:" << insets.left << " R:" << insets.right << std::endl;
+            }
         }
     }
 
@@ -933,9 +967,13 @@ void OalSession::handle_config_update(const std::string& json) {
     if (!content_insets.empty()) {
         HeadlessConfig::UiInsets insets;
         if (parse_insets(content_insets, insets)) {
-            config_.aa_ui_experiment.initial_content_insets = insets;
-            config_changed = true;
-            std::cerr << "[OAL] content insets updated: " << content_insets << std::endl;
+            auto& cur = config_.aa_ui_experiment.initial_content_insets;
+            if (insets.top != cur.top || insets.bottom != cur.bottom ||
+                insets.left != cur.left || insets.right != cur.right) {
+                cur = insets;
+                config_changed = true;
+                std::cerr << "[OAL] content insets updated: " << content_insets << std::endl;
+            }
         }
     }
 
@@ -981,6 +1019,13 @@ void OalSession::handle_config_update(const std::string& json) {
             env_update += "sed -i 's/^OAL_AA_RESOLUTION=.*/OAL_AA_RESOLUTION=" + sanitize(aa_res) + "/' /etc/openautolink.env 2>/dev/null\n";
         if (dpi > 0)
             env_update += "sed -i 's/^OAL_AA_DPI=.*/OAL_AA_DPI=" + std::to_string(dpi) + "/' /etc/openautolink.env 2>/dev/null\n";
+        // Margin/pixel_aspect overrides: >0 writes value, 0 writes blank (= auto on next boot)
+        {
+            auto margin_to_env = [](int val) -> std::string { return val > 0 ? std::to_string(val) : ""; };
+            env_update += "sed -i 's/^OAL_AA_WIDTH_MARGIN=.*/OAL_AA_WIDTH_MARGIN=" + margin_to_env(wm) + "/' /etc/openautolink.env 2>/dev/null\n";
+            env_update += "sed -i 's/^OAL_AA_HEIGHT_MARGIN=.*/OAL_AA_HEIGHT_MARGIN=" + margin_to_env(hm) + "/' /etc/openautolink.env 2>/dev/null\n";
+            env_update += "sed -i 's/^OAL_AA_PIXEL_ASPECT_E4=.*/OAL_AA_PIXEL_ASPECT_E4=" + margin_to_env(pa) + "/' /etc/openautolink.env 2>/dev/null\n";
+        }
         if (!phone_mode.empty())
             env_update += "sed -i 's/^OAL_PHONE_MODE=.*/OAL_PHONE_MODE=" + sanitize(phone_mode) + "/' /etc/openautolink.env 2>/dev/null\n";
         if (!wifi_band.empty())

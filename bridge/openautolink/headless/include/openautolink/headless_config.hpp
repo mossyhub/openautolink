@@ -69,7 +69,7 @@ struct HeadlessConfig {
     // 1=800x480, 2=1280x720, 3=1920x1080, 4=2560x1440, 5=3840x2160
     int aa_resolution_tier = 3;
     // Video codec: 3=H264_BP, 5=VP9, 6=AV1, 7=H265
-    int video_codec = 7;
+    int video_codec = 3;
     bool left_hand_drive = true;
     std::string head_unit_name = "OpenAutoLink";
     std::string car_make = "OpenAutoLink";    // Updated from app VHAL INFO_MAKE
@@ -83,7 +83,7 @@ struct HeadlessConfig {
     std::string bt_mac;  // BT MAC for ServiceDiscovery (empty = auto-detect)
 
     // P2: Session UI flags (AA status bar)
-    bool hide_clock = true;          // AAOS has its own clock — hide AA's
+    bool hide_clock = false;
     bool hide_phone_signal = false;
     bool hide_battery_level = false;
 

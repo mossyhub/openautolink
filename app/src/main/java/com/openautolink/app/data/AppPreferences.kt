@@ -104,7 +104,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_REMOTE_DIAGNOSTICS_ENABLED = false
         const val DEFAULT_REMOTE_DIAGNOSTICS_MIN_LEVEL = "INFO"
         const val DEFAULT_SYNC_AA_THEME = true
-        const val DEFAULT_HIDE_AA_CLOCK = true
+        const val DEFAULT_HIDE_AA_CLOCK = false
         const val DEFAULT_HIDE_PHONE_SIGNAL = false
         const val DEFAULT_HIDE_BATTERY_LEVEL = false
         const val DEFAULT_SEND_IMU_SENSORS = true
@@ -138,7 +138,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_SAFE_AREA_TOP = 0
         const val DEFAULT_SAFE_AREA_BOTTOM = 0
         const val DEFAULT_SAFE_AREA_LEFT = 0
-        const val DEFAULT_SAFE_AREA_RIGHT = 184 // 2024 Blazer EV curved right bezel
+        const val DEFAULT_SAFE_AREA_RIGHT = 0
         const val DEFAULT_CONTENT_INSET_TOP = 0
         const val DEFAULT_CONTENT_INSET_BOTTOM = 0
         const val DEFAULT_CONTENT_INSET_LEFT = 0
@@ -603,5 +603,45 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val contentRight = prefs[CONTENT_INSET_RIGHT] ?: DEFAULT_CONTENT_INSET_RIGHT
         config["aa_content_insets"] = "$contentTop,$contentBottom,$contentLeft,$contentRight"
         return config
+    }
+
+    /**
+     * Update DataStore from bridge's config_echo so Settings UI shows the
+     * bridge's actual running values. Called on each connection.
+     */
+    suspend fun applyConfigEcho(config: Map<String, String>) {
+        dataStore.edit { prefs ->
+            config["video_codec"]?.let { prefs[VIDEO_CODEC] = it }
+            config["video_fps"]?.let { it.toIntOrNull()?.let { v -> prefs[VIDEO_FPS] = v } }
+            config["aa_resolution"]?.let { prefs[AA_RESOLUTION] = it }
+            config["video_dpi"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_DPI] = v } }
+            config["aa_width_margin"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_WIDTH_MARGIN] = v } }
+            config["aa_height_margin"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_HEIGHT_MARGIN] = v } }
+            config["aa_pixel_aspect"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_PIXEL_ASPECT] = v } }
+            config["drive_side"]?.let { prefs[DRIVE_SIDE] = it }
+            config["head_unit_name"]?.let { prefs[HEAD_UNIT_NAME] = it }
+            config["hide_clock"]?.let { prefs[HIDE_AA_CLOCK] = it.toBooleanStrictOrNull() ?: false }
+            config["hide_phone_signal"]?.let { prefs[HIDE_PHONE_SIGNAL] = it.toBooleanStrictOrNull() ?: false }
+            config["hide_battery_level"]?.let { prefs[HIDE_BATTERY_LEVEL] = it.toBooleanStrictOrNull() ?: false }
+            // Parse insets: "top,bottom,left,right"
+            config["aa_stable_insets"]?.let { str ->
+                val parts = str.split(",").mapNotNull { it.trim().toIntOrNull() }
+                if (parts.size == 4) {
+                    prefs[SAFE_AREA_TOP] = parts[0]
+                    prefs[SAFE_AREA_BOTTOM] = parts[1]
+                    prefs[SAFE_AREA_LEFT] = parts[2]
+                    prefs[SAFE_AREA_RIGHT] = parts[3]
+                }
+            }
+            config["aa_content_insets"]?.let { str ->
+                val parts = str.split(",").mapNotNull { it.trim().toIntOrNull() }
+                if (parts.size == 4) {
+                    prefs[CONTENT_INSET_TOP] = parts[0]
+                    prefs[CONTENT_INSET_BOTTOM] = parts[1]
+                    prefs[CONTENT_INSET_LEFT] = parts[2]
+                    prefs[CONTENT_INSET_RIGHT] = parts[3]
+                }
+            }
+        }
     }
 }

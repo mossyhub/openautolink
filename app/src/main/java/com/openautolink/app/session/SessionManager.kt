@@ -555,27 +555,14 @@ class SessionManager(
         connectionManager.sendControlMessage(ControlMessage.KeyframeRequest)
     }
 
-    /**
-     * Send all bridge-relevant preferences as a config_update on initial connection.
-     * The bridge compares against its current config; if stream-affecting settings
-     * (codec, fps, resolution, dpi, drive_side) differ, it restarts the AA session
-     * and sends phone_disconnected("config_changed") so the phone renegotiates.
-     */
-    private suspend fun syncBridgeSettings() {
+    /** Sync local-only preferences that don't go to the bridge (e.g., cluster units). */
+    private suspend fun syncLocalPreferences() {
         val ctx = context ?: return
         try {
             val prefs = AppPreferences.getInstance(ctx)
-            val config = prefs.getBridgeConfigSnapshot()
-            if (config.isNotEmpty()) {
-                connectionManager.sendControlMessage(ControlMessage.ConfigUpdate(config))
-                Log.i(TAG, "Synced bridge config on connect: ${config.keys}")
-                _remoteDiagnostics?.log(DiagnosticLevel.INFO, "config",
-                    "Synced bridge config on connect: ${config.keys}")
-            }
-            // Sync distance unit preference to cluster sessions
             ClusterNavigationState.distanceUnits = prefs.distanceUnits.first()
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to sync bridge settings: ${e.message}")
+            Log.w(TAG, "Failed to sync local preferences: ${e.message}")
         }
     }
 
@@ -689,12 +676,13 @@ class SessionManager(
                     "Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT}), " +
                     "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
                     "SoC: ${android.os.Build.SOC_MANUFACTURER} ${android.os.Build.SOC_MODEL}")
-                // Send our hello back, then sync all bridge-relevant settings
+                // Send our hello back (display dims, cutout — bridge auto-computes from these)
                 scope.launch {
                     sendAppHello(displayWidth = 0, displayHeight = 0, displayDpi = 0)
-                    // Send all current bridge settings so bridge detects any diffs
-                    // and restarts AA session if stream-affecting settings changed
-                    syncBridgeSettings()
+                    // No syncBridgeSettings — bridge env is the source of truth.
+                    // User changes go to env via Save & Restart. Auto-computed
+                    // values (pixel_aspect, stable_insets) come from hello data.
+                    syncLocalPreferences()
                     // Check for bridge binary updates (non-blocking, async)
                     _bridgeUpdateManager?.onBridgeConnected(info)
                 }
@@ -795,6 +783,22 @@ class SessionManager(
             is ControlMessage.BridgeUpdateReject,
             is ControlMessage.BridgeUpdateStatus -> {
                 _bridgeUpdateManager?.onUpdateMessage(message)
+            }
+            is ControlMessage.ConfigEcho -> {
+                // Bridge sent its current config — update app's DataStore to match.
+                // This ensures Settings UI shows what the bridge is actually using.
+                scope.launch {
+                    val ctx = context ?: return@launch
+                    try {
+                        val prefs = AppPreferences.getInstance(ctx)
+                        prefs.applyConfigEcho(message.config)
+                        Log.i(TAG, "Applied config_echo from bridge: ${message.config.keys}")
+                        _remoteDiagnostics?.log(DiagnosticLevel.DEBUG, "config",
+                            "Applied config_echo: ${message.config.keys}")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to apply config_echo: ${e.message}")
+                    }
+                }
             }
             else -> {} // Other messages handled by island-specific collectors
         }

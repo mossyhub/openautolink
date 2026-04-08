@@ -87,7 +87,7 @@ int main(int argc, char* argv[])
     int tcp_car_port = 0;    // TCP port for car app (e.g. 5288)
     bool use_usb = false;    // Wired AA: phone via USB host port
     std::string bt_mac;      // BT MAC override (empty = auto-detect)
-    bool hide_clock = true;
+    bool hide_clock = false;
     bool hide_phone_signal = false;
     bool hide_battery = false;
     openautolink::HeadlessConfig::UiConfigExperiment aa_ui_experiment;
@@ -290,6 +290,33 @@ int main(int argc, char* argv[])
         if (auto v = std::getenv("OAL_CAR_MAKE")) c.car_make = v;
         if (auto v = std::getenv("OAL_CAR_MODEL")) c.car_model = v;
         if (auto v = std::getenv("OAL_CAR_YEAR")) c.car_year = v;
+
+        // Fuel types and EV connector types from env (comma-separated ints)
+        auto parse_csv_ints = [](const char* str) -> std::vector<int> {
+            std::vector<int> result;
+            if (!str || !*str) return result;
+            std::string s(str);
+            size_t pos = 0;
+            while (pos < s.size()) {
+                while (pos < s.size() && (s[pos] == ' ' || s[pos] == ',')) ++pos;
+                if (pos >= s.size()) break;
+                try {
+                    size_t next = 0;
+                    int val = std::stoi(s.substr(pos), &next);
+                    result.push_back(val);
+                    pos += next;
+                } catch (...) { break; }
+            }
+            return result;
+        };
+        if (auto v = std::getenv("OAL_FUEL_TYPES")) {
+            auto ft = parse_csv_ints(v);
+            if (!ft.empty()) c.fuel_types = ft;
+        }
+        if (auto v = std::getenv("OAL_EV_CONNECTOR_TYPES")) {
+            auto ec = parse_csv_ints(v);
+            if (!ec.empty()) c.ev_connector_types = ec;
+        }
 
         // Bridge update mode from env (read directly, not via CLI flag)
         const char* update_env = std::getenv("OAL_BRIDGE_UPDATE_MODE");
