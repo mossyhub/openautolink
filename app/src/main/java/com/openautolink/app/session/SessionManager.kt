@@ -296,6 +296,7 @@ class SessionManager(
         _telemetryCollector = TelemetryCollector(scope, _remoteDiagnostics!!, _sessionState)
         _telemetryCollector?.videoDecoder = _videoDecoder
         _telemetryCollector?.audioPlayer = _audioPlayer
+        _telemetryCollector?.connectionManager = connectionManager as? ConnectionManager
         _telemetryCollector?.start()
 
         observeJob = scope.launch {

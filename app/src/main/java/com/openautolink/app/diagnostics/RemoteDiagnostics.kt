@@ -58,6 +58,12 @@ data class AudioTelemetry(
     val active: List<String>,
     val underruns: Map<String, Long>,
     val framesWritten: Map<String, Long>,
+    val flowDrops: Long = 0,
+    val flowEmits: Long = 0,
+    val maxWriteMs: Map<String, Long> = emptyMap(),
+    val slowWrites: Map<String, Long> = emptyMap(),
+    val maxGapMs: Map<String, Long> = emptyMap(),
+    val hwUnderruns: Map<String, Long> = emptyMap(),
 )
 
 data class SessionTelemetry(

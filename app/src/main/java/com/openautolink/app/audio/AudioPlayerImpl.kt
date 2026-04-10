@@ -128,6 +128,14 @@ class AudioPlayerImpl(private val audioManager: AudioManager) : AudioPlayer {
             Log.i(TAG, "audio: frames=$audioFrameCount bytes=$audioBytesReceived " +
                     "thisFrame=${frame.data.size}B ring=$ringBuf/$ringCap (${fillPct}%) " +
                     "written=${slot.framesWritten.get()} underruns=${slot.underrunCount.get()}")
+            // Detailed per-slot diagnostics for remote viewing
+            for ((p, s) in slots) {
+                if (!s.isActive && s.totalWriteCalls == 0L) continue
+                DiagnosticLog.d("audio", "slot=$p active=${s.isActive} " +
+                        "writes=${s.totalWriteCalls} written=${s.framesWritten.get()} " +
+                        "maxWriteMs=${s.maxWriteMs} slowWrites=${s.slowWriteCount} " +
+                        "maxGapMs=${s.maxGapMs} hwUnderruns=${s.hwUnderrunCount}")
+            }
             lastAudioLogTime = now
         }
 
@@ -250,10 +258,23 @@ class AudioPlayerImpl(private val audioManager: AudioManager) : AudioPlayer {
         val written = slots.mapValues { it.value.framesWritten.get() }
             .filter { it.value > 0 }
 
+        val maxWrite = slots.filter { it.value.totalWriteCalls > 0 }
+            .mapValues { it.value.maxWriteMs }
+        val slowW = slots.filter { it.value.slowWriteCount > 0 }
+            .mapValues { it.value.slowWriteCount }
+        val maxGap = slots.filter { it.value.totalWriteCalls > 0 }
+            .mapValues { it.value.maxGapMs }
+        val hwUr = slots.filter { it.value.hwUnderrunCount > 0 }
+            .mapValues { it.value.hwUnderrunCount }
+
         _stats.value = AudioStats(
             activePurposes = active,
             underruns = underruns,
-            framesWritten = written
+            framesWritten = written,
+            maxWriteMs = maxWrite,
+            slowWrites = slowW,
+            maxGapMs = maxGap,
+            hwUnderruns = hwUr,
         )
     }
 }

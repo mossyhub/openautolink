@@ -388,6 +388,12 @@ object ControlMessageSerializer {
                         putJsonArray("active") { a.active.forEach { add(JsonPrimitive(it)) } }
                         put("underruns", buildJsonObject { a.underruns.forEach { (k, v) -> put(k, v) } })
                         put("frames_written", buildJsonObject { a.framesWritten.forEach { (k, v) -> put(k, v) } })
+                        put("flow_drops", a.flowDrops)
+                        put("flow_emits", a.flowEmits)
+                        if (a.maxWriteMs.isNotEmpty()) put("max_write_ms", buildJsonObject { a.maxWriteMs.forEach { (k, v) -> put(k, v) } })
+                        if (a.slowWrites.isNotEmpty()) put("slow_writes", buildJsonObject { a.slowWrites.forEach { (k, v) -> put(k, v) } })
+                        if (a.maxGapMs.isNotEmpty()) put("max_gap_ms", buildJsonObject { a.maxGapMs.forEach { (k, v) -> put(k, v) } })
+                        if (a.hwUnderruns.isNotEmpty()) put("hw_underruns", buildJsonObject { a.hwUnderruns.forEach { (k, v) -> put(k, v) } })
                     })
                 }
                 message.session?.let { s ->

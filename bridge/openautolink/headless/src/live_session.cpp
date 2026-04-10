@@ -2520,7 +2520,7 @@ void HeadlessAudioHandler::onMediaWithTimestampIndication(
 {
     audio_frame_count_++;
 
-    if (audio_frame_count_ % 500 == 1) {
+    if (audio_frame_count_ <= 5 || audio_frame_count_ % 500 == 0) {
         const char* channel_name = (type_ == ChannelType::Media) ? "media" :
                                    (type_ == ChannelType::Speech) ? "speech" : "system";
         std::cerr << "[aasdk] audio " << channel_name

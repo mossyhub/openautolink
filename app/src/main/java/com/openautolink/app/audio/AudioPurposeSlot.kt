@@ -37,6 +37,14 @@ class AudioPurposeSlot(
     val framesWritten = AtomicLong(0)
     val underrunCount = AtomicLong(0)
 
+    // Diagnostic counters
+    @Volatile var lastFeedTimeNs: Long = 0L
+    @Volatile var maxWriteMs: Long = 0L
+    @Volatile var maxGapMs: Long = 0L
+    @Volatile var totalWriteCalls: Long = 0L
+    @Volatile var slowWriteCount: Long = 0L  // writes > 60ms
+    @Volatile var hwUnderrunCount: Long = 0L
+
     fun initialize() {
         if (released.get()) return
 
@@ -106,8 +114,32 @@ class AudioPurposeSlot(
     fun feedPcm(data: ByteArray) {
         val track = audioTrack ?: return
         if (!active.get()) return
+
+        // Measure inter-frame gap
+        val nowNs = System.nanoTime()
+        val prevNs = lastFeedTimeNs
+        lastFeedTimeNs = nowNs
+        if (prevNs > 0) {
+            val gapMs = (nowNs - prevNs) / 1_000_000
+            if (gapMs > maxGapMs) maxGapMs = gapMs
+        }
+
+        // Measure AudioTrack.write() blocking duration
+        val writeStartNs = System.nanoTime()
         track.write(data, 0, data.size) // blocking
+        val writeMs = (System.nanoTime() - writeStartNs) / 1_000_000
+
+        totalWriteCalls++
         framesWritten.addAndGet(data.size.toLong() / (channelCount * 2))
+        if (writeMs > maxWriteMs) maxWriteMs = writeMs
+        if (writeMs > 60) slowWriteCount++
+
+        // Sample HW underrun count periodically
+        if (totalWriteCalls % 50 == 0L) {
+            try {
+                hwUnderrunCount = track.underrunCount.toLong()
+            } catch (_: Exception) {}
+        }
     }
 
     fun setVolume(volume: Float) {

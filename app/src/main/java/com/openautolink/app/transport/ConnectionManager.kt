@@ -38,6 +38,10 @@ class ConnectionManager(private val scope: CoroutineScope) : BridgeConnection {
     private val videoChannel = TcpVideoChannel()
     private val audioChannel = TcpAudioChannel()
 
+    // Audio SharedFlow drop tracking
+    @Volatile private var audioDropCount = 0L
+    @Volatile private var audioEmitCount = 0L
+
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
@@ -139,6 +143,8 @@ class ConnectionManager(private val scope: CoroutineScope) : BridgeConnection {
 
     override suspend fun connectAudio(host: String, port: Int) {
         disconnectAudio()
+        audioDropCount = 0
+        audioEmitCount = 0
         audioJob = scope.launch {
             try {
                 withContext(Dispatchers.IO) {
@@ -149,7 +155,16 @@ class ConnectionManager(private val scope: CoroutineScope) : BridgeConnection {
 
                 // Collect audio frames and re-emit (non-blocking, drop oldest if behind)
                 audioChannel.receiveFrames().collect { frame ->
-                    _audioFrames.tryEmit(frame)
+                    val emitted = _audioFrames.tryEmit(frame)
+                    if (!emitted) {
+                        audioDropCount++
+                        if (audioDropCount <= 5 || audioDropCount % 100 == 0L) {
+                            Log.w(TAG, "Audio SharedFlow DROP #$audioDropCount purpose=${frame.purpose} size=${frame.data.size}")
+                            DiagnosticLog.w("audio", "SharedFlow drop #$audioDropCount purpose=${frame.purpose}")
+                        }
+                    } else {
+                        audioEmitCount++
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -167,6 +182,11 @@ class ConnectionManager(private val scope: CoroutineScope) : BridgeConnection {
         audioJob = null
         audioChannel.close()
     }
+
+    /** Audio SharedFlow drop count since last audio connect. */
+    val audioFlowDrops: Long get() = audioDropCount
+    /** Audio frames successfully emitted to SharedFlow since last audio connect. */
+    val audioFlowEmits: Long get() = audioEmitCount
 
     override fun sendMicAudio(frame: AudioFrame) {
         if (!audioChannel.isConnected) return

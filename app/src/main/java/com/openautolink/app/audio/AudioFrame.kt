@@ -70,4 +70,8 @@ data class AudioStats(
     val underruns: Map<AudioPurpose, Long> = emptyMap(),
     val framesWritten: Map<AudioPurpose, Long> = emptyMap(),
     val sampleRate: Int = 0,
+    val maxWriteMs: Map<AudioPurpose, Long> = emptyMap(),
+    val slowWrites: Map<AudioPurpose, Long> = emptyMap(),
+    val maxGapMs: Map<AudioPurpose, Long> = emptyMap(),
+    val hwUnderruns: Map<AudioPurpose, Long> = emptyMap(),
 )

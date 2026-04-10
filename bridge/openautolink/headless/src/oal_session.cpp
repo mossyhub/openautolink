@@ -234,14 +234,18 @@ void OalSession::write_audio_frame(
     bool ok = audio_transport_.submit_write(pkt.data(), pkt.size());
     if (ok) {
         audio_frames_written_++;
-        if (audio_frames_written_ <= 10 || audio_frames_written_ % 50 == 0) {
+        if (audio_frames_written_ <= 10 || audio_frames_written_ % 200 == 0) {
             std::cerr << "[OAL] audio: written=" << audio_frames_written_
+                      << " drops=" << audio_frames_queued_
+                      << " purpose=" << oal_purpose_to_string(purpose)
                       << " size=" << pkt.size() << std::endl;
         }
     } else {
         audio_frames_queued_++; // count drops
-        if (audio_frames_queued_ <= 5 || audio_frames_queued_ % 100 == 0) {
+        if (audio_frames_queued_ <= 10 || audio_frames_queued_ % 50 == 0) {
             std::cerr << "[OAL] audio WRITE FAILED: drops=" << audio_frames_queued_
+                      << " total_ok=" << audio_frames_written_
+                      << " purpose=" << oal_purpose_to_string(purpose)
                       << " connected=" << audio_transport_.is_connected() << std::endl;
         }
     }
