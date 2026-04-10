@@ -15,9 +15,10 @@ This guide walks you through setting up the bridge on an SBC. The process is:
 ## What You Need
 
 - **ARM64 single-board computer** with WiFi + Bluetooth
-  - Tested: Raspberry Pi 5 / CM5, Khadas VIM4
-  - Should work: any ARM64 SBC with WiFi AP capability and BT 4.0+
-- **microSD card** (16GB+) or eMMC module
+  - Primary dev board: Khadas VIM4 (overkill, but what's tested)
+  - Also tested: Raspberry Pi 5 / CM5 (also overkill)
+  - Recommended for daily use: any DietPi-supported ARM64 board with onboard GigE, 5 GHz WiFi, and eMMC (see [README § Choosing an SBC](../../README.md#choosing-an-sbc))
+- **microSD card** (16 GB+) or eMMC — eMMC preferred for faster boot
 - **USB Ethernet adapter** (to connect the SBC to the car's USB port)
 - **Temporary internet access** for initial setup (Ethernet to router, WiFi, or laptop sharing)
 
@@ -27,9 +28,11 @@ Flash a lightweight **64-bit Linux** to your SBC's storage:
 
 | SBC | Recommended OS | Flash Tool |
 |-----|---------------|------------|
-| Raspberry Pi 4 or 5 | [Raspberry Pi OS Lite (64-bit)](https://www.raspberrypi.com/software/) | Raspberry Pi Imager |
-| Khadas VIM4 | [Ubuntu 22.04 Server](https://www.khadas.com/vim4) | Khadas Burn Tool / dd |
-| Generic ARM64 | Ubuntu Server 22.04+ or Debian 12+ | Etcher / dd |
+| Raspberry Pi 4 or 5 / CM5 | [DietPi (RPi)](https://dietpi.com/downloads/#raspberry-pi) or [Raspberry Pi OS Lite 64-bit](https://www.raspberrypi.com/software/) | Raspberry Pi Imager / Etcher |
+| Orange Pi 5B / 3B | [DietPi (Orange Pi)](https://dietpi.com/downloads/#orange-pi) | Etcher / dd |
+| Radxa ROCK 5B / 3A / 3C | [DietPi (Radxa)](https://dietpi.com/downloads/#radxa) | Etcher / dd |
+| Khadas VIM4 | [DietPi (Khadas)](https://dietpi.com/downloads/#khadas) or [Ubuntu 22.04 Server](https://www.khadas.com/vim4) | Khadas Burn Tool / dd |
+| Generic ARM64 | DietPi (see [supported hardware](https://dietpi.com/docs/hardware/)) or Ubuntu Server 22.04+ | Etcher / dd |
 
 **Important**: Use the **server/lite** variant (no desktop). A GUI wastes RAM and isn't needed.
 

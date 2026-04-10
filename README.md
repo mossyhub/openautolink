@@ -81,7 +81,7 @@ The current design is purpose-built for this setup:
 
 ## How It Works
 
-An SBC such as a Raspberry Pi 5 or Khadas VIM4 bridges the phone's Android Auto session to the car over WiFi + Ethernet. The car runs the OpenAutoLink app and the SBC runs the bridge.
+An SBC bridges the phone's Android Auto session to the car over WiFi + Ethernet. The car runs the OpenAutoLink app and the SBC runs the bridge. [DietPi](https://dietpi.com/) is the recommended OS — it is lightweight, boots quickly from eMMC, and supports a wide range of ARM64 boards out of the box.
 
 ```
 Android Phone ──WiFi TCP:5277──▶                    ┌── Control :5288 (JSON lines)
@@ -184,7 +184,7 @@ For the 2024 Blazer EV, the bridge is pre-configured with a right-side stable in
 | **USB Ethernet adapter** | USB-C strongly recommended so it plugs directly into the car |
 | **Short Ethernet cable** | Connects the SBC's onboard Ethernet to the USB adapter |
 | **Power for the SBC** | USB-C power supply or in-car USB-C power source |
-| **Storage** | microSD or eMMC, depending on the board |
+| **Storage** | eMMC preferred for faster boot; microSD works but is slower |
 
 ### Choosing an SBC
 
@@ -193,25 +193,36 @@ The bridge relays already-encoded video and audio, so raw CPU performance matter
 | Priority | Why |
 |----------|-----|
 | **Onboard Ethernet NIC** | Required for the car-side network link |
-| **5 GHz WiFi** | Required for stable wireless Android Auto streaming |
+| **5 GHz WiFi (onboard)** | Required for stable wireless Android Auto streaming |
 | **Bluetooth 4.0+** | Required for pairing and WiFi credential exchange |
+| **eMMC storage** | Faster and more reliable than microSD; meaningfully reduces boot time |
 | **CPU / RAM** | Mostly affects boot time; modest ARM64 hardware is enough |
 | **Size** | Smaller is easier to hide in the console |
 
-Tested boards:
+**Recommended OS: [DietPi](https://dietpi.com/)** — lightweight Debian-based, fast to boot from eMMC, and supports a wide range of ARM64 boards. Use the headless server image.
 
-- Raspberry Pi 5 / CM5
-- Khadas VIM4
+#### Development / tested boards
 
-Budget-friendly boards that should work:
+The primary development board is a **Khadas VIM4** (Amlogic A311D2, 8 GB RAM, 32 GB eMMC, Wi-Fi 6, GigE). The **Raspberry Pi 5 / CM5** is also tested and works well. Both are overkill for this workload — the bridge does not benefit from their CPU headroom — but they are convenient for development.
+
+#### Recommended boards (DietPi, all criteria met)
+
+These boards hit the right balance of cost, boot speed, and wireless performance — all have onboard GigE, onboard 5 GHz WiFi + Bluetooth, and eMMC:
+
+| Board | Approx. Price | SoC | RAM | WiFi | Notes |
+|-------|--------------|-----|-----|------|-------|
+| **Orange Pi 5B** | ~$65–$80 | RK3588S | 8 GB | Wi-Fi 6 (onboard) | Best value sweet spot; 16–128 GB eMMC onboard |
+| **Radxa ROCK 5B** | ~$90–$130 | RK3588 | 4–16 GB | Wi-Fi 6E (M.2 module) | Dual 2.5 GbE; eMMC slot |
+| **Orange Pi 3B** | ~$35–$45 | RK3566 | 1–8 GB | Wi-Fi 5 (onboard) | Good lower-cost option; eMMC slot |
+
+#### Lower-end boards (pending validation on DietPi)
+
+These meet the spec on paper and are cheap enough to be worth trying. They will be added to the recommended list above if they perform well enough for daily use:
 
 | Board | Approx. Price | Notes |
 |-------|--------------|-------|
-| **Raspberry Pi 4 Model B (2 GB)** | ~$35 | Solid baseline option |
-| **Orange Pi 5** | ~$55 | Fast, compact, capable |
-| **Orange Pi 3B** | ~$30 | Good lower-cost choice |
-| **ROCK Pi 4 Model B** | ~$50 | Well supported by Armbian |
-| **Radxa ROCK 3C** | ~$35 | Compact and inexpensive |
+| **Orange Pi Zero 3** | ~$20–$30 | Allwinner H618; onboard GigE + Wi-Fi 5 + BT 5.0; up to 4 GB RAM; compact |
+| **Radxa ROCK 3A / 3C** | ~$35–$50 | RK3566; eMMC slot; onboard WiFi on some variants |
 
 ### Physical Connection
 
