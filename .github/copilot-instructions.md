@@ -89,19 +89,12 @@ The bridge speaks OAL protocol directly on all three TCP channels. The car app i
 .\gradlew :app:connectedDebugAndroidTest  # Instrumentation tests
 ```
 
-### Bridge (on SBC)
-```bash
-cd /opt/openautolink-src/build
-cmake --build . --target openautolink-headless -j$(nproc)
-sudo strip -o /opt/openautolink/bin/openautolink-headless build/openautolink-headless
-sudo systemctl restart openautolink.service
-```
-See [bridge/sbc/BUILD.md](bridge/sbc/BUILD.md) for full details.
-
-### Windows → SBC deploy
+### Bridge (WSL cross-compile + deploy)
 ```powershell
-scripts/deploy-to-sbc.ps1
+scripts\deploy-bridge.ps1          # Build in WSL + deploy to SBC
+scripts\deploy-bridge.ps1 -Clean    # Clean rebuild + deploy
 ```
+See [bridge/sbc/BUILD.md](bridge/sbc/BUILD.md) for SBC setup. CI builds via `.github/workflows/release-bridge.yml`.
 
 ## Conventions
 
@@ -147,9 +140,7 @@ scripts/deploy-to-sbc.ps1
 ## Pitfalls
 
 - **CRLF**: SBC scripts and env files must be LF. Windows scp creates CRLF — always convert
-- **CMake timestamp**: After scp from Windows, `touch` the file on SBC so CMake detects the change
 - **aasdk v1.6**: Phone requires v1.6 ServiceConfiguration format. v1.1 format = silent ignore
 - **BlueZ SAP plugin**: Steals RFCOMM channel 8. Disable with `--noplugin=sap`
-- **CM5 power**: Use `-j1` for builds. Parallel compile can crash the board
 - **MediaCodec lifecycle**: Must release codec on pause, recreate on resume. Surface changes require full codec reset
 - **AudioTrack purpose routing**: See [docs/embedded-knowledge.md](docs/embedded-knowledge.md) — the 5-slot decode_type/audioType matching is non-obvious

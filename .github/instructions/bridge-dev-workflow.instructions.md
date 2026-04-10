@@ -37,7 +37,7 @@ Three validated development environments. Choose based on what hardware is avail
 
 ## Overview
 
-The bridge binary (`openautolink-headless`) is an ARM64 Linux binary for SBC deployment. For rapid iteration, we cross-compile on WSL (x86_64 → aarch64) and SCP the result to the SBC. This is much faster than building on the SBC itself (CM5 is slow, use `-j1`).
+The bridge binary (`openautolink-headless`) is an ARM64 Linux binary for SBC deployment. Two build paths: WSL cross-compile (dev iteration) and GitHub CI (releases). Do NOT build on the SBC directly — always cross-compile.
 
 ## One-Time Setup
 

@@ -10,6 +10,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(OAL_BRIDGE_VERSION "0.1.54" CACHE STRING "Bridge binary version string")
 add_compile_definitions(OAL_BRIDGE_VERSION="${OAL_BRIDGE_VERSION}")
 
+# Build source — "github" for CI builds, "local" for WSL/dev builds.
+# Override at build time: cmake -DOAL_BUILD_SOURCE="github" ..
+set(OAL_BUILD_SOURCE "local" CACHE STRING "Build source identifier (local or github)")
+add_compile_definitions(OAL_BUILD_SOURCE="${OAL_BUILD_SOURCE}")
+
 set(PI_AA_OPENAUTO_SOURCE_DIR "" CACHE PATH "Optional path to a local OpenAuto source tree")
 set(PI_AA_AASDK_SOURCE_DIR "" CACHE PATH "Optional path to a local aasdk source tree")
 set(PI_AA_AASDK_PROTO_DIR "" CACHE PATH "Optional path to local aasdk .proto files")

@@ -13,7 +13,7 @@ class ControlMessageSerializerTest {
 
     @Test
     fun `deserialize hello message`() {
-        val json = """{"type":"hello","version":1,"name":"OpenAutoLink","capabilities":["h264","h265","vp9"],"video_port":5290,"audio_port":5289}"""
+        val json = """{"type":"hello","version":1,"name":"OpenAutoLink","capabilities":["h264","h265","vp9"],"video_port":5290,"audio_port":5289,"protocol_version":1,"min_protocol_version":1,"bridge_version":"0.1.54","bridge_sha256":"abc123","build_source":"github"}"""
         val msg = ControlMessageSerializer.deserialize(json)
 
         assertTrue(msg is ControlMessage.Hello)
@@ -23,6 +23,11 @@ class ControlMessageSerializerTest {
         assertEquals(listOf("h264", "h265", "vp9"), hello.capabilities)
         assertEquals(5290, hello.videoPort)
         assertEquals(5289, hello.audioPort)
+        assertEquals(1, hello.protocolVersion)
+        assertEquals(1, hello.minProtocolVersion)
+        assertEquals("0.1.54", hello.bridgeVersion)
+        assertEquals("abc123", hello.bridgeSha256)
+        assertEquals("github", hello.buildSource)
     }
 
     @Test
@@ -172,18 +177,23 @@ class ControlMessageSerializerTest {
         assertEquals(emptyList<String>(), msg.capabilities)
         assertEquals(5290, msg.videoPort)
         assertEquals(5289, msg.audioPort)
+        assertNull(msg.protocolVersion)
+        assertNull(msg.minProtocolVersion)
+        assertNull(msg.buildSource)
     }
 
     // --- Serialization: App → Bridge ---
 
     @Test
-    fun `serialize app hello`() {
+    fun `serialize app hello includes protocol versions`() {
         val msg = ControlMessage.AppHello(1, "OpenAutoLink App", 2628, 800, 160)
         val json = ControlMessageSerializer.serialize(msg)
 
         assertTrue(json.contains(""""type":"hello""""))
         assertTrue(json.contains(""""display_width":2628"""))
         assertTrue(json.contains(""""display_height":800"""))
+        assertTrue(json.contains(""""protocol_version":${ControlMessage.PROTOCOL_VERSION}"""))
+        assertTrue(json.contains(""""min_protocol_version":${ControlMessage.MIN_PROTOCOL_VERSION}"""))
     }
 
     @Test
@@ -313,5 +323,16 @@ class ControlMessageSerializerTest {
 
         assertTrue(json.contains(""""type":"switch_phone""""))
         assertTrue(json.contains(""""mac":"AA:BB:CC:DD:EE:FF""""))
+    }
+
+    // --- Protocol version ---
+
+    @Test
+    fun `deserialize hello with protocol version fields`() {
+        val json = """{"type":"hello","version":1,"name":"Bridge","protocol_version":2,"min_protocol_version":1,"build_source":"local"}"""
+        val msg = ControlMessageSerializer.deserialize(json) as ControlMessage.Hello
+        assertEquals(2, msg.protocolVersion)
+        assertEquals(1, msg.minProtocolVersion)
+        assertEquals("local", msg.buildSource)
     }
 }

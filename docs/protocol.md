@@ -13,13 +13,29 @@ App ◀─TCP:5289──▶ Bridge    (audio: bidirectional binary frames)
 ## Connection Lifecycle
 
 1. App connects to bridge control port (5288)
-2. Bridge sends `hello` with capabilities
-3. App sends `hello` back with its capabilities
-4. App opens video (5290) and audio (5289) connections
-5. Bridge sends `phone_connected` when phone session starts
-6. Media streams begin on video/audio channels
-7. `phone_disconnected` when phone leaves — app returns to waiting state
-8. App can disconnect at any time; bridge handles cleanup
+2. Bridge sends `hello` with capabilities and protocol version
+3. App checks protocol compatibility (see Protocol Versioning below)
+4. App sends `hello` back with its capabilities and protocol version
+5. App opens video (5290) and audio (5289) connections
+6. Bridge sends `phone_connected` when phone session starts
+7. Media streams begin on video/audio channels
+8. `phone_disconnected` when phone leaves — app returns to waiting state
+9. App can disconnect at any time; bridge handles cleanup
+
+## Protocol Versioning
+
+Both sides declare `protocol_version` (what I speak) and `min_protocol_version` (oldest I can talk to) in their hello messages. On receiving a hello, each side checks:
+
+```
+if peer.min_protocol_version > my.protocol_version → INCOMPATIBLE
+```
+
+**Current values:** `protocol_version=1`, `min_protocol_version=1`
+
+**Rules for protocol changes:**
+- **Additive changes** (new optional JSON fields, new message types): no version bump needed. The other side ignores unknown fields/types.
+- **Breaking changes** (altered binary headers, new mandatory fields, removed messages): bump `protocol_version` AND set `min_protocol_version` to exclude the old format.
+- The app refuses to push a bridge update if the new bridge would be incompatible with the running app.
 
 ## Control Channel (TCP 5288)
 
@@ -28,7 +44,7 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 ### Bridge → App
 
 ```jsonl
-{"type":"hello","version":1,"name":"OpenAutoLink","capabilities":["h264","h265","vp9"],"video_port":5290,"audio_port":5289}
+{"type":"hello","version":1,"name":"OpenAutoLink","capabilities":["h264","h265","vp9"],"video_port":5290,"audio_port":5289,"protocol_version":1,"min_protocol_version":1,"bridge_version":"0.1.54","bridge_sha256":"a1b2c3...","build_source":"github"}
 {"type":"phone_connected","phone_name":"Pixel 10","phone_type":"android"}
 {"type":"phone_disconnected","reason":"user_disconnect"}
 {"type":"audio_start","purpose":"media","sample_rate":48000,"channels":2}
@@ -55,7 +71,7 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 ### App → Bridge
 
 ```jsonl
-{"type":"hello","version":1,"name":"OpenAutoLink App","display_width":2914,"display_height":1134,"display_dpi":200,"cutout_top":167,"cutout_bottom":0,"cutout_left":0,"cutout_right":285,"bar_top":166,"bar_bottom":0,"bar_left":0,"bar_right":0}
+{"type":"hello","version":1,"name":"OpenAutoLink App","display_width":2914,"display_height":1134,"display_dpi":200,"protocol_version":1,"min_protocol_version":1,"cutout_top":167,"cutout_bottom":0,"cutout_left":0,"cutout_right":285,"bar_top":166,"bar_bottom":0,"bar_left":0,"bar_right":0}
 {"type":"touch","action":0,"x":500,"y":300,"pointer_id":0}
 {"type":"touch","action":2,"pointers":[{"id":0,"x":100,"y":200},{"id":1,"x":300,"y":400}]}
 {"type":"button","keycode":87,"down":true,"metastate":0,"longpress":false}
@@ -76,8 +92,23 @@ Bidirectional newline-delimited JSON. Each message is a single JSON object follo
 | `display_width` | int | Full AAOS framebuffer width (pixels) |
 | `display_height` | int | Full AAOS framebuffer height (pixels) |
 | `display_dpi` | int | Logical display density |
+| `protocol_version` | int | OAL protocol version this app speaks |
+| `min_protocol_version` | int | Oldest OAL protocol version this app can talk to |
 | `cutout_top/bottom/left/right` | int | Display cutout insets — physically curved/missing screen areas (pixels) |
 | `bar_top/bottom/left/right` | int | System bar insets — status bar, nav bar (pixels) |
+
+### Bridge → App: `hello` fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `capabilities` | string[] | Supported video codecs (`"h264"`, `"h265"`, `"vp9"`) |
+| `video_port` | int | TCP port for video channel |
+| `audio_port` | int | TCP port for audio channel |
+| `protocol_version` | int? | OAL protocol version this bridge speaks (absent on old bridges) |
+| `min_protocol_version` | int? | Oldest OAL protocol version this bridge can talk to (absent on old bridges) |
+| `bridge_version` | string? | Human-readable version string (e.g. `"0.1.54"`) |
+| `bridge_sha256` | string? | SHA-256 hex of the running binary |
+| `build_source` | string? | `"github"` (CI build) or `"local"` (WSL/dev build). Absent on old bridges |
 
 The bridge uses these to auto-compute AA video parameters:
 - **`pixel_aspect_ratio_e4`**: Tells AA the display is wider than 16:9, so it layouts UI for the actual display AR. Computed as `display_ar / video_ar × 10000`.

@@ -672,9 +672,22 @@ class SessionManager(
                     videoPort = message.videoPort,
                     audioPort = message.audioPort,
                     bridgeVersion = message.bridgeVersion,
-                    bridgeSha256 = message.bridgeSha256
+                    bridgeSha256 = message.bridgeSha256,
+                    protocolVersion = message.protocolVersion,
+                    minProtocolVersion = message.minProtocolVersion,
+                    buildSource = message.buildSource
                 )
                 _bridgeInfo.value = info
+
+                // Check protocol compatibility
+                if (info.protocolIncompatible) {
+                    Log.e(TAG, "Bridge protocol incompatible: bridge min=${info.minProtocolVersion}, app=${ControlMessage.PROTOCOL_VERSION}")
+                    _remoteDiagnostics?.log(DiagnosticLevel.ERROR, "protocol",
+                        "Bridge requires protocol v${info.minProtocolVersion} but app speaks v${ControlMessage.PROTOCOL_VERSION} — please update the app")
+                    _statusMessage.value = "Bridge requires a newer app — please update OpenAutoLink"
+                    return
+                }
+
                 // Send system info once on connect
                 _remoteDiagnostics?.log(DiagnosticLevel.INFO, "system",
                     "Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT}), " +
@@ -868,5 +881,15 @@ data class BridgeInfo(
     val videoPort: Int,
     val audioPort: Int,
     val bridgeVersion: String? = null,
-    val bridgeSha256: String? = null
-)
+    val bridgeSha256: String? = null,
+    val protocolVersion: Int? = null,
+    val minProtocolVersion: Int? = null,
+    val buildSource: String? = null,
+) {
+    /** True if this bridge's protocol is incompatible with the app. */
+    val protocolIncompatible: Boolean
+        get() {
+            val bridgeMin = minProtocolVersion ?: return false // old bridge, no check
+            return ControlMessage.PROTOCOL_VERSION < bridgeMin
+        }
+}

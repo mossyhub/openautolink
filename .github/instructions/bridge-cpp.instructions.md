@@ -7,8 +7,8 @@ applyTo: "bridge/openautolink/headless/**"
 ## Build
 - C++20 standard, CMake build system
 - Dependencies: Boost (system, log), OpenSSL, libusb, protobuf
-- Build on SBC: `cmake --build . --target openautolink-headless -j$(nproc)`
-- After scp from Windows: `touch` modified files before building
+- Build via WSL cross-compile (`scripts/deploy-bridge.ps1`) or GitHub CI (`.github/workflows/release-bridge.yml`)
+- Do NOT build on the SBC directly — always cross-compile
 
 ## Thread Model
 - **boost::asio::io_service** — single worker thread for aasdk callbacks

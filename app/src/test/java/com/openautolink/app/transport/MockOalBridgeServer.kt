@@ -164,7 +164,7 @@ class MockOalBridgeServer {
     ) {
         val json = """{"type":"hello","version":1,"name":"$name","capabilities":${
             capabilities.joinToString(",", "[", "]") { "\"$it\"" }
-        },"video_port":$videoPort,"audio_port":$audioPort}"""
+        },"video_port":$videoPort,"audio_port":$audioPort,"protocol_version":1,"min_protocol_version":1,"build_source":"github"}"""
         sendControlJson(json)
     }
 

@@ -7,6 +7,16 @@
 #define OAL_BRIDGE_VERSION "dev"
 #endif
 
+#ifndef OAL_BUILD_SOURCE
+#define OAL_BUILD_SOURCE "local"
+#endif
+
+// OAL protocol version. Bump when making breaking wire-format changes.
+// Both sides send protocol_version and min_protocol_version in hello.
+// If peer.protocol_version < my.min_protocol_version → incompatible.
+constexpr int OAL_PROTOCOL_VERSION = 1;
+constexpr int OAL_MIN_PROTOCOL_VERSION = 1;
+
 namespace openautolink {
 
 // Configuration for the headless Android Auto head unit.
@@ -89,6 +99,9 @@ struct HeadlessConfig {
 
     // Bridge version (injected at compile time)
     std::string bridge_version = OAL_BRIDGE_VERSION;
+
+    // Build source: "github" (CI), "local" (WSL/dev) — injected at compile time
+    std::string build_source = OAL_BUILD_SOURCE;
 
     // Bridge update mode: "auto" (accept OTA from app) or "disabled" (dev builds)
     std::string update_mode = "auto";

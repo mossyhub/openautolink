@@ -357,11 +357,16 @@ void OalSession::send_hello() {
         << oal_json_escape(config_.head_unit_name)
         << R"(","capabilities":[)" << caps
         << R"(],"video_port":5290,"audio_port":5289)"
+        << R"(,"protocol_version":)" << OAL_PROTOCOL_VERSION
+        << R"(,"min_protocol_version":)" << OAL_MIN_PROTOCOL_VERSION
         << R"(,"bridge_version":")" << oal_json_escape(config_.bridge_version)
         << R"(","bridge_sha256":")" << binary_sha256_cache_
+        << R"(","build_source":")" << oal_json_escape(config_.build_source)
         << R"("})";
     send_control_line(oss.str());
-    std::cerr << "[OAL] sent hello (bridge " << config_.bridge_version << ")" << std::endl;
+    std::cerr << "[OAL] sent hello (bridge " << config_.bridge_version
+              << ", protocol v" << OAL_PROTOCOL_VERSION
+              << ", build_source=" << config_.build_source << ")" << std::endl;
 }
 
 void OalSession::send_phone_connected(const std::string& phone_name,

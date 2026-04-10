@@ -79,6 +79,7 @@ class BridgeUpdateManager(
     private var lastVersionCheckMs = 0L
     private var cachedRelease: GitHubRelease? = null
     private var lastPushedSha: String? = null  // SHA of the binary we last pushed to the bridge
+    private var isManualCheck = false  // true when triggered from Settings UI
 
     /**
      * Called when bridge hello is received. Checks if an update is needed
@@ -107,6 +108,8 @@ class BridgeUpdateManager(
                 Log.w(TAG, "Update check failed: ${e.message}")
                 DiagnosticLog.w("update", "Update check failed: ${e.message}")
                 _updateState.value = BridgeUpdateState.IDLE
+            } finally {
+                isManualCheck = false
             }
         }
     }
@@ -164,11 +167,14 @@ class BridgeUpdateManager(
 
     /**
      * Force a manual update check (triggered from settings UI).
+     * Bypasses the build_source guard — user explicitly confirmed they want
+     * to overwrite a local/dev build with the GitHub release.
      */
     fun triggerManualCheck(bridgeInfo: BridgeInfo?) {
         if (bridgeInfo == null) return
         lastVersionCheckMs = 0 // bypass cache
         lastPushedSha = null // allow manual retry
+        isManualCheck = true
         onBridgeConnected(bridgeInfo)
     }
 
@@ -240,6 +246,17 @@ class BridgeUpdateManager(
         _updateState.value = BridgeUpdateState.UPDATE_AVAILABLE
         _updateMessage.value = "Update available: ${release.version}"
         addHistory("Update available: ${bridgeInfo.bridgeVersion ?: "?"} → ${release.version}")
+
+        // Guard: bridge is running a local/dev build — don't auto-overwrite it.
+        // Manual trigger from Settings bypasses this (user explicitly confirmed).
+        val buildSource = bridgeInfo.buildSource
+        if (buildSource == "local" && !isManualCheck) {
+            Log.i(TAG, "Bridge is a local/dev build — skipping auto-update")
+            DiagnosticLog.i("update", "Bridge has build_source=local — requires manual confirmation to overwrite with GitHub release")
+            _updateMessage.value = "Bridge is a dev build — use Settings to update to ${release.version}"
+            addHistory("Skipped: bridge is a local/dev build")
+            return
+        }
 
         // Guard: if we already pushed this exact binary and the bridge still has a
         // different SHA, something replaced it (dev deployed a local build). Don't loop.

@@ -34,7 +34,10 @@ object ControlMessageSerializer {
                 videoPort = obj["video_port"]?.jsonPrimitive?.content?.toIntOrNull() ?: 5290,
                 audioPort = obj["audio_port"]?.jsonPrimitive?.content?.toIntOrNull() ?: 5289,
                 bridgeVersion = obj["bridge_version"]?.jsonPrimitive?.content,
-                bridgeSha256 = obj["bridge_sha256"]?.jsonPrimitive?.content
+                bridgeSha256 = obj["bridge_sha256"]?.jsonPrimitive?.content,
+                protocolVersion = obj["protocol_version"]?.jsonPrimitive?.content?.toIntOrNull(),
+                minProtocolVersion = obj["min_protocol_version"]?.jsonPrimitive?.content?.toIntOrNull(),
+                buildSource = obj["build_source"]?.jsonPrimitive?.content
             )
 
             "phone_connected" -> ControlMessage.PhoneConnected(
@@ -196,6 +199,8 @@ object ControlMessageSerializer {
                 put("display_width", message.displayWidth)
                 put("display_height", message.displayHeight)
                 put("display_dpi", message.displayDpi)
+                put("protocol_version", message.protocolVersion)
+                put("min_protocol_version", message.minProtocolVersion)
                 if (message.cutoutTop != 0 || message.cutoutBottom != 0 ||
                     message.cutoutLeft != 0 || message.cutoutRight != 0) {
                     put("cutout_top", message.cutoutTop)

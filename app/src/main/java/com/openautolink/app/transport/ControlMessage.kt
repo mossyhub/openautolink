@@ -12,6 +12,13 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 sealed class ControlMessage {
 
+    companion object {
+        /** Current OAL protocol version this app speaks. */
+        const val PROTOCOL_VERSION = 1
+        /** Oldest protocol version this app can talk to. */
+        const val MIN_PROTOCOL_VERSION = 1
+    }
+
     // Bridge → App
     data class Hello(
         val version: Int,
@@ -21,6 +28,9 @@ sealed class ControlMessage {
         val audioPort: Int,
         val bridgeVersion: String? = null,
         val bridgeSha256: String? = null,
+        val protocolVersion: Int? = null,
+        val minProtocolVersion: Int? = null,
+        val buildSource: String? = null,
     ) : ControlMessage()
 
     data class PhoneConnected(
@@ -129,6 +139,8 @@ sealed class ControlMessage {
         val barBottom: Int = 0,
         val barLeft: Int = 0,
         val barRight: Int = 0,
+        val protocolVersion: Int = PROTOCOL_VERSION,
+        val minProtocolVersion: Int = MIN_PROTOCOL_VERSION,
     ) : ControlMessage()
 
     data class Touch(

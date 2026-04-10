@@ -100,7 +100,8 @@ jobs:
             -DSKIP_BUILD_ABSL=ON \
             -DSKIP_BUILD_PROTOBUF=ON \
             -DBUILD_AASDK_STATIC=ON \
-            -DOAL_BRIDGE_VERSION="${BRIDGE_VERSION}"
+            -DOAL_BRIDGE_VERSION="${BRIDGE_VERSION}" \
+            -DOAL_BUILD_SOURCE="github"
 
           cmake --build . --target openautolink-headless -j$(nproc)
           aarch64-linux-gnu-strip openautolink-headless
