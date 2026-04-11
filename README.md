@@ -253,13 +253,21 @@ The SBC, adapter, and cable can usually live entirely inside the center console 
 
 ### Bridge Setup
 
-No local build is required for a normal install. The SBC install flow downloads the latest prebuilt bridge binary from GitHub Releases.
+No local build is required. The SBC install script downloads the latest prebuilt bridge binary from GitHub Releases.
 
-Follow the [Bridge Setup Guide](bridge/sbc/BUILD.md), then run:
+1. Flash [DietPi](https://dietpi.com/) (or any ARM64 Linux server image) onto your SBC.
+2. Connect the SBC's onboard Ethernet to your router or laptop to get a DHCP address.
+3. SSH in and run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/bridge/sbc/install.sh | sudo bash
 ```
+
+The installer downloads packages, deploys the bridge, and applies the network configuration. When it finishes, it prints a summary showing that the onboard Ethernet is now a static car connection and the WiFi radio is a phone hotspot — **the SBC no longer has internet or general SSH access through those adapters.**
+
+After a reboot, all services start automatically and the bridge is ready for the car.
+
+See the [Bridge Setup Guide](bridge/sbc/BUILD.md) for configuration, SSH access after install, and troubleshooting.
 
 ### App Setup
 

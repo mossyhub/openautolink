@@ -5,12 +5,12 @@
 This guide walks you through setting up the bridge on an SBC. The process is:
 
 1. Flash a Linux OS onto your SBC (you do this yourself)
-2. Get SSH access while the SBC still has internet
-3. Run the install script (downloads everything from GitHub)
-4. Edit config if needed
-5. Reboot — **after reboot, the SBC's network adapters are reconfigured for the car and phone, so internet access is no longer available**
+2. Get SSH access while the SBC still has internet (via router or laptop)
+3. Run the one-line install script (downloads everything from GitHub)
+4. Edit config if needed (optional — defaults work for most GM EVs)
+5. Reboot — the bridge starts automatically
 
-> **Important:** The install script must be run while the SBC has internet access (to download packages and the bridge binary). After reboot, the onboard Ethernet becomes the car connection and the WiFi radio becomes connection for the phone to bridge AA communication — neither provides internet. Make sure you're happy with your config before rebooting.
+> **After install and reboot, the SBC's onboard Ethernet becomes the car connection (static IP) and the WiFi radio becomes a phone hotspot. The SBC will no longer be reachable via your home network.** This is by design — the bridge doesn't need internet at runtime, and it auto-updates via the car app. See [SSH Access After Install](#ssh-access-after-install) if you need to get back in.
 
 ## What You Need
 
@@ -24,49 +24,30 @@ This guide walks you through setting up the bridge on an SBC. The process is:
 
 ## Step 1: Flash an OS
 
-Flash a lightweight **64-bit Linux** to your SBC's storage:
+Flash a lightweight **64-bit Linux** to your SBC's storage. [DietPi](https://dietpi.com/) is recommended — it's minimal, boots fast, and supports most ARM64 boards out of the box.
 
 | SBC | Recommended OS | Flash Tool |
 |-----|---------------|------------|
 | Raspberry Pi 4 or 5 / CM5 | [DietPi (RPi)](https://dietpi.com/downloads/#raspberry-pi) or [Raspberry Pi OS Lite 64-bit](https://www.raspberrypi.com/software/) | Raspberry Pi Imager / Etcher |
-| Orange Pi 5B / 3B | [DietPi (Orange Pi)](https://dietpi.com/downloads/#orange-pi) | Etcher / dd |
+| Orange Pi Zero 2 / 3B / 5B | [DietPi (Orange Pi)](https://dietpi.com/downloads/#orange-pi) or [Armbian](https://www.armbian.com/) | Etcher / dd |
 | Radxa ROCK 5B / 3A / 3C | [DietPi (Radxa)](https://dietpi.com/downloads/#radxa) | Etcher / dd |
 | Khadas VIM4 | [DietPi (Khadas)](https://dietpi.com/downloads/#khadas) or [Ubuntu 22.04 Server](https://www.khadas.com/vim4) | Khadas Burn Tool / dd |
 | Generic ARM64 | DietPi (see [supported hardware](https://dietpi.com/docs/hardware/)) or Ubuntu Server 22.04+ | Etcher / dd |
 
 **Important**: Use the **server/lite** variant (no desktop). A GUI wastes RAM and isn't needed.
 
-When flashing with Raspberry Pi Imager, enable SSH and set a username/password in the advanced settings.
-
 ## Step 2: Get SSH Access (with Internet)
 
-You need SSH access **while the SBC can still reach the internet**. Pick one:
+The SBC needs internet to download packages during install. Connect its onboard Ethernet to anything that provides DHCP and internet:
 
-### Option A: Ethernet cable to your router
-1. Plug an Ethernet cable between the SBC's onboard Ethernet and your router
-2. Power on the SBC and wait ~30 seconds for boot
-3. Find its IP:
-   - Router admin page, or
-   - `arp -a` on your laptop, or
-   - `ping raspberrypi.local` (if mDNS works)
-4. SSH in: `ssh pi@<IP>` (or whatever username you set)
+- **Home router** — plug the SBC's Ethernet into a LAN port, find its IP via `arp -a` or your router's admin page
+- **Laptop with ICS** — share your laptop's WiFi to a USB Ethernet adapter via Windows Internet Connection Sharing, connect the SBC's Ethernet to that adapter (it gets a 192.168.137.x IP)
 
-### Option B: Windows WiFi sharing (ICS)
-1. Plug a USB Ethernet adapter into your Windows laptop
-2. Share your laptop's WiFi to the USB adapter via Internet Connection Sharing (ICS):
-   - Network Settings → WiFi adapter → Properties → Sharing → "Allow other network users to connect"
-   - Select the USB Ethernet adapter as the home networking connection
-3. Connect the SBC's onboard Ethernet to the USB adapter with a cable
-4. Power on the SBC — it gets an IP via DHCP from Windows (192.168.137.x range)
-5. Find it: `arp -a` (look for 192.168.137.x entries)
-6. SSH in: `ssh pi@192.168.137.x`
+SSH in with whatever credentials came with your OS image (DietPi default: `root` / `dietpi`):
 
-> This approach gives the SBC internet through your laptop's WiFi, which is needed for the install script. After OpenAutoLink is installed and rebooted, the SBC no longer needs this — you can unplug the USB adapter.
-
-### Option C: USB serial console (Raspberry Pi)
-1. Connect a USB-to-UART adapter to the GPIO pins
-2. Open a serial terminal (PuTTY, `screen /dev/ttyUSB0 115200`)
-3. Log in, then ensure the SBC has internet (e.g., plug Ethernet into a router)
+```bash
+ssh root@<IP>
+```
 
 ## Step 3: Install OpenAutoLink
 
@@ -90,9 +71,34 @@ The installer will:
 3. Deploy scripts and config to `/opt/openautolink/`
 4. Create `/etc/openautolink.env` (your main config file)
 5. Configure USB gadget support (Raspberry Pi auto-detected)
-6. Set up mDNS discovery (Avahi) so the car app can find the bridge automatically
+6. Set hostname to `openautolink` and enable mDNS (Avahi)
 7. Create an `openautolink` user with passwordless sudo
 8. Install and enable systemd services
+9. Apply the network configuration immediately
+
+When the script finishes, it prints a summary like:
+
+```
+=== Installation complete ===
+
+  Binary:   /opt/openautolink/bin/openautolink-headless
+  Hostname: openautolink
+  Version:  v0.1.81
+
+  Network (active now):
+    Onboard NIC (eth0) -> 192.168.222.222  (car connection)
+    USB NIC (if plugged in)    -> DHCP        (SSH access)
+    WiFi radio                 -> phone hotspot (after reboot)
+
+  To SSH into the SBC in the car:
+    - Plug a USB Ethernet adapter into the SBC
+    - It picks up DHCP automatically from your network
+    - Or connect to the OpenAutoLink WiFi, SSH to 192.168.43.1
+
+  Reboot to start all services: sudo reboot
+```
+
+The onboard Ethernet now has a static IP for the car. The WiFi hotspot and bridge services start after reboot.
 
 ## Step 4: Configure (Do This Before Rebooting)
 
@@ -123,26 +129,47 @@ See the comments in the env file for all options.
 sudo reboot
 ```
 
-> **After this reboot, the SBC's network adapters are reconfigured:**
-> - **Onboard Ethernet** → static IP `192.168.222.222` for the car connection
-> - **WiFi radio** → access point for the phone (SSID auto-generated, password saved to `/opt/openautolink/wifi-password.txt`)
-> - **Internet access** → gone (neither adapter connects to the internet anymore)
+After reboot, all services start automatically. The bridge is ready for the car.
 
-The bridge starts automatically on boot. 
+## SSH Access After Install
 
-### Accessing the SBC After Reboot
+After install, the SBC's onboard Ethernet is dedicated to the car and the WiFi radio is a phone hotspot. **You do not need SSH access for normal operation** — the bridge auto-updates itself via the car app (new releases are pushed over TCP from the AAOS app).
 
-Since the SBC no longer has a normal network connection, you have two options:
+SSH is only needed for development, debugging, or recovery. Two options:
 
-1. **SSH via the WiFi AP**: Connect your laptop to the OpenAutoLink WiFi network (check the SSID/password), then SSH to `192.168.43.1`
-2. **Plug in a USB Ethernet adapter** (a second one, not the one going to the car): The SBC will assign it an SSH role. With the default static mode, SSH to `192.168.137.2`
+### Option 1: USB Ethernet adapter (recommended)
+
+Plug a USB Ethernet adapter into the SBC and connect it to a network with DHCP (router, or a laptop with Windows ICS sharing its WiFi). The SBC requests a DHCP address automatically on any USB NIC.
+
+To find it, connect your laptop to the same network and use mDNS:
+
+```bash
+ssh root@openautolink.local
+```
+
+Or find the IP via `arp -a` and connect directly.
+
+> **Tip for developers**: Set up key-based SSH and add this to your `~/.ssh/config` so you can `ssh openautolink` regardless of which SBC is plugged in:
+> ```
+> Host openautolink
+>     HostName openautolink.local
+>     User root
+>     StrictHostKeyChecking no
+>     UserKnownHostsFile NUL
+> ```
+> `UserKnownHostsFile NUL` avoids host-key conflicts when swapping between multiple SBCs that share the same hostname.
+
+### Option 2: WiFi AP
+
+Connect your laptop to the OpenAutoLink WiFi network (the SSID and password are printed at first boot and saved to `/opt/openautolink/wifi-password.txt`), then SSH to `192.168.43.1`.
 
 ## Updating
 
-To update, you need to temporarily give the SBC internet access again:
+The bridge auto-updates itself. When the car app detects a newer release on GitHub, it pushes the update to the bridge over TCP. No manual action or internet access is needed on the SBC.
 
-1. Plug it into a router via Ethernet, or use the laptop WiFi sharing (ICS) setup from Step 2
-2. SSH in and run the installer again:
+To disable auto-update (for development): set `OAL_BRIDGE_UPDATE_MODE=disabled` in `/etc/openautolink.env`.
+
+To manually update (e.g., if you need to update the install scripts or system packages), give the SBC temporary internet access via a USB Ethernet adapter and run the installer again:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/bridge/sbc/install.sh | sudo bash

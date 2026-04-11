@@ -52,6 +52,21 @@ WIFI_IP = "192.168.43.1"
 WIFI_PORT = int(os.environ.get("OAL_PHONE_TCP_PORT", os.environ.get("PI_AA_BACKEND_TCP_PORT", "5277")))
 WIFI_BSSID = "00:00:00:00:00:00"  # filled at runtime from wlan0 MAC
 
+# BT name — auto-generated from BT MAC suffix to be unique per SBC
+def _get_bt_name():
+    name = os.environ.get("OAL_BT_NAME", "")
+    if name:
+        return name
+    # Derive from BT adapter MAC (last 4 hex chars)
+    try:
+        with open("/sys/class/bluetooth/hci0/address") as f:
+            mac = f.read().strip().replace(":", "")[-4:].upper()
+    except Exception:
+        mac = "0000"
+    return f"OpenAutoLink-{mac}"
+
+BT_NAME = _get_bt_name()
+
 # ---- Minimal protobuf encoding (no library needed) ----
 def _varint(v):
     r = []
@@ -396,7 +411,7 @@ class BLEAd(dbus.service.Object):
     def Get(self, i, p): return self.GetAll(i)[p]
     @dbus.service.method("org.freedesktop.DBus.Properties", in_signature="s", out_signature="a{sv}")
     def GetAll(self, i):
-        return {"Type": dbus.String("peripheral"), "ServiceUUIDs": dbus.Array([AA_UUID], signature="s"), "LocalName": dbus.String("OpenAutoLink")}
+        return {"Type": dbus.String("peripheral"), "ServiceUUIDs": dbus.Array([AA_UUID], signature="s"), "LocalName": dbus.String(BT_NAME)}
     @dbus.service.method(LE_AD_IFACE, in_signature="", out_signature="")
     def Release(self): pass
 
@@ -478,7 +493,7 @@ ap.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(True))
 ap.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(True))
 ap.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
 ap.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(0))
-ap.Set("org.bluez.Adapter1", "Alias", "OpenAutoLink")
+ap.Set("org.bluez.Adapter1", "Alias", BT_NAME)
 # Set device class and SSP mode. These require raw HCI ioctls that BlueZ
 # doesn't expose via D-Bus. hciconfig wraps them — one-shot, not a process.
 import subprocess

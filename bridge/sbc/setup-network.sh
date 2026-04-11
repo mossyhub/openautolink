@@ -43,30 +43,56 @@ SSH_IFACE=""
 #   RPi:   eth0
 #   Radxa: end0
 #   Others: enp*, eno*, ens*
-# USB NICs typically show as enx* (MAC-based name) or usb0 (gadget).
+# USB NICs typically show as enx* (MAC-based name) or eth0/eth1 on DietPi.
+# We distinguish by checking if the device lives on the USB bus (sysfs path
+# contains "/usb") vs platform/PCI bus (onboard).
+
+is_usb_nic() {
+    local iface="$1"
+    local devpath=$(readlink -f "/sys/class/net/$iface/device" 2>/dev/null)
+    case "$devpath" in
+        */usb*) return 0 ;;
+        *)      return 1 ;;
+    esac
+}
+
 find_onboard_nic() {
-    # Check common onboard NIC names in priority order
+    # First pass: check common names, but verify they're NOT USB
     for name in eth0 end0; do
-        if [ -d "/sys/class/net/$name" ]; then
+        if [ -d "/sys/class/net/$name" ] && ! is_usb_nic "$name"; then
             echo "$name"
             return 0
         fi
     done
-    # Fallback: first non-lo, non-usb, non-wlan, non-enx interface
+    # Second pass: any non-lo, non-usb-bus, non-wlan interface
     for path in /sys/class/net/*; do
         local iface=$(basename "$path")
         case "$iface" in
             lo|usb*|wlan*|enx*) continue ;;
-            *) echo "$iface"; return 0 ;;
+            *)
+                if ! is_usb_nic "$iface"; then
+                    echo "$iface"
+                    return 0
+                fi
+                ;;
         esac
     done
     return 1
 }
 
-# Find USB/external NICs (enx* = MAC-based naming from udev)
+# Find USB/external NICs
 find_usb_nics() {
+    # enx* = MAC-based naming from udev (common on Ubuntu/Debian)
     for path in /sys/class/net/enx*; do
         [ -d "$path" ] && basename "$path"
+    done
+    # Also check eth* interfaces that are actually on the USB bus (DietPi)
+    for path in /sys/class/net/eth*; do
+        [ -d "$path" ] || continue
+        local iface=$(basename "$path")
+        if is_usb_nic "$iface"; then
+            echo "$iface"
+        fi
     done
 }
 
@@ -80,6 +106,9 @@ fi
 assign_car_ip() {
     local iface="$1"
     echo "[net] Car network: $iface → $CAR_IP/$CAR_MASK"
+    # Kill any DHCP client that DietPi/ifupdown may have started on this NIC
+    pkill -f "dhclient.*$iface" 2>/dev/null || true
+    pkill -f "dhcpcd.*$iface" 2>/dev/null || true
     ip addr flush dev "$iface" 2>/dev/null || true
     ip addr add "$CAR_IP/$CAR_MASK" dev "$iface" 2>/dev/null || true
     ip link set "$iface" up
@@ -110,7 +139,13 @@ setup_ssh_dhcp() {
         echo "[net] SSH network: $iface → $SSH_IP (static mode)"
         ip addr flush dev "$iface" 2>/dev/null || true
         ip addr add "$SSH_IP/24" dev "$iface" 2>/dev/null || true
-        echo "[net] SSH ready: connect to $SSH_IP"
+        # Derive gateway from IP (assume .1 on same subnet)
+        local gw=$(echo "$SSH_IP" | sed 's/\.[0-9]*$/.1/')
+        ip route add default via "$gw" dev "$iface" 2>/dev/null || true
+        # Ensure DNS works
+        echo "nameserver $gw" > /etc/resolv.conf 2>/dev/null || true
+        echo "nameserver 8.8.8.8" >> /etc/resolv.conf 2>/dev/null || true
+        echo "[net] SSH ready: connect to $SSH_IP (gateway $gw)"
     elif [ "$ssh_mode" = "dhcp-server" ]; then
         echo "[net] SSH network: $iface → $SSH_IP (DHCP server mode)"
         ip addr flush dev "$iface" 2>/dev/null || true
@@ -133,10 +168,13 @@ EOF
         echo "[net] SSH ready: connect to $SSH_IP"
     else
         echo "[net] SSH network: $iface → DHCP client (getting IP from other end)"
-        # Request IP via DHCP — works with laptop WiFi sharing (ICS)
+        # Request IP via DHCP — works with laptop WiFi sharing (ICS), routers, etc.
+        # Kill any stale DHCP clients on this interface first
+        pkill -f "dhclient.*$iface" 2>/dev/null || true
         ip addr flush dev "$iface" 2>/dev/null || true
         if command -v dhclient > /dev/null 2>&1; then
-            dhclient "$iface" -timeout 15 2>/dev/null &
+            # Run dhclient as a daemon — it will keep retrying in background
+            dhclient "$iface" 2>/dev/null &
         elif command -v dhcpcd > /dev/null 2>&1; then
             dhcpcd "$iface" --timeout 15 2>/dev/null &
         elif command -v udhcpc > /dev/null 2>&1; then

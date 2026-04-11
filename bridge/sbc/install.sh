@@ -33,7 +33,7 @@ if [ "$ARCH" != "aarch64" ]; then
 fi
 
 # ── 1. System packages ───────────────────────────────────────────────
-echo ">>> [1/6] Installing system packages..."
+echo ">>> [1/8] Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq \
     hostapd dnsmasq \
@@ -43,7 +43,7 @@ apt-get install -y -qq \
 echo ""
 
 # ── 2. Download latest release from GitHub ────────────────────────────
-echo ">>> [2/6] Downloading latest release..."
+echo ">>> [2/8] Downloading latest release..."
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR"
 
@@ -93,7 +93,7 @@ done
 echo ""
 
 # ── 3. Deploy files ──────────────────────────────────────────────────
-echo ">>> [3/6] Installing to ${INSTALL_DIR}..."
+echo ">>> [3/8] Installing to ${INSTALL_DIR}..."
 mkdir -p "${INSTALL_DIR}/bin" "${INSTALL_DIR}/scripts"
 
 # Binary
@@ -142,7 +142,7 @@ fi
 echo ""
 
 # ── 4. USB gadget + kernel modules (only if not using external-nic) ──
-echo ">>> [4/7] Checking car network mode..."
+echo ">>> [4/8] Checking car network mode..."
 source /etc/openautolink.env 2>/dev/null || true
 if [ "${OAL_CAR_NET_MODE:-external-nic}" != "external-nic" ]; then
     if [ -f /boot/firmware/config.txt ]; then
@@ -166,14 +166,14 @@ fi
 echo ""
 
 # ── 5. Hostname + mDNS ───────────────────────────────────────────────
-echo ">>> [5/7] Setting hostname..."
+echo ">>> [5/8] Setting hostname..."
 hostnamectl set-hostname openautolink 2>/dev/null || true
 grep -q "openautolink" /etc/hosts || echo "127.0.1.1 openautolink" >> /etc/hosts
 echo "  Hostname: openautolink"
 echo ""
 
 # ── 6. Service user ──────────────────────────────────────────────────
-echo ">>> [6/7] Setting up openautolink user..."
+echo ">>> [6/8] Setting up openautolink user..."
 if ! id openautolink &>/dev/null; then
     useradd -m -s /bin/bash -G sudo openautolink
     echo "openautolink:openautolink" | chpasswd
@@ -188,7 +188,7 @@ echo "  Passwordless sudo configured"
 echo ""
 
 # ── 7. Systemd services ──────────────────────────────────────────────
-echo ">>> [7/7] Installing systemd services..."
+echo ">>> [7/8] Installing systemd services..."
 for svc in openautolink.service openautolink-network.service \
            openautolink-wireless.service openautolink-bt.service; do
     if [ -f "${TMP_DIR}/${svc}" ]; then
@@ -203,41 +203,72 @@ systemctl daemon-reload
 systemctl enable openautolink-network openautolink openautolink-wireless 2>/dev/null || true
 systemctl enable openautolink-bt 2>/dev/null || true
 
+# Disable DietPi/ifupdown DHCP on ethernet — our network service manages NICs
+if [ -f /etc/network/interfaces ]; then
+    if grep -q "^allow-hotplug eth0" /etc/network/interfaces || \
+       grep -q "^iface eth0 inet dhcp" /etc/network/interfaces; then
+        sed -i 's/^allow-hotplug eth0/#allow-hotplug eth0/' /etc/network/interfaces
+        sed -i 's/^iface eth0 inet dhcp/#iface eth0 inet dhcp/' /etc/network/interfaces
+        echo "  Disabled DietPi DHCP on eth0 (our network service manages NICs)"
+    fi
+fi
+
 # Clean up
 rm -rf "$TMP_DIR"
+
+# ── 8. Apply network now ─────────────────────────────────────────────
+echo ">>> [8/8] Applying network configuration..."
+echo ""
+
+# Detect the onboard NIC (not USB — check sysfs bus path)
+ONBOARD_NIC=""
+for name in eth0 end0; do
+    if [ -d "/sys/class/net/$name" ]; then
+        devpath=$(readlink -f "/sys/class/net/$name/device" 2>/dev/null)
+        case "$devpath" in */usb*) continue ;; esac
+        ONBOARD_NIC="$name"
+        break
+    fi
+done
+if [ -z "$ONBOARD_NIC" ]; then
+    for path in /sys/class/net/*; do
+        iface=$(basename "$path")
+        case "$iface" in lo|usb*|wlan*|enx*) continue ;; esac
+        devpath=$(readlink -f "/sys/class/net/$iface/device" 2>/dev/null)
+        case "$devpath" in */usb*) continue ;; esac
+        ONBOARD_NIC="$iface"
+        break
+    done
+fi
+
+source /etc/openautolink.env 2>/dev/null || true
+CAR_IP="${OAL_CAR_NET_IP:-192.168.222.222}"
+
+# Start the network service now (assigns car IP to onboard NIC)
+systemctl start openautolink-network 2>/dev/null || true
 
 echo ""
 echo "=== Installation complete ==="
 echo ""
-echo "  Binary:  ${INSTALL_DIR}/bin/openautolink-headless"
-echo "  Config:  /etc/openautolink.env"
+echo "  Binary:   ${INSTALL_DIR}/bin/openautolink-headless"
+echo "  Config:   /etc/openautolink.env"
+echo "  Hostname: openautolink"
 echo "  SSH user: openautolink (passwordless sudo)"
-echo "  Version: ${LATEST_TAG}"
+echo "  Version:  ${LATEST_TAG}"
 echo ""
-echo "  ┌──────────────────────────────────────────────────────────────┐"
-echo "  │  IMPORTANT: After reboot, the onboard Ethernet adapter     │"
-echo "  │  will be reconfigured for the car connection and the WiFi  │"
-echo "  │  radio becomes a phone hotspot. Internet access on the     │"
-echo "  │  SBC will no longer be available.                          │"
-echo "  │                                                            │"
-echo "  │  Make any config changes NOW, before rebooting.            │"
-echo "  │                                                            │"
-echo "  │  After reboot, you can still SSH into the SBC via the      │"
-echo "  │  WiFi AP (connect to the OpenAutoLink SSID, then SSH to    │"
-echo "  │  192.168.43.1).                                            │"
-echo "  └──────────────────────────────────────────────────────────────┘"
+echo "  Network (active now):"
+echo "    Onboard NIC (${ONBOARD_NIC:-unknown}) -> ${CAR_IP}  (car connection)"
+echo "    USB NIC (if plugged in)    -> DHCP        (SSH access)"
+echo "    WiFi radio                 -> phone hotspot (after reboot)"
 echo ""
-echo "  Next steps:"
-echo "    1. Edit /etc/openautolink.env to match your setup"
-echo "       (video resolution, codec, display insets, country code)"
-echo "    2. Reboot: sudo reboot"
-echo "    3. The bridge starts automatically on boot"
+echo "  To SSH into the SBC in the car:"
+echo "    - Plug a USB Ethernet adapter into the SBC"
+echo "    - It picks up DHCP automatically from your network"
+echo "    - Or connect to the OpenAutoLink WiFi, SSH to 192.168.43.1"
 echo ""
 echo "  Updates:"
-echo "    The bridge binary updates automatically — the car app checks"
-echo "    GitHub for new releases and pushes updates over TCP."
-echo "    No manual action needed after initial install."
+echo "    The bridge auto-updates via the car app. No manual action needed."
+echo "    To disable: Set OAL_BRIDGE_UPDATE_MODE=disabled in /etc/openautolink.env"
 echo ""
-echo "    To disable auto-update (for development):"
-echo "      Set OAL_BRIDGE_UPDATE_MODE=disabled in /etc/openautolink.env"
+echo "  Reboot to start all services: sudo reboot"
 echo ""
