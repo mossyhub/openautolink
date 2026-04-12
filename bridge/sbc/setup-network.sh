@@ -115,6 +115,56 @@ assign_car_ip() {
     CAR_IFACE="$iface"
 }
 
+schedule_static_ssh_reconcile() {
+    local iface="$1"
+    local gw="$2"
+    local script="/run/openautolink-ssh-reconcile.sh"
+
+    cat > "$script" <<EOF
+#!/bin/bash
+set -eu
+
+iface="$iface"
+ssh_ip="$SSH_IP"
+gw="$gw"
+
+for _ in \
+    \
+    $(seq 1 300); do
+    [ -d "/sys/class/net/\$iface" ] || {
+        sleep 1
+        continue
+    }
+
+    carrier=\$(cat "/sys/class/net/\$iface/carrier" 2>/dev/null || echo 0)
+    has_ip=\$(ip -4 -o addr show dev "\$iface" | grep -F "\$ssh_ip/" || true)
+
+    if [ "\$carrier" = "1" ] && [ -n "\$has_ip" ]; then
+        exit 0
+    fi
+
+    if [ "\$carrier" = "1" ]; then
+        ip addr flush dev "\$iface" 2>/dev/null || true
+        ip addr add "\$ssh_ip/24" dev "\$iface" 2>/dev/null || true
+        ip route replace default via "\$gw" dev "\$iface" 2>/dev/null || true
+        {
+            echo "nameserver \$gw"
+            echo "nameserver 8.8.8.8"
+        } > /etc/resolv.conf 2>/dev/null || true
+        logger -t openautolink-network "[net] Reapplied static SSH IP \$ssh_ip on \$iface after late carrier"
+        exit 0
+    fi
+
+    sleep 1
+done
+
+exit 0
+EOF
+
+    chmod 700 "$script"
+    nohup "$script" >/dev/null 2>&1 &
+}
+
 setup_ssh_dhcp() {
     local iface="$1"
     SSH_IFACE="$iface"
@@ -141,10 +191,11 @@ setup_ssh_dhcp() {
         ip addr add "$SSH_IP/24" dev "$iface" 2>/dev/null || true
         # Derive gateway from IP (assume .1 on same subnet)
         local gw=$(echo "$SSH_IP" | sed 's/\.[0-9]*$/.1/')
-        ip route add default via "$gw" dev "$iface" 2>/dev/null || true
+        ip route replace default via "$gw" dev "$iface" 2>/dev/null || true
         # Ensure DNS works
         echo "nameserver $gw" > /etc/resolv.conf 2>/dev/null || true
         echo "nameserver 8.8.8.8" >> /etc/resolv.conf 2>/dev/null || true
+        schedule_static_ssh_reconcile "$iface" "$gw"
         echo "[net] SSH ready: connect to $SSH_IP (gateway $gw)"
     elif [ "$ssh_mode" = "dhcp-server" ]; then
         echo "[net] SSH network: $iface → $SSH_IP (DHCP server mode)"
