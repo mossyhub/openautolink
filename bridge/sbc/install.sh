@@ -237,6 +237,17 @@ if [ -f /etc/network/interfaces ]; then
     fi
 fi
 
+# Disable Armbian's blanket netplan DHCP-on-all-ethernet config. It makes
+# systemd-networkd reclaim eth0/eth1 later in boot and override the static
+# addresses assigned by openautolink-network.
+if [ -f /etc/netplan/10-dhcp-all-interfaces.yaml ]; then
+    mkdir -p /etc/netplan/disabled
+    mv /etc/netplan/10-dhcp-all-interfaces.yaml \
+       /etc/netplan/disabled/10-dhcp-all-interfaces.yaml.disabled
+    netplan generate 2>/dev/null || true
+    echo "  Disabled Armbian netplan DHCP-all-ethernet config"
+fi
+
 # Clean up
 rm -rf "$TMP_DIR"
 
