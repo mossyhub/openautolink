@@ -194,7 +194,7 @@ adb reverse tcp:5289 tcp:5289
 adb reverse tcp:5290 tcp:5290
 
 # SSH tunnel: host localhost → VIM4 bridge ports
-ssh -N -L 5288:localhost:5288 -L 5289:localhost:5289 -L 5290:localhost:5290 oal-sbc
+ssh -N -L 5288:localhost:5288 -L 5289:localhost:5289 -L 5290:localhost:5290 openautolink
 ```
 
 Set the app's bridge IP to `127.0.0.1` in Settings > Connection.
@@ -203,16 +203,16 @@ Set the app's bridge IP to `127.0.0.1` in Settings > Connection.
 
 ```powershell
 # Check bridge service status
-ssh oal-sbc 'systemctl is-active openautolink.service openautolink-bt.service openautolink-wireless.service'
+ssh openautolink 'systemctl is-active openautolink.service openautolink-bt.service openautolink-wireless.service'
 
 # Check video stats (0 drops = healthy)
-ssh oal-sbc "sudo journalctl -u openautolink.service --since '2 min ago' --no-pager | grep 'OAL.*video'" | Select-Object -Last 5
+ssh openautolink "sudo journalctl -u openautolink.service --since '2 min ago' --no-pager | grep 'OAL.*video'" | Select-Object -Last 5
 
 # Check paired phones
-ssh oal-sbc "bluetoothctl devices Paired"
+ssh openautolink "bluetoothctl devices Paired"
 
 # Check TCP listeners
-ssh oal-sbc "ss -tlnp | grep -E '5288|5289|5290'"
+ssh openautolink "ss -tlnp | grep -E '5288|5289|5290'"
 ```
 
 ## App Lifecycle

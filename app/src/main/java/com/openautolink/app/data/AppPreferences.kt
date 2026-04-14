@@ -588,6 +588,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         config["head_unit_name"] = prefs[HEAD_UNIT_NAME] ?: DEFAULT_HEAD_UNIT_NAME
         val btMac = prefs[BT_MAC] ?: DEFAULT_BT_MAC
         if (btMac.isNotBlank()) config["bt_mac"] = btMac
+        config["default_phone_mac"] = prefs[DEFAULT_PHONE_MAC] ?: DEFAULT_DEFAULT_PHONE_MAC
         config["phone_mode"] = prefs[PHONE_MODE] ?: DEFAULT_PHONE_MODE
         config["wifi_band"] = prefs[WIFI_BAND] ?: DEFAULT_WIFI_BAND
         config["wifi_country"] = prefs[WIFI_COUNTRY] ?: DEFAULT_WIFI_COUNTRY

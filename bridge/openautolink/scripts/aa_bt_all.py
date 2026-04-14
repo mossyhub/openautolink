@@ -51,6 +51,9 @@ WIFI_KEY = os.environ.get("OAL_WIRELESS_PASSWORD", os.environ.get("PI_AA_WIRELES
 WIFI_IP = "192.168.43.1"
 WIFI_PORT = int(os.environ.get("OAL_PHONE_TCP_PORT", os.environ.get("PI_AA_BACKEND_TCP_PORT", "5277")))
 WIFI_BSSID = "00:00:00:00:00:00"  # filled at runtime from wlan0 MAC
+RECONNECT_INITIAL_DELAY_SEC = 5
+RECONNECT_INTERVAL_SEC = 15
+RECONNECT_ACTIVITY_GRACE_SEC = 10
 
 # BT name — unique per SBC, derived from machine-id (always available on any Linux)
 def _get_bt_name():
@@ -66,6 +69,123 @@ def _get_bt_name():
     return f"OpenAutoLink-{suffix}"
 
 BT_NAME = _get_bt_name()
+last_bt_activity_at = 0.0
+
+def _normalize_mac(mac):
+    return mac.strip().upper()
+
+def _mark_bt_activity():
+    global last_bt_activity_at
+    last_bt_activity_at = time.monotonic()
+
+def _read_env_value(key):
+    for env_path in ("/etc/openautolink.env", "/boot/firmware/openautolink.env"):
+        try:
+            with open(env_path) as env_file:
+                for line in env_file:
+                    if line.startswith(key + "="):
+                        return line.split("=", 1)[1].strip()
+        except Exception:
+            pass
+    return ""
+
+def _preferred_bt_mac():
+    return _normalize_mac(_read_env_value("OAL_DEFAULT_PHONE_MAC"))
+
+def _get_managed_objects():
+    obj_mgr = dbus.Interface(bus.get_object("org.bluez", "/"),
+                             "org.freedesktop.DBus.ObjectManager")
+    return obj_mgr.GetManagedObjects()
+
+def _wait_for_adapter_properties(timeout_sec=15):
+    deadline = time.monotonic() + timeout_sec
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            objects = _get_managed_objects()
+            if "/org/bluez/hci0" in objects and "org.bluez.Adapter1" in objects["/org/bluez/hci0"]:
+                return dbus.Interface(bus.get_object("org.bluez", "/org/bluez/hci0"),
+                                      "org.freedesktop.DBus.Properties")
+        except Exception as exc:
+            last_error = exc
+        time.sleep(0.5)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Bluetooth adapter /org/bluez/hci0 not available")
+
+def _paired_devices(objects):
+    devices = []
+    for path, ifaces in objects.items():
+        props = ifaces.get("org.bluez.Device1")
+        if not props or not props.get("Paired", False):
+            continue
+        devices.append((path, props, _normalize_mac(str(props.get("Address", "")))))
+    return devices
+
+def _sort_paired_devices(devices, preferred_mac):
+    if not preferred_mac:
+        return devices
+    preferred = []
+    fallback = []
+    for device in devices:
+        if device[2] == preferred_mac:
+            preferred.append(device)
+        else:
+            fallback.append(device)
+    return preferred + fallback
+
+def _connect_device(path):
+    print(f"Reconnect candidate: {path}", flush=True)
+    dev = dbus.Interface(bus.get_object("org.bluez", path),
+                         "org.bluez.Device1")
+    dp = dbus.Interface(bus.get_object("org.bluez", path),
+                        "org.freedesktop.DBus.Properties")
+    dp.Set("org.bluez.Device1", "Trusted", dbus.Boolean(True))
+
+    try:
+        dev.ConnectProfile(HFP_AG_UUID)
+        print(f"Connected HFP AG to {path}", flush=True)
+    except Exception as e2:
+        print(f"HFP AG connect {path}: {e2}", flush=True)
+        try:
+            dev.ConnectProfile(HSP_AG_UUID)
+            print(f"Connected HSP AG to {path}", flush=True)
+        except Exception as e3:
+            print(f"HSP AG connect {path}: {e3}", flush=True)
+
+    try:
+        dev.Connect()
+        print(f"Generic Connect to {path}", flush=True)
+    except Exception:
+        pass
+
+def _reconnect_worker():
+    time.sleep(RECONNECT_INITIAL_DELAY_SEC)
+    while True:
+        try:
+            objects = _get_managed_objects()
+            devices = _paired_devices(objects)
+            if not devices:
+                time.sleep(RECONNECT_INTERVAL_SEC)
+                continue
+
+            if any(bool(props.get("Connected", False)) for _, props, _ in devices):
+                time.sleep(RECONNECT_INTERVAL_SEC)
+                continue
+
+            if time.monotonic() - last_bt_activity_at < RECONNECT_ACTIVITY_GRACE_SEC:
+                time.sleep(RECONNECT_INTERVAL_SEC)
+                continue
+
+            preferred_mac = _preferred_bt_mac()
+            if preferred_mac:
+                print(f"Reconnect preferred MAC: {preferred_mac}", flush=True)
+
+            for path, _, _ in _sort_paired_devices(devices, preferred_mac):
+                _connect_device(path)
+        except Exception as e:
+            print(f"Phone connect: {e}", flush=True)
+        time.sleep(RECONNECT_INTERVAL_SEC)
 
 # ---- Minimal protobuf encoding (no library needed) ----
 def _varint(v):
@@ -158,6 +278,7 @@ class AAProfile(dbus.service.Object):
     @dbus.service.method(PROFILE_IFACE, in_signature="oha{sv}", out_signature="")
     def NewConnection(self, device, fd, props):
         fd = fd.take()
+        _mark_bt_activity()
         print(f"AA RFCOMM NewConnection from {device} fd={fd}", flush=True)
         threading.Thread(target=handle_aa_rfcomm, args=(fd,), daemon=True).start()
     @dbus.service.method(PROFILE_IFACE, in_signature="o", out_signature="")
@@ -168,6 +289,7 @@ class AAProfile(dbus.service.Object):
 class HSPProfile(dbus.service.Object):
     @dbus.service.method(PROFILE_IFACE, in_signature="oha{sv}", out_signature="")
     def NewConnection(self, device, fd, props):
+        _mark_bt_activity()
         print(f"HSP NewConnection from {device}", flush=True)
     @dbus.service.method(PROFILE_IFACE, in_signature="o", out_signature="")
     def RequestDisconnection(self, dev): print(f"HSP disconnect {dev}", flush=True)
@@ -389,6 +511,7 @@ def handle_hfp_rfcomm(fd, device):
         os.close(fd)
         hfp_connected_device = None
         hfp_slc_established = False
+        _mark_bt_activity()
         print("[HFP] disconnected", flush=True)
 
 
@@ -397,6 +520,7 @@ class HFPProfile(dbus.service.Object):
     @dbus.service.method(PROFILE_IFACE, in_signature="oha{sv}", out_signature="")
     def NewConnection(self, device, fd, props):
         fd = fd.take()
+        _mark_bt_activity()
         print(f"[HFP] NewConnection from {device} fd={fd}", flush=True)
         threading.Thread(target=handle_hfp_rfcomm, args=(fd, device), daemon=True).start()
     @dbus.service.method(PROFILE_IFACE, in_signature="o", out_signature="")
@@ -488,7 +612,7 @@ for p, i in objs.items():
         break
 
 # Adapter settings
-ap = dbus.Interface(bus.get_object("org.bluez", "/org/bluez/hci0"), "org.freedesktop.DBus.Properties")
+ap = _wait_for_adapter_properties()
 ap.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(True))
 ap.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(True))
 ap.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
@@ -511,48 +635,8 @@ try:
 except Exception:
     pass
 
-# Connect to first paired phone's HFP AG (then HSP AG as fallback) after delay.
-# This triggers BT reconnection on boot — the phone sees the connection and
-# may auto-start Android Auto (which initiates WiFi TCP to the bridge).
-def do_connect():
-    time.sleep(5)
-    try:
-        obj_mgr = dbus.Interface(bus.get_object("org.bluez", "/"),
-                                 "org.freedesktop.DBus.ObjectManager")
-        objects = obj_mgr.GetManagedObjects()
-        for path, ifaces in objects.items():
-            if "org.bluez.Device1" in ifaces:
-                props = ifaces["org.bluez.Device1"]
-                if props.get("Paired", False):
-                    print(f"Found paired device: {path}", flush=True)
-                    dev = dbus.Interface(bus.get_object("org.bluez", path),
-                                        "org.bluez.Device1")
-                    dp = dbus.Interface(bus.get_object("org.bluez", path),
-                                        "org.freedesktop.DBus.Properties")
-                    dp.Set("org.bluez.Device1", "Trusted", dbus.Boolean(True))
-                    # Try HFP AG first (primary for phone calls)
-                    try:
-                        dev.ConnectProfile(HFP_AG_UUID)
-                        print(f"Connected HFP AG to {path}", flush=True)
-                    except Exception as e2:
-                        print(f"HFP AG connect {path}: {e2}", flush=True)
-                        # Fall back to HSP AG
-                        try:
-                            dev.ConnectProfile(HSP_AG_UUID)
-                            print(f"Connected HSP AG to {path}", flush=True)
-                        except Exception as e3:
-                            print(f"HSP AG connect {path}: {e3}", flush=True)
-                    # Also try a generic Connect() to trigger AA auto-connect
-                    # This tells the phone "I'm your car" which may kick off
-                    # the Android Auto WiFi connection sequence automatically.
-                    try:
-                        dev.Connect()
-                        print(f"Generic Connect to {path}", flush=True)
-                    except Exception:
-                        pass  # Already connected via profile, this is fine
-    except Exception as e:
-        print(f"Phone connect: {e}", flush=True)
-
-threading.Thread(target=do_connect, daemon=True).start()
+# Periodically retry wireless AA reconnects. Prefer OAL_BT_MAC when configured,
+# but fall back to the remaining paired phones so multi-phone switching still works.
+threading.Thread(target=_reconnect_worker, daemon=True).start()
 print("All services running", flush=True)
 GLib.MainLoop().run()

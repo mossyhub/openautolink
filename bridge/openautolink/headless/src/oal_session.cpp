@@ -945,6 +945,8 @@ void OalSession::handle_config_update(const std::string& json) {
     }
 
     std::string bt_mac_val = oal_json_extract_string(json, "bt_mac");
+    bool default_phone_mac_present = json.find("\"default_phone_mac\"") != std::string::npos;
+    std::string default_phone_mac_val = oal_json_extract_string(json, "default_phone_mac");
     if (!bt_mac_val.empty() && bt_mac_val != config_.bt_mac) {
         config_.bt_mac = bt_mac_val;
         infra_changed = true;
@@ -957,7 +959,8 @@ void OalSession::handle_config_update(const std::string& json) {
     std::string wifi_password = oal_json_extract_string(json, "wifi_password");
 
     if (!phone_mode.empty() || !wifi_band.empty() || !wifi_country.empty() ||
-        !wifi_ssid.empty() || !wifi_password.empty() || !head_unit.empty() || !bt_mac_val.empty()) {
+        !wifi_ssid.empty() || !wifi_password.empty() || !head_unit.empty() ||
+        !bt_mac_val.empty() || default_phone_mac_present) {
         infra_changed = true;
     }
 
@@ -1000,6 +1003,10 @@ void OalSession::handle_config_update(const std::string& json) {
             env_update += "sed -i 's/^OAL_HEAD_UNIT_NAME=.*/OAL_HEAD_UNIT_NAME=" + sanitize(head_unit) + "/' /etc/openautolink.env 2>/dev/null\n";
         if (!bt_mac_val.empty())
             env_update += "sed -i 's/^OAL_BT_MAC=.*/OAL_BT_MAC=" + sanitize(bt_mac_val) + "/' /etc/openautolink.env 2>/dev/null\n";
+        if (default_phone_mac_present)
+            env_update += "if grep -q '^OAL_DEFAULT_PHONE_MAC=' /etc/openautolink.env 2>/dev/null; then "
+                          "sed -i 's/^OAL_DEFAULT_PHONE_MAC=.*/OAL_DEFAULT_PHONE_MAC=" + sanitize(default_phone_mac_val) + "/' /etc/openautolink.env 2>/dev/null; "
+                          "else echo 'OAL_DEFAULT_PHONE_MAC=" + sanitize(default_phone_mac_val) + "' >> /etc/openautolink.env; fi\n";
         if (!stable_insets.empty())
             env_update += "sed -i 's/^OAL_AA_INIT_STABLE_INSETS=.*/OAL_AA_INIT_STABLE_INSETS=" + sanitize(stable_insets) + "/' /etc/openautolink.env 2>/dev/null\n";
         if (!content_insets.empty())

@@ -15,7 +15,7 @@ Three validated development environments. Choose based on what hardware is avail
 └─────────────┘                │             │◄── WiFi AP ──────►│  Phone (AA)   │
                                └─────────────┘   192.168.43.x    └───────────────┘
 ```
-- **SBC SSH**: `oal-sbc` alias (192.168.137.2 static on SBC USB-NIC)
+- **SBC SSH**: Prefer `openautolink` via mDNS; on the car network, direct SSH is `openautolink@192.168.222.222`
 - **Laptop WiFi**: Connected to house WiFi, shared via ICS to USB-NIC → SBC gets internet
 - **Bridge network**: SBC onboard NIC ↔ car USB port (192.168.222.x)
 - **Phone**: Connects via BT pairing → WiFi AP → TCP:5277
@@ -52,22 +52,22 @@ This installs `aarch64-linux-gnu-g++`, ARM64 Boost/OpenSSL/protobuf/libusb libra
 
 ## SBC SSH Access
 
-**Always use the `oal-sbc` SSH config alias** to connect to the SBC. Do NOT try raw IP addresses (`192.168.222.222`, `192.168.137.x`, etc.) — these depend on which network the SBC is connected to and may not be reachable from the dev PC.
+**Prefer `ssh openautolink`** to connect to the SBC. If mDNS is unavailable but the car network is directly reachable, use `ssh openautolink@192.168.222.222`.
 
-The alias is defined in the user's `~/.ssh/config` and handles host, user, port, and key automatically.
+The install script sets the hostname to `openautolink`, so the hostname should be the default path.
 
 ```powershell
 # Check bridge logs:
-ssh oal-sbc "journalctl -u openautolink -n 100 --no-pager"
+ssh openautolink "journalctl -u openautolink -n 100 --no-pager"
 
 # Check service status:
-ssh oal-sbc "systemctl status openautolink"
+ssh openautolink "systemctl status openautolink"
 
 # Restart bridge:
-ssh oal-sbc "sudo systemctl restart openautolink"
+ssh openautolink "sudo systemctl restart openautolink"
 ```
 
-All scripts (`deploy-bridge.ps1`, emulator testing) use `oal-sbc` by default.
+Scripts and examples should prefer `openautolink` by default.
 
 ## Build + Deploy (Single Command)
 
@@ -177,7 +177,7 @@ The phone and SBC share the bridge's WiFi AP network (192.168.43.x). This enable
 a remote debugging chain from the dev PC through the SBC to the phone:
 
 ```
-Dev PC  ─── SSH oal-sbc ───▶  SBC (192.168.43.1)  ─── ADB ───▶  Phone (192.168.43.x)
+Dev PC  ─── SSH openautolink ───▶  SBC (192.168.43.1)  ─── ADB ───▶  Phone (192.168.43.x)
 ```
 
 This lets you run `adb logcat` on the phone **from the dev PC or from Copilot** to see
@@ -194,14 +194,14 @@ mic/voice failures, EV data, or AA protocol behavior.
 **On the SBC (via SSH):**
 ```bash
 # Install adb (one-time):
-ssh oal-sbc "sudo apt-get install -y android-tools-adb"
+ssh openautolink "sudo apt-get install -y android-tools-adb"
 
 # Pair with phone (one-time — enter the 6-digit code shown on phone):
-ssh oal-sbc "adb pair <phone_ip>:<pairing_port>"
+ssh openautolink "adb pair <phone_ip>:<pairing_port>"
 # Example: adb pair 192.168.43.100:37123
 
 # Connect (needed after each phone reboot/WiFi reconnect):
-ssh oal-sbc "adb connect <phone_ip>:<debug_port>"
+ssh openautolink "adb connect <phone_ip>:<debug_port>"
 # Example: adb connect 192.168.43.100:42345
 # Note: pairing port and debug port are DIFFERENT — check phone screen
 ```
@@ -213,36 +213,36 @@ bridge WiFi. If not, just `adb connect` again.
 
 ```powershell
 # Verify phone is connected:
-ssh oal-sbc "adb devices"
+ssh openautolink "adb devices"
 
 # Full logcat (verbose — use filters!):
-ssh oal-sbc "adb logcat -d | tail -200"
+ssh openautolink "adb logcat -d | tail -200"
 
 # AA-specific logs:
-ssh oal-sbc "adb logcat -s AndroidAuto -d | tail -50"
+ssh openautolink "adb logcat -s AndroidAuto -d | tail -50"
 
 # Google Assistant / voice debugging:
-ssh oal-sbc "adb logcat -s GoogleAssistant,AssistantVoice,MicrophoneInputStream -d | tail -50"
+ssh openautolink "adb logcat -s GoogleAssistant,AssistantVoice,MicrophoneInputStream -d | tail -50"
 
 # Maps / navigation / EV data:
-ssh oal-sbc "adb logcat -s Maps,GoogleMaps,SensorManager -d | tail -50"
+ssh openautolink "adb logcat -s Maps,GoogleMaps,SensorManager -d | tail -50"
 
 # AA protocol / connection:
-ssh oal-sbc "adb logcat -d | grep -iE 'androidauto|gearhead|projection|sensor.*fuel' | tail -50"
+ssh openautolink "adb logcat -d | grep -iE 'androidauto|gearhead|projection|sensor.*fuel' | tail -50"
 
 # Live streaming logcat (Ctrl+C to stop):
-ssh oal-sbc "adb logcat -s AndroidAuto"
+ssh openautolink "adb logcat -s AndroidAuto"
 
 # Clear logcat buffer (do before reproducing an issue):
-ssh oal-sbc "adb logcat -c"
+ssh openautolink "adb logcat -c"
 ```
 
 ### Debugging Workflow
 
 For targeted issue debugging (e.g. mic/voice):
-1. Clear logcat: `ssh oal-sbc "adb logcat -c"`
+1. Clear logcat: `ssh openautolink "adb logcat -c"`
 2. Reproduce the issue on the car (press mic button, etc.)
-3. Pull logs: `ssh oal-sbc "adb logcat -d | grep -iE 'voice|mic|assistant|audio' | tail -100"`
+3. Pull logs: `ssh openautolink "adb logcat -d | grep -iE 'voice|mic|assistant|audio' | tail -100"`
 
 ### Important Notes
 - **No root required** — standard ADB wireless debugging works

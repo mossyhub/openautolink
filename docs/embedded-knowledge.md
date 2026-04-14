@@ -61,10 +61,10 @@ Hard-won knowledge from the original CPC200 adapter app. These findings were val
 - Car assigns IPs in 192.168.222.x range on USB Ethernet
 
 ### SBC SSH Access
-**Always use the `oal-sbc` SSH config alias** (defined in `~/.ssh/config`) to connect to the SBC. Do NOT hardcode IPs — the SBC's SSH IP depends on the network path (192.168.137.x via Windows ICS, 192.168.222.x on car network, etc.). All deploy scripts and instructions use `oal-sbc`.
+**Prefer `ssh openautolink`** to connect to the SBC. If mDNS is unavailable but the car network is directly reachable, use `ssh openautolink@192.168.222.222`.
 ```bash
-ssh oal-sbc "journalctl -u openautolink -n 100 --no-pager"   # check logs
-ssh oal-sbc "systemctl status openautolink"                   # service status
+ssh openautolink "journalctl -u openautolink -n 100 --no-pager"   # check logs
+ssh openautolink "systemctl status openautolink"                   # service status
 ```
 
 ### VHAL Property Access (Verified on 2024 Blazer EV, April 2026)

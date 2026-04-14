@@ -318,7 +318,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateDefaultPhoneMac(mac: String) {
-        viewModelScope.launch { preferences.setDefaultPhoneMac(mac) }
+        viewModelScope.launch {
+            preferences.setDefaultPhoneMac(mac)
+            ConfigUpdateSender.sendConfigUpdate(mapOf("default_phone_mac" to mac))
+        }
     }
 
     fun requestPairedPhones() {
