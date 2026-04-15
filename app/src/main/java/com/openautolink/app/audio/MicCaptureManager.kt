@@ -93,9 +93,13 @@ class MicCaptureManager(private val bridgeConnection: BridgeConnection) {
         }
 
         val bufferSize = maxOf(minBufSize * 2, SAMPLES_PER_READ * 2) // 16-bit = 2 bytes per sample
+
+        // Use VOICE_RECOGNITION source — on AAOS this routes to the car's
+        // cabin microphone and disables platform noise processing so the
+        // phone's voice recognizer gets a clean signal.
         val recorder = try {
             AudioRecord(
-                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 sampleRate,
                 CHANNEL_CONFIG,
                 AUDIO_ENCODING,
@@ -108,21 +112,33 @@ class MicCaptureManager(private val bridgeConnection: BridgeConnection) {
         }
 
         if (recorder.state != AudioRecord.STATE_INITIALIZED) {
-            Log.e(TAG, "AudioRecord failed to initialize")
+            Log.e(TAG, "AudioRecord failed to initialize (source=VOICE_RECOGNITION, rate=$sampleRate)")
             recorder.release()
             capturing.set(false)
             return
         }
 
+        Log.i(TAG, "AudioRecord initialized: source=VOICE_RECOGNITION rate=$sampleRate bufSize=$bufferSize")
         audioRecord = recorder
         recorder.startRecording()
 
         val readBuf = ByteArray(SAMPLES_PER_READ * 2) // 16-bit PCM = 2 bytes/sample
+        var frameCount = 0L
+        var silentFrameCount = 0L
 
         try {
             while (capturing.get() && !Thread.currentThread().isInterrupted) {
                 val bytesRead = recorder.read(readBuf, 0, readBuf.size)
                 if (bytesRead > 0) {
+                    frameCount++
+
+                    // Calculate RMS to detect silence (check first few frames + periodic)
+                    if (frameCount <= 5 || frameCount % 500 == 0L) {
+                        val rms = computeRms(readBuf, bytesRead)
+                        if (rms < 10) silentFrameCount++
+                        Log.d(TAG, "Mic frame #$frameCount: ${bytesRead}B rms=$rms silent=$silentFrameCount/$frameCount")
+                    }
+
                     val frame = AudioFrame(
                         direction = AudioFrame.DIRECTION_MIC,
                         purpose = micPurpose.get(),
@@ -139,6 +155,7 @@ class MicCaptureManager(private val bridgeConnection: BridgeConnection) {
         } catch (_: InterruptedException) {
             // Expected on stop
         } finally {
+            Log.i(TAG, "Mic capture ending: $frameCount frames captured, $silentFrameCount silent")
             try {
                 recorder.stop()
             } catch (_: IllegalStateException) {}
@@ -146,5 +163,19 @@ class MicCaptureManager(private val bridgeConnection: BridgeConnection) {
             audioRecord = null
             capturing.set(false)
         }
+    }
+
+    /** Compute RMS of 16-bit LE PCM samples for silence detection. */
+    private fun computeRms(buf: ByteArray, length: Int): Int {
+        val numSamples = length / 2
+        if (numSamples == 0) return 0
+        var sumSquares = 0L
+        for (i in 0 until numSamples) {
+            val lo = buf[i * 2].toInt() and 0xFF
+            val hi = buf[i * 2 + 1].toInt()
+            val sample = (hi shl 8) or lo // signed 16-bit LE
+            sumSquares += sample.toLong() * sample.toLong()
+        }
+        return kotlin.math.sqrt(sumSquares.toDouble() / numSamples).toInt()
     }
 }
