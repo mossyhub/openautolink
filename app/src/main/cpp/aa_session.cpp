@@ -115,6 +115,21 @@ struct SessionConfig {
     int fps = 60;
     int dpi = 160;
     int resolutionTier = 3; // derived from width
+    int marginWidth = 0;
+    int marginHeight = 0;
+    int pixelAspect = 0;    // 0 = default (10000 = square)
+    int driverPosition = 0; // 0=left, 1=right
+    // Stable insets (safe area for interactive UI)
+    int safeTop = 0;
+    int safeBottom = 0;
+    int safeLeft = 0;
+    int safeRight = 0;
+    // Content insets (hard cutoff, nothing renders outside)
+    int contentTop = 0;
+    int contentBottom = 0;
+    int contentLeft = 0;
+    int contentRight = 0;
+    std::string headUnitName = "OpenAutoLink";
 };
 
 int widthToTier(int w) {
@@ -976,15 +991,29 @@ void JniAutoEntity::onServiceDiscoveryRequest(
     oal::jni::notifyPhoneConnected(deviceName_, "AndroidAuto");
 
     aap_protobuf::service::control::message::ServiceDiscoveryResponse resp;
-    resp.set_display_name("OpenAutoLink");
+    resp.set_display_name(config_.headUnitName);
     resp.set_head_unit_make("OpenAutoLink");
     resp.set_head_unit_model("Direct");
     resp.set_head_unit_software_build("1");
     resp.set_head_unit_software_version("1.0");
-    resp.set_driver_position(aap_protobuf::service::control::message::DRIVER_POSITION_LEFT);
+    resp.set_driver_position(config_.driverPosition == 1
+        ? aap_protobuf::service::control::message::DRIVER_POSITION_RIGHT
+        : aap_protobuf::service::control::message::DRIVER_POSITION_LEFT);
+
+    // Pixel aspect ratio for wide displays (AA pre-compensates rendering)
+    if (config_.pixelAspect > 0) {
+        resp.set_pixel_aspect_ratio(config_.pixelAspect);
+    }
 
     int aaW, aaH;
     tierToDimensions(config_.resolutionTier, aaW, aaH);
+
+    // Apply margins to video resolution
+    int videoW = aaW - config_.marginWidth;
+    int videoH = aaH - config_.marginHeight;
+    if (videoW < 320) videoW = aaW;
+    if (videoH < 240) videoH = aaH;
+
     auto fps = config_.fps >= 60
         ? aap_protobuf::service::media::sink::message::VIDEO_FPS_60
         : aap_protobuf::service::media::sink::message::VIDEO_FPS_30;
@@ -998,7 +1027,34 @@ void JniAutoEntity::onServiceDiscoveryRequest(
       auto* vc = ms->add_video_configs();
       vc->set_codec_resolution(static_cast<aap_protobuf::service::media::sink::message::VideoCodecResolutionType>(config_.resolutionTier));
       vc->set_frame_rate(fps);
-      vc->set_density(config_.dpi); }
+      vc->set_density(config_.dpi);
+      // UI config: margins + insets for display-aware AA layout
+      auto* ui = vc->mutable_ui_config();
+      if (config_.marginWidth > 0 || config_.marginHeight > 0 ||
+          config_.safeLeft > 0 || config_.safeRight > 0) {
+          auto* margins = ui->mutable_margins();
+          margins->set_top(config_.marginHeight / 2);
+          margins->set_bottom(config_.marginHeight / 2);
+          margins->set_left(config_.marginWidth / 2);
+          margins->set_right(config_.marginWidth / 2);
+      }
+      if (config_.safeTop > 0 || config_.safeBottom > 0 ||
+          config_.safeLeft > 0 || config_.safeRight > 0) {
+          auto* si = ui->mutable_stable_content_insets();
+          si->set_top(config_.safeTop);
+          si->set_bottom(config_.safeBottom);
+          si->set_left(config_.safeLeft);
+          si->set_right(config_.safeRight);
+      }
+      if (config_.contentTop > 0 || config_.contentBottom > 0 ||
+          config_.contentLeft > 0 || config_.contentRight > 0) {
+          auto* ci = ui->mutable_content_insets();
+          ci->set_top(config_.contentTop);
+          ci->set_bottom(config_.contentBottom);
+          ci->set_left(config_.contentLeft);
+          ci->set_right(config_.contentRight);
+      }
+    }
 
     // Media Audio (48kHz stereo)
     { auto* svc = resp.add_channels();
@@ -1047,15 +1103,16 @@ void JniAutoEntity::onServiceDiscoveryRequest(
       ss->add_sensors()->set_sensor_type(aap_protobuf::service::sensorsource::message::SENSOR_NIGHT_MODE);
       ss->set_location_characterization(256); }
 
-    // Input — touch w×h = AA resolution tier
+    // Input — touch w×h = AA video dimensions
     { auto* svc = resp.add_channels();
       svc->set_id(static_cast<int32_t>(aasdk::messenger::ChannelId::INPUT_SOURCE));
       auto* is = svc->mutable_input_source_service();
       for (int kc : {84, 85, 86, 87, 88, 126, 127})
           is->add_keycodes_supported(kc);
       auto* ts = is->add_touchscreen();
-      ts->set_width(aaW); ts->set_height(aaH);
-      ts->set_type(aap_protobuf::service::inputsource::message::CAPACITIVE); }
+      ts->set_width(videoW); ts->set_height(videoH);
+      ts->set_type(aap_protobuf::service::inputsource::message::CAPACITIVE);
+    }
 
     // Bluetooth
     { auto* svc = resp.add_channels();
@@ -1314,20 +1371,38 @@ bool startSession(int port, int width, int height, int fps, int dpi) {
     return true;
 }
 
-bool startSessionWithFd(int socketFd, int width, int height, int fps, int dpi) {
+bool startSessionWithFd(int socketFd, int width, int height, int fps, int dpi,
+                        int marginW, int marginH, int pixelAspect, int driverPos,
+                        int safeT, int safeB, int safeL, int safeR,
+                        int contentT, int contentB, int contentL, int contentR,
+                        const char* headUnitName) {
     if (g_running.exchange(true)) {
         LOGW("startSessionWithFd: already running");
         return false;
     }
 
-    LOGI("startSessionWithFd: fd=%d %dx%d @%dfps dpi=%d", socketFd, width, height, fps, dpi);
+    LOGI("startSessionWithFd: fd=%d %dx%d @%dfps dpi=%d margin=%dx%d pa=%d",
+         socketFd, width, height, fps, dpi, marginW, marginH, pixelAspect);
 
-    g_config.port = 0; // not listening — using pre-connected fd
+    g_config.port = 0;
     g_config.width = width;
     g_config.height = height;
     g_config.fps = fps;
     g_config.dpi = dpi;
     g_config.resolutionTier = widthToTier(width);
+    g_config.marginWidth = marginW;
+    g_config.marginHeight = marginH;
+    g_config.pixelAspect = pixelAspect;
+    g_config.driverPosition = driverPos;
+    g_config.safeTop = safeT;
+    g_config.safeBottom = safeB;
+    g_config.safeLeft = safeL;
+    g_config.safeRight = safeR;
+    g_config.contentTop = contentT;
+    g_config.contentBottom = contentB;
+    g_config.contentLeft = contentL;
+    g_config.contentRight = contentR;
+    if (headUnitName && headUnitName[0]) g_config.headUnitName = headUnitName;
 
     g_io = std::make_unique<boost::asio::io_service>();
     g_work = std::make_unique<boost::asio::io_service::work>(*g_io);
@@ -1443,7 +1518,9 @@ bool startSession(int port, int width, int height, int fps, int dpi) {
     return true;
 }
 
-bool startSessionWithFd(int socketFd, int width, int height, int fps, int dpi) {
+bool startSessionWithFd(int socketFd, int width, int height, int fps, int dpi,
+                        int, int, int, int, int, int, int, int, int, int, int, int,
+                        const char*) {
     if (g_running.exchange(true)) { LOGW("already running"); return false; }
     LOGI("startSessionWithFd STUB: fd=%d %dx%d @%dfps dpi=%d", socketFd, width, height, fps, dpi);
     g_running = false;

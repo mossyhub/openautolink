@@ -15,6 +15,7 @@
 | 6. Bridge Relay Binary | ✅ Done | `openautolink-relay` -- 67KB stripped, zero deps |
 | 7. Bridge Deployment | ✅ Done | Scripts, services, env, CI all updated for relay |
 | 8. Remove Old Bridge Code | ✅ Done | ~14,800 lines deleted, docs rewritten |
+| **9. AA Session Parity** | **⬜ Next** | **Port all features from old bridge `live_session.cpp` to in-app `aa_session.cpp`** |
 
 ## Goal
 
@@ -490,3 +491,165 @@ priority.
 | Boost.Asio on Android NDK | Low | Header-only, well-tested on Android. openautolink-direct already builds |
 | Removing too much — breaking diag | Low | Remote diagnostics use a simple callback interface, decoupled from transport |
 | Phone management (pair/forget) | Medium | Still needs bridge-side BT control — relay control channel handles this |
+
+---
+
+### Phase 9: AA Session Parity — Port Bridge Features to In-App aasdk
+
+The in-app `aa_session.cpp` was copied from `openautolink-direct` which was an early proof-of-concept.
+The old bridge `live_session.cpp` had ~3500 lines of battle-tested AA session code with many features
+and bug fixes that never made it to the in-app version. This phase ports all missing features.
+
+**Reference:** `git show main:bridge/openautolink/headless/src/live_session.cpp`
+
+**All changes are in `app/src/main/cpp/aa_session.cpp` (C++) unless noted.**
+
+#### 9a. SDR — Multi-Codec Auto-Negotiate (CRITICAL)
+
+Currently offers H.264 only at a single resolution tier. The old bridge offered H.265 at all tiers
+(5→1) plus H.264 at ≤1080p as fallback, letting the phone pick the best combo.
+
+| Step | Description |
+|------|-------------|
+| 9a-1 | Add H.265 (codec type 7) video configs at tiers 5,4,3,2,1 |
+| 9a-2 | Add H.264 (codec type 3) fallback at tiers 3,2,1 |
+| 9a-3 | Per video_config: set `margin_width`, `margin_height`, `pixel_aspect_ratio_e4`, `density` |
+| 9a-4 | Set `decoder_additional_depth(2)` on each config |
+| 9a-5 | Add VP9 configs if supported (codec type 9, tier 3+) — optional |
+| 9a-6 | Read `videoAutoNegotiate` pref from SessionConfig — if false, offer single codec/tier only |
+
+**Old code pattern:**
+```cpp
+for (int t : {5, 4, 3, 2, 1}) add_video_config(t, 7); // H.265
+for (int t : {3, 2, 1}) add_video_config(t, 3);        // H.264 fallback
+```
+
+#### 9b. SDR — Session Configuration (HIGH)
+
+Missing: `session_configuration` bitmask that hides clock/signal/battery on the AA projection.
+
+| Step | Description |
+|------|-------------|
+| 9b-1 | Add `hideClock`, `hidePhoneSignal`, `hideBatteryLevel` to `SessionConfig` |
+| 9b-2 | Pass from DataStore prefs via JNI (extend `startSessionWithFd` params or use a config struct) |
+| 9b-3 | Build bitmask: `bit0=clock, bit1=signal, bit2=battery`, set `resp.set_session_configuration(mask)` |
+
+#### 9c. SDR — Connection Configuration (HIGH)
+
+Missing: `connection_configuration` (ping timeout, interval, high-latency threshold).
+
+| Step | Description |
+|------|-------------|
+| 9c-1 | Add `ConnectionConfiguration` to SDR: timeout=5000, interval=1500, high_latency=500, max_tracked=5 |
+
+#### 9d. SDR — Full Sensor Declaration (CRITICAL)
+
+Currently declares 3 sensor types. Old bridge declared 18. AA uses these to know what vehicle
+data it can request and display.
+
+| Step | Description |
+|------|-------------|
+| 9d-1 | Add all sensor types: SPEED, GEAR, PARKING_BRAKE, FUEL, ODOMETER, ENVIRONMENT_DATA, DOOR_DATA, LIGHT_DATA, TIRE_PRESSURE, HVAC, ACCELEROMETER, GYROSCOPE, COMPASS, GPS_SATELLITE, RPM |
+| 9d-2 | Set `location_characterization` to `256\|4\|2\|8\|64` (GPS+accel+gyro+compass+speed) |
+| 9d-3 | Add `supported_fuel_types` (ELECTRIC=10 default) |
+| 9d-4 | Add `supported_ev_connector_types` (J1772=1, COMBO_1=5 default) |
+| 9d-5 | Make fuel/EV types configurable from SessionConfig (vehicle identity from VHAL) |
+
+#### 9e. SDR — Bluetooth Service (HIGH)
+
+BT MAC is hardcoded to `00:00:00:00:00:00`. Old bridge auto-detected or read from config.
+
+| Step | Description |
+|------|-------------|
+| 9e-1 | Add `btMac` to SessionConfig, pass from DataStore prefs |
+| 9e-2 | Set `bs->set_car_address(config_.btMac)` |
+| 9e-3 | Add `BLUETOOTH_PAIRING_NUMERIC_COMPARISON` to supported pairing methods |
+
+#### 9f. SDR — Input Keycodes (MEDIUM)
+
+Missing keycodes 89 (REWIND) and 90 (FAST_FORWARD).
+
+| Step | Description |
+|------|-------------|
+| 9f-1 | Add keycodes 89, 90 to `keycodes_supported` list |
+
+#### 9g. Navigation State Handler (HIGH)
+
+The nav handler (`JniNavHandler`) receives all events but discards them (no-op methods).
+Old bridge parsed turn events, distance, status, and icons and forwarded to the app.
+
+| Step | Description |
+|------|-------------|
+| 9g-1 | Implement `onStatusUpdate` — parse nav active/inactive/rerouting, call `oal::jni::notifyNavState()` |
+| 9g-2 | Implement `onTurnEvent` — parse maneuver type, side (left/right), road name, cue |
+| 9g-3 | Implement `onDistanceEvent` — parse distance meters, ETA seconds |
+| 9g-4 | Implement nav image forwarding — base64 encode PNG, include in nav state |
+| 9g-5 | Add JNI callback `onNavState(maneuver, distance, road, eta, imageBase64, ...)` |
+| 9g-6 | Handle nav clear (status=INACTIVE → notify clear) |
+
+#### 9h. Voice Session Handler (HIGH)
+
+`onVoiceSessionRequest` is empty. Phone voice assistant won't trigger properly.
+
+| Step | Description |
+|------|-------------|
+| 9h-1 | Implement `onVoiceSessionRequest` — extract start/stop from `VoiceSessionNotification` |
+| 9h-2 | Add JNI callback `onVoiceSession(started: Boolean)` |
+| 9h-3 | Wire to `AasdkJni.emitControlMessage(ControlMessage.VoiceSession(...))` |
+
+#### 9i. Battery Status Handler (MEDIUM)
+
+`onBatteryStatusNotification` is empty. No phone battery level forwarding.
+
+| Step | Description |
+|------|-------------|
+| 9i-1 | Extract battery level, time remaining, critical flag from notification |
+| 9i-2 | Add JNI callback `onPhoneBattery(level, timeRemaining, critical)` |
+| 9i-3 | Wire to `AasdkJni.emitControlMessage(ControlMessage.PhoneBattery(...))` |
+
+#### 9j. Mic Silence Pump (HIGH)
+
+When AA requests mic (voice assistant), the phone expects audio frames immediately.
+If there's a gap before the car mic starts, the phone times out. Old bridge pumped
+640-byte silence frames at 20ms intervals until real mic data arrived.
+
+| Step | Description |
+|------|-------------|
+| 9j-1 | In `JniAudioInputHandler::onMediaSourceOpenRequest`, start a silence pump timer |
+| 9j-2 | Pump 640-byte zero PCM frames at 20ms intervals |
+| 9j-3 | Stop pump when `feedAudio()` receives real data or on `onMediaSourceCloseRequest` |
+
+#### 9k. UI Theme Update (HIGH)
+
+Old bridge sent `UpdateUiConfigRequest` with dark/light theme to sync AA's rendering
+with the car's theme. Can be triggered at session start and on theme change.
+
+| Step | Description |
+|------|-------------|
+| 9k-1 | Add `syncAaTheme` to SessionConfig |
+| 9k-2 | On session start, send `UpdateUiConfigRequest` with `ui_theme = DARK` (car default) |
+| 9k-3 | Expose JNI function `sendUiThemeUpdate(isDark)` for runtime theme changes |
+
+#### 9l. Graceful Shutdown (HIGH)
+
+Old bridge sent `ByeByeRequest` to the phone before closing, giving it time to clean up.
+
+| Step | Description |
+|------|-------------|
+| 9l-1 | In `stopSession()`, if entity is active, send `ByeByeRequest` via control channel |
+| 9l-2 | Wait up to 500ms for response before force-closing |
+
+#### 9m. H.265/VP9 Keyframe Detection (CRITICAL)
+
+Video handler only detects H.264 NAL types. H.265 and VP9 keyframes are not recognized,
+breaking IDR-wait logic for those codecs.
+
+| Step | Description |
+|------|-------------|
+| 9m-1 | Add H.265 NAL parsing: type = `(byte >> 1) & 0x3F`, IDR = 19/20, VPS/SPS/PPS = 32-34 |
+| 9m-2 | Add VP9 keyframe detection: `!(frame[0] & 0x04)` in frame header |
+| 9m-3 | Support 3-byte start codes (`0x00 0x00 0x01`) in addition to 4-byte |
+
+#### Build gate
+
+`./gradlew :app:assembleDebug` succeeds. All unit tests pass. Rebuild NDK for both ABIs.

@@ -54,8 +54,21 @@ object AasdkJni {
      * Used in relay mode: the app connects outbound to the bridge relay,
      * which splices the socket with the phone's inbound connection.
      * aasdk wraps the fd in a boost::asio socket and proceeds with TLS/AA.
+     *
+     * Display config params control the ServiceDiscoveryResponse sent to the phone:
+     * - marginW/marginH: reduce video resolution by these margins
+     * - pixelAspect: pixel aspect ratio (10000=square, >10000=wide pixels)
+     * - driverPos: 0=left, 1=right
+     * - safe*: stable insets (AA keeps interactive UI inside these)
+     * - content*: content insets (hard cutoff, nothing renders outside)
      */
-    external fun startSessionWithFd(socketFd: Int, width: Int, height: Int, fps: Int, dpi: Int)
+    external fun startSessionWithFd(
+        socketFd: Int, width: Int, height: Int, fps: Int, dpi: Int,
+        marginW: Int, marginH: Int, pixelAspect: Int, driverPos: Int,
+        safeTop: Int, safeBottom: Int, safeLeft: Int, safeRight: Int,
+        contentTop: Int, contentBottom: Int, contentLeft: Int, contentRight: Int,
+        headUnitName: String
+    )
 
     /** Stop the running AA session and close the TCP listener. */
     external fun stopSession()

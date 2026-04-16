@@ -24,7 +24,11 @@
 // Forward declaration — implemented in aa_session.cpp
 namespace oal {
     bool startSession(int port, int width, int height, int fps, int dpi);
-    bool startSessionWithFd(int socketFd, int width, int height, int fps, int dpi);
+    bool startSessionWithFd(int socketFd, int width, int height, int fps, int dpi,
+                            int marginW, int marginH, int pixelAspect, int driverPos,
+                            int safeT, int safeB, int safeL, int safeR,
+                            int contentT, int contentB, int contentL, int contentR,
+                            const char* headUnitName);
     void stopSession();
     void sendTouch(int action, float x, float y, int pointerId);
     void sendSensorData(int type, const uint8_t* data, size_t len);
@@ -176,10 +180,21 @@ Java_com_openautolink_app_transport_AasdkJni_startSession(
 
 JNIEXPORT void JNICALL
 Java_com_openautolink_app_transport_AasdkJni_startSessionWithFd(
-        JNIEnv* /*env*/, jobject /*thiz*/,
-        jint socketFd, jint width, jint height, jint fps, jint dpi) {
-    LOGI("startSessionWithFd: fd=%d %dx%d @%dfps dpi=%d", socketFd, width, height, fps, dpi);
-    oal::startSessionWithFd(socketFd, width, height, fps, dpi);
+        JNIEnv* env, jobject /*thiz*/,
+        jint socketFd, jint width, jint height, jint fps, jint dpi,
+        jint marginW, jint marginH, jint pixelAspect, jint driverPos,
+        jint safeT, jint safeB, jint safeL, jint safeR,
+        jint contentT, jint contentB, jint contentL, jint contentR,
+        jstring headUnitName) {
+    const char* name = env->GetStringUTFChars(headUnitName, nullptr);
+    LOGI("startSessionWithFd: fd=%d %dx%d @%dfps dpi=%d margin=%dx%d pa=%d",
+         socketFd, width, height, fps, dpi, marginW, marginH, pixelAspect);
+    oal::startSessionWithFd(socketFd, width, height, fps, dpi,
+                            marginW, marginH, pixelAspect, driverPos,
+                            safeT, safeB, safeL, safeR,
+                            contentT, contentB, contentL, contentR,
+                            name);
+    env->ReleaseStringUTFChars(headUnitName, name);
 }
 
 JNIEXPORT void JNICALL

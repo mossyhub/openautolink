@@ -79,6 +79,19 @@ class DirectAaTransport(private val scope: CoroutineScope) {
     var sessionHeight: Int = 1080
     var sessionFps: Int = 60
     var sessionDpi: Int = 160
+    var sessionMarginW: Int = 0
+    var sessionMarginH: Int = 0
+    var sessionPixelAspect: Int = 0
+    var sessionDriverPos: Int = 0  // 0=left, 1=right
+    var sessionSafeTop: Int = 0
+    var sessionSafeBottom: Int = 0
+    var sessionSafeLeft: Int = 0
+    var sessionSafeRight: Int = 0
+    var sessionContentTop: Int = 0
+    var sessionContentBottom: Int = 0
+    var sessionContentLeft: Int = 0
+    var sessionContentRight: Int = 0
+    var sessionHeadUnitName: String = "OpenAutoLink"
 
     private var currentNetwork: Network? = null
     private var currentNetworkResolver: NetworkResolver? = null
@@ -338,7 +351,13 @@ class DirectAaTransport(private val scope: CoroutineScope) {
 
         try {
             // 5. Start aasdk (non-blocking — spawns io_service thread)
-            AasdkJni.startSessionWithFd(fd, sessionWidth, sessionHeight, sessionFps, sessionDpi)
+            AasdkJni.startSessionWithFd(
+                fd, sessionWidth, sessionHeight, sessionFps, sessionDpi,
+                sessionMarginW, sessionMarginH, sessionPixelAspect, sessionDriverPos,
+                sessionSafeTop, sessionSafeBottom, sessionSafeLeft, sessionSafeRight,
+                sessionContentTop, sessionContentBottom, sessionContentLeft, sessionContentRight,
+                sessionHeadUnitName
+            )
 
             // Wait for session to end (onPhoneDisconnected fires sessionDone)
             sessionDone.await()

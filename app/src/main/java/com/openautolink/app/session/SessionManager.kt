@@ -211,6 +211,19 @@ class SessionManager(
             t.sessionHeight = h
             t.sessionFps = fps
             t.sessionDpi = dpi
+            t.sessionMarginW = kotlinx.coroutines.runBlocking { prefs.aaWidthMargin.first() }
+            t.sessionMarginH = kotlinx.coroutines.runBlocking { prefs.aaHeightMargin.first() }
+            t.sessionPixelAspect = kotlinx.coroutines.runBlocking { prefs.aaPixelAspect.first() }
+            t.sessionDriverPos = if (kotlinx.coroutines.runBlocking { prefs.driveSide.first() } == "right") 1 else 0
+            t.sessionSafeTop = kotlinx.coroutines.runBlocking { prefs.safeAreaTop.first() }
+            t.sessionSafeBottom = kotlinx.coroutines.runBlocking { prefs.safeAreaBottom.first() }
+            t.sessionSafeLeft = kotlinx.coroutines.runBlocking { prefs.safeAreaLeft.first() }
+            t.sessionSafeRight = kotlinx.coroutines.runBlocking { prefs.safeAreaRight.first() }
+            t.sessionContentTop = kotlinx.coroutines.runBlocking { prefs.contentInsetTop.first() }
+            t.sessionContentBottom = kotlinx.coroutines.runBlocking { prefs.contentInsetBottom.first() }
+            t.sessionContentLeft = kotlinx.coroutines.runBlocking { prefs.contentInsetLeft.first() }
+            t.sessionContentRight = kotlinx.coroutines.runBlocking { prefs.contentInsetRight.first() }
+            t.sessionHeadUnitName = kotlinx.coroutines.runBlocking { prefs.headUnitName.first() }
         }
 
         // Create mic capture manager -- sends PCM via aasdk JNI
