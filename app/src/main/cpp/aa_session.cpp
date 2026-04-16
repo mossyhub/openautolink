@@ -1386,12 +1386,14 @@ void stopSession() {
 }
 
 void sendTouch(int action, float x, float y, int pointerId) {
-    if (g_entity && g_entity->inputHandler())
+    if (!g_running.load() || !g_entity || !g_entity->inputHandler()) return;
+    try {
         g_entity->inputHandler()->sendTouch(action, x, y, pointerId);
+    } catch (...) {}
 }
 
 void sendSensorData(int type, const uint8_t* data, size_t len) {
-    if (!g_entity || !g_entity->sensorHandler()) return;
+    if (!g_running.load() || !g_entity || !g_entity->sensorHandler()) return;
 
     // type 0x01 = GNSS NMEA (parse and forward as GPS location)
     // For now, forward GNSS as raw — full NMEA parsing TODO
@@ -1403,13 +1405,17 @@ void sendSensorData(int type, const uint8_t* data, size_t len) {
 }
 
 void sendMicAudio(const uint8_t* pcm, size_t len) {
-    if (g_entity && g_entity->audioInputHandler())
+    if (!g_running.load() || !g_entity || !g_entity->audioInputHandler()) return;
+    try {
         g_entity->audioInputHandler()->feedAudio(pcm, len);
+    } catch (...) {}
 }
 
 void sendButton(int keycode, bool down) {
-    if (g_entity && g_entity->inputHandler())
+    if (!g_running.load() || !g_entity || !g_entity->inputHandler()) return;
+    try {
         g_entity->inputHandler()->sendButton(keycode, down);
+    } catch (...) {}
 }
 
 } // namespace oal
