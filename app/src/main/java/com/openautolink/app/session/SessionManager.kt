@@ -5,7 +5,6 @@ import android.media.AudioManager
 import android.net.Network
 import android.os.SystemClock
 import android.util.Log
-import com.openautolink.app.audio.AudioFrame
 import com.openautolink.app.audio.AudioPlayer
 import com.openautolink.app.audio.AudioPlayerImpl
 import com.openautolink.app.audio.AudioStats
@@ -28,11 +27,8 @@ import com.openautolink.app.navigation.ManeuverState
 import com.openautolink.app.navigation.NavigationDisplay
 import com.openautolink.app.navigation.NavigationDisplayImpl
 import com.openautolink.app.transport.AudioPurpose
-import com.openautolink.app.transport.BridgeConnection
-import com.openautolink.app.transport.ConnectionManager
 import com.openautolink.app.transport.ConnectionState
 import com.openautolink.app.transport.ControlMessage
-import com.openautolink.app.transport.ControlMessageSerializer
 import com.openautolink.app.transport.NetworkResolver
 import com.openautolink.app.video.DecoderState
 import com.openautolink.app.video.MediaCodecDecoder
@@ -43,15 +39,22 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * Session orchestrator — connects component islands, manages lifecycle.
+ * Session orchestrator â€” connects component islands, manages lifecycle.
  * Manages transport, video decoder, audio player, GNSS, vehicle data, and navigation.
+ *
+ * In direct AA mode, aasdk runs in-process via JNI. The transport is a
+ * DirectAaTransport that handles relay connection + aasdk lifecycle.
+ * This class will be wired up to DirectAaTransport in Phase 4.
  */
 class SessionManager(
     externalScope: CoroutineScope,
@@ -72,7 +75,7 @@ class SessionManager(
          *
          * Note: The SessionManager creates its own CoroutineScope (SupervisorJob + Main)
          * so it survives ViewModel lifecycle changes. The externalScope parameter is ignored
-         * for the singleton — it uses its own scope to avoid cancellation when ViewModels clear.
+         * for the singleton â€” it uses its own scope to avoid cancellation when ViewModels clear.
          */
         fun getInstance(scope: CoroutineScope, context: Context, audioManager: AudioManager): SessionManager {
             return instance ?: synchronized(this) {
@@ -80,23 +83,29 @@ class SessionManager(
             }
         }
 
-        /** Get existing instance without creating — for lifecycle callbacks (e.g. onResume). */
+        /** Get existing instance without creating â€” for lifecycle callbacks (e.g. onResume). */
         fun instanceOrNull(): SessionManager? = instance
     }
 
-    // Use our own scope that survives ViewModel lifecycle — SupervisorJob so child
+    // Use our own scope that survives ViewModel lifecycle â€” SupervisorJob so child
     // failures don't cancel the whole session, Dispatchers.Main for UI state updates.
     private val scope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
 
-    private val connectionManager = ConnectionManager(scope)
+    // TODO: Phase 3/4 â€” replace with DirectAaTransport
+    private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
+    private val _controlMessages = MutableSharedFlow<ControlMessage>(extraBufferCapacity = 64)
 
-    // Dedicated single-threaded dispatcher for video decode — keeps frame ordering
+    /** Whether a reconnect loop is active (used by onSystemWake to avoid skipping). */
+    var isReconnecting: Boolean = false
+        private set
+
+    // Dedicated single-threaded dispatcher for video decode â€” keeps frame ordering
     // and prevents blocking the main thread with MediaCodec input queueing.
     private val videoDispatcher = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread(r, "VideoDecodeInput").apply { isDaemon = true }
     }.asCoroutineDispatcher()
 
-    // Dedicated dispatcher for audio — ring buffer writes must not be blocked
+    // Dedicated dispatcher for audio â€” ring buffer writes must not be blocked
     // by main thread UI work (Compose recomposition, surface callbacks, etc.)
     private val audioDispatcher = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread(r, "AudioFrameInput").apply {
@@ -114,9 +123,9 @@ class SessionManager(
     private val _bridgeInfo = MutableStateFlow<BridgeInfo?>(null)
     val bridgeInfo: StateFlow<BridgeInfo?> = _bridgeInfo.asStateFlow()
 
-    val controlMessages get() = connectionManager.controlMessages
+    val controlMessages: SharedFlow<ControlMessage> get() = _controlMessages.asSharedFlow()
 
-    // Video decoder — created per session, accessible for UI binding
+    // Video decoder â€” created per session, accessible for UI binding
     private var _videoDecoder: VideoDecoder? = null
     val videoDecoder: VideoDecoder? get() = _videoDecoder
 
@@ -126,43 +135,39 @@ class SessionManager(
     val decoderState: StateFlow<DecoderState>?
         get() = _videoDecoder?.decoderState
 
-    // Audio player — created per session
+    // Audio player â€” created per session
     private var _audioPlayer: AudioPlayer? = null
     val audioPlayer: AudioPlayer? get() = _audioPlayer
 
     val audioStats: StateFlow<AudioStats>?
         get() = _audioPlayer?.stats
 
-    // Mic capture — created per session, only active when mic source is "car"
+    // Mic capture â€” created per session, only active when mic source is "car"
     private var _micCaptureManager: MicCaptureManager? = null
     private var micSource: String = "car"
 
-    // Call state from audio player — exposed for UI/diagnostics
+    // Call state from audio player â€” exposed for UI/diagnostics
     val callState: StateFlow<CallState>?
         get() = _audioPlayer?.callState
 
-    // GNSS forwarder — sends car GPS to bridge → phone
+    // GNSS forwarder â€” sends car GPS to phone via aasdk JNI
     private var _gnssForwarder: GnssForwarder? = null
 
-    // Vehicle data forwarder — sends VHAL properties to bridge → phone
+    // Vehicle data forwarder â€” sends VHAL properties to phone via aasdk JNI
     private var _vehicleDataForwarder: VehicleDataForwarder? = null
 
-    /** Latest vehicle sensor data snapshot — for diagnostics UI. */
+    /** Latest vehicle sensor data snapshot â€” for diagnostics UI. */
     val vehicleData: StateFlow<ControlMessage.VehicleData>?
         get() = _vehicleDataForwarder?.latestVehicleData
 
-    // IMU forwarder — sends accelerometer/gyro/compass to bridge → phone
+    // IMU forwarder â€” sends accelerometer/gyro/compass to phone via aasdk JNI
     private var _imuForwarder: ImuForwarder? = null
 
-    // Bridge update manager — checks GitHub, downloads, pushes to bridge
-    private var _bridgeUpdateManager: com.openautolink.app.transport.BridgeUpdateManager? = null
-    val bridgeUpdateManager: com.openautolink.app.transport.BridgeUpdateManager? get() = _bridgeUpdateManager
-
-    // Navigation display — processes nav_state from bridge
+    // Navigation display â€” processes nav_state from aasdk JNI
     private val _navigationDisplay: NavigationDisplay = NavigationDisplayImpl()
     val navigationDisplay: NavigationDisplay get() = _navigationDisplay
 
-    // Remote diagnostics — sends structured logs + telemetry to bridge
+    // Remote diagnostics â€” sends structured logs + telemetry via relay control channel
     private var _remoteDiagnostics: RemoteDiagnosticsImpl? = null
     val remoteDiagnostics: RemoteDiagnostics? get() = _remoteDiagnostics
     private var _telemetryCollector: TelemetryCollector? = null
@@ -170,7 +175,7 @@ class SessionManager(
     val currentManeuver: StateFlow<ManeuverState?>
         get() = _navigationDisplay.currentManeuver
 
-    // Phone battery state from bridge
+    // Phone battery state from aasdk
     private val _phoneBatteryLevel = MutableStateFlow<Int?>(null)
     val phoneBatteryLevel: StateFlow<Int?> = _phoneBatteryLevel.asStateFlow()
     private val _phoneBatteryCritical = MutableStateFlow(false)
@@ -184,35 +189,33 @@ class SessionManager(
     private val _phoneSignalStrength = MutableStateFlow<Int?>(null)
     val phoneSignalStrength: StateFlow<Int?> = _phoneSignalStrength.asStateFlow()
 
-    // Paired phones callback — set by ViewModels to receive paired_phones responses
+    // Paired phones callback â€” set by ViewModels to receive paired_phones responses
     private var _pairedPhonesCallback: ((List<ControlMessage.PairedPhone>) -> Unit)? = null
     fun setPairedPhonesCallback(callback: ((List<ControlMessage.PairedPhone>) -> Unit)?) {
         _pairedPhonesCallback = callback
     }
 
-    // Paired phones list — populated when bridge responds to list_paired_phones
+    // Paired phones list â€” populated when bridge responds to list_paired_phones
     private val _pairedPhones = MutableStateFlow<List<ControlMessage.PairedPhone>>(emptyList())
     val pairedPhones: StateFlow<List<ControlMessage.PairedPhone>> = _pairedPhones.asStateFlow()
 
-    // Media session — publishes now-playing to AAOS system UI + cluster
+    // Media session â€” publishes now-playing to AAOS system UI + cluster
     private var _mediaSessionManager: OalMediaSessionManager? = null
 
-    // Cluster manager — lifecycle for cluster CarAppService binding
+    // Cluster manager â€” lifecycle for cluster CarAppService binding
     private var _clusterManager: com.openautolink.app.cluster.ClusterManager? = null
 
     private var observeJob: Job? = null
-    private var videoCollectJob: Job? = null
-    private var audioCollectJob: Job? = null
     private var decoderWatchJob: Job? = null
     private var keyframeWatchJob: Job? = null
     private var callStateJob: Job? = null
     private var targetHost: String? = null
 
-    // Track last known active time — used to detect system sleep/wake gaps.
+    // Track last known active time â€” used to detect system sleep/wake gaps.
     // When the car sleeps, the process freezes; on wake, elapsedRealtime jumps.
     private var lastActiveTimestamp = SystemClock.elapsedRealtime()
 
-    // Previous ignition state — used to detect ignition ON transitions
+    // Previous ignition state â€” used to detect ignition ON transitions
     private var previousIgnitionState: Int? = null
 
     fun start(host: String, port: Int = 5288, codecPreference: String = "h264", micSourcePreference: String = "car",
@@ -233,42 +236,38 @@ class SessionManager(
         _audioPlayer?.initialize()
 
         // Create mic capture manager for car mic mode
+        // TODO: Phase 4 â€” MicCaptureManager needs aasdk JNI interface instead of BridgeConnection
         _micCaptureManager?.release()
-        _micCaptureManager = MicCaptureManager(connectionManager)
+        _micCaptureManager = null
 
         // Create GNSS forwarder
+        // TODO: Phase 4 â€” send via aasdk JNI sendSensorData instead of control message
         _gnssForwarder?.stop()
         _gnssForwarder = context?.let { ctx ->
             GnssForwarderImpl(ctx) { gnssMessage ->
-                scope.launch { connectionManager.sendControlMessage(gnssMessage) }
+                scope.launch { sendControlMessage(gnssMessage) }
             }
         }
 
         // Create vehicle data forwarder
+        // TODO: Phase 4 â€” send via aasdk JNI instead of control message
         _vehicleDataForwarder?.stop()
         _vehicleDataForwarder = context?.let { ctx ->
             VehicleDataForwarderImpl(
                 ctx,
                 sendMessage = { vehicleData ->
-                    scope.launch { connectionManager.sendControlMessage(vehicleData) }
+                    scope.launch { sendControlMessage(vehicleData) }
                 },
                 onIgnitionOn = { ignitionState -> onIgnitionOn(ignitionState) }
             )
         }
 
         // Create IMU forwarder
+        // TODO: Phase 4 â€” send via aasdk JNI instead of control message
         _imuForwarder?.stop()
         _imuForwarder = context?.let { ctx ->
             ImuForwarder(ctx) { imuData ->
-                scope.launch { connectionManager.sendControlMessage(imuData) }
-            }
-        }
-
-        // Create bridge update manager
-        _bridgeUpdateManager?.cancel()
-        _bridgeUpdateManager = context?.let { ctx ->
-            com.openautolink.app.transport.BridgeUpdateManager(ctx, scope) { message ->
-                connectionManager.sendControlMessage(message)
+                scope.launch { sendControlMessage(imuData) }
             }
         }
 
@@ -288,9 +287,10 @@ class SessionManager(
         _clusterManager?.launchClusterBinding()
 
         // Create remote diagnostics
+        // TODO: Phase 4 â€” diagnostics send via relay control channel, not aasdk
         _telemetryCollector?.stop()
         _remoteDiagnostics = RemoteDiagnosticsImpl { message ->
-            scope.launch { connectionManager.sendControlMessage(message) }
+            scope.launch { sendControlMessage(message) }
         }
         _remoteDiagnostics?.setEnabled(diagnosticsEnabled)
         _remoteDiagnostics?.setMinLevel(DiagnosticLevel.fromWire(diagnosticsMinLevel))
@@ -298,92 +298,44 @@ class SessionManager(
         _telemetryCollector = TelemetryCollector(scope, _remoteDiagnostics!!, _sessionState)
         _telemetryCollector?.videoDecoder = _videoDecoder
         _telemetryCollector?.audioPlayer = _audioPlayer
-        _telemetryCollector?.connectionManager = connectionManager as? ConnectionManager
         _telemetryCollector?.start()
 
         observeJob = scope.launch {
             // Observe connection state changes
             launch {
                 var previousState = SessionState.IDLE
-                connectionManager.connectionState.collect { connState ->
+                _connectionState.collect { connState ->
                     val newState = connState.toSessionState()
                     _sessionState.value = newState
                     _statusMessage.value = when (newState) {
                         SessionState.IDLE -> "Disconnected"
                         SessionState.CONNECTING -> "Connecting to bridge..."
-                        SessionState.BRIDGE_CONNECTED -> "Waiting for phone..."
+                        SessionState.LISTENING -> "Waiting for phone..."
                         SessionState.PHONE_CONNECTED -> "Phone connected"
                         SessionState.STREAMING -> "Streaming"
                         SessionState.ERROR -> "Error"
                     }
                     Log.i(TAG, "Session state: $newState")
                     _remoteDiagnostics?.log(DiagnosticLevel.INFO, "transport", "Session state: $newState")
-
-                    // Auto-reconnect video/audio if they dropped but phone is still connected
-                    if (newState == SessionState.PHONE_CONNECTED && previousState == SessionState.STREAMING) {
-                        Log.w(TAG, "Video/audio channel lost — reconnecting")
-                        _remoteDiagnostics?.log(DiagnosticLevel.WARN, "transport", "Video/audio channel lost — reconnecting")
-                        _statusMessage.value = "Reconnecting video/audio..."
-                        val info = _bridgeInfo.value
-                        val host = targetHost
-                        if (info != null && host != null) {
-                            _videoDecoder?.resume()
-                            startVideoChannel(host, info.videoPort)
-                            startAudioChannel(host, info.audioPort)
-                        }
-                    }
-
                     previousState = newState
                 }
             }
 
             // Observe control messages for session-level events
             launch {
-                connectionManager.controlMessages.collect { message ->
+                _controlMessages.collect { message ->
                     lastActiveTimestamp = SystemClock.elapsedRealtime()
                     handleControlMessage(message)
                 }
             }
 
-            // Forward config updates from settings to bridge
-            launch {
-                com.openautolink.app.transport.ConfigUpdateSender.configUpdates.collect { config ->
-                    if (connectionManager.connectionState.value != ConnectionState.DISCONNECTED) {
-                        connectionManager.sendControlMessage(
-                            ControlMessage.ConfigUpdate(config)
-                        )
-                        Log.i(TAG, "Sent config_update to bridge: $config")
-                    }
-                }
-            }
-
-            // Forward restart requests from settings to bridge
-            launch {
-                com.openautolink.app.transport.ConfigUpdateSender.restartRequests.collect { restart ->
-                    if (connectionManager.connectionState.value != ConnectionState.DISCONNECTED) {
-                        connectionManager.sendControlMessage(restart)
-                        Log.i(TAG, "Sent restart_services to bridge: wireless=${restart.wireless} bt=${restart.bluetooth}")
-                    }
-                }
-            }
-
-            // Forward control messages from settings to bridge (list_paired_phones, switch_phone, etc.)
-            launch {
-                com.openautolink.app.transport.ConfigUpdateSender.controlMessages.collect { message ->
-                    if (connectionManager.connectionState.value != ConnectionState.DISCONNECTED) {
-                        connectionManager.sendControlMessage(message)
-                        Log.i(TAG, "Sent control message to bridge: ${message::class.simpleName}")
-                    }
-                }
-            }
-
-            // Watch for decoder errors — auto-reset codec and request keyframe
+            // Watch for decoder errors â€” auto-reset codec and request keyframe
             decoderWatchJob?.cancel()
             decoderWatchJob = launch {
                 watchDecoderState()
             }
 
-            // Watch for IDR starvation — periodically re-request keyframes
+            // Watch for IDR starvation â€” periodically re-request keyframes
             keyframeWatchJob?.cancel()
             keyframeWatchJob = launch {
                 watchKeyframeNeeds()
@@ -395,29 +347,22 @@ class SessionManager(
                 watchCallState()
             }
 
-            // Start connection
-            connectionManager.connect(host, port, network = network, networkResolver = networkResolver)
+            // TODO: Phase 3/4 â€” start DirectAaTransport connection here
+            // For now, session starts but has no transport to connect through
+            syncLocalPreferences()
+            ensureClusterAlive()
         }
     }
 
     fun stop() {
         observeJob?.cancel()
         observeJob = null
-        videoCollectJob?.cancel()
-        videoCollectJob = null
-        audioCollectJob?.cancel()
-        audioCollectJob = null
         decoderWatchJob?.cancel()
         decoderWatchJob = null
         keyframeWatchJob?.cancel()
         keyframeWatchJob = null
         callStateJob?.cancel()
         callStateJob = null
-        scope.launch {
-            connectionManager.disconnectAudio()
-            connectionManager.disconnectVideo()
-            connectionManager.disconnect()
-        }
         _videoDecoder?.release()
         _videoDecoder = null
         _audioPlayer?.release()
@@ -430,8 +375,6 @@ class SessionManager(
         _vehicleDataForwarder = null
         _imuForwarder?.stop()
         _imuForwarder = null
-        _bridgeUpdateManager?.cancel()
-        _bridgeUpdateManager = null
         _navigationDisplay.clear()
         ClusterNavigationState.clear()
         _mediaSessionManager?.release()
@@ -457,7 +400,7 @@ class SessionManager(
      * On wake, this method detects the time gap and forces a reconnect
      * so the app doesn't stay stuck waiting for the next retry interval.
      *
-     * Short gaps (< 10s) are ignored — those are normal navigation (Settings → back).
+     * Short gaps (< 10s) are ignored â€” those are normal navigation (Settings â†’ back).
      */
     fun onSystemWake() {
         val now = SystemClock.elapsedRealtime()
@@ -467,14 +410,11 @@ class SessionManager(
         if (elapsed < 10_000) return // Normal UI navigation, not a wake event
 
         val state = _sessionState.value
-        // Only skip if there is no active connection attempt at all (truly idle — no loop running).
-        // When reconnecting, state can be IDLE because DISCONNECTED (held during the inter-retry
-        // delay) maps to IDLE; we must NOT skip in that case.
-        if (state == SessionState.IDLE && !connectionManager.isReconnecting) return
+        if (state == SessionState.IDLE && !isReconnecting) return
 
-        Log.i(TAG, "System wake detected (${elapsed / 1000}s gap, state=$state) — forcing reconnect")
-        com.openautolink.app.diagnostics.DiagnosticLog.i("transport", "System wake detected (${elapsed / 1000}s gap) — forcing reconnect")
-        connectionManager.forceReconnect()
+        Log.i(TAG, "System wake detected (${elapsed / 1000}s gap, state=$state) â€” forcing reconnect")
+        com.openautolink.app.diagnostics.DiagnosticLog.i("transport", "System wake detected (${elapsed / 1000}s gap) â€” forcing reconnect")
+        forceReconnect()
     }
 
     /**
@@ -483,103 +423,47 @@ class SessionManager(
      */
     fun onTransportNetworkChanged(reason: String) {
         val state = _sessionState.value
-        if (state == SessionState.IDLE && !connectionManager.isReconnecting) return
+        if (state == SessionState.IDLE && !isReconnecting) return
         if (state == SessionState.STREAMING) return
 
         lastActiveTimestamp = SystemClock.elapsedRealtime()
-        Log.i(TAG, "Transport network changed ($reason) — forcing reconnect")
+        Log.i(TAG, "Transport network changed ($reason) â€” forcing reconnect")
         com.openautolink.app.diagnostics.DiagnosticLog.i(
             "transport",
-            "Transport network changed ($reason) — forcing reconnect"
+            "Transport network changed ($reason) â€” forcing reconnect"
         )
-        connectionManager.forceReconnect()
+        forceReconnect()
+    }
+
+    /** Force an immediate reconnect attempt. */
+    fun forceReconnect() {
+        // TODO: Phase 3/4 â€” delegate to DirectAaTransport.forceReconnect()
+        Log.i(TAG, "forceReconnect() â€” stub, no transport connected yet")
     }
 
     /**
      * Called when VHAL reports ignition state change to ON/START.
-     * This is a secondary wake signal — the car is starting and the bridge
+     * This is a secondary wake signal â€” the car is starting and the bridge
      * should be booting. Force-reconnect to get a fresh connection ASAP.
      */
     private fun onIgnitionOn(ignitionState: Int) {
         val state = _sessionState.value
         if (state == SessionState.IDLE) return
-        // If already streaming, the connection is alive — no need to force reconnect
         if (state == SessionState.STREAMING) return
 
-        Log.i(TAG, "Ignition ON detected (state=$ignitionState) — forcing reconnect")
-        com.openautolink.app.diagnostics.DiagnosticLog.i("transport", "Ignition ON detected — forcing reconnect")
+        Log.i(TAG, "Ignition ON detected (state=$ignitionState) â€” forcing reconnect")
+        com.openautolink.app.diagnostics.DiagnosticLog.i("transport", "Ignition ON detected â€” forcing reconnect")
         lastActiveTimestamp = SystemClock.elapsedRealtime()
-        connectionManager.forceReconnect()
+        forceReconnect()
     }
 
-    suspend fun sendAppHello(displayWidth: Int, displayHeight: Int, displayDpi: Int) {
-        // Use passed values, or compute from actual display metrics if zeros
-        val ctx = context
-        val actualWidth: Int
-        val actualHeight: Int
-        val actualDpi: Int
-        var cutTop = 0; var cutBottom = 0; var cutLeft = 0; var cutRight = 0
-        var sbarTop = 0; var sbarBottom = 0; var sbarLeft = 0; var sbarRight = 0
-        if (displayWidth > 0 && displayHeight > 0 && displayDpi > 0) {
-            actualWidth = displayWidth
-            actualHeight = displayHeight
-            actualDpi = displayDpi
-        } else if (ctx != null) {
-            val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-            val metrics = wm.maximumWindowMetrics
-            val bounds = metrics.bounds
-            actualWidth = bounds.width()
-            actualHeight = bounds.height()
-            actualDpi = ctx.resources.displayMetrics.densityDpi
-            // Read display cutout insets (physically curved/missing screen areas)
-            val cutoutInsets = metrics.windowInsets.getInsetsIgnoringVisibility(
-                android.view.WindowInsets.Type.displayCutout()
-            )
-            cutTop = cutoutInsets.top
-            cutBottom = cutoutInsets.bottom
-            cutLeft = cutoutInsets.left
-            cutRight = cutoutInsets.right
-            // Read system bar insets (status bar, nav bar)
-            val barInsets = metrics.windowInsets.getInsetsIgnoringVisibility(
-                android.view.WindowInsets.Type.systemBars()
-            )
-            sbarTop = barInsets.top
-            sbarBottom = barInsets.bottom
-            sbarLeft = barInsets.left
-            sbarRight = barInsets.right
-        } else {
-            actualWidth = 0
-            actualHeight = 0
-            actualDpi = 0
-        }
-        Log.i(TAG, "sendAppHello: display=${actualWidth}x${actualHeight} dpi=$actualDpi" +
-            " cutout=T:$cutTop B:$cutBottom L:$cutLeft R:$cutRight" +
-            " bars=T:$sbarTop B:$sbarBottom L:$sbarLeft R:$sbarRight")
-        connectionManager.sendControlMessage(
-            ControlMessage.AppHello(
-                version = 1,
-                name = "OpenAutoLink App",
-                displayWidth = actualWidth,
-                displayHeight = actualHeight,
-                displayDpi = actualDpi,
-                cutoutTop = cutTop,
-                cutoutBottom = cutBottom,
-                cutoutLeft = cutLeft,
-                cutoutRight = cutRight,
-                barTop = sbarTop,
-                barBottom = sbarBottom,
-                barLeft = sbarLeft,
-                barRight = sbarRight,
-            )
-        )
-    }
-
-    /** Send a keyframe request to the bridge. */
+    /** Request a keyframe from the phone via aasdk. */
     suspend fun requestKeyframe() {
-        connectionManager.sendControlMessage(ControlMessage.KeyframeRequest)
+        // TODO: Phase 4 â€” AasdkJni.requestKeyframe()
+        Log.d(TAG, "requestKeyframe() â€” stub")
     }
 
-    /** Sync local-only preferences that don't go to the bridge (e.g., cluster units). */
+    /** Sync local-only preferences (e.g., cluster units). */
     private suspend fun syncLocalPreferences() {
         val ctx = context ?: return
         try {
@@ -590,9 +474,10 @@ class SessionManager(
         }
     }
 
-    /** Send a control message to the bridge (used by touch forwarding, etc.). */
+    /** Send a control message (used by touch forwarding, etc.). */
     suspend fun sendControlMessage(message: ControlMessage) {
-        connectionManager.sendControlMessage(message)
+        // TODO: Phase 4 â€” route through aasdk JNI or relay control channel
+        Log.d(TAG, "sendControlMessage(${message::class.simpleName}) â€” stub")
     }
 
     /**
@@ -614,28 +499,27 @@ class SessionManager(
     }
 
     /**
-     * Watches decoder state for ERROR — automatically resets codec and requests a keyframe.
+     * Watches decoder state for ERROR â€” automatically resets codec and requests a keyframe.
      * Waits 500ms before recovery to avoid tight loops on persistent errors.
      */
     private suspend fun watchDecoderState() {
-        // Wait until decoder is created
         while (_videoDecoder == null) {
             delay(500)
         }
         _videoDecoder?.decoderState?.collect { state ->
             if (state == DecoderState.ERROR) {
-                Log.w(TAG, "Decoder error detected — initiating recovery")
-                _remoteDiagnostics?.log(DiagnosticLevel.ERROR, "video", "Decoder error detected — initiating recovery")
-                _statusMessage.value = "Video error — recovering..."
+                Log.w(TAG, "Decoder error detected â€” initiating recovery")
+                _remoteDiagnostics?.log(DiagnosticLevel.ERROR, "video", "Decoder error detected â€” initiating recovery")
+                _statusMessage.value = "Video error â€” recovering..."
                 recoverDecoder()
             }
         }
     }
 
     private suspend fun recoverDecoder() {
-        delay(500) // avoid tight error loops
+        delay(500)
         _videoDecoder?.let { decoder ->
-            decoder.resume() // releases codec, clears IDR flag, reconfigures if SPS/PPS available
+            decoder.resume()
             requestKeyframe()
             Log.i(TAG, "Decoder recovery: resumed codec, requested keyframe")
         }
@@ -643,9 +527,7 @@ class SessionManager(
 
     /**
      * Watches the decoder's needsKeyframe flow and periodically re-requests keyframes
-     * until the decoder receives an IDR. This handles the case where the bridge's
-     * keyframe replay fails silently — without this, the decoder just drops P-frames
-     * forever until the phone's GOP cycle happens to send a natural IDR (~60s).
+     * until the decoder receives an IDR.
      */
     private suspend fun watchKeyframeNeeds() {
         while (_videoDecoder == null) {
@@ -654,7 +536,6 @@ class SessionManager(
         val decoder = _videoDecoder ?: return
         decoder.needsKeyframe.collect { needed ->
             if (needed) {
-                // Re-request keyframes every 2 seconds until IDR arrives
                 var attempt = 0
                 while (decoder.needsKeyframe.value) {
                     attempt++
@@ -674,8 +555,6 @@ class SessionManager(
 
     /**
      * Watches the audio player's call state to route mic purpose correctly.
-     * IN_CALL → mic frames tagged with PHONE_CALL purpose (bridge routes to BT SCO)
-     * Otherwise → mic frames tagged with ASSISTANT purpose (bridge routes to aasdk)
      */
     private suspend fun watchCallState() {
         val player = _audioPlayer ?: return
@@ -685,72 +564,21 @@ class SessionManager(
                 else -> AudioPurpose.ASSISTANT
             }
             _micCaptureManager?.setMicPurpose(purpose)
-            Log.d(TAG, "Call state changed to $state — mic purpose set to $purpose")
-            _remoteDiagnostics?.log(DiagnosticLevel.DEBUG, "audio", "Call state changed to $state — mic purpose set to $purpose")
+            Log.d(TAG, "Call state changed to $state â€” mic purpose set to $purpose")
+            _remoteDiagnostics?.log(DiagnosticLevel.DEBUG, "audio", "Call state changed to $state â€” mic purpose set to $purpose")
         }
     }
 
     private fun handleControlMessage(message: ControlMessage) {
         when (message) {
-            is ControlMessage.Hello -> {
-                val info = BridgeInfo(
-                    name = message.name,
-                    version = message.version,
-                    capabilities = message.capabilities,
-                    videoPort = message.videoPort,
-                    audioPort = message.audioPort,
-                    bridgeVersion = message.bridgeVersion,
-                    bridgeSha256 = message.bridgeSha256,
-                    protocolVersion = message.protocolVersion,
-                    minProtocolVersion = message.minProtocolVersion,
-                    buildSource = message.buildSource
-                )
-                _bridgeInfo.value = info
-
-                // Check protocol compatibility
-                if (info.protocolIncompatible) {
-                    Log.e(TAG, "Bridge protocol incompatible: bridge min=${info.minProtocolVersion}, app=${ControlMessage.PROTOCOL_VERSION}")
-                    _remoteDiagnostics?.log(DiagnosticLevel.ERROR, "protocol",
-                        "Bridge requires protocol v${info.minProtocolVersion} but app speaks v${ControlMessage.PROTOCOL_VERSION} — please update the app")
-                    _statusMessage.value = "Bridge requires a newer app — please update OpenAutoLink"
-                    return
-                }
-
-                // Send system info once on connect
-                _remoteDiagnostics?.log(DiagnosticLevel.INFO, "system",
-                    "Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT}), " +
-                    "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
-                    "SoC: ${android.os.Build.SOC_MANUFACTURER} ${android.os.Build.SOC_MODEL}")
-                // Send our hello back (display dims, cutout — bridge auto-computes from these)
-                scope.launch {
-                    sendAppHello(displayWidth = 0, displayHeight = 0, displayDpi = 0)
-                    // No syncBridgeSettings — bridge env is the source of truth.
-                    // User changes go to env via Save & Restart. Auto-computed
-                    // values (pixel_aspect, stable_insets) come from hello data.
-                    syncLocalPreferences()
-                    // Check for bridge binary updates (non-blocking, async)
-                    _bridgeUpdateManager?.onBridgeConnected(info)
-                    // Re-launch cluster binding if it died while disconnected
-                    ensureClusterAlive()
-                }
-            }
             is ControlMessage.PhoneConnected -> {
                 _remoteDiagnostics?.log(DiagnosticLevel.INFO, "session", "Phone connected: ${message.phoneName}")
-                // Phone connected — open video and audio channels
-                val info = _bridgeInfo.value ?: return
-                val host = targetHost ?: return
-                startVideoChannel(host, info.videoPort)
-                startAudioChannel(host, info.audioPort)
-                // Start GNSS and vehicle data forwarding
                 _gnssForwarder?.start()
                 _vehicleDataForwarder?.start()
                 _imuForwarder?.start()
             }
             is ControlMessage.PhoneDisconnected -> {
                 _remoteDiagnostics?.log(DiagnosticLevel.INFO, "session", "Phone disconnected: ${message.reason}")
-                // Phone left — stop video and audio
-                stopVideoChannel()
-                stopAudioChannel()
                 _gnssForwarder?.stop()
                 _vehicleDataForwarder?.stop()
                 _imuForwarder?.stop()
@@ -759,7 +587,6 @@ class SessionManager(
             }
             is ControlMessage.NavState -> {
                 _navigationDisplay.onNavState(message)
-                // Also push to cluster singleton for CarAppService consumption
                 _navigationDisplay.currentManeuver.value?.let { maneuver ->
                     ClusterNavigationState.update(maneuver)
                 }
@@ -795,15 +622,15 @@ class SessionManager(
                 if (micSource == "car") {
                     _micCaptureManager?.start(message.sampleRate)
                 } else {
-                    Log.i(TAG, "Mic source is phone — skipping car mic capture")
+                    Log.i(TAG, "Mic source is phone â€” skipping car mic capture")
                 }
             }
             is ControlMessage.MicStop -> {
                 _micCaptureManager?.stop()
             }
             is ControlMessage.Error -> {
-                Log.e(TAG, "Bridge error ${message.code}: ${message.message}")
-                _remoteDiagnostics?.log(DiagnosticLevel.ERROR, "transport", "Bridge error ${message.code}: ${message.message}")
+                Log.e(TAG, "Error ${message.code}: ${message.message}")
+                _remoteDiagnostics?.log(DiagnosticLevel.ERROR, "transport", "Error ${message.code}: ${message.message}")
                 _statusMessage.value = "Error: ${message.message}"
             }
             is ControlMessage.PhoneBattery -> {
@@ -826,80 +653,7 @@ class SessionManager(
                 _pairedPhones.value = message.phones
                 _pairedPhonesCallback?.invoke(message.phones)
             }
-            is ControlMessage.BridgeUpdateAccept,
-            is ControlMessage.BridgeUpdateReject,
-            is ControlMessage.BridgeUpdateStatus -> {
-                _bridgeUpdateManager?.onUpdateMessage(message)
-            }
-            is ControlMessage.ConfigEcho -> {
-                // Bridge sent its current config — update app's DataStore to match.
-                // This ensures Settings UI shows what the bridge is actually using.
-                scope.launch {
-                    val ctx = context ?: return@launch
-                    try {
-                        val prefs = AppPreferences.getInstance(ctx)
-                        prefs.applyConfigEcho(message.config)
-                        Log.i(TAG, "Applied config_echo from bridge: ${message.config.keys}")
-                        _remoteDiagnostics?.log(DiagnosticLevel.DEBUG, "config",
-                            "Applied config_echo: ${message.config.keys}")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to apply config_echo: ${e.message}")
-                    }
-                }
-            }
-            else -> {} // Other messages handled by island-specific collectors
-        }
-    }
-
-    private fun startVideoChannel(host: String, videoPort: Int) {
-        videoCollectJob?.cancel()
-        // Start collecting video frames FIRST so the SharedFlow has an active subscriber
-        // before the bridge starts sending replay frames.
-        videoCollectJob = scope.launch(videoDispatcher) {
-            connectionManager.videoFrames.collect { frame ->
-                _videoDecoder?.onFrame(frame)
-            }
-        }
-        scope.launch {
-            connectionManager.connectVideo(host, videoPort)
-            // Request keyframe after video channel connects — ensures the bridge
-            // replays cached SPS/PPS+IDR now that the video sink is ready.
-            requestKeyframe()
-        }
-    }
-
-    private fun stopVideoChannel() {
-        videoCollectJob?.cancel()
-        videoCollectJob = null
-        _videoDecoder?.detach()
-        scope.launch {
-            connectionManager.disconnectVideo()
-        }
-    }
-
-    private fun startAudioChannel(host: String, audioPort: Int) {
-        audioCollectJob?.cancel()
-        scope.launch {
-            connectionManager.connectAudio(host, audioPort)
-        }
-        // Collect audio frames on dedicated thread — ring buffer writes
-        // must never be delayed by main thread UI work.
-        audioCollectJob = scope.launch(audioDispatcher) {
-            connectionManager.audioFrames.collect { frame ->
-                _audioPlayer?.onAudioFrame(frame)
-            }
-        }
-    }
-
-    private fun stopAudioChannel() {
-        audioCollectJob?.cancel()
-        audioCollectJob = null
-        // Stop all active audio purposes
-        AudioPurpose.entries.forEach { purpose ->
-            _audioPlayer?.stopPurpose(purpose)
-        }
-        scope.launch {
-            connectionManager.disconnectAudio()
+            else -> {}
         }
     }
 }
@@ -908,18 +662,4 @@ data class BridgeInfo(
     val name: String,
     val version: Int,
     val capabilities: List<String>,
-    val videoPort: Int,
-    val audioPort: Int,
-    val bridgeVersion: String? = null,
-    val bridgeSha256: String? = null,
-    val protocolVersion: Int? = null,
-    val minProtocolVersion: Int? = null,
-    val buildSource: String? = null,
-) {
-    /** True if this bridge's protocol is incompatible with the app. */
-    val protocolIncompatible: Boolean
-        get() {
-            val bridgeMin = minProtocolVersion ?: return false // old bridge, no check
-            return ControlMessage.PROTOCOL_VERSION < bridgeMin
-        }
-}
+)

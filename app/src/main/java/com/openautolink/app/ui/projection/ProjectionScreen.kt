@@ -599,7 +599,7 @@ private fun ConnectionHud(
                         color = Color(0xFF808080)
                     )
                 }
-                SessionState.BRIDGE_CONNECTED -> {
+                SessionState.LISTENING -> {
                     Text(
                         text = "Waiting for phone...",
                         style = MaterialTheme.typography.bodyLarge,

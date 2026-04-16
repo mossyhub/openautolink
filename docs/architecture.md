@@ -2,7 +2,7 @@
 
 ## Design Principles
 
-1. **Bridge-native**: The app exists to display what the bridge sends. No USB adapter abstraction layer. The app is phone-protocol-agnostic — it speaks OAL and renders identically
+1. **Direct AA**: aasdk runs in-process via NDK/JNI. The bridge is a thin relay — the app owns the AA protocol
 2. **Island independence**: Each component is a self-contained package with public API, internal implementation, and its own test suite
 3. **Test-anchored**: Tests define the contract. Write interface → write tests → write implementation
 4. **Real-time first**: Video is disposable, audio is sacred, touch is immediate. Latency over completeness
@@ -12,60 +12,41 @@
 
 ### 1. Transport (`com.openautolink.app.transport`)
 
-The TCP connection manager. Owns 3 connections to the bridge.
+Direct AA transport via aasdk JNI + outbound relay to bridge.
+
+**Architecture:**
+- App connects **outbound** to bridge relay (TCP:5291) — AAOS blocks inbound
+- Bridge splices the relay socket with the phone's inbound connection (TCP:5277)
+- aasdk runs in-process via `liboal_jni.so` — TLS, protobuf, all AA protocol handling
+- Lightweight control channel to bridge (TCP:5288) for signaling + diagnostics
 
 **Public API:**
 ```kotlin
-interface BridgeConnection {
-    val connectionState: StateFlow<ConnectionState>
-    val controlMessages: Flow<ControlMessage>
-    val videoFrames: Flow<VideoFrame>
-    val audioFrames: Flow<AudioFrame>
+// Connection lifecycle
+enum class ConnectionState { DISCONNECTED, CONNECTING, LISTENING, PHONE_CONNECTED, STREAMING }
 
-    suspend fun connect(host: String, controlPort: Int = 5288)
-    suspend fun disconnect()
-    suspend fun sendControlMessage(message: ControlMessage)
-    suspend fun sendTouchEvent(event: TouchEvent)
-    suspend fun sendGnssData(nmea: String)
-    suspend fun sendVehicleData(data: VehicleData)
-    suspend fun sendMicAudio(pcm: ByteArray, sampleRate: Int)
-}
-
-enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, PHONE_CONNECTED, STREAMING }
-
-// Parsed control messages from bridge
+// Control messages — produced by aasdk JNI callbacks
 sealed class ControlMessage {
-    data class Hello(val version: Int, val name: String, val capabilities: List<String>) : ControlMessage()
     data class PhoneConnected(val phoneName: String, val phoneType: String) : ControlMessage()
-    object PhoneDisconnected : ControlMessage()
+    data class PhoneDisconnected(val reason: String) : ControlMessage()
     data class AudioStart(val purpose: AudioPurpose, val sampleRate: Int, val channels: Int) : ControlMessage()
     data class AudioStop(val purpose: AudioPurpose) : ControlMessage()
-    data class NavState(val maneuver: String?, val distanceMeters: Int?, val road: String?) : ControlMessage()
-    data class MediaMetadata(val title: String?, val artist: String?, val album: String?, val durationMs: Long?) : ControlMessage()
-    data class ConfigEcho(val config: Map<String, Any>) : ControlMessage()
+    data class NavState(...) : ControlMessage()
+    data class MediaMetadata(...) : ControlMessage()
     data class MicStart(val sampleRate: Int) : ControlMessage()
     object MicStop : ControlMessage()
-    data class Error(val code: Int, val message: String) : ControlMessage()
-    data class Stats(val videoFramesSent: Long, val audioFramesSent: Long, val uptimeSeconds: Long) : ControlMessage()
-    // P1
-    data class PhoneBattery(val level: Int, val timeRemainingSeconds: Int, val critical: Boolean) : ControlMessage()
-    data class VoiceSession(val started: Boolean) : ControlMessage()
-    // P4
-    data class PhoneStatus(val signalStrength: Int?, val calls: List<PhoneCall>) : ControlMessage()
-    data class PhoneCall(val state: String, val durationSeconds: Int, val callerNumber: String?, val callerId: String?)
+    // ... touch, GNSS, vehicle data, diagnostics
 }
 ```
 
-**Internal:**
-- `TcpControlChannel` — JSON line reader/writer on port 5288
-- `TcpVideoChannel` — binary frame reader on port 5290
-- `TcpAudioChannel` — bidirectional binary frames on port 5289
-- `ConnectionManager` — lifecycle, reconnect with exponential backoff (1s, 2s, 4s... cap 30s)
-- `BridgeDiscovery` — mDNS (`_openautolink._tcp`) + manual IP entry
+**Key files:**
+- `ConnectionState.kt` — state enum + `NetworkResolver` interface
+- `ControlMessage.kt` — message types (shared between JNI callbacks and UI)
+- `AasdkJni.kt` — Kotlin JNI wrapper for native aasdk (Phase 3)
+- `DirectAaTransport.kt` — relay connection + aasdk lifecycle (Phase 3)
+- `NetworkInterfaceScanner.kt` — finds USB Ethernet interface for bridge
 
-**Tests:**
-- Unit: JSON serialization/deserialization, frame header parsing, reconnect timing
-- Integration: mock TCP server, full connect/send/receive cycle
+**State flow:** `DISCONNECTED → CONNECTING → LISTENING → PHONE_CONNECTED → STREAMING`
 
 ---
 

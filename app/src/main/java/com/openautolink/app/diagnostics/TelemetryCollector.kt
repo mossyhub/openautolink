@@ -2,7 +2,6 @@ package com.openautolink.app.diagnostics
 
 import com.openautolink.app.audio.AudioPlayer
 import com.openautolink.app.session.SessionState
-import com.openautolink.app.transport.ConnectionManager
 import com.openautolink.app.video.VideoDecoder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -26,7 +25,6 @@ class TelemetryCollector(
     // References set by the session manager as subsystems are created
     var videoDecoder: VideoDecoder? = null
     var audioPlayer: AudioPlayer? = null
-    var connectionManager: ConnectionManager? = null
     var clusterBound: Boolean = false
     var clusterAlive: Boolean = false
     var clusterRebinds: Int = 0
@@ -66,13 +64,12 @@ class TelemetryCollector(
                 )
             },
             audio = audioStats?.let {
-                val cm = connectionManager
                 AudioTelemetry(
                     active = it.activePurposes.map { p -> p.name.lowercase() },
                     underruns = it.underruns.mapKeys { (k, _) -> k.name.lowercase() },
                     framesWritten = it.framesWritten.mapKeys { (k, _) -> k.name.lowercase() },
-                    flowDrops = cm?.audioFlowDrops ?: 0,
-                    flowEmits = cm?.audioFlowEmits ?: 0,
+                    flowDrops = 0,
+                    flowEmits = 0,
                     maxWriteMs = it.maxWriteMs.mapKeys { (k, _) -> k.name.lowercase() },
                     slowWrites = it.slowWrites.mapKeys { (k, _) -> k.name.lowercase() },
                     maxGapMs = it.maxGapMs.mapKeys { (k, _) -> k.name.lowercase() },

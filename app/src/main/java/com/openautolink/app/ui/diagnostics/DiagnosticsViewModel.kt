@@ -256,9 +256,6 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     is ControlMessage.Error -> {
                         com.openautolink.app.diagnostics.DiagnosticLog.e("Bridge", "Error ${msg.code}: ${msg.message}")
                     }
-                    is ControlMessage.Hello -> {
-                        com.openautolink.app.diagnostics.DiagnosticLog.i("Bridge", "Hello from ${msg.name} v${msg.version}")
-                    }
                     is ControlMessage.PhoneConnected -> {
                         com.openautolink.app.diagnostics.DiagnosticLog.i("Session", "Phone connected: ${msg.phoneName}")
                     }

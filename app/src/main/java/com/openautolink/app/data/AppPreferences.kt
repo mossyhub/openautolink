@@ -1,4 +1,4 @@
-package com.openautolink.app.data
+﻿package com.openautolink.app.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
@@ -9,7 +9,6 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -48,7 +47,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val SEND_IMU_SENSORS = booleanPreferencesKey("send_imu_sensors")
         val DISTANCE_UNITS = stringPreferencesKey("distance_units") // "auto", "metric", or "imperial"
 
-        // Bridge config — AA stream settings (sent to bridge via config_update)
+        // Bridge config â€” AA stream settings (sent to bridge via config_update)
         val AA_RESOLUTION = stringPreferencesKey("aa_resolution")
         val AA_DPI = intPreferencesKey("aa_dpi")
         val AA_WIDTH_MARGIN = intPreferencesKey("aa_width_margin")
@@ -73,18 +72,14 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val OVERLAY_STATS_BUTTON = booleanPreferencesKey("overlay_stats_button")
         val OVERLAY_PHONE_SWITCH_BUTTON = booleanPreferencesKey("overlay_phone_switch_button")
         val DEFAULT_PHONE_MAC = stringPreferencesKey("default_phone_mac")
-        val BRIDGE_AUTO_UPDATE = booleanPreferencesKey("bridge_auto_update")
-        val BRIDGE_AUTO_APPLY = booleanPreferencesKey("bridge_auto_apply")
-        val GITHUB_REPO_OWNER = stringPreferencesKey("github_repo_owner")
-        val GITHUB_REPO_NAME = stringPreferencesKey("github_repo_name")
 
-        // AA safe area (stable) insets — maps render, UI stays inside
+        // AA safe area (stable) insets â€” maps render, UI stays inside
         val SAFE_AREA_TOP = intPreferencesKey("safe_area_top")
         val SAFE_AREA_BOTTOM = intPreferencesKey("safe_area_bottom")
         val SAFE_AREA_LEFT = intPreferencesKey("safe_area_left")
         val SAFE_AREA_RIGHT = intPreferencesKey("safe_area_right")
 
-        // AA content insets — hard cutoff, nothing renders outside
+        // AA content insets â€” hard cutoff, nothing renders outside
         val CONTENT_INSET_TOP = intPreferencesKey("content_inset_top")
         val CONTENT_INSET_BOTTOM = intPreferencesKey("content_inset_bottom")
         val CONTENT_INSET_LEFT = intPreferencesKey("content_inset_left")
@@ -133,10 +128,6 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_OVERLAY_STATS_BUTTON = true
         const val DEFAULT_OVERLAY_PHONE_SWITCH_BUTTON = true
         const val DEFAULT_DEFAULT_PHONE_MAC = ""
-        const val DEFAULT_BRIDGE_AUTO_UPDATE = true
-        const val DEFAULT_BRIDGE_AUTO_APPLY = true
-        const val DEFAULT_GITHUB_REPO_OWNER = "mossyhub"
-        const val DEFAULT_GITHUB_REPO_NAME = "openautolink"
         const val DEFAULT_SAFE_AREA_TOP = 0
         const val DEFAULT_SAFE_AREA_BOTTOM = 0
         const val DEFAULT_SAFE_AREA_LEFT = 0
@@ -300,22 +291,6 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     val defaultPhoneMac: Flow<String> = dataStore.data.map { prefs ->
         prefs[DEFAULT_PHONE_MAC] ?: DEFAULT_DEFAULT_PHONE_MAC
-    }
-
-    val bridgeAutoUpdate: Flow<Boolean> = dataStore.data.map { prefs ->
-        prefs[BRIDGE_AUTO_UPDATE] ?: DEFAULT_BRIDGE_AUTO_UPDATE
-    }
-
-    val bridgeAutoApply: Flow<Boolean> = dataStore.data.map { prefs ->
-        prefs[BRIDGE_AUTO_APPLY] ?: DEFAULT_BRIDGE_AUTO_APPLY
-    }
-
-    val githubRepoOwner: Flow<String> = dataStore.data.map { prefs ->
-        prefs[GITHUB_REPO_OWNER] ?: DEFAULT_GITHUB_REPO_OWNER
-    }
-
-    val githubRepoName: Flow<String> = dataStore.data.map { prefs ->
-        prefs[GITHUB_REPO_NAME] ?: DEFAULT_GITHUB_REPO_NAME
     }
 
     val safeAreaTop: Flow<Int> = dataStore.data.map { prefs ->
@@ -514,14 +489,6 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         dataStore.edit { it[DEFAULT_PHONE_MAC] = mac }
     }
 
-    suspend fun setBridgeAutoUpdate(enabled: Boolean) {
-        dataStore.edit { it[BRIDGE_AUTO_UPDATE] = enabled }
-    }
-
-    suspend fun setBridgeAutoApply(enabled: Boolean) {
-        dataStore.edit { it[BRIDGE_AUTO_APPLY] = enabled }
-    }
-
     suspend fun setSafeAreaTop(value: Int) {
         dataStore.edit { it[SAFE_AREA_TOP] = value }
     }
@@ -564,87 +531,5 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setViewportAspectRatioLocked(locked: Boolean) {
         dataStore.edit { it[VIEWPORT_ASPECT_RATIO_LOCKED] = locked }
-    }
-
-    /**
-     * Read all bridge-relevant preferences and return as a config map
-     * suitable for sending as a config_update message on initial connection.
-     */
-    suspend fun getBridgeConfigSnapshot(): Map<String, String> {
-        val prefs = dataStore.data.first()
-        val config = mutableMapOf<String, String>()
-        // Always include defaults so bridge uses app defaults even when prefs are unset
-        // (e.g. after clearing app data). Without this, the bridge would keep using
-        // whatever value was sent in the hello message (device DPI, not user's AA DPI).
-        val autoNegotiate = prefs[VIDEO_AUTO_NEGOTIATE] ?: DEFAULT_VIDEO_AUTO_NEGOTIATE
-        config["video_codec"] = if (autoNegotiate) "auto" else (prefs[VIDEO_CODEC] ?: DEFAULT_VIDEO_CODEC)
-        config["video_fps"] = (prefs[VIDEO_FPS] ?: DEFAULT_VIDEO_FPS).toString()
-        config["aa_resolution"] = if (autoNegotiate) "auto" else (prefs[AA_RESOLUTION] ?: DEFAULT_AA_RESOLUTION)
-        config["aa_dpi"] = (prefs[AA_DPI] ?: DEFAULT_AA_DPI).toString()
-        config["aa_width_margin"] = (prefs[AA_WIDTH_MARGIN] ?: DEFAULT_AA_WIDTH_MARGIN).toString()
-        config["aa_height_margin"] = (prefs[AA_HEIGHT_MARGIN] ?: DEFAULT_AA_HEIGHT_MARGIN).toString()
-        config["aa_pixel_aspect"] = (prefs[AA_PIXEL_ASPECT] ?: DEFAULT_AA_PIXEL_ASPECT).toString()
-        config["drive_side"] = prefs[DRIVE_SIDE] ?: DEFAULT_DRIVE_SIDE
-        config["head_unit_name"] = prefs[HEAD_UNIT_NAME] ?: DEFAULT_HEAD_UNIT_NAME
-        val btMac = prefs[BT_MAC] ?: DEFAULT_BT_MAC
-        if (btMac.isNotBlank()) config["bt_mac"] = btMac
-        config["default_phone_mac"] = prefs[DEFAULT_PHONE_MAC] ?: DEFAULT_DEFAULT_PHONE_MAC
-        config["phone_mode"] = prefs[PHONE_MODE] ?: DEFAULT_PHONE_MODE
-        config["wifi_band"] = prefs[WIFI_BAND] ?: DEFAULT_WIFI_BAND
-        config["wifi_country"] = prefs[WIFI_COUNTRY] ?: DEFAULT_WIFI_COUNTRY
-        val wifiSsid = prefs[WIFI_SSID] ?: DEFAULT_WIFI_SSID
-        if (wifiSsid.isNotBlank()) config["wifi_ssid"] = wifiSsid
-        val wifiPassword = prefs[WIFI_PASSWORD] ?: DEFAULT_WIFI_PASSWORD
-        if (wifiPassword.isNotBlank()) config["wifi_password"] = wifiPassword
-        // AA UI flags
-        val hideClock = prefs[HIDE_AA_CLOCK] ?: DEFAULT_HIDE_AA_CLOCK
-        config["hide_clock"] = hideClock.toString()
-        val hidePhoneSignal = prefs[HIDE_PHONE_SIGNAL] ?: DEFAULT_HIDE_PHONE_SIGNAL
-        config["hide_phone_signal"] = hidePhoneSignal.toString()
-        val hideBatteryLevel = prefs[HIDE_BATTERY_LEVEL] ?: DEFAULT_HIDE_BATTERY_LEVEL
-        config["hide_battery_level"] = hideBatteryLevel.toString()
-        // AA insets
-        val safeTop = prefs[SAFE_AREA_TOP] ?: DEFAULT_SAFE_AREA_TOP
-        val safeBottom = prefs[SAFE_AREA_BOTTOM] ?: DEFAULT_SAFE_AREA_BOTTOM
-        val safeLeft = prefs[SAFE_AREA_LEFT] ?: DEFAULT_SAFE_AREA_LEFT
-        val safeRight = prefs[SAFE_AREA_RIGHT] ?: DEFAULT_SAFE_AREA_RIGHT
-        config["aa_stable_insets"] = "$safeTop,$safeBottom,$safeLeft,$safeRight"
-        val contentTop = prefs[CONTENT_INSET_TOP] ?: DEFAULT_CONTENT_INSET_TOP
-        val contentBottom = prefs[CONTENT_INSET_BOTTOM] ?: DEFAULT_CONTENT_INSET_BOTTOM
-        val contentLeft = prefs[CONTENT_INSET_LEFT] ?: DEFAULT_CONTENT_INSET_LEFT
-        val contentRight = prefs[CONTENT_INSET_RIGHT] ?: DEFAULT_CONTENT_INSET_RIGHT
-        config["aa_content_insets"] = "$contentTop,$contentBottom,$contentLeft,$contentRight"
-        return config
-    }
-
-    /**
-     * Update DataStore from bridge's config_echo so Settings UI shows the
-     * bridge's actual running values. Called on each connection.
-     */
-    suspend fun applyConfigEcho(config: Map<String, String>) {
-        dataStore.edit { prefs ->
-            config["video_codec"]?.let { if (it != "auto") prefs[VIDEO_CODEC] = it }
-            config["video_fps"]?.let { it.toIntOrNull()?.let { v -> prefs[VIDEO_FPS] = v } }
-            config["aa_resolution"]?.let { if (it != "auto") prefs[AA_RESOLUTION] = it }
-            config["video_dpi"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_DPI] = v } }
-            config["aa_width_margin"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_WIDTH_MARGIN] = v } }
-            config["aa_height_margin"]?.let { it.toIntOrNull()?.let { v -> prefs[AA_HEIGHT_MARGIN] = v } }
-            // aa_pixel_aspect: only sync from bridge if app has no value yet (0/unset).
-            // This preserves user manual overrides while allowing fresh installs
-            // to pick up the bridge's persisted value.
-            config["aa_pixel_aspect"]?.let { it.toIntOrNull()?.let { v ->
-                if (v > 0 && (prefs[AA_PIXEL_ASPECT] ?: 0) == 0) {
-                    prefs[AA_PIXEL_ASPECT] = v
-                }
-            } }
-            config["drive_side"]?.let { prefs[DRIVE_SIDE] = it }
-            config["head_unit_name"]?.let { prefs[HEAD_UNIT_NAME] = it }
-            config["hide_clock"]?.let { prefs[HIDE_AA_CLOCK] = it.toBooleanStrictOrNull() ?: false }
-            config["hide_phone_signal"]?.let { prefs[HIDE_PHONE_SIGNAL] = it.toBooleanStrictOrNull() ?: false }
-            config["hide_battery_level"]?.let { prefs[HIDE_BATTERY_LEVEL] = it.toBooleanStrictOrNull() ?: false }
-            // aa_stable_insets and aa_content_insets NOT synced from config_echo.
-            // stable_insets are auto-computed by the bridge from display cutout.
-            // content_insets are user-configured via the editor.
-        }
     }
 }

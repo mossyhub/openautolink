@@ -17,8 +17,8 @@ class SessionStateTest {
     }
 
     @Test
-    fun `ConnectionState CONNECTED maps to SessionState BRIDGE_CONNECTED`() {
-        assertEquals(SessionState.BRIDGE_CONNECTED, ConnectionState.CONNECTED.toSessionState())
+    fun `ConnectionState LISTENING maps to SessionState LISTENING`() {
+        assertEquals(SessionState.LISTENING, ConnectionState.LISTENING.toSessionState())
     }
 
     @Test

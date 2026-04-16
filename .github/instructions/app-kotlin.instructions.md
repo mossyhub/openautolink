@@ -5,16 +5,15 @@ applyTo: "app/**/*.kt"
 # App Kotlin Conventions
 
 ## Bridge Cross-Reference Rule (CRITICAL)
-When implementing or modifying any app code that communicates with the bridge (transport, video, audio, input, session):
-1. **Always read the corresponding bridge source code** in `bridge/openautolink/headless/` before writing app code. Verify what the bridge actually sends/receives — don't rely solely on protocol docs.
-2. **Check for protocol mismatches.** The app must match what the bridge actually outputs.
-3. **It is OK to modify the bridge C++ code** if it improves the protocol, simplifies the app, or fixes bugs.
-4. **Key bridge files to reference:**
-   - `bridge/openautolink/headless/include/openautolink/oal_protocol.hpp` — OAL wire format
-   - `bridge/openautolink/headless/include/openautolink/tcp_car_transport.hpp` — TCP transport
-   - `bridge/openautolink/headless/src/oal_session.cpp` — OAL session, video/audio routing
-   - `bridge/openautolink/headless/src/live_session.cpp` — aasdk handler, keyframe detection
-   - `bridge/openautolink/headless/include/openautolink/headless_config.hpp` — config/ports
+aasdk runs **in-process** via NDK/JNI — the native AA session code is in `app/src/main/cpp/aa_session.cpp`.
+When implementing or modifying transport, video, audio, or input code:
+1. **Read `app/src/main/cpp/aa_session.cpp`** to understand how aasdk callbacks deliver data to Kotlin
+2. **Read `app/src/main/cpp/jni_bridge.cpp`** for the JNI function signatures and callback patterns
+3. The bridge (`bridge/openautolink/`) is now a thin TCP relay — it does NOT process AA protocol
+4. **Key files:**
+   - `app/src/main/cpp/aa_session.cpp` — aasdk entity, video/audio/nav callbacks
+   - `app/src/main/cpp/jni_bridge.cpp` — JNI entry points for Kotlin ↔ C++
+   - `app/src/main/cpp/CMakeLists.txt` — NDK build with stub/full mode toggle
 
 ## Architecture
 - **MVVM** with StateFlow — ViewModels expose `StateFlow<UiState>`, composables collect

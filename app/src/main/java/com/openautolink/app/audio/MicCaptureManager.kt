@@ -6,7 +6,6 @@ import android.media.MediaRecorder
 import android.os.Process
 import android.util.Log
 import com.openautolink.app.transport.AudioPurpose
-import com.openautolink.app.transport.BridgeConnection
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -24,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Timer-based sampling at ~40ms intervals (~25 Hz), 512-sample circular reads.
  * Sample rate comes from bridge mic_start control message (typically 16000 Hz).
  */
-class MicCaptureManager(private val bridgeConnection: BridgeConnection) {
+class MicCaptureManager(private val sendMicFrame: (AudioFrame) -> Unit) {
 
     companion object {
         private const val TAG = "MicCaptureManager"
@@ -146,7 +145,7 @@ class MicCaptureManager(private val bridgeConnection: BridgeConnection) {
                         channels = 1,
                         data = readBuf.copyOf(bytesRead)
                     )
-                    bridgeConnection.sendMicAudio(frame)
+                    sendMicFrame(frame)
                 } else if (bytesRead < 0) {
                     Log.w(TAG, "AudioRecord.read error: $bytesRead")
                     break

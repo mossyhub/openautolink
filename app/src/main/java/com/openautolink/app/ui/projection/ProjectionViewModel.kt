@@ -170,7 +170,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             statusMessage = values[1] as String,
             bridgeName = info?.name,
             bridgeVersion = info?.version,
-            bridgeVersionStr = info?.bridgeVersion,
+            bridgeVersionStr = null,
             phoneName = values[3] as? String,
             bridgeHost = values[4] as String,
             videoStats = values[5] as VideoStats,
@@ -245,7 +245,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             sessionManager.sessionState.collect { state ->
                 // Attach pending surface when decoder becomes available
-                if (state == SessionState.BRIDGE_CONNECTED ||
+                if (state == SessionState.LISTENING ||
                     state == SessionState.PHONE_CONNECTED ||
                     state == SessionState.STREAMING) {
                     attachPendingSurface()
@@ -387,7 +387,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         if (!_showPhoneSwitcher.value) {
             // Request fresh list when opening
             viewModelScope.launch {
-                com.openautolink.app.transport.ConfigUpdateSender.sendControlMessage(
+                sessionManager.sendControlMessage(
                     com.openautolink.app.transport.ControlMessage.ListPairedPhones
                 )
             }
@@ -397,7 +397,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     fun switchPhone(mac: String) {
         viewModelScope.launch {
-            com.openautolink.app.transport.ConfigUpdateSender.sendControlMessage(
+            sessionManager.sendControlMessage(
                 com.openautolink.app.transport.ControlMessage.SwitchPhone(mac)
             )
         }

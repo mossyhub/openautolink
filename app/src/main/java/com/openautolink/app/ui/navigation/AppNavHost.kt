@@ -55,7 +55,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 viewModel = settingsViewModel,
                 sessionState = projectionUiState.sessionState,
                 onSaveAndConnect = {
-                    settingsViewModel.saveAndRestart()
+                    projectionViewModel.reconnect()
                     navController.popBackStack()
                 },
                 onBack = { navController.popBackStack() },

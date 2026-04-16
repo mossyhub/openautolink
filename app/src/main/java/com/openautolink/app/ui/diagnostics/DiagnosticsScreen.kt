@@ -630,7 +630,7 @@ private fun DiagRow(
 private fun sessionStateColor(state: com.openautolink.app.session.SessionState): Color = when (state) {
     com.openautolink.app.session.SessionState.STREAMING -> Color(0xFF4CAF50)
     com.openautolink.app.session.SessionState.PHONE_CONNECTED,
-    com.openautolink.app.session.SessionState.BRIDGE_CONNECTED -> Color(0xFFFFC107)
+    com.openautolink.app.session.SessionState.LISTENING -> Color(0xFFFFC107)
     com.openautolink.app.session.SessionState.CONNECTING -> Color(0xFF2196F3)
     com.openautolink.app.session.SessionState.IDLE -> Color(0xFF808080)
     com.openautolink.app.session.SessionState.ERROR -> Color(0xFFFF5722)

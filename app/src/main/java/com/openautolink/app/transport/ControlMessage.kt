@@ -1,37 +1,10 @@
 package com.openautolink.app.transport
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
-
 /**
- * Parsed control messages from the OAL protocol control channel (port 5288).
- * JSON lines — one JSON object per line, bidirectional.
+ * Control messages — used for signaling between app components and JNI callbacks.
+ * In direct AA mode these are produced by aasdk JNI callbacks, not parsed from TCP JSON.
  */
 sealed class ControlMessage {
-
-    companion object {
-        /** App's protocol version — increment when adding breaking changes. */
-        const val PROTOCOL_VERSION = 1
-        /** Minimum bridge protocol version this app supports. */
-        const val MIN_PROTOCOL_VERSION = 1
-    }
-
-    // Bridge → App
-    data class Hello(
-        val version: Int,
-        val name: String,
-        val capabilities: List<String>,
-        val videoPort: Int,
-        val audioPort: Int,
-        val bridgeVersion: String? = null,
-        val bridgeSha256: String? = null,
-        val protocolVersion: Int? = null,
-        val minProtocolVersion: Int? = null,
-        val buildSource: String? = null,
-    ) : ControlMessage()
 
     data class PhoneConnected(
         val phoneName: String,
@@ -84,7 +57,6 @@ sealed class ControlMessage {
         val albumArtBase64: String? = null
     ) : ControlMessage()
 
-    data class ConfigEcho(val config: Map<String, String>) : ControlMessage()
     data class Error(val code: Int, val message: String) : ControlMessage()
     data class Stats(
         val videoFramesSent: Long,
@@ -124,22 +96,7 @@ sealed class ControlMessage {
         val callerId: String?
     )
 
-    // App → Bridge
-    data class AppHello(
-        val version: Int,
-        val name: String,
-        val displayWidth: Int,
-        val displayHeight: Int,
-        val displayDpi: Int,
-        val cutoutTop: Int = 0,
-        val cutoutBottom: Int = 0,
-        val cutoutLeft: Int = 0,
-        val cutoutRight: Int = 0,
-        val barTop: Int = 0,
-        val barBottom: Int = 0,
-        val barLeft: Int = 0,
-        val barRight: Int = 0,
-    ) : ControlMessage()
+    // App → Bridge (via relay control channel)
 
     data class Touch(
         val action: Int,
@@ -227,36 +184,9 @@ sealed class ControlMessage {
         val longpress: Boolean = false
     ) : ControlMessage()
 
-    data class ConfigUpdate(val config: Map<String, String>) : ControlMessage()
-    data class RestartServices(
-        val wireless: Boolean = false,
-        val bluetooth: Boolean = false
-    ) : ControlMessage()
-    object KeyframeRequest : ControlMessage()
     object ListPairedPhones : ControlMessage()
     data class SwitchPhone(val mac: String) : ControlMessage()
     data class ForgetPhone(val mac: String) : ControlMessage()
-
-    // Bridge update protocol (App → Bridge)
-    data class BridgeUpdateOffer(
-        val version: String,
-        val size: Int,
-        val sha256: String,
-        val autoApply: Boolean = true
-    ) : ControlMessage()
-
-    data class BridgeUpdateData(
-        val offset: Int,
-        val length: Int,
-        val data: String  // base64
-    ) : ControlMessage()
-
-    data class BridgeUpdateComplete(val sha256: String) : ControlMessage()
-
-    // Bridge update protocol (Bridge → App)
-    data class BridgeUpdateAccept(val dummy: Unit = Unit) : ControlMessage()
-    data class BridgeUpdateReject(val reason: String) : ControlMessage()
-    data class BridgeUpdateStatus(val status: String, val message: String) : ControlMessage()
 
     // App → Bridge: diagnostic messages
     data class AppLog(

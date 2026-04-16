@@ -24,12 +24,16 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+.cxx/
 
 # Compiled binaries
 *.o
 *.so
 *.a
 openautolink-headless
+
+# Keep NDK prebuilt deps (OpenSSL static libs for arm64/x86_64)
+!app/src/main/cpp/third_party/openssl/**/*.a
 
 # OS
 .DS_Store

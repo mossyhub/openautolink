@@ -4,11 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openautolink.app.data.AppPreferences
-import com.openautolink.app.transport.BridgeDiscovery
-import com.openautolink.app.transport.BridgeUpdateState
-import com.openautolink.app.transport.ConfigUpdateSender
 import com.openautolink.app.transport.ControlMessage
-import com.openautolink.app.transport.DiscoveredBridge
 import com.openautolink.app.transport.NetworkInterfaceInfo
 import com.openautolink.app.transport.NetworkInterfaceScanner
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +26,7 @@ data class SettingsUiState(
     val networkInterface: String = AppPreferences.DEFAULT_NETWORK_INTERFACE,
     val remoteDiagnosticsEnabled: Boolean = AppPreferences.DEFAULT_REMOTE_DIAGNOSTICS_ENABLED,
     val remoteDiagnosticsMinLevel: String = AppPreferences.DEFAULT_REMOTE_DIAGNOSTICS_MIN_LEVEL,
-    // Bridge config — AA stream
+    // AA stream settings (used directly by aasdk JNI at session start)
     val aaResolution: String = AppPreferences.DEFAULT_AA_RESOLUTION,
     val aaDpi: Int = AppPreferences.DEFAULT_AA_DPI,
     val aaWidthMargin: Int = AppPreferences.DEFAULT_AA_WIDTH_MARGIN,
@@ -61,8 +57,6 @@ data class SettingsUiState(
     val hideBatteryLevel: Boolean = AppPreferences.DEFAULT_HIDE_BATTERY_LEVEL,
     val sendImuSensors: Boolean = AppPreferences.DEFAULT_SEND_IMU_SENSORS,
     val distanceUnits: String = AppPreferences.DEFAULT_DISTANCE_UNITS,
-    val bridgeAutoUpdate: Boolean = AppPreferences.DEFAULT_BRIDGE_AUTO_UPDATE,
-    val bridgeAutoApply: Boolean = AppPreferences.DEFAULT_BRIDGE_AUTO_APPLY,
     // AA safe area insets
     val safeAreaTop: Int = AppPreferences.DEFAULT_SAFE_AREA_TOP,
     val safeAreaBottom: Int = AppPreferences.DEFAULT_SAFE_AREA_BOTTOM,
@@ -78,11 +72,8 @@ data class SettingsUiState(
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val preferences = AppPreferences.getInstance(application)
-    private val bridgeDiscovery = BridgeDiscovery(application)
     private val interfaceScanner = NetworkInterfaceScanner(application)
 
-    val discoveredBridges: StateFlow<List<DiscoveredBridge>> = bridgeDiscovery.discoveredBridges
-    val isDiscovering: StateFlow<Boolean> = bridgeDiscovery.isDiscovering
     val networkInterfaces: StateFlow<List<NetworkInterfaceInfo>> = interfaceScanner.interfaces
 
     private val _pairedPhones = MutableStateFlow<List<ControlMessage.PairedPhone>>(emptyList())
@@ -130,8 +121,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         preferences.hideBatteryLevel,
         preferences.sendImuSensors,
         preferences.distanceUnits,
-        preferences.bridgeAutoUpdate,
-        preferences.bridgeAutoApply,
         preferences.safeAreaTop,
         preferences.safeAreaBottom,
         preferences.safeAreaLeft,
@@ -180,16 +169,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             hideBatteryLevel = values[35] as Boolean,
             sendImuSensors = values[36] as Boolean,
             distanceUnits = values[37] as String,
-            bridgeAutoUpdate = values[38] as Boolean,
-            bridgeAutoApply = values[39] as Boolean,
-            safeAreaTop = values[40] as Int,
-            safeAreaBottom = values[41] as Int,
-            safeAreaLeft = values[42] as Int,
-            safeAreaRight = values[43] as Int,
-            contentInsetTop = values[44] as Int,
-            contentInsetBottom = values[45] as Int,
-            contentInsetLeft = values[46] as Int,
-            contentInsetRight = values[47] as Int,
+            safeAreaTop = values[38] as Int,
+            safeAreaBottom = values[39] as Int,
+            safeAreaLeft = values[40] as Int,
+            safeAreaRight = values[41] as Int,
+            contentInsetTop = values[42] as Int,
+            contentInsetBottom = values[43] as Int,
+            contentInsetLeft = values[44] as Int,
+            contentInsetRight = values[45] as Int,
         )
     }.stateIn(
         viewModelScope,
@@ -318,17 +305,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateDefaultPhoneMac(mac: String) {
-        viewModelScope.launch {
-            preferences.setDefaultPhoneMac(mac)
-            ConfigUpdateSender.sendConfigUpdate(mapOf("default_phone_mac" to mac))
-        }
+        viewModelScope.launch { preferences.setDefaultPhoneMac(mac) }
     }
 
     fun requestPairedPhones() {
         _phonesLoading.value = true
-        viewModelScope.launch {
-            ConfigUpdateSender.sendControlMessage(ControlMessage.ListPairedPhones)
-        }
+        // TODO: Phase 5 â€” send via relay control channel
     }
 
     fun onPairedPhonesReceived(phones: List<ControlMessage.PairedPhone>) {
@@ -337,17 +319,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun switchPhone(mac: String) {
-        viewModelScope.launch {
-            ConfigUpdateSender.sendControlMessage(ControlMessage.SwitchPhone(mac))
-        }
+        // TODO: Phase 5 â€” send via relay control channel
     }
 
     fun forgetPhone(mac: String) {
-        viewModelScope.launch {
-            ConfigUpdateSender.sendControlMessage(ControlMessage.ForgetPhone(mac))
-            // Remove from local list immediately for responsive UI
-            _pairedPhones.value = _pairedPhones.value.filter { it.mac != mac }
-        }
+        // TODO: Phase 5 â€” send via relay control channel
+        _pairedPhones.value = _pairedPhones.value.filter { it.mac != mac }
     }
 
     fun updateSyncAaTheme(enabled: Boolean) {
@@ -377,22 +354,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun startDiscovery() {
-        bridgeDiscovery.startDiscovery()
-    }
-
-    fun stopDiscovery() {
-        bridgeDiscovery.stopDiscovery()
-    }
-
-    fun selectBridge(bridge: DiscoveredBridge) {
-        viewModelScope.launch {
-            preferences.setBridgeHost(bridge.host)
-            preferences.setBridgePort(bridge.port)
-        }
-        bridgeDiscovery.stopDiscovery()
-    }
-
     fun scanNetworkInterfaces() {
         viewModelScope.launch(Dispatchers.IO) {
             interfaceScanner.scan()
@@ -419,95 +380,5 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             preferences.setContentInsetLeft(left)
             preferences.setContentInsetRight(right)
         }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        bridgeDiscovery.stopDiscovery()
-    }
-
-    /**
-     * Send the full config snapshot to the bridge, then restart bridge services.
-     * All settings changes are cached locally in DataStore until this is called.
-     * The bridge saves config to env, then restarts itself (and optionally WiFi/BT).
-     * The phone will reconnect and renegotiate (e.g., new codec, resolution).
-     */
-    fun saveAndRestart(restartWireless: Boolean = true, restartBluetooth: Boolean = false) {
-        viewModelScope.launch {
-            // Send full config snapshot — bridge compares and applies diffs
-            val config = preferences.getBridgeConfigSnapshot()
-            if (config.isNotEmpty()) {
-                ConfigUpdateSender.sendConfigUpdate(config)
-            }
-            ConfigUpdateSender.sendRestart(
-                restartWireless = restartWireless,
-                restartBluetooth = restartBluetooth,
-            )
-        }
-    }
-
-    // Bridge update state — exposed from SessionManager's BridgeUpdateManager
-    private val _bridgeUpdateState = MutableStateFlow(BridgeUpdateState.IDLE)
-    val bridgeUpdateState: StateFlow<BridgeUpdateState> = _bridgeUpdateState
-
-    private val _bridgeUpdateMessage = MutableStateFlow("")
-    val bridgeUpdateMessage: StateFlow<String> = _bridgeUpdateMessage
-
-    private val _bridgeVersion = MutableStateFlow<String?>(null)
-    val bridgeVersion: StateFlow<String?> = _bridgeVersion
-
-    private val _latestVersion = MutableStateFlow<String?>(null)
-    val latestVersion: StateFlow<String?> = _latestVersion
-
-    private val _lastCheckTime = MutableStateFlow<Long?>(null)
-    val lastCheckTime: StateFlow<Long?> = _lastCheckTime
-
-    private val _updateHistory = MutableStateFlow<List<com.openautolink.app.transport.UpdateHistoryEntry>>(emptyList())
-    val updateHistory: StateFlow<List<com.openautolink.app.transport.UpdateHistoryEntry>> = _updateHistory
-
-    fun updateBridgeAutoUpdate(enabled: Boolean) {
-        viewModelScope.launch { preferences.setBridgeAutoUpdate(enabled) }
-    }
-
-    fun updateBridgeAutoApply(enabled: Boolean) {
-        viewModelScope.launch { preferences.setBridgeAutoApply(enabled) }
-    }
-
-    /**
-     * Bind to the SessionManager's BridgeUpdateManager for state observation.
-     */
-    fun bindUpdateManager(manager: com.openautolink.app.transport.BridgeUpdateManager?) {
-        if (manager == null) return
-        viewModelScope.launch {
-            manager.updateState.collect { _bridgeUpdateState.value = it }
-        }
-        viewModelScope.launch {
-            manager.updateMessage.collect { _bridgeUpdateMessage.value = it }
-        }
-        viewModelScope.launch {
-            manager.bridgeVersion.collect { _bridgeVersion.value = it }
-        }
-        viewModelScope.launch {
-            manager.latestVersion.collect { _latestVersion.value = it }
-        }
-        viewModelScope.launch {
-            manager.lastCheckTime.collect { _lastCheckTime.value = it }
-        }
-        viewModelScope.launch {
-            manager.updateHistory.collect { _updateHistory.value = it }
-        }
-    }
-
-    /**
-     * Trigger a manual bridge update check via SessionManager.
-     */
-    fun checkForBridgeUpdate() {
-        val sessionManager = com.openautolink.app.session.SessionManager.getInstance(
-            viewModelScope,
-            getApplication(),
-            getApplication<Application>().getSystemService(android.media.AudioManager::class.java)
-        )
-        val bridgeInfo = sessionManager.bridgeInfo.value
-        sessionManager.bridgeUpdateManager?.triggerManualCheck(bridgeInfo)
     }
 }
