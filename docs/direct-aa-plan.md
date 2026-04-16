@@ -12,7 +12,7 @@
 | 3. Direct AA Transport | ⬜ Next | `DirectAaTransport.kt` + relay connection |
 | 4. Wire Up SessionManager | ⬜ | Route forwarders through aasdk JNI |
 | 5. Settings UI Cleanup | ⬜ | Mostly done in Phase 1 — remaining: phone management via relay |
-| 6. Bridge Relay Binary | ⬜ | Independent — can parallel Phase 3-5 |
+| 6. Bridge Relay Binary | ✅ Done | `openautolink-relay` — 67KB stripped, zero deps |
 | 7. Bridge Deployment | ⬜ | Depends on Phase 6 |
 | 8. Remove Old Bridge Code | ⬜ | Final cleanup + doc sweep |
 
@@ -273,6 +273,33 @@ aasdk, TLS, protobuf, or video frames. Just raw bytes between two sockets.
 
 **Implementation:** New C++ binary `openautolink-relay` (~200-300 lines). Same cross-compile
 toolchain, tiny binary size (no aasdk/OpenSSL/Protobuf deps).
+
+#### Phase 6 Implementation ✅ DONE
+
+| Step | Status | Description |
+|------|--------|-------------|
+| 6a | ✅ | Created `bridge/openautolink/relay/` directory with `CMakeLists.txt` — minimal C++20, no external deps |
+| 6b | ✅ | Created `bridge/openautolink/relay/src/main.cpp` — single-file relay binary (~340 lines) |
+| 6c | ✅ | Control server (TCP:5288) — JSON lines: hello, relay_ready, relay_disconnected, phone_bt_connected, paired_phones, error |
+| 6d | ✅ | Relay server (TCP:5291) — accepts app outbound connection, holds socket until phone connects |
+| 6e | ✅ | Phone listener (TCP:5277) — accepts phone AA connection after BT/WiFi pairing |
+| 6f | ✅ | Splice loop — `poll()` + non-blocking read/write between relay and phone sockets, stats on close |
+| 6g | ✅ | Phone management — `list_paired_phones`, `switch_phone`, `forget_phone` via bluetoothctl (MAC validation for injection prevention) |
+| 6h | ✅ | Diagnostics forwarding — `app_log` and `app_telemetry` from app written to stderr (journalctl/SSH) |
+| 6i | ✅ | Control reader thread — reads JSON lines from app, dispatches to handlers |
+| 6j | ✅ | Verified native x86_64 build (GCC 13, WSL) — clean compile, no warnings |
+| 6k | ✅ | Verified ARM64 cross-compile (aarch64-linux-gnu-g++) — 98KB unstripped, 67KB stripped |
+
+**Build gate:** ✅ Compiles cleanly on both x86_64 (native) and ARM64 (cross-compile) with
+`-Wall -Wextra -Wpedantic`. Zero warnings. Binary is 67KB stripped — vs ~5MB+ for old
+`openautolink-headless` (no aasdk, OpenSSL, Protobuf, Boost dependencies).
+
+**Architecture notes:**
+- Main loop: accept control → accept relay → poll for phone (with relay disconnect detection) → splice → loop
+- Splice uses non-blocking sockets with `poll()` — handles back-pressure via short-write retry
+- Signal handling: SIGINT/SIGTERM for clean shutdown, SIGPIPE ignored
+- Thread model: main thread does accept + splice, dedicated thread reads control channel JSON lines
+- Phone management calls are identical to old `oal_session.cpp` — same bluetoothctl commands, same MAC validation
 
 ### Phase 7: Bridge Deployment
 
