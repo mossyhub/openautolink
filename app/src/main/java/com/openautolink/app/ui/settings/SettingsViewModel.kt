@@ -310,7 +310,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun requestPairedPhones() {
         _phonesLoading.value = true
-        // TODO: Phase 5 â€” send via relay control channel
+        viewModelScope.launch {
+            val sm = getSessionManager()
+            sm.sendControlMessage(ControlMessage.ListPairedPhones)
+        }
     }
 
     fun onPairedPhonesReceived(phones: List<ControlMessage.PairedPhone>) {
@@ -319,11 +322,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun switchPhone(mac: String) {
-        // TODO: Phase 5 â€” send via relay control channel
+        viewModelScope.launch {
+            val sm = getSessionManager()
+            sm.sendControlMessage(ControlMessage.SwitchPhone(mac))
+        }
     }
 
     fun forgetPhone(mac: String) {
-        // TODO: Phase 5 â€” send via relay control channel
+        viewModelScope.launch {
+            val sm = getSessionManager()
+            sm.sendControlMessage(ControlMessage.ForgetPhone(mac))
+        }
         _pairedPhones.value = _pairedPhones.value.filter { it.mac != mac }
     }
 
@@ -380,5 +389,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             preferences.setContentInsetLeft(left)
             preferences.setContentInsetRight(right)
         }
+    }
+
+    private fun getSessionManager(): com.openautolink.app.session.SessionManager {
+        val ctx = getApplication<Application>()
+        val am = ctx.getSystemService(android.media.AudioManager::class.java)
+        return com.openautolink.app.session.SessionManager.getInstance(viewModelScope, ctx, am)
     }
 }

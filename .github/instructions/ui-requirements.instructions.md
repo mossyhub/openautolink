@@ -21,13 +21,14 @@ The app is a transparent window to Android Auto. The projection surface is the U
 Opened from overlay button or from ProjectionScreen when disconnected.
 
 **Sections:**
-- **Connection**: Bridge IP (text field), mDNS discover button, connection status indicator
-- **Video**: Codec picker (H.264/H.265/VP9), resolution tier (maps to 800×480 through 1920×1080), FPS (30/60)
-- **Audio**: (reserved — no user-configurable audio settings initially)
-- **Display**: Display mode picker (see Display Modes below), overlay button visibility toggles
-- **About**: App version, bridge firmware version (from hello), device info
+- **Connection**: Bridge relay IP (text field), network interface selector, connection status indicator
+- **Phones**: Paired phone management (list, switch, forget) via relay control channel
+- **Display**: Display mode picker (see Display Modes below), safe area editor, overlay button visibility toggles
+- **Video**: Codec picker (H.264/H.265/VP9), resolution tier, FPS, scaling mode, pixel aspect ratio
+- **Audio**: Mic source (car/phone), call quality
+- **Diagnostics**: Remote diagnostics enable/disable, log level, link to diagnostics screen
 
-Changes that affect the bridge require "Apply & Reconnect" — bridge must restart its AA session with new quality parameters.
+Settings are stored locally in DataStore and read by aasdk JNI at session start -- no bridge config_update needed.
 
 ## Display Modes
 
@@ -64,8 +65,8 @@ Developer-facing. Accessible from Settings or a long-press gesture.
 
 **Tabs:**
 - **System**: Android version, display resolution/DPI, SoC, available codecs with HW/SW indicator
-- **Network**: Bridge IP, control/video/audio TCP state, bytes transferred, latency
-- **Bridge**: Bridge-reported stats (from control channel `stats` messages)
+- **Network**: Bridge IP, relay/control TCP state, bytes transferred, latency
+- **Bridge**: Bridge connection status, relay state
 - **Logs**: Scrollable log view with severity filter, export button
 
 ## AAOS Wide-Screen Layout Patterns

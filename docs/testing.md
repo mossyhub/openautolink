@@ -6,11 +6,11 @@ Full end-to-end testing requires the AAOS app talking to the bridge over a real 
 
 ```
 ┌──────────────────┐         ┌─────────────────────────────────────┐
-│  Dev PC (Windows) │         │          SBC (Bridge)               │
+│  Dev PC (Windows) │         │          SBC (Bridge Relay)         │
 │                   │         │                                     │
 │  AAOS Emulator    │◄──eth──►│  Onboard NIC (eth0)                │
 │  (192.168.222.108)│  bridge │  Static IP: 192.168.222.222        │
-│                   │  traffic│  Ports: 5288, 5289, 5290            │
+│                   │  traffic│  Ports: 5288 (control), 5291 (relay)│
 │                   │         │                                     │
 │  PC NIC / USB-NIC │◄──eth──►│  USB NIC (eth1+)                   │
 │  (DHCP / static)  │   SSH   │  SSH access                        │
@@ -18,6 +18,12 @@ Full end-to-end testing requires the AAOS app talking to the bridge over a real 
 │  adb → emulator   │         │  Phone ── WiFi ──► wlan0 (5277)    │
 └──────────────────┘         └─────────────────────────────────────┘
 ```
+
+The app connects **outbound** to the bridge relay on two TCP channels:
+- **Control** (TCP:5288) — lightweight JSON signaling (hello, relay_ready, diagnostics)
+- **Relay** (TCP:5291) — raw byte splice between app and phone (AA protocol via aasdk JNI)
+
+The bridge does **zero** AA protocol processing. aasdk runs inside the app via NDK/JNI.
 
 ## Prerequisites
 
@@ -39,8 +45,8 @@ The SBC requires **two separate network connections** to your PC:
 
 | Cable | SBC Side | PC Side | Purpose |
 |-------|----------|---------|---------|
-| **Cable 1 — Bridge traffic** | **Onboard NIC** (eth0, RJ45 on the board) | Dedicated NIC or USB ethernet adapter on PC | OAL protocol (control/video/audio) |
-| **Cable 2 — SSH** | **USB NIC** (USB ethernet adapter plugged into SBC) | Any available NIC on PC | SSH access for development |
+| **Cable 1 -- Bridge traffic** | **Onboard NIC** (eth0, RJ45 on the board) | Dedicated NIC or USB ethernet adapter on PC | Relay (5291) + control (5288) |
+| **Cable 2 -- SSH** | **USB NIC** (USB ethernet adapter plugged into SBC) | Any available NIC on PC | SSH access for development |
 
 > **Why two cables?** The onboard NIC is locked to the car network subnet (192.168.222.0/24) with a static IP. Mixing SSH and bridge traffic on one interface creates routing conflicts and doesn't match the real car topology.
 
