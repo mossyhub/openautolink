@@ -579,6 +579,53 @@ class SessionManager(
         connectionManager.sendControlMessage(ControlMessage.KeyframeRequest)
     }
 
+    /**
+     * Auto-calculate and send pixel_aspect to the bridge for crop mode.
+     * In crop mode, the 16:9 video fills the wider display surface, stretching
+     * pixels horizontally. pixel_aspect tells the phone to pre-distort so
+     * circles remain circular after the stretch.
+     */
+    private suspend fun autoSendPixelAspect() {
+        val ctx = context ?: return
+        val prefs = AppPreferences.getInstance(ctx)
+        val scalingMode = prefs.videoScalingMode.first()
+        val userPixelAspect = prefs.aaPixelAspect.first()
+
+        // Only auto-calculate if in crop mode and user hasn't set a manual value
+        if (scalingMode != "crop" || userPixelAspect != 0) return
+
+        val dm = ctx.getSystemService(Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
+        val display = dm?.getDisplay(android.view.Display.DEFAULT_DISPLAY) ?: return
+        val mode = display.mode
+        val displayW = mode.physicalWidth.toFloat()
+        val displayH = mode.physicalHeight.toFloat()
+
+        val resolution = prefs.aaResolution.first()
+        val videoW: Int
+        val videoH: Int
+        when (resolution) {
+            "480p" -> { videoW = 854; videoH = 480 }
+            "720p" -> { videoW = 1280; videoH = 720 }
+            "1440p" -> { videoW = 2560; videoH = 1440 }
+            "4k" -> { videoW = 3840; videoH = 2160 }
+            else -> { videoW = 1920; videoH = 1080 } // 1080p default
+        }
+        val videoAr = videoW.toFloat() / videoH.toFloat()
+        val displayAr = displayW / displayH
+
+        if (displayAr <= 0 || videoAr <= 0 || displayAr == videoAr) return
+
+        val pa = (displayAr / videoAr * 10000).toInt()
+        if (pa == 10000) return // square pixels, no correction needed
+
+        Log.i(TAG, "Auto pixel_aspect for crop mode: $pa (display=${displayW.toInt()}x${displayH.toInt()}, video=${videoW}x${videoH})")
+
+        // Send as config_update to bridge — bridge applies it to the SDR
+        connectionManager.sendControlMessage(
+            ControlMessage.ConfigUpdate(mapOf("pixel_aspect" to pa.toString()))
+        )
+    }
+
     /** Sync local-only preferences that don't go to the bridge (e.g., cluster units). */
     private suspend fun syncLocalPreferences() {
         val ctx = context ?: return
@@ -724,6 +771,12 @@ class SessionManager(
                 // Send our hello back (display dims, cutout — bridge auto-computes from these)
                 scope.launch {
                     sendAppHello(displayWidth = 0, displayHeight = 0, displayDpi = 0)
+                    // Auto-calculate pixel_aspect for crop mode and send to bridge.
+                    // The bridge's auto-computation from hello data may not account
+                    // for the scaling mode. When crop mode stretches 16:9 video to
+                    // fill a wider display, pixel_aspect tells the phone to pre-distort
+                    // so circles remain circular.
+                    autoSendPixelAspect()
                     // No syncBridgeSettings — bridge env is the source of truth.
                     // User changes go to env via Save & Restart. Auto-computed
                     // values (pixel_aspect, stable_insets) come from hello data.

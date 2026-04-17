@@ -55,3 +55,17 @@ secrets/
 
 # Legacy app reference (not part of build)
 app_v1/
+
+# Reverse engineering / teardown artifacts
+Gmaps_teardown/
+
+# Temp files
+tmp_bugreport.zip
+tmp_bugreport/
+tmp_screenshot.*
+
+# NDK build intermediates
+app/.cxx/
+
+# Build stub
+build-stub/
