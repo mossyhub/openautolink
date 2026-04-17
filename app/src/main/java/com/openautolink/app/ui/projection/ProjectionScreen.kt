@@ -312,6 +312,7 @@ fun ProjectionScreen(
                 phoneBatteryLevel = uiState.phoneBatteryLevel,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
                     .padding(12.dp)
             )
         }
