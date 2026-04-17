@@ -1,11 +1,17 @@
 package com.openautolink.app.input
 
+import android.os.SystemClock
 import android.view.MotionEvent
 import com.openautolink.app.transport.ControlMessage
+import java.util.concurrent.Executors
 
 /**
  * Converts Android MotionEvents to OAL touch control messages and sends them
  * via the provided callback. Handles single-touch and multi-touch events.
+ *
+ * Touch events are forwarded on a dedicated thread to avoid blocking the
+ * main thread with JNI calls (prevents ANR on emulator/slow devices).
+ * MOVE events are throttled to 60Hz — AA doesn't need higher resolution.
  *
  * OAL action codes (matching Android MotionEvent):
  * - 0 = ACTION_DOWN
@@ -22,6 +28,14 @@ class TouchForwarderImpl(
     private val sendMessage: (ControlMessage.Touch) -> Unit
 ) : TouchForwarder {
 
+    private val touchExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "OAL-touch").apply { isDaemon = true }
+    }
+
+    // Throttle MOVE events to 60Hz (16ms minimum interval)
+    @Volatile private var lastMoveTimeMs = 0L
+    private val moveIntervalMs = 16L
+
     override fun onTouch(
         event: MotionEvent,
         surfaceWidth: Int,
@@ -32,6 +46,13 @@ class TouchForwarderImpl(
         if (surfaceWidth <= 0 || surfaceHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) return
 
         val actionMasked = event.actionMasked
+
+        // Throttle MOVE events — AA doesn't need >60Hz touch resolution
+        if (actionMasked == MotionEvent.ACTION_MOVE) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastMoveTimeMs < moveIntervalMs) return
+            lastMoveTimeMs = now
+        }
 
         // Map Android action to OAL action code
         val oalAction = when (actionMasked) {
@@ -55,15 +76,14 @@ class TouchForwarderImpl(
                 surfaceWidth, surfaceHeight,
                 videoWidth, videoHeight
             )
-            sendMessage(
-                ControlMessage.Touch(
-                    action = oalAction,
-                    x = scaledX,
-                    y = scaledY,
-                    pointerId = event.getPointerId(0),
-                    pointers = null
-                )
+            val msg = ControlMessage.Touch(
+                action = oalAction,
+                x = scaledX,
+                y = scaledY,
+                pointerId = event.getPointerId(0),
+                pointers = null
             )
+            touchExecutor.execute { sendMessage(msg) }
         } else {
             // Multi-touch: use pointers array
             val pointers = (0 until pointerCount).map { i ->
@@ -78,16 +98,15 @@ class TouchForwarderImpl(
                     y = scaledY
                 )
             }
-            sendMessage(
-                ControlMessage.Touch(
-                    action = oalAction,
-                    x = null,
-                    y = null,
-                    pointerId = null,
-                    pointers = pointers,
-                    actionIndex = event.actionIndex
-                )
+            val msg = ControlMessage.Touch(
+                action = oalAction,
+                x = null,
+                y = null,
+                pointerId = null,
+                pointers = pointers,
+                actionIndex = event.actionIndex
             )
+            touchExecutor.execute { sendMessage(msg) }
         }
     }
 }

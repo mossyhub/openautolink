@@ -43,6 +43,7 @@ desktop.ini
 # Captures and local reverse-engineering artifacts
 *.btsnoop
 external/carlink_native_ref/
+Gmaps_teardown/
 tmp_cpc200/
 scripts/*.armv7
 scripts/hci_sniff

@@ -1626,6 +1626,7 @@ void JniAutoEntity::triggerQuit(const std::string& reason) {
 namespace {
 
 std::atomic<bool> g_running{false};
+std::mutex g_sessionMutex;  // guards sendTouch/sendButton/sendMic during stopSession
 std::unique_ptr<boost::asio::io_service> g_io;
 std::unique_ptr<boost::asio::io_service::work> g_work;
 std::thread g_ioThread;
@@ -1819,6 +1820,13 @@ void stopSession() {
     if (!g_running.exchange(false)) return;
     LOGI("stopSession");
 
+    // Lock to prevent sendTouch/sendButton/sendMic from dispatching
+    // to the strand while we tear down the entity and io_service.
+    std::lock_guard<std::mutex> lock(g_sessionMutex);
+
+    // Grab io_service pointer for shutdown, then null the global immediately.
+    auto io = std::move(g_io);
+
     if (g_entity) {
         g_entity->stop();
         g_entity.reset();
@@ -1831,7 +1839,7 @@ void stopSession() {
     }
 
     g_work.reset();
-    if (g_io) g_io->stop();
+    if (io) io->stop();
 
     if (g_ioThread.joinable()) {
         // Timed join: if io_service thread is stuck in a callback, don't block
@@ -1842,18 +1850,22 @@ void stopSession() {
             g_ioThread.detach();
         }
     }
-    g_io.reset();
+    // io goes out of scope here and is destroyed
 }
 
 void sendTouch(int action, float x, float y, int pointerId) {
-    if (!g_running.load() || !g_entity || !g_entity->inputHandler()) return;
+    if (!g_running.load()) return;
+    std::lock_guard<std::mutex> lock(g_sessionMutex);
+    if (!g_running.load() || !g_io || !g_entity || !g_entity->inputHandler()) return;
     try {
         g_entity->inputHandler()->sendTouch(action, x, y, pointerId);
     } catch (...) {}
 }
 
 void sendSensorData(int type, const uint8_t* data, size_t len) {
-    if (!g_running.load() || !g_entity || !g_entity->sensorHandler()) return;
+    if (!g_running.load()) return;
+    std::lock_guard<std::mutex> lock(g_sessionMutex);
+    if (!g_running.load() || !g_io || !g_entity || !g_entity->sensorHandler()) return;
 
     // type 0x01 = GNSS NMEA — forwarded as raw bytes to aasdk sensor handler
     if (type == 0x01 && len > 0) {
@@ -1862,14 +1874,18 @@ void sendSensorData(int type, const uint8_t* data, size_t len) {
 }
 
 void sendMicAudio(const uint8_t* pcm, size_t len) {
-    if (!g_running.load() || !g_entity || !g_entity->audioInputHandler()) return;
+    if (!g_running.load()) return;
+    std::lock_guard<std::mutex> lock(g_sessionMutex);
+    if (!g_running.load() || !g_io || !g_entity || !g_entity->audioInputHandler()) return;
     try {
         g_entity->audioInputHandler()->feedAudio(pcm, len);
     } catch (...) {}
 }
 
 void sendButton(int keycode, bool down) {
-    if (!g_running.load() || !g_entity || !g_entity->inputHandler()) return;
+    if (!g_running.load()) return;
+    std::lock_guard<std::mutex> lock(g_sessionMutex);
+    if (!g_running.load() || !g_io || !g_entity || !g_entity->inputHandler()) return;
     try {
         g_entity->inputHandler()->sendButton(keycode, down);
     } catch (...) {}
