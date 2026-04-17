@@ -35,6 +35,7 @@ namespace oal {
     void sendSensorData(int type, const uint8_t* data, size_t len);
     void sendMicAudio(const uint8_t* pcm, size_t len);
     void sendButton(int keycode, bool down);
+    void requestVideoFocus();
 }
 
 // Cached JVM reference for native → Kotlin callbacks
@@ -318,6 +319,12 @@ Java_com_openautolink_app_transport_AasdkJni_sendButton(
         JNIEnv* /*env*/, jobject /*thiz*/,
         jint keycode, jboolean down) {
     oal::sendButton(keycode, down);
+}
+
+JNIEXPORT void JNICALL
+Java_com_openautolink_app_transport_AasdkJni_requestVideoFocus(
+        JNIEnv* /*env*/, jobject /*thiz*/) {
+    oal::requestVideoFocus();
 }
 
 } // extern "C"

@@ -476,7 +476,9 @@ class SessionManager(
     }
 
     suspend fun requestKeyframe() {
-        // aasdk handles keyframes internally -- no explicit request needed in direct mode
+        if (AasdkJni.isAvailable) {
+            AasdkJni.requestVideoFocus()
+        }
     }
 
     private suspend fun syncLocalPreferences() {

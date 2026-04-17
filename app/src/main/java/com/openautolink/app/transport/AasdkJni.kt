@@ -86,6 +86,9 @@ object AasdkJni {
     /** Send a hardware button event (steering wheel controls). */
     external fun sendButton(keycode: Int, down: Boolean)
 
+    /** Request video focus (triggers phone to send a fresh IDR keyframe). */
+    external fun requestVideoFocus()
+
     // ─── Native → Kotlin (callbacks) ────────────────────────────────
 
     private val _videoFrames = MutableSharedFlow<VideoFrame>(

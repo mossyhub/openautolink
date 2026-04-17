@@ -316,12 +316,17 @@ public:
     void stop() { stopped_ = true; }
 
     void sendVideoFocusIndication() {
-        aap_protobuf::service::media::video::message::VideoFocusNotification notif;
-        notif.set_focus(aap_protobuf::service::media::video::message::VIDEO_FOCUS_PROJECTED);
-        notif.set_unsolicited(false);
-        auto p = aasdk::channel::SendPromise::defer(strand_);
-        p->then([](){}, [](auto){});
-        channel_->sendVideoFocusIndication(notif, std::move(p));
+        // Must be dispatched on the strand to avoid racing with
+        // io_service thread Messenger operations.
+        strand_.dispatch([this, self = shared_from_this()]() {
+            if (stopped_) return;
+            aap_protobuf::service::media::video::message::VideoFocusNotification notif;
+            notif.set_focus(aap_protobuf::service::media::video::message::VIDEO_FOCUS_PROJECTED);
+            notif.set_unsolicited(false);
+            auto p = aasdk::channel::SendPromise::defer(strand_);
+            p->then([](){}, [](auto){});
+            channel_->sendVideoFocusIndication(notif, std::move(p));
+        });
     }
 
 private:
@@ -1900,6 +1905,22 @@ void sendButton(int keycode, bool down) {
     } catch (...) {}
 }
 
+void requestVideoFocus() {
+    if (!g_running.load()) return;
+    std::lock_guard<std::mutex> lock(g_sessionMutex);
+    if (!g_running.load() || !g_io || !g_entity || !g_entity->videoHandler()) return;
+    try {
+        // Post to io_service instead of calling directly — avoids strand
+        // racing with io_service thread and strand_impl corruption.
+        g_io->post([entity = g_entity]() {
+            if (entity && entity->videoHandler()) {
+                entity->videoHandler()->sendVideoFocusIndication();
+            }
+        });
+        LOGI("requestVideoFocus: posted VIDEO_FOCUS_PROJECTED request");
+    } catch (...) {}
+}
+
 } // namespace oal
 
 #else // OAL_STUB_ONLY
@@ -1942,6 +1963,7 @@ void sendTouch(int, float, float, int) {}
 void sendSensorData(int, const uint8_t*, size_t) {}
 void sendMicAudio(const uint8_t*, size_t) {}
 void sendButton(int, bool) {}
+void requestVideoFocus() {}
 
 } // namespace oal
 

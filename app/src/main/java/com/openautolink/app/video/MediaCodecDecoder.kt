@@ -512,6 +512,14 @@ class MediaCodecDecoder(
                 if (consecutiveDrops == 5 || (consecutiveDrops > 5 && consecutiveDrops % 30 == 0)) {
                     Log.w(TAG, "Decoder behind: $consecutiveDrops consecutive frame drops")
                 }
+                // After 10 consecutive drops, request IDR to recover — dropped
+                // P-frames corrupt the reference picture buffer, causing
+                // purple/green block artifacts that persist until next IDR.
+                if (consecutiveDrops == 10) {
+                    Log.i(TAG, "Requesting IDR recovery after $consecutiveDrops drops")
+                    _needsKeyframe = true
+                    _needsKeyframeFlow.value = true
+                }
                 return
             }
 
