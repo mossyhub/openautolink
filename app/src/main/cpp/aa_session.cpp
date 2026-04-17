@@ -313,7 +313,7 @@ public:
         , videoCodec_(videoCodec) {}
 
     void start() { strand_.dispatch([this, self = shared_from_this()]() { channel_->receive(self); }); }
-    void stop() {}
+    void stop() { stopped_ = true; }
 
     void sendVideoFocusIndication() {
         aap_protobuf::service::media::video::message::VideoFocusNotification notif;
@@ -429,7 +429,7 @@ private:
         auto p = aasdk::channel::SendPromise::defer(strand_);
         p->then([](){}, [](auto){});
         channel_->sendMediaAckIndication(ack, std::move(p));
-        channel_->receive(shared_from_this());
+        if (!stopped_) channel_->receive(shared_from_this());
     }
 
     void onMediaIndication(const aasdk::common::DataConstBuffer& buf) override {
@@ -438,7 +438,7 @@ private:
 
     void onVideoFocusRequest(const aap_protobuf::service::media::video::message::VideoFocusRequestNotification&) override {
         sendVideoFocusIndication();
-        channel_->receive(shared_from_this());
+        if (!stopped_) channel_->receive(shared_from_this());
     }
 
     void onChannelError(const aasdk::error::Error& e) override {
@@ -449,6 +449,7 @@ private:
     std::shared_ptr<aasdk::channel::mediasink::video::channel::VideoChannel> channel_;
     int width_, height_, fps_, dpi_;
     int videoCodec_; // 0=h264, 1=h265, 2=vp9
+    std::atomic<bool> stopped_{false};
     int32_t session_ = -1;
     uint32_t frameCount_ = 0;
 };
@@ -1821,16 +1822,12 @@ void stopSession() {
     LOGI("stopSession");
 
     // Lock to prevent sendTouch/sendButton/sendMic from dispatching
-    // to the strand while we tear down the entity and io_service.
+    // to the strand while we tear down.
     std::lock_guard<std::mutex> lock(g_sessionMutex);
 
-    // Grab io_service pointer for shutdown, then null the global immediately.
+    // Null the global io pointer so sendTouch/etc guards catch it immediately.
     auto io = std::move(g_io);
-
-    if (g_entity) {
-        g_entity->stop();
-        g_entity.reset();
-    }
+    auto entity = std::move(g_entity);
 
     if (g_acceptor) {
         boost::system::error_code ec;
@@ -1838,19 +1835,31 @@ void stopSession() {
         g_acceptor.reset();
     }
 
+    // Remove work guard and force-stop io_service. This makes io->run() return
+    // immediately after the current handler finishes. We cannot drain naturally
+    // because handlers keep calling channel_->receive() which posts new async
+    // reads — the io_service would never become idle.
     g_work.reset();
     if (io) io->stop();
 
+    // Join the io_service thread. After io->stop(), run() returns as soon as
+    // the currently executing handler completes (stop doesn't interrupt it).
     if (g_ioThread.joinable()) {
-        // Timed join: if io_service thread is stuck in a callback, don't block
-        // the JNI thread forever (causes ANR and process kill).
         auto future = std::async(std::launch::async, []() { g_ioThread.join(); });
         if (future.wait_for(std::chrono::seconds(3)) == std::future_status::timeout) {
-            LOGW("stopSession: io_service thread join timed out — detaching");
+            LOGW("stopSession: join timed out — detaching");
             g_ioThread.detach();
+            // Thread may still be in a handler. Don't destroy entity/io — leak
+            // to prevent crash. The handler holds shared_from_this refs anyway.
+            entity.reset();  // release our ref, handler still holds one
+            io.release();    // intentional leak
+            return;
         }
     }
-    // io goes out of scope here and is destroyed
+
+    // Thread is joined — no handler is running. Safe to destroy.
+    entity.reset();
+    // io destroyed when unique_ptr goes out of scope
 }
 
 void sendTouch(int action, float x, float y, int pointerId) {

@@ -78,7 +78,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private val trackedTransportNetworks = mutableSetOf<Long>()
 
     private val touchForwarder: TouchForwarder = TouchForwarderImpl { touchMessage ->
-        viewModelScope.launch {
+        // Called from OAL-touch executor thread — dispatch to IO, not Main
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             sessionManager.sendControlMessage(touchMessage)
         }
     }
