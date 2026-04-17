@@ -308,6 +308,26 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         connect()
     }
 
+    /**
+     * Apply changed settings to the transport and restart bridge BT.
+     * Does NOT tear down the session — the phone disconnects naturally when
+     * the bridge restarts BT, then the transport auto-reconnects with the
+     * updated SDR parameters (new codec, resolution, DPI, etc.).
+     */
+    fun applySettingsAndRestart() {
+        viewModelScope.launch {
+            // Update transport properties from current prefs so the next
+            // aasdk session uses the new values in its SDR.
+            sessionManager.updateTransportParams()
+
+            // Tell the bridge to restart BT — phone disconnects, then reconnects.
+            // The transport's reconnect loop handles the rest.
+            sessionManager.sendControlMessage(
+                com.openautolink.app.transport.ControlMessage.RestartServices(bluetooth = true)
+            )
+        }
+    }
+
     /** Tell bridge to restart BT so phone reconnects with new AA settings. */
     fun restartBridgeServices() {
         viewModelScope.launch {

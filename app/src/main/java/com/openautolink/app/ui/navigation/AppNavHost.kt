@@ -55,10 +55,12 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 viewModel = settingsViewModel,
                 sessionState = projectionUiState.sessionState,
                 onSaveAndConnect = {
-                    // Restart bridge BT so phone reconnects with new AA settings
-                    projectionViewModel.restartBridgeServices()
-                    projectionViewModel.reconnect()
+                    // Navigate back to projection, then restart bridge BT.
+                    // DON'T tear down the session — just tell the bridge to
+                    // restart BT. The phone disconnects naturally, aasdk session
+                    // ends, transport auto-reconnects with the updated settings.
                     navController.popBackStack()
+                    projectionViewModel.applySettingsAndRestart()
                 },
                 onBack = { navController.popBackStack() },
                 onNavigateToDiagnostics = {

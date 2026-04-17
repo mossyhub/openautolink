@@ -369,6 +369,10 @@ class DirectAaTransport(private val scope: CoroutineScope) {
         } finally {
             controlMonitorJob.cancel()
             videoMonitorJob.cancel()
+            // Stop the native aasdk session so the next startSessionWithFd can proceed.
+            // This must happen after sessionDone (phone disconnected) to avoid
+            // blocking the JNI thread while aasdk callbacks are still firing.
+            try { AasdkJni.stopSession() } catch (_: Exception) {}
         }
     }
 

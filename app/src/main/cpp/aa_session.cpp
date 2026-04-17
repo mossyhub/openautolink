@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -1832,7 +1833,15 @@ void stopSession() {
     g_work.reset();
     if (g_io) g_io->stop();
 
-    if (g_ioThread.joinable()) g_ioThread.join();
+    if (g_ioThread.joinable()) {
+        // Timed join: if io_service thread is stuck in a callback, don't block
+        // the JNI thread forever (causes ANR and process kill).
+        auto future = std::async(std::launch::async, []() { g_ioThread.join(); });
+        if (future.wait_for(std::chrono::seconds(3)) == std::future_status::timeout) {
+            LOGW("stopSession: io_service thread join timed out — detaching");
+            g_ioThread.detach();
+        }
+    }
     g_io.reset();
 }
 

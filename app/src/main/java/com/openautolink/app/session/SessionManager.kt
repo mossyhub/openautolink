@@ -346,6 +346,48 @@ class SessionManager(
         }
     }
 
+    /**
+     * Update the transport's session parameters from current DataStore prefs.
+     * Called by "Save & Restart" to apply new settings without tearing down
+     * the session. The next time the transport starts an aasdk session
+     * (after the phone reconnects), it will use these updated values.
+     */
+    fun updateTransportParams() {
+        val t = transport ?: return
+        val ctx = context ?: return
+        val prefs = AppPreferences.getInstance(ctx)
+        val resolution = kotlinx.coroutines.runBlocking { prefs.aaResolution.first() }
+        val dpi = kotlinx.coroutines.runBlocking { prefs.aaDpi.first() }
+        val fps = kotlinx.coroutines.runBlocking { prefs.videoFps.first() }
+        val (w, h) = resolveResolution(resolution)
+        t.sessionWidth = w
+        t.sessionHeight = h
+        t.sessionFps = fps
+        t.sessionDpi = dpi
+        t.sessionMarginW = kotlinx.coroutines.runBlocking { prefs.aaWidthMargin.first() }
+        t.sessionMarginH = kotlinx.coroutines.runBlocking { prefs.aaHeightMargin.first() }
+        t.sessionPixelAspect = kotlinx.coroutines.runBlocking { prefs.aaPixelAspect.first() }
+        t.sessionDriverPos = if (kotlinx.coroutines.runBlocking { prefs.driveSide.first() } == "right") 1 else 0
+        t.sessionSafeTop = kotlinx.coroutines.runBlocking { prefs.safeAreaTop.first() }
+        t.sessionSafeBottom = kotlinx.coroutines.runBlocking { prefs.safeAreaBottom.first() }
+        t.sessionSafeLeft = kotlinx.coroutines.runBlocking { prefs.safeAreaLeft.first() }
+        t.sessionSafeRight = kotlinx.coroutines.runBlocking { prefs.safeAreaRight.first() }
+        t.sessionContentTop = kotlinx.coroutines.runBlocking { prefs.contentInsetTop.first() }
+        t.sessionContentBottom = kotlinx.coroutines.runBlocking { prefs.contentInsetBottom.first() }
+        t.sessionContentLeft = kotlinx.coroutines.runBlocking { prefs.contentInsetLeft.first() }
+        t.sessionContentRight = kotlinx.coroutines.runBlocking { prefs.contentInsetRight.first() }
+        t.sessionHeadUnitName = kotlinx.coroutines.runBlocking { prefs.headUnitName.first() }
+        val autoNeg = kotlinx.coroutines.runBlocking { prefs.videoAutoNegotiate.first() }
+        val codecStr = if (autoNeg) "auto" else kotlinx.coroutines.runBlocking { prefs.videoCodec.first() }
+        t.sessionVideoCodec = when (codecStr) {
+            "h265", "hevc" -> 1
+            "vp9" -> 2
+            "auto" -> 3
+            else -> 0
+        }
+        Log.i(TAG, "Transport params updated: ${w}x${h}@${fps}fps dpi=$dpi codec=$codecStr")
+    }
+
     fun stop() {
         observeJob?.cancel()
         observeJob = null
