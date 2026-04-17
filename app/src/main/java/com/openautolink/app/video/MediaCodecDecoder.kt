@@ -32,9 +32,9 @@ class MediaCodecDecoder(
 
     companion object {
         private const val TAG = "MediaCodecDecoder"
-        private const val INPUT_TIMEOUT_US = 16000L // 16ms — one frame period at 60fps
-        private const val INPUT_TIMEOUT_BEHIND_US = 5000L // 5ms — shorter when catching up
-        private const val OUTPUT_TIMEOUT_US = 1000L // 1ms timeout for output drain
+        private const val INPUT_TIMEOUT_US = 33000L // 33ms — one frame period at 30fps
+        private const val INPUT_TIMEOUT_BEHIND_US = 16000L // 16ms — still try when behind
+        private const val OUTPUT_TIMEOUT_US = 5000L // 5ms timeout for output drain
         private const val STATS_INTERVAL_MS = 500L
     }
 
@@ -512,10 +512,10 @@ class MediaCodecDecoder(
                 if (consecutiveDrops == 5 || (consecutiveDrops > 5 && consecutiveDrops % 30 == 0)) {
                     Log.w(TAG, "Decoder behind: $consecutiveDrops consecutive frame drops")
                 }
-                // After 10 consecutive drops, request IDR to recover — dropped
+                // After 30 consecutive drops, request IDR to recover — dropped
                 // P-frames corrupt the reference picture buffer, causing
                 // purple/green block artifacts that persist until next IDR.
-                if (consecutiveDrops == 10) {
+                if (consecutiveDrops == 30) {
                     Log.i(TAG, "Requesting IDR recovery after $consecutiveDrops drops")
                     _needsKeyframe = true
                     _needsKeyframeFlow.value = true
