@@ -57,25 +57,17 @@ is_usb_nic() {
 }
 
 find_onboard_nic() {
-    # First pass: check common names, but verify they're NOT USB
-    for name in eth0 end0; do
-        if [ -d "/sys/class/net/$name" ] && ! is_usb_nic "$name"; then
-            echo "$name"
-            return 0
-        fi
-    done
-    # Second pass: any non-lo, non-usb-bus, non-wlan interface
+    # Most SBCs have exactly one onboard ethernet NIC. Scan sysfs and
+    # pick the first non-virtual, non-USB, non-wireless interface.
+    # Works regardless of naming (eth0, end0, enp*, eno*, etc.).
     for path in /sys/class/net/*; do
         local iface=$(basename "$path")
-        case "$iface" in
-            lo|usb*|wlan*|enx*) continue ;;
-            *)
-                if ! is_usb_nic "$iface"; then
-                    echo "$iface"
-                    return 0
-                fi
-                ;;
-        esac
+        # Skip virtual/wireless/USB-named interfaces
+        case "$iface" in lo|usb*|wlan*|wlp*|enx*) continue ;; esac
+        # Skip anything on the USB bus (USB ethernet adapters)
+        is_usb_nic "$iface" && continue
+        echo "$iface"
+        return 0
     done
     return 1
 }
