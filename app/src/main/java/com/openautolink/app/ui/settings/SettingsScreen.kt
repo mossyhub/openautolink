@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -211,6 +212,7 @@ private fun ConnectionStatusBar(
     sessionState: SessionState,
     onSaveAndConnect: () -> Unit,
 ) {
+    var showSaveDialog by remember { mutableStateOf(false) }
     val statusColor = when (sessionState) {
         SessionState.STREAMING -> Color(0xFF4CAF50) // Green
         SessionState.PHONE_CONNECTED -> Color(0xFF8BC34A) // Light green
@@ -228,6 +230,30 @@ private fun ConnectionStatusBar(
         SessionState.ERROR -> "Error"
     }
 
+    // Save confirmation dialog
+    if (showSaveDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text("Settings Saved") },
+            text = {
+                Text(
+                    "To apply the new settings:\n\n" +
+                    "1. Force close OpenAutoLink from Settings → Apps\n" +
+                    "2. Relaunch the app\n" +
+                    "3. Toggle Bluetooth off then on on your phone\n\n" +
+                    "The phone will reconnect with the updated configuration."
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showSaveDialog = false
+                }) {
+                    Text("OK")
+                }
+            },
+        )
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -235,18 +261,18 @@ private fun ConnectionStatusBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // Save & Connect button — left-aligned, first element
+        // Save button — saves settings, shows instructions dialog
         Button(
-            onClick = onSaveAndConnect,
+            onClick = { showSaveDialog = true },
             modifier = Modifier.testTag("saveAndConnectButton"),
         ) {
             Icon(
-                imageVector = Icons.Default.Refresh,
+                imageVector = Icons.Default.Check,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Save & Restart")
+            Text("Save")
         }
 
         // Status indicator dot + text
@@ -1426,7 +1452,7 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             text = "How the video fits your screen. " +
                     "Letterbox shows the full frame with black bars on the sides. " +
                     "Crop fills the screen but cuts off top/bottom. " +
-                    "Requires reconnect (Save & Restart).",
+                    "Requires app restart and phone BT toggle to take effect.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp)

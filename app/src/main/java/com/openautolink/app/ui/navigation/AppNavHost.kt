@@ -54,12 +54,9 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 viewModel = settingsViewModel,
                 sessionState = projectionUiState.sessionState,
                 onSaveAndConnect = {
-                    // Navigate back to projection, then restart bridge BT.
-                    // DON'T tear down the session — just tell the bridge to
-                    // restart BT. The phone disconnects naturally, aasdk session
-                    // ends, transport auto-reconnects with the updated settings.
+                    // No longer used — Save button shows dialog with instructions.
+                    // Settings are saved automatically by DataStore.
                     navController.popBackStack()
-                    projectionViewModel.applySettingsAndRestart()
                 },
                 onBack = { navController.popBackStack() },
                 onNavigateToDiagnostics = {
