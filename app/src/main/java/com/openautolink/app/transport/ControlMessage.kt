@@ -66,7 +66,10 @@ sealed class ControlMessage {
         val currentRoad: String? = null,
         val destination: String? = null,
         val etaFormatted: String? = null,
-        val timeToArrivalSeconds: Long? = null
+        val timeToArrivalSeconds: Long? = null,
+        val destDistanceMeters: Int? = null,
+        val destDistanceDisplay: String? = null,
+        val destDistanceUnit: String? = null
     ) : ControlMessage()
 
     object NavStateClear : ControlMessage()

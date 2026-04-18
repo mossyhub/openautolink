@@ -43,7 +43,11 @@ class NavigationDisplayImpl : NavigationDisplay {
             destination = state.destination,
             etaFormatted = state.etaFormatted,
             displayDistance = state.displayDistance,
-            displayDistanceUnit = state.displayDistanceUnit
+            displayDistanceUnit = state.displayDistanceUnit,
+            timeToArrivalSeconds = state.timeToArrivalSeconds,
+            destDistanceMeters = state.destDistanceMeters,
+            destDistanceDisplay = state.destDistanceDisplay,
+            destDistanceUnit = state.destDistanceUnit
         )
     }
 

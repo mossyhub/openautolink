@@ -613,6 +613,12 @@ private:
     int last_distance_m_ = 0;
     int last_eta_s_ = 0;
     bool has_modern_nav_ = false;  // true once we receive msg 32774
+
+    // Cached destination for carry-forward across position updates
+    std::string last_destination_;
+    int last_dest_distance_m_ = 0;
+    std::string last_dest_display_value_;
+    std::string last_dest_display_unit_;
 };
 
 class HeadlessMediaStatusHandler

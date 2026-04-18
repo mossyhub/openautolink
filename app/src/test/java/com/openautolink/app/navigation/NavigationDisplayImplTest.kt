@@ -128,4 +128,55 @@ class NavigationDisplayImplTest {
         assertEquals("2.8", state.displayDistance)
         assertEquals("miles_p1", state.displayDistanceUnit)
     }
+
+    @Test
+    fun `onNavState with destination details populates all fields`() {
+        val display = NavigationDisplayImpl()
+
+        display.onNavState(
+            ControlMessage.NavState(
+                maneuver = "turn_right",
+                distanceMeters = 150,
+                road = "Main St",
+                etaSeconds = 30,
+                destination = "123 Elm St",
+                etaFormatted = "2:45 PM",
+                timeToArrivalSeconds = 1800,
+                destDistanceMeters = 25000,
+                destDistanceDisplay = "15.5",
+                destDistanceUnit = "miles"
+            )
+        )
+
+        val state = display.currentManeuver.value
+        assertNotNull(state)
+        assertEquals("123 Elm St", state!!.destination)
+        assertEquals("2:45 PM", state.etaFormatted)
+        assertEquals(1800L, state.timeToArrivalSeconds)
+        assertEquals(25000, state.destDistanceMeters)
+        assertEquals("15.5", state.destDistanceDisplay)
+        assertEquals("miles", state.destDistanceUnit)
+    }
+
+    @Test
+    fun `onNavState without destination details has null destination fields`() {
+        val display = NavigationDisplayImpl()
+
+        display.onNavState(
+            ControlMessage.NavState(
+                maneuver = "straight",
+                distanceMeters = 500,
+                road = "Highway 101",
+                etaSeconds = 60
+            )
+        )
+
+        val state = display.currentManeuver.value
+        assertNotNull(state)
+        assertNull(state!!.destination)
+        assertNull(state.timeToArrivalSeconds)
+        assertNull(state.destDistanceMeters)
+        assertNull(state.destDistanceDisplay)
+        assertNull(state.destDistanceUnit)
+    }
 }

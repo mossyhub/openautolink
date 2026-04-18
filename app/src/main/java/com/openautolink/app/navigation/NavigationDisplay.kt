@@ -35,7 +35,11 @@ data class ManeuverState(
     val destination: String? = null,
     val etaFormatted: String? = null,
     val displayDistance: String? = null,
-    val displayDistanceUnit: String? = null
+    val displayDistanceUnit: String? = null,
+    val timeToArrivalSeconds: Long? = null,
+    val destDistanceMeters: Int? = null,
+    val destDistanceDisplay: String? = null,
+    val destDistanceUnit: String? = null
 )
 
 data class LaneInfo(val directions: List<LaneDirectionInfo>)

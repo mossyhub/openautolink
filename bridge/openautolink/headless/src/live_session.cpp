@@ -3550,6 +3550,10 @@ void HeadlessNavStatusHandler::onStatusUpdate(
         last_distance_m_ = 0;
         last_eta_s_ = 0;
         has_modern_nav_ = false;
+        last_destination_.clear();
+        last_dest_distance_m_ = 0;
+        last_dest_display_value_.clear();
+        last_dest_display_unit_.clear();
         if (oal_session_) {
             oal_session_->send_nav_state_clear();
         }
@@ -3743,6 +3747,10 @@ void HeadlessNavStatusHandler::onNavigationState(
         last_distance_m_ = 0;
         last_eta_s_ = 0;
         has_modern_nav_ = false;
+        last_destination_.clear();
+        last_dest_distance_m_ = 0;
+        last_dest_display_value_.clear();
+        last_dest_display_unit_.clear();
         if (oal_session_) {
             oal_session_->send_nav_state_clear();
         }
@@ -3815,6 +3823,7 @@ void HeadlessNavStatusHandler::onNavigationState(
     if (navState.destinations_size() > 0) {
         const auto& dest = navState.destinations(0);
         if (dest.has_address()) {
+            last_destination_ = dest.address();
             oss << R"(,"destination":")" << oal_json_escape(dest.address()) << R"(")";
         }
     }
@@ -3876,7 +3885,12 @@ void HeadlessNavStatusHandler::onCurrentPosition(
         oss << R"(,"current_road":")" << oal_json_escape(position.current_road().name()) << R"(")";
     }
 
-    // Destination ETA
+    // Carry forward cached destination address
+    if (!last_destination_.empty()) {
+        oss << R"(,"destination":")" << oal_json_escape(last_destination_) << R"(")";
+    }
+
+    // Destination distance + ETA
     if (position.destination_distances_size() > 0) {
         const auto& dd = position.destination_distances(0);
         if (dd.has_estimated_time_at_arrival()) {
@@ -3884,6 +3898,22 @@ void HeadlessNavStatusHandler::onCurrentPosition(
         }
         if (dd.has_time_to_arrival_seconds()) {
             oss << R"(,"time_to_arrival_seconds":)" << dd.time_to_arrival_seconds();
+        }
+        // Destination remaining distance
+        if (dd.has_distance()) {
+            const auto& dest_dist = dd.distance();
+            if (dest_dist.has_meters()) {
+                last_dest_distance_m_ = dest_dist.meters();
+                oss << R"(,"dest_distance_meters":)" << dest_dist.meters();
+            }
+            if (dest_dist.has_display_value()) {
+                last_dest_display_value_ = dest_dist.display_value();
+                oss << R"(,"dest_distance_display":")" << oal_json_escape(dest_dist.display_value()) << R"(")";
+            }
+            if (dest_dist.has_display_units()) {
+                last_dest_display_unit_ = map_distance_unit(dest_dist.display_units());
+                oss << R"(,"dest_distance_unit":")" << last_dest_display_unit_ << R"(")";
+            }
         }
     }
 

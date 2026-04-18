@@ -102,7 +102,10 @@ object ControlMessageSerializer {
                     currentRoad = obj["current_road"]?.jsonPrimitive?.content,
                     destination = obj["destination"]?.jsonPrimitive?.content,
                     etaFormatted = obj["eta_formatted"]?.jsonPrimitive?.content,
-                    timeToArrivalSeconds = obj["time_to_arrival_seconds"]?.jsonPrimitive?.content?.toLongOrNull()
+                    timeToArrivalSeconds = obj["time_to_arrival_seconds"]?.jsonPrimitive?.content?.toLongOrNull(),
+                    destDistanceMeters = obj["dest_distance_meters"]?.jsonPrimitive?.content?.toIntOrNull(),
+                    destDistanceDisplay = obj["dest_distance_display"]?.jsonPrimitive?.content,
+                    destDistanceUnit = obj["dest_distance_unit"]?.jsonPrimitive?.content
                 )
             }
 

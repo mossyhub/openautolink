@@ -335,4 +335,34 @@ class ControlMessageSerializerTest {
         assertEquals(1, msg.minProtocolVersion)
         assertEquals("local", msg.buildSource)
     }
+
+    @Test
+    fun `deserialize nav_state with destination details`() {
+        val json = """{"type":"nav_state","maneuver":"turn_right","distance_meters":150,"road":"Main St","eta_seconds":30,"destination":"123 Elm St","eta_formatted":"2:45 PM","time_to_arrival_seconds":1800,"dest_distance_meters":25000,"dest_distance_display":"15.5","dest_distance_unit":"miles"}"""
+        val msg = ControlMessageSerializer.deserialize(json)
+
+        assertTrue(msg is ControlMessage.NavState)
+        val ns = msg as ControlMessage.NavState
+        assertEquals("turn_right", ns.maneuver)
+        assertEquals(150, ns.distanceMeters)
+        assertEquals("123 Elm St", ns.destination)
+        assertEquals("2:45 PM", ns.etaFormatted)
+        assertEquals(1800L, ns.timeToArrivalSeconds)
+        assertEquals(25000, ns.destDistanceMeters)
+        assertEquals("15.5", ns.destDistanceDisplay)
+        assertEquals("miles", ns.destDistanceUnit)
+    }
+
+    @Test
+    fun `deserialize nav_state without destination details has null fields`() {
+        val json = """{"type":"nav_state","maneuver":"straight","distance_meters":500,"road":"Highway 101","eta_seconds":60}"""
+        val msg = ControlMessageSerializer.deserialize(json) as ControlMessage.NavState
+
+        assertNull(msg.destination)
+        assertNull(msg.etaFormatted)
+        assertNull(msg.timeToArrivalSeconds)
+        assertNull(msg.destDistanceMeters)
+        assertNull(msg.destDistanceDisplay)
+        assertNull(msg.destDistanceUnit)
+    }
 }
