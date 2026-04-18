@@ -34,14 +34,6 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         startDestination = AppDestinations.PROJECTION
     ) {
         composable(AppDestinations.PROJECTION) {
-            ProjectionScreen(
-                viewModel = projectionViewModel,
-                onNavigateToSettings = {
-                    navController.navigate(AppDestinations.SETTINGS)
-                }
-            )
-        }
-        composable(AppDestinations.SETTINGS) {
             val projectionUiState by projectionViewModel.uiState.collectAsStateWithLifecycle()
             val pairedPhones by projectionViewModel.pairedPhones.collectAsStateWithLifecycle()
 
@@ -50,19 +42,27 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 settingsViewModel.onPairedPhonesReceived(pairedPhones)
             }
 
-            SettingsScreen(
-                viewModel = settingsViewModel,
-                sessionState = projectionUiState.sessionState,
-                onSaveAndConnect = {
-                    settingsViewModel.saveAndRestart()
-                    navController.popBackStack()
+            ProjectionScreen(
+                viewModel = projectionViewModel,
+                onNavigateToSettings = {
+                    // Legacy — no longer used, settings are an overlay now
                 },
-                onBack = { navController.popBackStack() },
-                onNavigateToDiagnostics = {
-                    navController.navigate(AppDestinations.DIAGNOSTICS)
-                },
-                onNavigateToSafeAreaEditor = {
-                    navController.navigate(AppDestinations.SAFE_AREA_EDITOR)
+                settingsOverlay = { onBack ->
+                    SettingsScreen(
+                        viewModel = settingsViewModel,
+                        sessionState = projectionUiState.sessionState,
+                        onSaveAndConnect = {
+                            settingsViewModel.saveAndRestart()
+                            onBack()
+                        },
+                        onBack = onBack,
+                        onNavigateToDiagnostics = {
+                            navController.navigate(AppDestinations.DIAGNOSTICS)
+                        },
+                        onNavigateToSafeAreaEditor = {
+                            navController.navigate(AppDestinations.SAFE_AREA_EDITOR)
+                        },
+                    )
                 },
             )
         }

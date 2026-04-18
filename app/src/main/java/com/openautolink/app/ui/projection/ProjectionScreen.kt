@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -66,11 +70,15 @@ import com.openautolink.app.video.VideoStats
 @Composable
 fun ProjectionScreen(
     viewModel: ProjectionViewModel = viewModel(),
-    onNavigateToSettings: () -> Unit = {}
+    onNavigateToSettings: () -> Unit = {},
+    settingsOverlay: @Composable (onBack: () -> Unit) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val showPhoneSwitcher by viewModel.showPhoneSwitcher.collectAsStateWithLifecycle()
     val pairedPhones by viewModel.pairedPhones.collectAsStateWithLifecycle()
+
+    // Settings overlay state — panel slides from left, video keeps playing
+    var showSettings by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         viewModel.connect()
@@ -177,7 +185,10 @@ fun ProjectionScreen(
                     })
 
                     setOnTouchListener { v, event ->
-                        viewModel.onTouchEvent(event, v.width, v.height)
+                        // Don't forward touch to AA while settings overlay is open
+                        if (!showSettings) {
+                            viewModel.onTouchEvent(event, v.width, v.height)
+                        }
                         true
                     }
                 }
@@ -204,7 +215,7 @@ fun ProjectionScreen(
             DraggableOverlayButton(
                 icon = Icons.Default.Settings,
                 contentDescription = "Settings",
-                onClick = { onNavigateToSettings() },
+                onClick = { showSettings = true },
                 positionKey = "overlay_settings",
                 modifier = Modifier.testTag("settingsButton"),
             )
@@ -312,6 +323,21 @@ fun ProjectionScreen(
                     .align(Alignment.BottomStart)
                     .padding(12.dp)
             )
+        }
+
+        // Settings overlay — slides in from left, video keeps playing underneath
+        AnimatedVisibility(
+            visible = showSettings,
+            enter = slideInHorizontally { -it }, // slide in from left edge
+            exit = slideOutHorizontally { -it },  // slide out to left edge
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.85f))
+            ) {
+                settingsOverlay { showSettings = false }
+            }
         }
 
     }
