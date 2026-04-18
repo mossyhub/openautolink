@@ -205,7 +205,7 @@ fun SettingsScreen(
                     when (selectedTab) {
                         SettingsTab.CONNECTION -> ConnectionTab(viewModel, uiState)
                         SettingsTab.PHONES -> PhonesTab(viewModel, uiState)
-                        SettingsTab.BRIDGE -> BridgeTab(viewModel, uiState)
+                        SettingsTab.BRIDGE -> BridgeTab(viewModel, uiState, sessionState)
                         SettingsTab.DISPLAY -> DisplayTab(
                             viewModel, uiState,
                             onNavigateToSafeAreaEditor,
@@ -252,8 +252,12 @@ private fun ConnectionStatusBar(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // Save & Connect button — left-aligned, first element
+        val bridgeConnected = sessionState != SessionState.IDLE &&
+                sessionState != SessionState.ERROR &&
+                sessionState != SessionState.CONNECTING
         Button(
             onClick = onSaveAndConnect,
+            enabled = bridgeConnected,
             modifier = Modifier.testTag("saveAndConnectButton"),
         ) {
             Icon(
@@ -1899,7 +1903,7 @@ private fun SettingRow(label: String, value: String) {
 }
 
 @Composable
-private fun BridgeTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
+private fun BridgeTab(viewModel: SettingsViewModel, uiState: SettingsUiState, sessionState: SessionState = SessionState.IDLE) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2380,8 +2384,12 @@ private fun BridgeTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             modifier = Modifier.padding(bottom = 12.dp),
         )
 
+        val bridgeConnected = sessionState != SessionState.IDLE &&
+                sessionState != SessionState.ERROR &&
+                sessionState != SessionState.CONNECTING
         FilledTonalButton(
-            onClick = { viewModel.saveAndRestart(restartWireless = true, restartBluetooth = true) },
+            onClick = { viewModel.saveAndRestart(restartWireless = false, restartBluetooth = true) },
+            enabled = bridgeConnected,
             modifier = Modifier.testTag("fullRestartButton"),
         ) {
             Text("Restart Bridge Services")

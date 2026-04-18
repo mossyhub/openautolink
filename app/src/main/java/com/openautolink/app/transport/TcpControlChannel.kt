@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import android.net.Network
 import java.io.BufferedReader
@@ -23,6 +25,7 @@ class TcpControlChannel {
 
     private var socket: Socket? = null
     private var writer: BufferedWriter? = null
+    private val writeMutex = Mutex()
 
     val isConnected: Boolean get() = socket?.isConnected == true && socket?.isClosed == false
 
@@ -56,12 +59,14 @@ class TcpControlChannel {
     }.flowOn(Dispatchers.IO)
 
     suspend fun send(message: ControlMessage) {
-        withContext(Dispatchers.IO) {
-            val w = writer ?: return@withContext
-            val line = ControlMessageSerializer.serialize(message)
-            w.write(line)
-            w.newLine()
-            w.flush()
+        writeMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val w = writer ?: return@withContext
+                val line = ControlMessageSerializer.serialize(message)
+                w.write(line)
+                w.newLine()
+                w.flush()
+            }
         }
     }
 

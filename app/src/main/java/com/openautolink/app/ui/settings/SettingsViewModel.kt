@@ -410,16 +410,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
      * The bridge saves config to env, then restarts itself (and optionally WiFi/BT).
      * The phone will reconnect and renegotiate (e.g., new codec, resolution).
      */
-    fun saveAndRestart(restartWireless: Boolean = true, restartBluetooth: Boolean = false) {
+    fun saveAndRestart(restartWireless: Boolean = false, restartBluetooth: Boolean = true) {
         viewModelScope.launch {
-            // Send full config snapshot — bridge compares and applies diffs
+            // Send both messages through the same controlMessages flow to guarantee
+            // config_update is written to TCP before restart_services. Using separate
+            // flows (configUpdates + restartRequests) caused a race where the restart
+            // could arrive at the bridge before the config was saved.
             val config = preferences.getBridgeConfigSnapshot()
             if (config.isNotEmpty()) {
-                ConfigUpdateSender.sendConfigUpdate(config)
+                ConfigUpdateSender.sendControlMessage(ControlMessage.ConfigUpdate(config))
             }
-            ConfigUpdateSender.sendRestart(
-                restartWireless = restartWireless,
-                restartBluetooth = restartBluetooth,
+            ConfigUpdateSender.sendControlMessage(
+                ControlMessage.RestartServices(
+                    wireless = restartWireless,
+                    bluetooth = restartBluetooth,
+                )
             )
         }
     }

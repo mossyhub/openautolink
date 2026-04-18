@@ -1042,12 +1042,19 @@ void OalSession::handle_config_update(const std::string& json) {
 void OalSession::handle_restart_services(const std::string& json) {
     // Restart bridge and optionally WiFi/BT services.
     // The app sends this after config_update to force the phone to renegotiate (e.g., codec change).
+    //
+    // Typical case: BT restart only. Restarting BT drops the phone's HFP/HSP
+    // connection, which triggers the reconnect worker → HFP connect → RFCOMM
+    // credential exchange → phone connects TCP:5277 → new AA session with new config.
+    // WiFi restart is only needed when WiFi settings changed (SSID, password, band, country).
+    // Unnecessary WiFi restart tears down hostapd and kicks the phone off the network,
+    // adding ~10s of reconnect delay for no benefit.
     bool restart_wireless = oal_json_extract_string(json, "wireless") == "true";
     bool restart_bt = oal_json_extract_string(json, "bluetooth") == "true";
 
-    // If wireless restarts, the phone loses WiFi. BT must also restart
-    // to trigger the AA RFCOMM credential exchange — that's the only
-    // mechanism that makes the phone reconnect to the bridge's WiFi AP.
+    // If wireless restarts, BT must also restart to trigger the RFCOMM
+    // credential exchange — that's the only way the phone reconnects to
+    // the bridge's WiFi AP after hostapd restarts.
     if (restart_wireless) {
         restart_bt = true;
     }
