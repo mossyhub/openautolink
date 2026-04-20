@@ -147,6 +147,7 @@ sealed class ControlMessage {
         val barLeft: Int = 0,
         val barRight: Int = 0,
         val videoScalingMode: String = "crop",
+        val decoderFillsSurface: Boolean = false,
     ) : ControlMessage()
 
     data class Touch(

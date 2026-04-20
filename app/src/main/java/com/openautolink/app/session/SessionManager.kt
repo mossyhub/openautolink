@@ -593,6 +593,13 @@ class SessionManager(
         Log.i(TAG, "sendAppHello: display=${actualWidth}x${actualHeight} dpi=$actualDpi" +
             " cutout=T:$cutTop B:$cutBottom L:$cutLeft R:$cutRight" +
             " bars=T:$sbarTop B:$sbarBottom L:$sbarLeft R:$sbarRight")
+
+        // Detect if the device has a Qualcomm decoder that ignores SCALE_TO_FIT
+        // and fills the surface (stretching the video). This tells the bridge to
+        // auto-compute pixel_aspect to compensate.
+        val decoderFills = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS)
+            .codecInfos.any { !it.isEncoder && it.name.startsWith("c2.qti.") }
+
         connectionManager.sendControlMessage(
             ControlMessage.AppHello(
                 version = 1,
@@ -609,6 +616,7 @@ class SessionManager(
                 barLeft = sbarLeft,
                 barRight = sbarRight,
                 videoScalingMode = scalingMode,
+                decoderFillsSurface = decoderFills,
             )
         )
     }

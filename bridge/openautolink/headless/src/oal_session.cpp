@@ -655,8 +655,9 @@ void OalSession::handle_app_hello(const std::string& json) {
     oal_json_extract_int(json, "bar_left", bar_left);
     oal_json_extract_int(json, "bar_right", bar_right);
 
-    // Read video scaling mode — determines whether pixel_aspect auto-compute applies
+    // Read video scaling mode and decoder behavior
     std::string scaling_mode = oal_json_extract_string(json, "video_scaling_mode");
+    bool decoder_fills = oal_json_extract_string(json, "decoder_fills_surface") == "true";
 
     BLOG << "[OAL] app hello: display=" << display_w << "x" << display_h
               << " dpi=" << display_dpi
@@ -665,6 +666,7 @@ void OalSession::handle_app_hello(const std::string& json) {
               << " bars=T:" << bar_top << " B:" << bar_bottom
               << " L:" << bar_left << " R:" << bar_right
               << " scaling=" << (scaling_mode.empty() ? "crop" : scaling_mode)
+              << " decoder_fills=" << (decoder_fills ? "true" : "false")
               << std::endl;
 
     // Auto-compute AA stable_insets from display cutout.
@@ -684,15 +686,31 @@ void OalSession::handle_app_hello(const std::string& json) {
 
         // pixel_aspect_ratio: compensates for non-uniform scaling when the
         // decoder stretches the video to fill a non-16:9 surface.
-        // Default: 0 (square pixels, no compensation). Most decoders use
-        // SCALE_TO_FIT which preserves the video's aspect ratio — no
-        // distortion occurs. Only Qualcomm c2.qti decoders ignore
-        // SCALE_TO_FIT and fill the surface, requiring non-square pixel_aspect.
-        // Users can set OAL_AA_PIXEL_ASPECT_E4 in env for their hardware.
+        // Only auto-computed when the app reports decoder_fills_surface=true
+        // (Qualcomm c2.qti decoders ignore SCALE_TO_FIT and fill the surface).
+        // Other decoders (goldfish, Intel) use SCALE_TO_FIT properly — no
+        // distortion, so pixel_aspect stays at 0 (square pixels).
+        // Manual override via OAL_AA_PIXEL_ASPECT_E4 env always takes priority.
         if (!config_.pixel_aspect_explicit) {
-            // No auto-compute — leave at 0 (square pixels)
-            if (config_.aa_ui_experiment.pixel_aspect_ratio_e4 != 0) {
-                config_.aa_ui_experiment.pixel_aspect_ratio_e4 = 0;
+            if (decoder_fills) {
+                double display_ar = static_cast<double>(display_w) / display_h;
+                double video_ar = static_cast<double>(video_w) / video_h;
+                if (display_ar > 0 && video_ar > 0 && display_ar != video_ar) {
+                    uint32_t pa = static_cast<uint32_t>(display_ar / video_ar * 10000);
+                    if (pa != 10000) {
+                        config_.aa_ui_experiment.pixel_aspect_ratio_e4 = pa;
+                        BLOG << "[OAL] auto pixel_aspect=" << pa
+                                  << " (display=" << display_w << "x" << display_h
+                                  << " video=" << video_w << "x" << video_h
+                                  << " decoder_fills=true)" << std::endl;
+                    }
+                }
+            } else {
+                // Decoder uses SCALE_TO_FIT — no distortion, square pixels
+                if (config_.aa_ui_experiment.pixel_aspect_ratio_e4 != 0) {
+                    config_.aa_ui_experiment.pixel_aspect_ratio_e4 = 0;
+                    BLOG << "[OAL] pixel_aspect=0 (decoder does not fill surface)" << std::endl;
+                }
             }
         } else if (config_.aa_ui_experiment.pixel_aspect_ratio_e4 > 0) {
             BLOG << "[OAL] pixel_aspect_ratio=" << config_.aa_ui_experiment.pixel_aspect_ratio_e4
