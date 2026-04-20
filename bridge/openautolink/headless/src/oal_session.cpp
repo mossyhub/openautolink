@@ -125,14 +125,19 @@ void OalSession::on_app_disconnected() {
 void OalSession::on_video_client_connected() {
     if (!phone_connected_) return;
 
-    // Replay cached SPS/PPS (codec config only, NOT stale IDR) so the app
-    // can configure its decoder. Then request a fresh IDR from the phone.
+    // Only replay/request IDR when reconnecting the car app to an EXISTING
+    // phone session that's already been streaming. During initial phone
+    // connection, the video handler's onChannelOpenRequest sends exactly one
+    // VideoFocusIndication — adding more causes the phone to abort the session
+    // within 1 second (Communication Error 6).
+    if (video_frames_written_ > 0) {
 #ifdef PI_AA_ENABLE_AASDK_LIVE
-    if (aa_session_) {
-        aa_session_->replay_cached_keyframe();
-        aa_session_->request_fresh_idr();
-    }
+        if (aa_session_) {
+            aa_session_->replay_cached_keyframe();
+            aa_session_->request_fresh_idr();
+        }
 #endif
+    }
 }
 
 // ── Phone lifecycle (from aasdk thread) ──────────────────────────────

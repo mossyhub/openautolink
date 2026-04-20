@@ -2093,7 +2093,7 @@ void LiveAasdkSession::accept_connection() {
                     auto now = std::chrono::steady_clock::now();
                     auto since_last = std::chrono::duration_cast<std::chrono::seconds>(
                         now - last_entity_created_).count();
-                    if (since_last < 5 && last_entity_created_.time_since_epoch().count() > 0) {
+                    if (since_last < 2 && last_entity_created_.time_since_epoch().count() > 0) {
                         BLOG << "[aasdk] TCP from " << peer_ip
                                   << " rejected (entity created " << since_last << "s ago, cooling down)" << std::endl;
                         socket->close();
