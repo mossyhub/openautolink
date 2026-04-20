@@ -401,7 +401,7 @@ def rfcomm_recv(fd):
         d += os.read(fd, sz - len(d))
     return mt, d
 
-def handle_aa_rfcomm(fd, connecting_mac="", is_cooldown=False):
+def handle_aa_rfcomm(fd, connecting_mac=""):
     """Handle the AA wireless WiFi credential exchange over RFCOMM."""
     fl = fcntl.fcntl(fd, fcntl.F_GETFL)
     fcntl.fcntl(fd, fcntl.F_SETFL, fl & ~os.O_NONBLOCK)
@@ -424,10 +424,8 @@ def handle_aa_rfcomm(fd, connecting_mac="", is_cooldown=False):
 
         oal_print("WiFi credential exchange complete!", flush=True)
 
-        # Record successful exchange time for cooldown gate — but only for
-        # the initial exchange, not cooldown repeats (which are completed
-        # silently to avoid SHUT_RDWR rejection killing the session).
-        if connecting_mac and not is_cooldown:
+        # Record successful exchange time (kept for potential future use)
+        if connecting_mac:
             _last_rfcomm_exchange_at[connecting_mac] = time.monotonic()
 
         # If this was the switch-override target, clear the override now that
@@ -535,24 +533,12 @@ class AAProfile(dbus.service.Object):
             _close_rejection_fd(fd)
             return
 
-        # Per-MAC RFCOMM cooldown: during cooldown, just close the fd silently
-        # without doing the exchange. Completing the exchange while a session is
-        # active causes the phone to show a Communication Error dialog (even
-        # though the session is healthy). Using os.close() (not SHUT_RDWR)
-        # so the phone doesn't interpret it as a profile rejection.
-        last_exchange = _last_rfcomm_exchange_at.get(connecting_mac, 0.0)
-        since_last = time.monotonic() - last_exchange
-        is_cooldown = since_last < RFCOMM_COOLDOWN_SEC
-        if is_cooldown:
-            oal_print(f"AA RFCOMM from {connecting_mac} during cooldown ({since_last:.1f}s) — closing silently", flush=True)
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-            return
-
+        # Always complete the RFCOMM exchange — the phone needs WiFi credentials
+        # to trigger its TCP connection. Closing/rejecting during cooldown blocks
+        # the phone from ever connecting. The bridge's entity-active TCP guard
+        # handles duplicate connections at the TCP level instead.
         oal_print(f"AA RFCOMM NewConnection from {device} fd={fd} mac={connecting_mac}", flush=True)
-        threading.Thread(target=handle_aa_rfcomm, args=(fd, connecting_mac, False), daemon=True).start()
+        threading.Thread(target=handle_aa_rfcomm, args=(fd, connecting_mac), daemon=True).start()
     @dbus.service.method(PROFILE_IFACE, in_signature="o", out_signature="")
     def RequestDisconnection(self, dev): oal_print(f"AA disconnect {dev}", flush=True)
     @dbus.service.method(PROFILE_IFACE, in_signature="", out_signature="")

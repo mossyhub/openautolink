@@ -2078,14 +2078,28 @@ void LiveAasdkSession::accept_connection() {
 
                 // If we recently created an entity for this same peer and it's
                 // still active (in handshake or streaming), reject the duplicate.
-                // Once the entity finishes (disconnect callback fires, entity_
-                // is reset), the next TCP from the same peer is accepted immediately.
-                if (!wireless_peer_ip_.empty() && peer_ip == wireless_peer_ip_ && entity_) {
-                    BLOG << "[aasdk] Duplicate TCP from " << peer_ip
-                              << " rejected (entity active)" << std::endl;
-                    socket->close();
-                    accept_connection();
-                    return;
+                // Also reject if an entity was created recently (within 5s) even
+                // if it already failed — this breaks the rapid RFCOMM → TCP cycle
+                // where the phone fires a new connection every 2s, each one killing
+                // the previous handshake before it can complete.
+                if (!wireless_peer_ip_.empty() && peer_ip == wireless_peer_ip_) {
+                    if (entity_) {
+                        BLOG << "[aasdk] Duplicate TCP from " << peer_ip
+                                  << " rejected (entity active)" << std::endl;
+                        socket->close();
+                        accept_connection();
+                        return;
+                    }
+                    auto now = std::chrono::steady_clock::now();
+                    auto since_last = std::chrono::duration_cast<std::chrono::seconds>(
+                        now - last_entity_created_).count();
+                    if (since_last < 5 && last_entity_created_.time_since_epoch().count() > 0) {
+                        BLOG << "[aasdk] TCP from " << peer_ip
+                                  << " rejected (entity created " << since_last << "s ago, cooling down)" << std::endl;
+                        socket->close();
+                        accept_connection();
+                        return;
+                    }
                 }
 
                 std::cerr << "[aasdk] TCP client connected (wireless) peer=" << peer_ip << std::endl;
