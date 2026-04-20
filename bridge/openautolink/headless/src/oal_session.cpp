@@ -1094,15 +1094,12 @@ void OalSession::handle_config_update(const std::string& json) {
             system(env_update.c_str());
 
         // For AA-affecting config changes (codec, resolution, DPI, etc.),
-        // do an in-process AA session restart. This sends ByeByeRequest to the
-        // phone, then the phone's own RFCOMM retry cycle triggers reconnection
-        // with the new config. No bridge process kill or BT restart needed.
+        // just set the flag. Don't send ByeByeRequest here — let
+        // handle_restart_services do a single clean ByeBye → wait for
+        // response → restart BT. Sending ByeBye from both config_update
+        // AND restart_services causes a double-ByeBye that confuses the
+        // phone (Communication Error 6).
         if (config_changed) {
-#ifdef PI_AA_ENABLE_AASDK_LIVE
-            if (aa_session_ && phone_connected_) {
-                aa_session_->restart_with_config(config_);
-            }
-#endif
             aa_config_pending_restart_ = true;
         }
     }
