@@ -1177,6 +1177,10 @@ void OalSession::handle_config_update(const std::string& json) {
             env_update += env_upsert("OAL_BT_MAC", bt_mac_val);
         if (default_phone_mac_present)
             env_update += env_upsert("OAL_DEFAULT_PHONE_MAC", default_phone_mac_val);
+        // Also update the process environment so getenv() returns the new value
+        // immediately (send_paired_phones, config_echo use getenv).
+        if (default_phone_mac_present)
+            setenv("OAL_DEFAULT_PHONE_MAC", default_phone_mac_val.c_str(), 1);
         if (!stable_insets.empty())
             env_update += env_upsert("OAL_AA_INIT_STABLE_INSETS", stable_insets);
         if (!content_insets.empty())
