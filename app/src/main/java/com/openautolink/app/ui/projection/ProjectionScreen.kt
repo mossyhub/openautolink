@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,7 +79,8 @@ fun ProjectionScreen(
     val pairedPhones by viewModel.pairedPhones.collectAsStateWithLifecycle()
 
     // Settings overlay state — panel slides from left, video keeps playing
-    var showSettings by remember { mutableStateOf(false) }
+    // rememberSaveable: survives navigation to SafeAreaEditorScreen and back
+    var showSettings by rememberSaveable { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         viewModel.connect()
