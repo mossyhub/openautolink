@@ -769,11 +769,14 @@ void OalSession::handle_app_hello(const std::string& json) {
         config_updated_for_hello = true;
     }
 
-    // Apply config changes to LiveAasdkSession for SDR if anything auto-computed
-    if (config_updated_for_hello) {
+    // Apply config changes to LiveAasdkSession for SDR if anything auto-computed.
+    // Guarded so stub builds (no live session) still compile.
+#ifdef PI_AA_ENABLE_AASDK_LIVE
+    if (config_updated_for_hello && aa_session_) {
         aa_session_->update_config(config_);
         BLOG << "[OAL] pushed auto-computed config to LiveAasdkSession SDR" << std::endl;
     }
+#endif
 
     // Send config echo so app knows current bridge settings
     send_config_echo();
@@ -1194,7 +1197,11 @@ void OalSession::handle_config_update(const std::string& json) {
         // This ensures pixel_aspect and other updates reach the SDR before next connection.
         // Note: if config_changed == true, this still happens before ByeByeRequest,
         // so the next SDR will have the new values.
-        aa_session_->update_config(config_);
+    #ifdef PI_AA_ENABLE_AASDK_LIVE
+        if (aa_session_) {
+            aa_session_->update_config(config_);
+        }
+    #endif
 
         // For AA-affecting config changes (codec, resolution, DPI, etc.),
         // just set the flag. Don't send ByeByeRequest here — let
