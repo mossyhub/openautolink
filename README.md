@@ -4,8 +4,8 @@
 
 # OpenAutoLink
 
-> **April 20, 2026 — Active Development Notice**
-> This project is under heavy debugging and development. General streaming and projection work, but reliable phone reconnection after settings changes or bridge restarts is not fully stable yet. This notice will be removed once the connection flow is solid.
+> **Active Development Notice**
+> This project ahs been under heavy development, but as of April 21, 2026 I think I have everything pretty darn stable and fully featured (but i am sure i will keep tewaking/hacking/adding regularly). Having said that...I only have one car, a 2024 Chevrolet Blazer EV RS AWD. So, am only testing on that. I am also using a Khadas VIM4 SBC running Armbian Minimal. This is overkill, but I had one and it has fast EMMC which helps boot times a lot. Your milage may very depending on your SBC choice and OS setup. I also use an OrangePi Zero2 to test with (Armbian Minimal as well) and its sufficient too, but takes a handfull of seconds longer to boot. Feeback, conversation and submitting issues are invited!
 
 [![CI](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml/badge.svg)](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml)
 
@@ -24,8 +24,6 @@ OpenAutoLink is an open-source wireless Android Auto bridge for AAOS head units.
 </p>
 
 > **First-of-its-kind EV integration:** OpenAutoLink forwards real EV battery percentage, range, fuel type, and charge port data from the car into Android Auto. Google Maps uses this to show battery level alongside navigation — something no other aftermarket solution provides, including OEM Android Auto implementations.
-
-> This is a hobby project under active development, but I think I have it all pretty stable and full-featured at this point. I am primarily using an Orange Pi Zero2 now running Armbian Minimal and its working great and boots and gets connected in about 30-40 seconds.
 
 > **Discuss on XDA:** [OpenAutoLink — Wireless Android Auto bridge for AAOS (GM EVs)](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) — questions, feedback, and build reports welcome.
 
