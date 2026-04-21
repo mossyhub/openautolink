@@ -669,6 +669,11 @@ void OalSession::handle_app_hello(const std::string& json) {
               << " decoder_fills=" << (decoder_fills ? "true" : "false")
               << std::endl;
 
+    // Bug fix #1: Push auto-computed values to LiveAasdkSession's SDR before phone connects.
+    // OalSession and LiveAasdkSession own independent config copies (passed by value in main.cpp).
+    // Updates here were silent-dropped from SDR. update_config() synchronizes the copies.
+    bool config_updated_for_hello = false;
+
     // Auto-compute AA stable_insets from display cutout.
     // The app uses SCALE_TO_FIT (letterbox) — the full 16:9 video frame is visible
     // with black bars on the sides. No content is cropped, so height_margin stays 0.
@@ -747,6 +752,13 @@ void OalSession::handle_app_hello(const std::string& json) {
                       << " B:" << si.bottom << " L:" << si.left << " R:" << si.right
                       << std::endl;
         }
+        config_updated_for_hello = true;
+    }
+
+    // Apply config changes to LiveAasdkSession for SDR if anything auto-computed
+    if (config_updated_for_hello) {
+        aa_session_->update_config(config_);
+        BLOG << "[OAL] pushed auto-computed config to LiveAasdkSession SDR" << std::endl;
     }
 
     // Send config echo so app knows current bridge settings
@@ -952,12 +964,20 @@ void OalSession::handle_config_update(const std::string& json) {
         BLOG << "[OAL] height_margin override: " << hm << std::endl;
     }
     int pa = 0;
-    if (oal_json_extract_int(json, "aa_pixel_aspect", pa) && pa >= 0 &&
+    bool pa_present = oal_json_extract_int(json, "aa_pixel_aspect", pa);
+    if (pa_present && pa >= 0 &&
         pa != static_cast<int>(config_.aa_ui_experiment.pixel_aspect_ratio_e4)) {
         config_.aa_ui_experiment.pixel_aspect_ratio_e4 = pa;
         config_.pixel_aspect_explicit = (pa > 0);
         config_changed = true;
         BLOG << "[OAL] pixel_aspect_ratio override: " << pa << std::endl;
+    }
+    // Bug fix: when user sets pixel_aspect to 0 (reset to auto), the app
+    // sends 0 explicitly. On bridge, this means reset the explicit flag
+    // so auto-compute can re-engage on next app_hello.
+    else if (!pa_present && config_.pixel_aspect_explicit) {
+        config_.pixel_aspect_explicit = false;
+        BLOG << "[OAL] pixel_aspect_explicit reset to false (user reset to auto)" << std::endl;
     }
 
     std::string drive_side = oal_json_extract_string(json, "drive_side");
@@ -1133,8 +1153,25 @@ void OalSession::handle_config_update(const std::string& json) {
             env_update += env_upsert("OAL_AA_HIDE_PHONE_SIGNAL", hide_phone_signal_str);
         if (!hide_battery_str.empty())
             env_update += env_upsert("OAL_AA_HIDE_BATTERY", hide_battery_str);
+        // Bug fix: persist pixel_aspect to env so it survives SBC reboot.
+        // Send 0 to clear the env var; > 0 to set it.
+        if (pa_present && pa >= 0) {
+            if (pa > 0) {
+                env_update += env_upsert("OAL_AA_PIXEL_ASPECT_E4", std::to_string(pa));
+            } else {
+                // pa == 0: clear the env var (sed delete the line)
+                env_update += "grep -q '^OAL_AA_PIXEL_ASPECT_E4=' /etc/openautolink.env 2>/dev/null && "
+                              "sed -i '/^OAL_AA_PIXEL_ASPECT_E4=/d' /etc/openautolink.env\n";
+            }
+        }
         if (!env_update.empty())
             system(env_update.c_str());
+
+        // Push config updates to LiveAasdkSession (Bug fix: separate copy isolation).
+        // This ensures pixel_aspect and other updates reach the SDR before next connection.
+        // Note: if config_changed == true, this still happens before ByeByeRequest,
+        // so the next SDR will have the new values.
+        aa_session_->update_config(config_);
 
         // For AA-affecting config changes (codec, resolution, DPI, etc.),
         // just set the flag. Don't send ByeByeRequest here — let

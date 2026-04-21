@@ -541,12 +541,14 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         config["aa_dpi"] = (prefs[AA_DPI] ?: DEFAULT_AA_DPI).toString()
         config["aa_width_margin"] = (prefs[AA_WIDTH_MARGIN] ?: DEFAULT_AA_WIDTH_MARGIN).toString()
         config["aa_height_margin"] = (prefs[AA_HEIGHT_MARGIN] ?: DEFAULT_AA_HEIGHT_MARGIN).toString()
-        // Only include pixel_aspect in config_update when user has explicitly set it (> 0).
-        // When 0/unset, omit it so the bridge's auto-computed value is used.
+        // Always send pixel_aspect, including 0, so the bridge knows intent.
+        // If user sets pixel_aspect to 0, send 0 explicitly → bridge resets
+        // config_.pixel_aspect_explicit flag → auto-compute re-engages.
+        // Bug fix: omitting 0 prevented the bridge from distinguishing between
+        // "user reset to auto" and "first connection, use auto", leaving
+        // explicit flag latched true forever.
         val pixelAspect = prefs[AA_PIXEL_ASPECT] ?: DEFAULT_AA_PIXEL_ASPECT
-        if (pixelAspect > 0) {
-            config["aa_pixel_aspect"] = pixelAspect.toString()
-        }
+        config["aa_pixel_aspect"] = pixelAspect.toString()
         config["drive_side"] = prefs[DRIVE_SIDE] ?: DEFAULT_DRIVE_SIDE
         config["head_unit_name"] = prefs[HEAD_UNIT_NAME] ?: DEFAULT_HEAD_UNIT_NAME
         val btMac = prefs[BT_MAC] ?: DEFAULT_BT_MAC
