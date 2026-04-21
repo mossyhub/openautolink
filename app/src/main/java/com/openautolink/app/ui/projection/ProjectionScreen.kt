@@ -113,12 +113,12 @@ fun ProjectionScreen(
     val density = LocalDensity.current
     val displayModePadding = with(density) {
         when (uiState.displayMode) {
-            // System UI visible — pad for status bar (top) and right cutout (physical curve).
+            // System UI visible — pad for status bar (top), nav bar (bottom), and cutouts.
             "system_ui_visible" -> androidx.compose.foundation.layout.PaddingValues(
                 top = maxOf(barTop, cutTop).toDp(),
-                end = cutRight.toDp(),
-                start = cutLeft.toDp(),
-                bottom = cutBottom.toDp()
+                bottom = maxOf(barBottom, cutBottom).toDp(),
+                start = maxOf(barLeft, cutLeft).toDp(),
+                end = maxOf(barRight, cutRight).toDp()
             )
             // Fullscreen — no padding. Video fills entire framebuffer.
             // AA stable_insets (right only) keep buttons away from the curve.
