@@ -78,6 +78,8 @@ fun ProjectionScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val showPhoneSwitcher by viewModel.showPhoneSwitcher.collectAsStateWithLifecycle()
     val pairedPhones by viewModel.pairedPhones.collectAsStateWithLifecycle()
+    val defaultPhoneMac by viewModel.defaultPhoneMac.collectAsStateWithLifecycle()
+    val switchPhoneStatus by viewModel.switchPhoneStatus.collectAsStateWithLifecycle()
 
     // Settings overlay state — panel slides from left, video keeps playing
     // rememberSaveable: survives navigation to SafeAreaEditorScreen and back
@@ -213,6 +215,47 @@ fun ProjectionScreen(
             )
         }
 
+        // Phone switch status banner — shown while a switch is in progress
+        val currentSwitchStatus = switchPhoneStatus
+        if (currentSwitchStatus != null && currentSwitchStatus.status == "switching") {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 24.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xCC000000))
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .testTag("switchPhoneBanner"),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                    Text(
+                        text = "Switching to ${currentSwitchStatus.targetName}\u2026",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Cancel",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { viewModel.cancelSwitchPhone() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .testTag("cancelSwitchPhone"),
+                    )
+                }
+            }
+        }
+
         // Waiting-for-keyframe indicator — subtle spinner during STREAMING when
         // the decoder has no IDR yet (black video). Disappears as soon as first
         // frame is decoded. Placed bottom-center to avoid blocking the projection.
@@ -327,7 +370,9 @@ fun ProjectionScreen(
             PhoneSwitcherPopup(
                 phones = pairedPhones,
                 currentPhone = uiState.phoneName,
+                defaultPhoneMac = defaultPhoneMac,
                 onSwitchPhone = { mac -> viewModel.switchPhone(mac) },
+                onSetDefaultPhone = { mac -> viewModel.setDefaultPhone(mac) },
                 onDismiss = { viewModel.togglePhoneSwitcher() },
                 modifier = Modifier.layout { measurable, constraints ->
                     val placeable = measurable.measure(constraints)
@@ -544,7 +589,9 @@ private fun formatUptime(seconds: Long): String {
 private fun PhoneSwitcherPopup(
     phones: List<com.openautolink.app.transport.ControlMessage.PairedPhone>,
     currentPhone: String?,
+    defaultPhoneMac: String,
     onSwitchPhone: (String) -> Unit,
+    onSetDefaultPhone: (String) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -574,6 +621,7 @@ private fun PhoneSwitcherPopup(
                 phones.forEach { phone ->
                     val isCurrent = phone.connected ||
                             (currentPhone != null && phone.name == currentPhone)
+                    val isDefault = phone.mac.equals(defaultPhoneMac, ignoreCase = true)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -603,12 +651,35 @@ private fun PhoneSwitcherPopup(
                                 fontSize = 11.sp,
                             )
                         }
-                        if (isCurrent) {
-                            Text(
-                                text = "Active",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            if (isCurrent) {
+                                Text(
+                                    text = "Active",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            if (isDefault) {
+                                Text(
+                                    text = "Default",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                )
+                            } else {
+                                Text(
+                                    text = "Set Default",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable { onSetDefaultPhone(phone.mac) }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        .testTag("setDefault_${phone.mac}"),
+                                )
+                            }
                         }
                     }
                 }

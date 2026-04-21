@@ -108,6 +108,7 @@ public:
     void send_voice_session(bool started);
     void send_phone_status(int signal_strength, const std::string& calls_json);
     void send_paired_phones();
+    void send_switch_phone_status(const std::string& target_mac, const std::string& target_name, const std::string& status);
 
     // ── Bridge update ────────────────────────────────────────────────
 
@@ -149,6 +150,7 @@ private:
     void handle_switch_phone(const std::string& json);
     void handle_forget_phone(const std::string& json);
     void handle_set_pairing_mode(const std::string& json);
+    void handle_cancel_switch_phone();
     void handle_bridge_update_offer(const std::string& json);
     void handle_bridge_update_data(const std::string& json);
     void handle_bridge_update_complete(const std::string& json);
@@ -166,6 +168,8 @@ private:
     bool session_active_ = false;
     bool aa_config_pending_restart_ = false;  // config_update set AA-affecting params; restart_services must restart BT
     std::string phone_name_;
+    std::string switch_target_mac_;   // MAC of phone being switched to (empty = no switch pending)
+    std::string switch_target_name_;  // name of phone being switched to
     uint64_t mic_frame_count_ = 0;
     std::chrono::steady_clock::time_point phone_connected_time_{};  // when phone_connected_ was set
     std::chrono::steady_clock::time_point last_idr_request_time_{};  // throttle for VFI from keyframe requests

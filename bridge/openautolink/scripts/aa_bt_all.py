@@ -203,6 +203,22 @@ def _read_env_value(key):
 def _preferred_bt_mac():
     return _normalize_mac(_read_env_value("OAL_DEFAULT_PHONE_MAC"))
 
+def _auto_set_default_phone(mac):
+    """Persist this MAC as OAL_DEFAULT_PHONE_MAC in the env file.
+    Only called when no default is set (first-ever pairing)."""
+    import subprocess
+    env_path = "/etc/openautolink.env"
+    try:
+        subprocess.run([
+            "bash", "-c",
+            f"grep -q '^OAL_DEFAULT_PHONE_MAC=' {env_path} 2>/dev/null && "
+            f"sed -i 's/^OAL_DEFAULT_PHONE_MAC=.*/OAL_DEFAULT_PHONE_MAC={mac}/' {env_path} || "
+            f"echo 'OAL_DEFAULT_PHONE_MAC={mac}' >> {env_path}"
+        ], timeout=5)
+        oal_print(f"Auto-set default phone: {mac} (first paired)", flush=True)
+    except Exception as e:
+        oal_print(f"Failed to auto-set default phone: {e}", flush=True)
+
 def _get_managed_objects():
     obj_mgr = dbus.Interface(bus.get_object("org.bluez", "/"),
                              "org.freedesktop.DBus.ObjectManager")
@@ -428,6 +444,14 @@ def handle_aa_rfcomm(fd, connecting_mac=""):
         if connecting_mac:
             _last_rfcomm_exchange_at[connecting_mac] = time.monotonic()
 
+        # Auto-set this phone as the default if no default is configured yet.
+        # Ensures single-phone users get proper RFCOMM gating automatically,
+        # and the first phone paired always wins in multi-phone boot races.
+        if connecting_mac:
+            current_default = _preferred_bt_mac()
+            if not current_default:
+                _auto_set_default_phone(connecting_mac)
+
         # If this was the switch-override target, clear the override now that
         # credentials are delivered. Eliminates the need for a wall-clock timer
         # guess — the target has everything it needs to come up on WiFi.
@@ -527,6 +551,22 @@ class AAProfile(dbus.service.Object):
                             break
                 except Exception as e:
                     oal_print(f"AA RFCOMM: error checking default phone: {e}", flush=True)
+
+        # 4. No default phone set, but another phone is already BT-connected.
+        #    Prevents wasteful credential exchange when no default is configured.
+        if not reject_reason and not preferred and not switch_target:
+            try:
+                objects = _get_managed_objects()
+                for path, ifaces in objects.items():
+                    dev_props = ifaces.get("org.bluez.Device1")
+                    if not dev_props:
+                        continue
+                    dev_mac = _normalize_mac(str(dev_props.get("Address", "")))
+                    if dev_mac != connecting_mac and bool(dev_props.get("Connected", False)):
+                        reject_reason = f"another phone {dev_mac} is already connected (no default set)"
+                        break
+            except Exception as e:
+                oal_print(f"AA RFCOMM: error checking connected phones: {e}", flush=True)
 
         if reject_reason:
             _log_rejection(connecting_mac, reject_reason)

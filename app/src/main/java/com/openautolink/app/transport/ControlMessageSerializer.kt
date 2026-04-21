@@ -175,11 +175,18 @@ object ControlMessageSerializer {
                         connected = phoneObj["connected"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
                     )
                 } ?: emptyList()
-                ControlMessage.PairedPhones(phones = phones)
+                val defaultMac = obj["default_mac"]?.jsonPrimitive?.content ?: ""
+                ControlMessage.PairedPhones(phones = phones, defaultMac = defaultMac)
             }
 
             "pairing_mode_status" -> ControlMessage.PairingModeStatus(
                 enabled = obj["enabled"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: true
+            )
+
+            "switch_phone_status" -> ControlMessage.SwitchPhoneStatus(
+                targetMac = obj["target_mac"]?.jsonPrimitive?.content ?: "",
+                targetName = obj["target_name"]?.jsonPrimitive?.content ?: "",
+                status = obj["status"]?.jsonPrimitive?.content ?: "idle"
             )
 
             "bridge_update_accept" -> ControlMessage.BridgeUpdateAccept()
@@ -363,6 +370,10 @@ object ControlMessageSerializer {
             is ControlMessage.SetPairingMode -> buildJsonObject {
                 put("type", "set_pairing_mode")
                 put("enabled", message.enabled)
+            }
+
+            is ControlMessage.CancelSwitchPhone -> buildJsonObject {
+                put("type", "cancel_switch_phone")
             }
 
             is ControlMessage.BridgeUpdateOffer -> buildJsonObject {

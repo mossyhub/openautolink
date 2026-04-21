@@ -111,11 +111,18 @@ sealed class ControlMessage {
     ) : ControlMessage()
 
     data class PairedPhones(
-        val phones: List<PairedPhone>
+        val phones: List<PairedPhone>,
+        val defaultMac: String = ""
     ) : ControlMessage()
 
     data class PairingModeStatus(
         val enabled: Boolean
+    ) : ControlMessage()
+
+    data class SwitchPhoneStatus(
+        val targetMac: String,
+        val targetName: String,
+        val status: String  // "switching", "connected", "idle"
     ) : ControlMessage()
 
     data class PairedPhone(
@@ -246,6 +253,7 @@ sealed class ControlMessage {
     data class SwitchPhone(val mac: String) : ControlMessage()
     data class ForgetPhone(val mac: String) : ControlMessage()
     data class SetPairingMode(val enabled: Boolean) : ControlMessage()
+    object CancelSwitchPhone : ControlMessage()
 
     // Bridge update protocol (App → Bridge)
     data class BridgeUpdateOffer(

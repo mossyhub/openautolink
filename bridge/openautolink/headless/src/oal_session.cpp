@@ -8,6 +8,7 @@
 #endif
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -159,6 +160,12 @@ void OalSession::on_phone_connected(const std::string& phone_name,
         if (app_connected_) {
             send_phone_connected(phone_name, phone_type);
         }
+        // If this was a switch target, notify app that switch completed
+        if (!switch_target_mac_.empty() && app_connected_) {
+            send_switch_phone_status(switch_target_mac_, switch_target_name_, "connected");
+            switch_target_mac_.clear();
+            switch_target_name_.clear();
+        }
         BLOG << "[OAL] phone connected: " << phone_name << std::endl;
     }
 }
@@ -207,6 +214,12 @@ void OalSession::write_video_frame(
         phone_connected_time_ = std::chrono::steady_clock::now();
         send_phone_connected(phone_name_, "android");
         BLOG << "[OAL] phone_connected sent to app (triggered by first video frame)" << std::endl;
+        // If this was a switch target, notify app that switch completed
+        if (!switch_target_mac_.empty()) {
+            send_switch_phone_status(switch_target_mac_, switch_target_name_, "connected");
+            switch_target_mac_.clear();
+            switch_target_name_.clear();
+        }
     }
 
     // Build OAL video header + payload
@@ -627,6 +640,8 @@ void OalSession::on_app_json_line(const std::string& line) {
         handle_forget_phone(line);
     } else if (type == "set_pairing_mode") {
         handle_set_pairing_mode(line);
+    } else if (type == "cancel_switch_phone") {
+        handle_cancel_switch_phone();
     } else if (type == "bridge_update_offer") {
         handle_bridge_update_offer(line);
     } else if (type == "bridge_update_data") {
@@ -1386,9 +1401,30 @@ void OalSession::send_paired_phones() {
     }
     pclose(pipe);
 
-    oss << "]}";
+    // Include the current default phone MAC so the app can display it
+    const char* default_mac_env = std::getenv("OAL_DEFAULT_PHONE_MAC");
+    std::string default_mac = default_mac_env ? default_mac_env : "";
+
+    oss << R"(],"default_mac":")" << oal_json_escape(default_mac) << R"("})";
     send_control_line(oss.str());
     BLOG << "[OAL] sent paired_phones" << std::endl;
+}
+
+void OalSession::send_switch_phone_status(const std::string& target_mac, const std::string& target_name, const std::string& status) {
+    std::ostringstream oss;
+    oss << R"({"type":"switch_phone_status","target_mac":")" << oal_json_escape(target_mac)
+        << R"(","target_name":")" << oal_json_escape(target_name)
+        << R"(","status":")" << oal_json_escape(status) << R"("})";
+    send_control_line(oss.str());
+    BLOG << "[OAL] switch_phone_status: " << status << " target=" << target_mac << std::endl;
+}
+
+void OalSession::handle_cancel_switch_phone() {
+    BLOG << "[OAL] cancel_switch_phone requested" << std::endl;
+    ::unlink("/run/openautolink/switch_override");
+    switch_target_mac_.clear();
+    switch_target_name_.clear();
+    send_switch_phone_status("", "", "idle");
 }
 
 void OalSession::handle_list_paired_phones() {
@@ -1406,17 +1442,42 @@ void OalSession::handle_switch_phone(const std::string& json) {
 
     BLOG << "[OAL] switching to phone: " << mac << std::endl;
 
+    // Look up the target phone's name from bluetoothctl for status messages
+    std::string target_name;
+    {
+        std::string cmd = "bluetoothctl info " + mac + " 2>/dev/null | grep 'Name:' | head -1 | sed 's/.*Name: //'";
+        FILE* p = popen(cmd.c_str(), "r");
+        if (p) {
+            char buf[256];
+            if (fgets(buf, sizeof(buf), p)) {
+                target_name = buf;
+                while (!target_name.empty() && (target_name.back() == '\n' || target_name.back() == '\r'))
+                    target_name.pop_back();
+            }
+            pclose(p);
+        }
+    }
+    if (target_name.empty()) target_name = mac;
+
+    // Track switch state for status messages
+    switch_target_mac_ = mac;
+    switch_target_name_ = target_name;
+
+    // Notify app that switch is in progress
+    send_switch_phone_status(mac, target_name, "switching");
+
     // Write a switch-override file that the BT script reads to temporarily
     // bypass the "is default phone connected?" RFCOMM gate. Without this,
     // Phone A auto-reconnects during the disconnect/connect window and
     // blocks the user's explicit switch to Phone B.
     //
-    // Expiry is 90s as a safety ceiling. In the normal path the BT script
+    // Expiry is 45s as a safety ceiling. In the normal path the BT script
     // actively clears the override when the target completes RFCOMM
-    // credential exchange, so 90s is only a floor for pathological cases.
+    // credential exchange, so 45s is only a floor for pathological cases.
+    // Normal switch completes in ~10-15s; 45s is 3x that.
     {
         ::mkdir("/run/openautolink", 0755);  // best-effort
-        time_t expiry = ::time(nullptr) + 90;
+        time_t expiry = ::time(nullptr) + 45;
         FILE* f = std::fopen("/run/openautolink/switch_override", "w");
         if (f) {
             std::fprintf(f, "%s\n%lld\n", mac.c_str(), static_cast<long long>(expiry));
@@ -1490,6 +1551,23 @@ void OalSession::handle_forget_phone(const std::string& json) {
 
     BLOG << "[OAL] forgetting phone: " << mac << std::endl;
 
+    // If forgetting the default phone, clear the default setting so the BT
+    // script doesn't chase a ghost MAC at startup.
+    {
+        const char* default_mac_env = std::getenv("OAL_DEFAULT_PHONE_MAC");
+        std::string default_mac = default_mac_env ? default_mac_env : "";
+        // Normalize both to uppercase for comparison
+        auto to_upper = [](std::string s) {
+            for (auto& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            return s;
+        };
+        if (!default_mac.empty() && to_upper(default_mac) == to_upper(mac)) {
+            BLOG << "[OAL] forgetting default phone — clearing OAL_DEFAULT_PHONE_MAC" << std::endl;
+            system("sed -i 's/^OAL_DEFAULT_PHONE_MAC=.*/OAL_DEFAULT_PHONE_MAC=/' /etc/openautolink.env");
+            setenv("OAL_DEFAULT_PHONE_MAC", "", 1);
+        }
+    }
+
     auto do_forget = [this, mac]() {
         std::string cmd = "bluetoothctl disconnect " + mac + " 2>/dev/null; "
                           "bluetoothctl remove " + mac + " 2>/dev/null";
@@ -1497,8 +1575,9 @@ void OalSession::handle_forget_phone(const std::string& json) {
         if (ret != 0) {
             BLOG << "[OAL] forget_phone: bluetoothctl command returned " << ret << std::endl;
         }
-        // Send updated paired phones list
+        // Send updated paired phones list + config echo (default may have changed)
         send_paired_phones();
+        send_config_echo();
     };
 
     // Gracefully disconnect phone before forgetting

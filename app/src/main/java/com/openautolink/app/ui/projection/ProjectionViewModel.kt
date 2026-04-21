@@ -103,9 +103,17 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private val _pairedPhones = MutableStateFlow<List<com.openautolink.app.transport.ControlMessage.PairedPhone>>(emptyList())
     private val _showPhoneSwitcher = MutableStateFlow(false)
     private val _pairingEnabled = MutableStateFlow(true)
+    private val _defaultPhoneMac = MutableStateFlow("")
+    private val _switchPhoneStatus = MutableStateFlow<com.openautolink.app.transport.ControlMessage.SwitchPhoneStatus?>(null)
 
     /** Paired phones list for the phone switcher popup. */
     val pairedPhones: StateFlow<List<com.openautolink.app.transport.ControlMessage.PairedPhone>> = _pairedPhones
+
+    /** Current default phone MAC from bridge. */
+    val defaultPhoneMac: StateFlow<String> = _defaultPhoneMac
+
+    /** Current switch status (null = no switch in progress). */
+    val switchPhoneStatus: StateFlow<com.openautolink.app.transport.ControlMessage.SwitchPhoneStatus?> = _switchPhoneStatus
 
     /** Whether BT pairing is currently enabled on the bridge. */
     val pairingEnabled: StateFlow<Boolean> = _pairingEnabled
@@ -216,9 +224,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     }
                     is com.openautolink.app.transport.ControlMessage.PairedPhones -> {
                         _pairedPhones.value = message.phones
+                        _defaultPhoneMac.value = message.defaultMac
                     }
                     is com.openautolink.app.transport.ControlMessage.PairingModeStatus -> {
                         _pairingEnabled.value = message.enabled
+                    }
+                    is com.openautolink.app.transport.ControlMessage.SwitchPhoneStatus -> {
+                        _switchPhoneStatus.value = if (message.status == "idle") null else message
                     }
                     is com.openautolink.app.transport.ControlMessage.Stats -> {
                         _bridgeUptimeSeconds.value = message.uptimeSeconds
@@ -408,6 +420,24 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
         _showPhoneSwitcher.value = false
+    }
+
+    fun setDefaultPhone(mac: String) {
+        viewModelScope.launch {
+            com.openautolink.app.transport.ConfigUpdateSender.sendConfigUpdate(
+                mapOf("default_phone_mac" to mac)
+            )
+        }
+        _defaultPhoneMac.value = mac
+    }
+
+    fun cancelSwitchPhone() {
+        viewModelScope.launch {
+            com.openautolink.app.transport.ConfigUpdateSender.sendControlMessage(
+                com.openautolink.app.transport.ControlMessage.CancelSwitchPhone
+            )
+        }
+        _switchPhoneStatus.value = null
     }
 
     /** Forward a touch event from the projection surface to the bridge. */

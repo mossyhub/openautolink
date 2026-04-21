@@ -872,13 +872,24 @@ class SessionManager(
                 }
             }
             is ControlMessage.PairedPhones -> {
-                Log.d(TAG, "Received paired phones: ${message.phones.size}")
+                Log.d(TAG, "Received paired phones: ${message.phones.size}, default=${message.defaultMac}")
                 _pairedPhones.value = message.phones
                 _pairedPhonesCallback?.invoke(message.phones)
+                // Sync default phone MAC from bridge (source of truth)
+                if (message.defaultMac.isNotEmpty()) {
+                    scope.launch {
+                        val ctx = context ?: return@launch
+                        AppPreferences.getInstance(ctx).setDefaultPhoneMac(message.defaultMac)
+                    }
+                }
             }
             is ControlMessage.PairingModeStatus -> {
                 Log.d(TAG, "Pairing mode: ${if (message.enabled) "enabled" else "disabled"}")
                 _pairingModeCallback?.invoke(message.enabled)
+            }
+            is ControlMessage.SwitchPhoneStatus -> {
+                Log.d(TAG, "Switch phone status: ${message.status} target=${message.targetName}")
+                // Forward to control messages flow for ViewModel consumption
             }
             is ControlMessage.BridgeUpdateAccept,
             is ControlMessage.BridgeUpdateReject,
