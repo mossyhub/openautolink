@@ -293,6 +293,17 @@ def _connect_device(path):
     dp = dbus.Interface(bus.get_object("org.bluez", path),
                         "org.freedesktop.DBus.Properties")
 
+    # Check if already connected — skip redundant profile connections that
+    # can disrupt an existing HFP SLC (causes "NoReply" errors and breaks
+    # SCO audio routing for VoIP apps like Teams).
+    try:
+        already_connected = bool(dp.Get("org.bluez.Device1", "Connected"))
+        if already_connected:
+            oal_print(f"Reconnect: {path} already connected, skipping", flush=True)
+            return
+    except Exception:
+        pass
+
     # Only force-trust the preferred phone. Trusted devices skip the
     # Agent.AuthorizeService hook, which is our last-resort BlueZ-level
     # gate against non-default phones. For non-preferred devices, leave
