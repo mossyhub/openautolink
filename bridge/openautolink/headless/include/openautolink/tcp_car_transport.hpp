@@ -13,6 +13,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -160,59 +161,113 @@ public:
 
         oal_log("[TcpCar:%d] OAL control listening\n", port_);
 
+        // poll()-based control loop: multiplex listen_fd_ and client_fd_.
+        // When a new connection arrives while we already have a client,
+        // close the old one immediately and accept the new one.
+        // This eliminates zombie half-open sockets that black-hole messages
+        // when the app reconnects (e.g., display mode change, Settings nav).
+        int client = -1;
+        std::string line_buf;
+
         while (running_.load()) {
-            struct sockaddr_in client_addr{};
-            socklen_t client_len = sizeof(client_addr);
-            int client = accept(listen_fd_, (struct sockaddr*)&client_addr, &client_len);
-            if (client < 0) {
-                if (running_.load()) oal_log("[TcpCar:%d] accept failed: %s\n", port_, strerror(errno));
+            struct pollfd fds[2];
+            int nfds = 0;
+
+            // Always watch the listen socket for new connections
+            fds[0].fd = listen_fd_;
+            fds[0].events = POLLIN;
+            nfds = 1;
+
+            // If we have a client, also watch it for data/disconnect
+            if (client >= 0) {
+                fds[1].fd = client;
+                fds[1].events = POLLIN;
+                nfds = 2;
+            }
+
+            int ret = poll(fds, nfds, 1000); // 1s timeout for running_ check
+            if (ret < 0) {
+                if (errno == EINTR) continue;
+                oal_log("[TcpCar:%d] poll error: %s\n", port_, strerror(errno));
                 break;
             }
+            if (ret == 0) continue; // timeout — recheck running_
 
-            int nodelay = 1;
-            setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+            // New connection pending on listen socket?
+            if (fds[0].revents & POLLIN) {
+                struct sockaddr_in client_addr{};
+                socklen_t client_len = sizeof(client_addr);
+                int new_client = accept(listen_fd_, (struct sockaddr*)&client_addr, &client_len);
+                if (new_client < 0) {
+                    if (running_.load()) oal_log("[TcpCar:%d] accept failed: %s\n", port_, strerror(errno));
+                    break;
+                }
 
-            char ip_str[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
-            oal_log("[TcpCar:%d] app connected from %s\n", port_, ip_str);
+                char ip_str[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
 
-            {
-                std::lock_guard<std::mutex> lock(write_mutex_);
-                client_fd_ = client;
+                // Evict old client if one exists
+                if (client >= 0) {
+                    oal_log("[TcpCar:%d] new connection from %s — evicting previous client\n", port_, ip_str);
+                    if (disconnect_cb) disconnect_cb();
+                    {
+                        std::lock_guard<std::mutex> lock(write_mutex_);
+                        close(client);
+                        client_fd_ = -1;
+                    }
+                    line_buf.clear();
+                } else {
+                    oal_log("[TcpCar:%d] app connected from %s\n", port_, ip_str);
+                }
+
+                int nodelay = 1;
+                setsockopt(new_client, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+                client = new_client;
+                {
+                    std::lock_guard<std::mutex> lock(write_mutex_);
+                    client_fd_ = client;
+                }
+
+                if (connect_cb) connect_cb();
             }
 
-            if (connect_cb) connect_cb();
-
-            // Read JSON lines (newline-delimited)
-            std::string line_buf;
-            char buf[4096];
-            while (running_.load()) {
+            // Data or disconnect from current client?
+            if (nfds > 1 && (fds[1].revents & (POLLIN | POLLHUP | POLLERR))) {
+                char buf[4096];
                 ssize_t n = ::read(client, buf, sizeof(buf));
                 if (n <= 0) {
                     oal_log("[TcpCar:%d] client disconnected\n", port_);
-                    break;
-                }
-                for (ssize_t i = 0; i < n; i++) {
-                    if (buf[i] == '\n') {
-                        if (!line_buf.empty() && line_cb) {
-                            line_cb(line_buf);
+                    if (disconnect_cb) disconnect_cb();
+                    {
+                        std::lock_guard<std::mutex> lock(write_mutex_);
+                        close(client);
+                        client_fd_ = -1;
+                    }
+                    client = -1;
+                    line_buf.clear();
+                    oal_log("[TcpCar:%d] control session ended, waiting for reconnect\n", port_);
+                } else {
+                    for (ssize_t i = 0; i < n; i++) {
+                        if (buf[i] == '\n') {
+                            if (!line_buf.empty() && line_cb) {
+                                line_cb(line_buf);
+                            }
+                            line_buf.clear();
+                        } else {
+                            line_buf += buf[i];
                         }
-                        line_buf.clear();
-                    } else {
-                        line_buf += buf[i];
                     }
                 }
             }
+        }
 
+        // Cleanup on shutdown
+        if (client >= 0) {
             if (disconnect_cb) disconnect_cb();
-
-            {
-                std::lock_guard<std::mutex> lock(write_mutex_);
-                close(client_fd_);
-                client_fd_ = -1;
-            }
-
-            oal_log("[TcpCar:%d] control session ended, waiting for reconnect\n", port_);
+            std::lock_guard<std::mutex> lock(write_mutex_);
+            close(client);
+            client_fd_ = -1;
         }
 
         close(listen_fd_);
