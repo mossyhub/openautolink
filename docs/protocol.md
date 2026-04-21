@@ -161,7 +161,8 @@ Sent in response to `list_paired_phones`. Contains all Bluetooth-paired devices 
 | `phones` | array | List of paired phone objects |
 | `phones[].mac` | string | Bluetooth MAC address (e.g. `"AA:BB:CC:DD:EE:FF"`) |
 | `phones[].name` | string | Device name from BlueZ |
-| `phones[].connected` | bool | Whether the device is currently connected |
+| `phones[].connected` | bool | Whether the device is currently BT-connected |
+| `phones[].aa_active` | bool | Whether this phone has the active Android Auto session |
 | `default_mac` | string | MAC of the current default phone (from `OAL_DEFAULT_PHONE_MAC`) |
 
 ### Bridge → App: `switch_phone_status`

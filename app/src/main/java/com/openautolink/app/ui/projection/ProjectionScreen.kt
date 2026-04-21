@@ -619,7 +619,7 @@ private fun PhoneSwitcherPopup(
                 )
             } else {
                 phones.forEach { phone ->
-                    val isCurrent = phone.connected ||
+                    val isCurrent = phone.aaActive ||
                             (currentPhone != null && phone.name == currentPhone)
                     val isDefault = phone.mac.equals(defaultPhoneMac, ignoreCase = true)
                     Row(

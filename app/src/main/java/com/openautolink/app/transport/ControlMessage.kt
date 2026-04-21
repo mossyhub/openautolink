@@ -128,7 +128,8 @@ sealed class ControlMessage {
     data class PairedPhone(
         val mac: String,
         val name: String,
-        val connected: Boolean
+        val connected: Boolean,
+        val aaActive: Boolean = false
     )
 
     data class PhoneCall(

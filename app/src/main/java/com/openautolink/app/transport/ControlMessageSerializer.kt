@@ -172,7 +172,8 @@ object ControlMessageSerializer {
                     ControlMessage.PairedPhone(
                         mac = phoneObj["mac"]?.jsonPrimitive?.content ?: "",
                         name = phoneObj["name"]?.jsonPrimitive?.content ?: "",
-                        connected = phoneObj["connected"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+                        connected = phoneObj["connected"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false,
+                        aaActive = phoneObj["aa_active"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
                     )
                 } ?: emptyList()
                 val defaultMac = obj["default_mac"]?.jsonPrimitive?.content ?: ""

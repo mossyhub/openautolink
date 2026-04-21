@@ -79,8 +79,9 @@ When Phone A is actively paired, connected, and streaming, and a new Phone B ent
 
 1. **Pairing MUST succeed** — BlueZ accepts the pairing via the `NoInputNoOutput` agent. The new device appears in `bluetoothctl devices Paired`.
 2. **WiFi/AA handoff MUST NOT happen** — The BT script's RFCOMM gate (`AAProfile.NewConnection`) rejects Phone B's RFCOMM attempt because Phone A (the default) is currently connected. Phone B gets no WiFi credentials, so it cannot establish an AA session.
-3. **No disruption to Phone A** — Phone A's BT, WiFi, and AA session continue uninterrupted.
-4. **Phone B is available for future switching** — The new device appears in the paired phones list. The user can switch to it later via the UI.
+3. **Phone B is BT-disconnected after rejection** — After RFCOMM rejection, the BT script disconnects Phone B from BT entirely (2s delayed `bluetoothctl disconnect`). This prevents Phone B's HFP/A2DP audio from bleeding into the bridge as a dead end.
+4. **No disruption to Phone A** — Phone A's BT, WiFi, and AA session continue uninterrupted.
+5. **Phone B is available for future switching** — The new device appears in the paired phones list. The user can switch to it later via the UI.
 
 **RFCOMM rejection conditions** (in priority order):
 1. Switch override active and connecting phone isn't the target → reject

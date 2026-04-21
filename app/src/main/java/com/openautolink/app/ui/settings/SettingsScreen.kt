@@ -719,7 +719,7 @@ private fun PhonesTab(viewModel: SettingsViewModel, uiState: SettingsUiState, br
                             imageVector = Icons.Default.PhoneAndroid,
                             contentDescription = null,
                             modifier = Modifier.size(24.dp),
-                            tint = if (phone.connected) MaterialTheme.colorScheme.primary
+                            tint = if (phone.aaActive) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(modifier = Modifier.width(12.dp))
@@ -734,9 +734,9 @@ private fun PhonesTab(viewModel: SettingsViewModel, uiState: SettingsUiState, br
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (phone.connected) {
+                            if (phone.aaActive) {
                                 Text(
-                                    text = "Connected",
+                                    text = "Streaming",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
@@ -760,7 +760,7 @@ private fun PhonesTab(viewModel: SettingsViewModel, uiState: SettingsUiState, br
                                     Text("Set Default")
                                 }
                             }
-                            if (!phone.connected) {
+                            if (!phone.aaActive) {
                                 FilledTonalButton(
                                     onClick = { viewModel.switchPhone(phone.mac) },
                                     modifier = Modifier.testTag("connect_${phone.mac}"),

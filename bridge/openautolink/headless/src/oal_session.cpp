@@ -1393,11 +1393,18 @@ void OalSession::send_paired_phones() {
 
         bool connected = connected_macs.find(mac) != std::string::npos;
 
+        // aa_active: this phone has the active Android Auto session.
+        // phone_name_ is set by aasdk on AA handshake — compare with the
+        // device name from BlueZ. Also check MAC if we tracked it.
+        bool aa_active = phone_connected_ && connected && !phone_name_.empty() &&
+                         name.find(phone_name_) != std::string::npos;
+
         if (!first) oss << ",";
         first = false;
         oss << R"({"mac":")" << oal_json_escape(mac)
             << R"(","name":")" << oal_json_escape(name)
-            << R"(","connected":)" << (connected ? "true" : "false") << "}";
+            << R"(","connected":)" << (connected ? "true" : "false")
+            << R"(,"aa_active":)" << (aa_active ? "true" : "false") << "}";
     }
     pclose(pipe);
 
@@ -1488,10 +1495,17 @@ void OalSession::handle_switch_phone(const std::string& json) {
     }
 
     // Build the BT switch command.
-    // Only disconnect devices OTHER than the target — leaves HFP/HSP audio
-    // on unrelated devices alone, and avoids the pointless round-trip of
-    // disconnecting+reconnecting the target.
+    // 1. Deauthenticate all WiFi clients — the old phone's WiFi stays connected
+    //    even after BT disconnect, allowing it to re-establish AA over WiFi
+    //    before the new phone gets through RFCOMM. Kicking all clients is safe
+    //    because only the old phone is on the AP (the new phone hasn't gotten
+    //    WiFi credentials yet).
+    // 2. Disconnect all BT devices except the target.
+    // 3. Connect BT to the target.
     std::string bt_cmd = "( ";
+    bt_cmd += "for sta in $(iw dev wlan0 station dump 2>/dev/null | grep '^Station' | awk '{print $2}'); do "
+              "  iw dev wlan0 station del \"$sta\" 2>/dev/null; "
+              "done; ";
     bt_cmd += "for dev in $(bluetoothctl devices Connected 2>/dev/null | awk '{print $2}'); do "
               "  if [ \"$dev\" != \"" + mac + "\" ]; then "
               "    bluetoothctl disconnect \"$dev\" 2>/dev/null; "

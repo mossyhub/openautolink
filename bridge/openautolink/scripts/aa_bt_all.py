@@ -167,6 +167,21 @@ def _close_rejection_fd(fd):
     except OSError:
         pass
 
+def _disconnect_rejected_phone(mac):
+    """Disconnect a rejected phone from BT entirely after a short delay.
+    Runs in a daemon thread. The delay avoids racing with BlueZ's own
+    connection setup (pairing may still be in flight)."""
+    time.sleep(2)
+    try:
+        import subprocess
+        subprocess.run(
+            ["bluetoothctl", "disconnect", mac],
+            timeout=10, capture_output=True
+        )
+        oal_print(f"Disconnected rejected phone {mac} from BT", flush=True)
+    except Exception as e:
+        oal_print(f"Failed to disconnect rejected phone {mac}: {e}", flush=True)
+
 def _read_switch_override():
     """Return the target MAC if a valid (unexpired) switch override exists, else ""."""
     try:
@@ -571,6 +586,15 @@ class AAProfile(dbus.service.Object):
         if reject_reason:
             _log_rejection(connecting_mac, reject_reason)
             _close_rejection_fd(fd)
+            # Disconnect the rejected phone from BT entirely so its HFP/A2DP
+            # audio doesn't bleed into the bridge. Without this, a paired but
+            # non-default phone stays BT-connected and routes calls/media to
+            # the bridge — a dead end that confuses both phones.
+            threading.Thread(
+                target=_disconnect_rejected_phone,
+                args=(connecting_mac,),
+                daemon=True
+            ).start()
             return
 
         # Always complete the RFCOMM exchange — the phone needs WiFi credentials
