@@ -253,6 +253,13 @@ class MediaCodecDecoder(
                 if (hasInlineConfig) {
                     Log.i(TAG, "IDR contains inline SPS/PPS — extracting codec config")
                     handleCodecConfig(frame)
+                    if (surface == null) {
+                        // Surface not attached — cache IDR for instant replay on reattach
+                        Log.i(TAG, "IDR with inline config but no surface — caching (${frame.data.size} bytes)")
+                        DiagnosticLog.i("video", "IDR cached (no surface, inline config): ${frame.data.size} bytes")
+                        cachedIdrFrame = frame
+                        return
+                    }
                     // Fall through to queue as keyframe below
                 } else if (surface == null && codecConfigData != null) {
                     // IDR arrived but surface not attached yet — cache it for replay
@@ -290,7 +297,10 @@ class MediaCodecDecoder(
         receivedIdr = true
         _needsKeyframe = false
         _needsKeyframeFlow.value = false
-        cachedIdrFrame = null  // Clear cache — we have a live IDR now
+        // Always keep the latest IDR cached — if the surface is destroyed (user
+        // navigates away), we can replay it instantly when the surface returns
+        // instead of requesting a fresh keyframe from the bridge and waiting.
+        cachedIdrFrame = frame
         // Queue the IDR BEFORE enabling rendering — this ensures the decoder
         // processes the IDR as its first frame. If we enable rendering first,
         // the drain thread could render a stale output buffer before the IDR
