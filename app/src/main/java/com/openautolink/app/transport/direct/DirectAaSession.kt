@@ -348,7 +348,13 @@ class DirectAaSession(
             }
 
             AaMsgType.AUDIO_FOCUS_REQUEST -> {
-                // Grant audio focus immediately
+                // Parse the request to determine what type of focus is being requested
+                try {
+                    val data = msg.payload.copyOfRange(msg.payloadOffset, msg.payloadOffset + msg.payloadLength)
+                    val request = Control.AudioFocusRequestNotification.parseFrom(data)
+                    OalLog.d(TAG, "AudioFocusRequest: type=${request.request}")
+                } catch (_: Exception) {}
+                // Always grant focus — the car has its own audio focus management via CarAudioManager
                 val notification = Control.AudioFocusNotification.newBuilder()
                     .setFocusState(Control.AudioFocusNotification.AudioFocusStateType.STATE_GAIN)
                     .build()
@@ -362,7 +368,16 @@ class DirectAaSession(
             }
 
             AaMsgType.VOICE_SESSION_NOTIFICATION -> {
-                OalLog.i(TAG, "Voice session notification")
+                // Parse voice session state and emit for UI
+                try {
+                    val data = msg.payload.copyOfRange(msg.payloadOffset, msg.payloadOffset + msg.payloadLength)
+                    // Voice session proto: field 1 = status (1=started, 2=finished)
+                    val active = data.isNotEmpty() && data.size >= 2 && data[1].toInt() == 1
+                    OalLog.i(TAG, "Voice session: ${if (active) "started" else "finished"}")
+                    _controlMessages.emit(ControlMessage.VoiceSession(active))
+                } catch (_: Exception) {
+                    OalLog.i(TAG, "Voice session notification (unparsed)")
+                }
             }
         }
     }
@@ -572,15 +587,16 @@ class DirectAaSession(
     }
 
     private suspend fun handleMediaPlayback(msg: AaMessage) {
-        // Media playback channel uses:
-        // 0x8001 = metadata, 0x8003 = metadata start (with status)
         when (msg.type) {
             0x8001, 0x8003 -> {
                 try {
                     val data = msg.payload.copyOfRange(msg.payloadOffset, msg.payloadOffset + msg.payloadLength)
                     val metadata = com.openautolink.app.proto.MediaPlayback.MediaMetaData.parseFrom(data)
-                    OalLog.d(TAG, "Media: ${metadata.song} - ${metadata.artist}")
-                    // TODO: emit ControlMessage.MediaMetadata
+                    val title = metadata.song.takeIf { it.isNotEmpty() }
+                    val artist = metadata.artist.takeIf { it.isNotEmpty() }
+                    val album = metadata.album.takeIf { it.isNotEmpty() }
+                    OalLog.d(TAG, "Media: $title - $artist")
+                    emitMediaMetadata(title, artist, album)
                 } catch (e: Exception) {
                     OalLog.e(TAG, "MediaPlayback parse error: ${e.message}")
                 }
@@ -589,9 +605,33 @@ class DirectAaSession(
         }
     }
 
+    /** Isolated method to avoid Kotlin type inference issues with sealed class + protobuf. */
+    private suspend fun emitMediaMetadata(title: String?, artist: String?, album: String?) {
+        _controlMessages.emit(ControlMessage.MediaMetadata(
+            title = title,
+            artist = artist,
+            album = album,
+            durationMs = null,
+            positionMs = null,
+            playing = null
+        ))
+    }
+
     private suspend fun handlePhoneStatus(msg: AaMessage) {
-        OalLog.d(TAG, "PhoneStatus (${msg.payloadLength}B)")
-        // TODO: Parse phone battery, signal, call state
+        if (msg.type == AaMsgType.MEDIA_DATA || msg.type == AaMsgType.MEDIA_START) {
+            try {
+                val data = msg.payload.copyOfRange(msg.payloadOffset, msg.payloadOffset + msg.payloadLength)
+                val status = Control.ServiceDiscoveryResponse.parseFrom(data)
+                // Phone status is embedded in the PhoneStatusService on the control proto
+                // For now, just log and try to extract signal/calls from the raw data
+                OalLog.d(TAG, "PhoneStatus received (${data.size}B)")
+                // TODO: parse PhoneStatus_Call and signal_strength when proto is available
+            } catch (_: Exception) {
+                OalLog.d(TAG, "PhoneStatus (${msg.payloadLength}B)")
+            }
+        } else {
+            handleChannelControl(msg)
+        }
     }
 
     private suspend fun sendVideoFocusNotification() {

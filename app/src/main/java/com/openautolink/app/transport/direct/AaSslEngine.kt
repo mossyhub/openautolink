@@ -32,17 +32,23 @@ class AaSslEngine {
         private const val TAG = "AaSslEngine"
         private const val HANDSHAKE_TIMEOUT_MS = 15_000L
 
-        // Self-signed headunit certificate (same format as aasdk's hu_ssl_cert.h).
-        // Generated once, embedded in the app. Phone doesn't verify it.
-        // This is base64 DER — will be loaded in init.
-        // For now, generate at runtime if not available.
+        // Singleton SSLContext — survives across AaSslEngine instances for TLS session
+        // resumption. JSSE's ClientSessionContext caches sessions by (host, port);
+        // reusing the same SSLContext + synthetic ("android-auto", 5277) key means
+        // reconnects can resume the previous TLS session, saving 1-3 round trips.
+        @Volatile
+        private var sharedSslContext: SSLContext? = null
     }
 
     private lateinit var sslEngine: SSLEngine
     private lateinit var netOutBuffer: ByteBuffer   // TLS records to send
     private lateinit var appInBuffer: ByteBuffer     // Decrypted app data
 
-    private val sslContext: SSLContext = createSslContext()
+    private val sslContext: SSLContext by lazy {
+        synchronized(AaSslEngine::class.java) {
+            sharedSslContext ?: createSslContextInternal().also { sharedSslContext = it }
+        }
+    }
     private val codec = AaWireCodec()
 
     /**
@@ -218,7 +224,7 @@ class AaSslEngine {
         }
     }
 
-    private fun createSslContext(): SSLContext {
+    private fun createSslContextInternal(): SSLContext {
         // Use a self-signed certificate. The phone doesn't verify it
         // (AA protocol uses SSL_VERIFY_NONE on the client/phone side).
         val ks = KeyStore.getInstance("AndroidKeyStore")
