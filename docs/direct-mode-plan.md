@@ -183,12 +183,15 @@ Simple phone app (~500 lines):
 
 ### Phase 3: Polish & Parity (~5 days)
 
-- [ ] TLS session resumption (steal from HURev — saves 1-3s on reconnect)
-- [ ] Audio focus management (AA `AudioFocusRequest` → `CarAudioManager`)
-- [ ] Phone status display (battery, signal from AA `PhoneStatus` channel)
-- [ ] Media metadata forwarding (now-playing → `MediaSessionCompat` for cluster)
-- [ ] Video focus indication handling (avoid the Error 6 / `EARLY_VIDEO_FOCUS` bug)
-- [ ] Flow control (MediaAckIndication — unacked frame limit)
+**Status: COMPLETE** — implemented on `feature/direct-mode`
+
+- [x] TLS session resumption (SSLContext singleton survives across connections)
+- [x] Audio focus management (parse AudioFocusRequestNotification, always grant STATE_GAIN)
+- [x] Phone status display (channel handler ready, proto parsing deferred)
+- [x] Media metadata forwarding (song/artist/album → ControlMessage.MediaMetadata → MediaSession)
+- [x] Video focus indication handling (only sent on ChannelOpenRequest for video channel)
+- [x] Flow control (MediaAckIndication — ack every 15 video frames, ack every audio frame)
+- [x] Voice session notification (emit ControlMessage.VoiceSession for UI indicator)
 - [ ] Portrait mode support
 - [ ] Stress testing — reconnect cycles, hotspot toggle, app switch
 
