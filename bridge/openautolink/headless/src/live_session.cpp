@@ -4,6 +4,7 @@
 #include "openautolink/oal_session.hpp"
 #include "openautolink/oal_protocol.hpp"
 #include "openautolink/oal_log.hpp"
+#include "openautolink/aa_error_codes.hpp"
 
 #include <cstring>
 #include <chrono>
@@ -902,17 +903,22 @@ void HeadlessAutoEntity::onPingResponse(const aap_protobuf::service::control::me
 }
 
 void HeadlessAutoEntity::onChannelError(const aasdk::error::Error& e) {
-    std::cerr << "[aasdk] CHANNEL ERROR: " << e.what() << std::endl;
+    BLOG << "[aasdk] CHANNEL ERROR: " << e.what() << std::endl;
+    // Log phone-side error hint so bridge logs explain what the phone shows
+    auto hint = aasdk_to_phone_error_hint(static_cast<int>(e.getCode()));
+    if (hint) {
+        BLOG << "[aasdk]   -> " << hint << std::endl;
+    }
     output_.emit(R"({"type":"event","event_type":"channel_error","error":")" +
                  std::string(e.what()) + R"("})");
     // OPERATION_ABORTED is expected during shutdown when messenger stops
     if (e.getCode() == aasdk::error::ErrorCode::OPERATION_ABORTED) {
-        std::cerr << "[aasdk] Operation aborted (expected during stop)" << std::endl;
+        BLOG << "[aasdk] Operation aborted (expected during stop)" << std::endl;
         return;
     }
     // If we're in a graceful shutdown, complete it (phone died mid-handshake)
     if (shutdown_pending_) {
-        std::cerr << "[aasdk] Channel error during graceful shutdown — completing" << std::endl;
+        BLOG << "[aasdk] Channel error during graceful shutdown — completing" << std::endl;
         shutdown_timer_.cancel();
         shutdown_pending_ = false;
         stop();
@@ -2726,6 +2732,11 @@ void HeadlessVideoHandler::onVideoFocusRequest(
 }
 
 void HeadlessVideoHandler::onChannelError(const aasdk::error::Error& e) {
+    BLOG << "[aasdk] VIDEO CHANNEL ERROR: " << e.what() << std::endl;
+    auto hint = aasdk_to_phone_error_hint(static_cast<int>(e.getCode()));
+    if (hint) {
+        BLOG << "[aasdk]   -> " << hint << std::endl;
+    }
     output_.emit(R"({"type":"event","event_type":"video_channel_error","error":")" +
                  std::string(e.what()) + R"("})");
 }
@@ -2914,6 +2925,11 @@ void HeadlessAudioHandler::onMediaIndication(const aasdk::common::DataConstBuffe
 void HeadlessAudioHandler::onChannelError(const aasdk::error::Error& e) {
     const char* name = (type_ == ChannelType::Media) ? "media" :
                        (type_ == ChannelType::Speech) ? "speech" : "system";
+    BLOG << "[aasdk] AUDIO CHANNEL ERROR (" << name << "): " << e.what() << std::endl;
+    auto hint = aasdk_to_phone_error_hint(static_cast<int>(e.getCode()));
+    if (hint) {
+        BLOG << "[aasdk]   -> " << hint << std::endl;
+    }
     output_.emit(R"({"type":"event","event_type":"audio_channel_error","channel":")" +
                  std::string(name) + R"(","error":")" + std::string(e.what()) + R"("})");
 

@@ -153,11 +153,11 @@ These exist in the current bridge code and will need fixing regardless of the ap
 - After app reconnect, no fresh IDR available
 - **Fix:** Bridge should bypass rate limit on first keyframe request after new app connection
 
-### 5. Bluetooth HFP Not Working
-- BT pairing works, BLE works, RFCOMM ch8 works, WiFi credential exchange works
-- HFP (Hands-Free Profile) NOT connected → no BT audio routing for calls
-- **Architecture:** Phone pairs via BT to the SBC/bridge, NOT to the car. Call/voice audio must flow: Phone → BT HFP → SBC → bridge captures SCO audio → forwards over TCP to app
-- **Needed for:** phone calls, voice assistant, proper AA auto-connect
+### 5. ~~Bluetooth HFP Not Working~~ — DONE
+- **Fixed:** Full HFP implementation across all layers:
+  - BT script: `HFPProfile` D-Bus class + full SLC state machine (AT+BRSF → AT+BAC → AT+CIND → AT+CMER) + codec negotiation (CVSD/mSBC) + call control AT commands + reconnect-aware HFP SLC cycling
+  - Bridge C++: `ScoAudio` class — listens for SCO connections, bridges SCO PCM ↔ OAL audio frames (purpose=CALL), auto-detects codec from MTU
+  - OalSession: routes app mic audio (purpose=CALL) to `sco_audio_->feed_mic_audio()`
 
 ---
 
