@@ -14,6 +14,7 @@ media = "1.7.1"
 protobuf = "4.29.3"
 protobuf-plugin = "0.9.4"
 conscrypt = "2.5.3"
+nearby = "19.3.0"
 
 # Testing
 junit = "4.13.2"
@@ -46,6 +47,7 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
 conscrypt-android = { module = "org.conscrypt:conscrypt-android", version.ref = "conscrypt" }
+nearby-connections = { module = "com.google.android.gms:play-services-nearby", version.ref = "nearby" }
 
 # Testing
 junit = { module = "junit:junit", version.ref = "junit" }

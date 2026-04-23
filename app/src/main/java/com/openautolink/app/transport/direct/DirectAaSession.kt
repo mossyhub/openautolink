@@ -92,6 +92,9 @@ class DirectAaSession(
     // BT handshake for automatic phone connection
     private val btHandshake = AaBtHandshakeManager(scope)
 
+    // Nearby Connections for peer-to-peer transport (no WiFi needed)
+    private var nearbyManager: AaNearbyManager? = null
+
     // Video config from settings
     var videoConfig = DirectServiceDiscovery.VideoConfig()
 
@@ -113,6 +116,17 @@ class DirectAaSession(
 
         // Start BT RFCOMM handshake server for automatic phone discovery
         btHandshake.start()
+
+        // Start Nearby Connections discovery (peer-to-peer, no WiFi needed)
+        nearbyManager?.stop()
+        nearbyManager = AaNearbyManager(context, scope) { nearbySocket ->
+            // Nearby connection established — handle AA session over this socket
+            scope.launch(Dispatchers.IO) {
+                OalLog.i(TAG, "Nearby socket ready — starting AA session")
+                handleConnection(nearbySocket)
+            }
+        }
+        nearbyManager?.start()
 
         serverJob = scope.launch(Dispatchers.IO) {
             try {
@@ -152,6 +166,8 @@ class DirectAaSession(
         serverJob?.cancel()
         serverJob = null
         btHandshake.stop()
+        nearbyManager?.stop()
+        nearbyManager = null
         try { clientSocket?.close() } catch (_: Exception) {}
         try { serverSocket?.close() } catch (_: Exception) {}
         clientSocket = null
