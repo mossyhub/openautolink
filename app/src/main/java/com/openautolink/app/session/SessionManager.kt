@@ -318,8 +318,8 @@ class SessionManager(
         _telemetryCollector?.start()
 
         observeJob = scope.launch {
-            // Observe connection state changes
-            launch {
+            // Observe connection state changes — bridge mode only
+            if (connectionMode != "direct") launch {
                 var previousState = SessionState.IDLE
                 connectionManager.connectionState.collect { connState ->
                     val newState = connState.toSessionState()
@@ -364,16 +364,16 @@ class SessionManager(
                 }
             }
 
-            // Observe control messages for session-level events
-            launch {
+            // Observe control messages for session-level events — bridge mode only
+            if (connectionMode != "direct") launch {
                 connectionManager.controlMessages.collect { message ->
                     lastActiveTimestamp = SystemClock.elapsedRealtime()
                     handleControlMessage(message)
                 }
             }
 
-            // Forward config updates from settings to bridge
-            launch {
+            // Forward config updates from settings to bridge — bridge mode only
+            if (connectionMode != "direct") launch {
                 com.openautolink.app.transport.ConfigUpdateSender.configUpdates.collect { config ->
                     if (connectionManager.connectionState.value != ConnectionState.DISCONNECTED) {
                         connectionManager.sendControlMessage(
@@ -384,8 +384,8 @@ class SessionManager(
                 }
             }
 
-            // Forward restart requests from settings to bridge
-            launch {
+            // Forward restart requests from settings to bridge — bridge mode only
+            if (connectionMode != "direct") launch {
                 com.openautolink.app.transport.ConfigUpdateSender.restartRequests.collect { restart ->
                     if (connectionManager.connectionState.value != ConnectionState.DISCONNECTED) {
                         connectionManager.sendControlMessage(restart)
@@ -394,8 +394,8 @@ class SessionManager(
                 }
             }
 
-            // Forward control messages from settings to bridge (list_paired_phones, switch_phone, etc.)
-            launch {
+            // Forward control messages from settings to bridge — bridge mode only
+            if (connectionMode != "direct") launch {
                 com.openautolink.app.transport.ConfigUpdateSender.controlMessages.collect { message ->
                     if (connectionManager.connectionState.value != ConnectionState.DISCONNECTED) {
                         connectionManager.sendControlMessage(message)
@@ -450,7 +450,10 @@ class SessionManager(
                 val newState = connState.toSessionState()
                 _sessionState.value = newState
                 _statusMessage.value = when (newState) {
-                    SessionState.IDLE -> "Waiting for phone..."
+                    SessionState.IDLE -> {
+                        val nearby = com.openautolink.app.transport.direct.AaNearbyManager.status.value
+                        "Direct: $nearby"
+                    }
                     SessionState.CONNECTING -> "Phone connecting..."
                     SessionState.BRIDGE_CONNECTED -> "Handshake..."
                     SessionState.PHONE_CONNECTED -> "Phone connected"
@@ -478,6 +481,15 @@ class SessionManager(
         scope.launch(audioDispatcher) {
             session.audioFrames.collect { frame ->
                 _audioPlayer?.onAudioFrame(frame)
+            }
+        }
+
+        // Observe Nearby status for user feedback
+        scope.launch {
+            com.openautolink.app.transport.direct.AaNearbyManager.status.collect { nearbyStatus ->
+                if (activeConnectionMode == "direct" && _sessionState.value == SessionState.IDLE) {
+                    _statusMessage.value = "Nearby: $nearbyStatus"
+                }
             }
         }
 

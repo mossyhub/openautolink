@@ -114,8 +114,10 @@ class DirectAaSession(
         if (serverJob?.isActive == true) return
         _connectionState.value = ConnectionState.DISCONNECTED
 
-        // Start BT RFCOMM handshake server for automatic phone discovery
-        btHandshake.start()
+        // BT RFCOMM handshake disabled for now — advertising the AA UUID
+        // causes the phone to think the car has native AA, interfering with
+        // the existing GM BT connection. Will re-enable after validation.
+        // btHandshake.start()
 
         // Start Nearby Connections discovery (peer-to-peer, no WiFi needed)
         nearbyManager?.stop()
@@ -227,8 +229,9 @@ class DirectAaSession(
             _connectionState.value = ConnectionState.CONNECTING
 
             // 1. Version exchange
-            OalLog.i(TAG, "Starting version exchange")
+            OalLog.i(TAG, "Starting version exchange — writing version request")
             codec.writeVersionRequest(outputStream!!)
+            OalLog.i(TAG, "Version request sent — waiting for response (may block on NearbySocket latch)")
             val (major, minor) = codec.readVersionResponse(inputStream!!)
             OalLog.i(TAG, "Phone version: $major.$minor")
 

@@ -218,6 +218,7 @@ fun SettingsScreen(
                 // Connection status bar + Save & Connect button — always visible
                 ConnectionStatusBar(
                     sessionState = sessionState,
+                    isDirectMode = uiState.connectionMode == "direct",
                     onSaveAndConnect = onSaveAndConnect,
                 )
 
@@ -248,6 +249,7 @@ fun SettingsScreen(
 @Composable
 private fun ConnectionStatusBar(
     sessionState: SessionState,
+    isDirectMode: Boolean = false,
     onSaveAndConnect: () -> Unit,
 ) {
     val statusColor = when (sessionState) {
@@ -275,9 +277,9 @@ private fun ConnectionStatusBar(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // Save & Connect button — left-aligned, first element
-        val bridgeConnected = sessionState != SessionState.IDLE &&
+        val bridgeConnected = isDirectMode || (sessionState != SessionState.IDLE &&
                 sessionState != SessionState.ERROR &&
-                sessionState != SessionState.CONNECTING
+                sessionState != SessionState.CONNECTING)
         Button(
             onClick = onSaveAndConnect,
             enabled = bridgeConnected,

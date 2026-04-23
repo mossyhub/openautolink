@@ -721,7 +721,7 @@ private fun ConnectionHud(
             when (uiState.sessionState) {
                 SessionState.IDLE -> {
                     Text(
-                        text = "Disconnected",
+                        text = uiState.statusMessage,
                         style = MaterialTheme.typography.bodyLarge,
                         color = Color(0xFFB0B0B0)
                     )
@@ -734,14 +734,9 @@ private fun ConnectionHud(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Connecting to bridge...",
+                        text = uiState.statusMessage,
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = uiState.bridgeHost,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF808080)
                     )
                 }
                 SessionState.BRIDGE_CONNECTED -> {

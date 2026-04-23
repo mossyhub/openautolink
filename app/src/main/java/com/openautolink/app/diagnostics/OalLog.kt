@@ -20,11 +20,11 @@ object OalLog {
         _prefix = "[app $versionName] "
     }
 
-    fun v(tag: String, msg: String) = Log.v(tag, _prefix + msg)
-    fun d(tag: String, msg: String) = Log.d(tag, _prefix + msg)
-    fun i(tag: String, msg: String) = Log.i(tag, _prefix + msg)
-    fun w(tag: String, msg: String) = Log.w(tag, _prefix + msg)
-    fun w(tag: String, msg: String, tr: Throwable) = Log.w(tag, _prefix + msg, tr)
-    fun e(tag: String, msg: String) = Log.e(tag, _prefix + msg)
-    fun e(tag: String, msg: String, tr: Throwable) = Log.e(tag, _prefix + msg, tr)
+    fun v(tag: String, msg: String) { Log.v(tag, _prefix + msg) }
+    fun d(tag: String, msg: String) { Log.d(tag, _prefix + msg); DiagnosticLog.d(tag, msg) }
+    fun i(tag: String, msg: String) { Log.i(tag, _prefix + msg); DiagnosticLog.i(tag, msg) }
+    fun w(tag: String, msg: String) { Log.w(tag, _prefix + msg); DiagnosticLog.w(tag, msg) }
+    fun w(tag: String, msg: String, tr: Throwable) { Log.w(tag, _prefix + msg, tr); DiagnosticLog.w(tag, "$msg: ${tr.message}") }
+    fun e(tag: String, msg: String) { Log.e(tag, _prefix + msg); DiagnosticLog.e(tag, msg) }
+    fun e(tag: String, msg: String, tr: Throwable) { Log.e(tag, _prefix + msg, tr); DiagnosticLog.e(tag, "$msg: ${tr.message}") }
 }

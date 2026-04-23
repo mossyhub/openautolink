@@ -50,6 +50,9 @@ class AaNearbyManager(
 
         private val _discoveredEndpoints = MutableStateFlow<List<DiscoveredEndpoint>>(emptyList())
         val discoveredEndpoints: StateFlow<List<DiscoveredEndpoint>> = _discoveredEndpoints
+
+        private val _status = MutableStateFlow("Not started")
+        val status: StateFlow<String> = _status
     }
 
     data class DiscoveredEndpoint(val id: String, val name: String)
@@ -71,18 +74,29 @@ class AaNearbyManager(
         if (isRunning) return
         isRunning = true
         _discoveredEndpoints.value = emptyList()
+        _status.value = "Starting discovery..."
 
         val options = DiscoveryOptions.Builder()
             .setStrategy(STRATEGY)
             .build()
 
         OalLog.i(TAG, "Starting Nearby discovery (service=$SERVICE_ID)")
-        connectionsClient.startDiscovery(SERVICE_ID, discoveryCallback, options)
-            .addOnSuccessListener { OalLog.i(TAG, "Discovery started") }
-            .addOnFailureListener { e -> 
-                OalLog.e(TAG, "Discovery failed: ${e.message}")
-                isRunning = false
-            }
+        try {
+            connectionsClient.startDiscovery(SERVICE_ID, discoveryCallback, options)
+                .addOnSuccessListener {
+                    OalLog.i(TAG, "Discovery started")
+                    _status.value = "Discovering..."
+                }
+                .addOnFailureListener { e ->
+                    OalLog.e(TAG, "Discovery failed: ${e.message}")
+                    _status.value = "Discovery FAILED: ${e.message}"
+                    isRunning = false
+                }
+        } catch (e: Exception) {
+            OalLog.e(TAG, "Nearby init error: ${e.message}")
+            _status.value = "Init ERROR: ${e.message}"
+            isRunning = false
+        }
     }
 
     fun stop() {
@@ -116,6 +130,7 @@ class AaNearbyManager(
     private val discoveryCallback = object : EndpointDiscoveryCallback() {
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
             OalLog.i(TAG, "Found: ${info.endpointName} ($endpointId)")
+            _status.value = "Found: ${info.endpointName}"
             val current = _discoveredEndpoints.value.toMutableList()
             if (current.none { it.id == endpointId }) {
                 current.add(DiscoveredEndpoint(endpointId, info.endpointName))
@@ -141,11 +156,13 @@ class AaNearbyManager(
 
     private val connectionCallback = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
-            OalLog.i(TAG, "Connection initiated with ${info.endpointName}")
+            OalLog.i(TAG, "Connection initiated with ${info.endpointName}, accepting with payloadCallback")
             lastDeviceName = info.endpointName
             isRunning = false
             connectionsClient.stopDiscovery()
             connectionsClient.acceptConnection(endpointId, payloadCallback)
+                .addOnSuccessListener { OalLog.i(TAG, "acceptConnection succeeded") }
+                .addOnFailureListener { e -> OalLog.e(TAG, "acceptConnection failed: ${e.message}") }
         }
 
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
@@ -161,7 +178,10 @@ class AaNearbyManager(
             activeSocket = socket
 
             scope.launch(Dispatchers.IO) {
-                // Wait for phone to be ready
+                // [CRITICAL] Wait before sending. The phone (WirelessHelper) has a
+                // ~500ms delay in its connection logic. If we send too early, the phone
+                // won't have its NearbySocket set yet and our stream will be dropped.
+                OalLog.i(TAG, "Waiting 800ms for phone state sync...")
                 delay(800)
 
                 // Create outgoing pipe (car → phone)
@@ -176,8 +196,9 @@ class AaNearbyManager(
                     .addOnSuccessListener { OalLog.i(TAG, "Stream payload sent") }
                     .addOnFailureListener { e -> OalLog.e(TAG, "Stream send failed: ${e.message}") }
 
-                // Start AA handshake — input will block until phone's stream arrives
-                OalLog.i(TAG, "Starting AA session over Nearby tunnel")
+                // Start AA handshake immediately — NearbySocket.read() will block
+                // internally via CountDownLatch until the phone's stream arrives.
+                OalLog.i(TAG, "Starting AA session — input will block until phone stream arrives")
                 onSocketReady(socket)
             }
         }
@@ -192,9 +213,16 @@ class AaNearbyManager(
 
     private val payloadCallback = object : PayloadCallback() {
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
+            OalLog.i(TAG, "Payload received from $endpointId, type=${payload.type}")
             if (payload.type == Payload.Type.STREAM) {
-                OalLog.i(TAG, "Received stream from phone — tunnel complete")
-                activeSocket?.inputStreamWrapper = payload.asStream()?.asInputStream()
+                OalLog.i(TAG, "Received stream from phone — setting input stream on socket")
+                val stream = payload.asStream()?.asInputStream()
+                if (stream != null) {
+                    activeSocket?.inputStreamWrapper = stream
+                    OalLog.i(TAG, "Input stream set — tunnel is bidirectional")
+                } else {
+                    OalLog.e(TAG, "Stream payload was null!")
+                }
             }
         }
 
