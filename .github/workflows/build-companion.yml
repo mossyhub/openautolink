@@ -2,7 +2,7 @@ name: Build Companion APK
 
 on:
   push:
-    branches: [main, feature/direct-mode]
+    branches: [main]
     paths:
       - 'companion/**'
       - 'gradle/**'
