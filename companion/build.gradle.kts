@@ -56,6 +56,12 @@ android {
         compose = true
         buildConfig = true
     }
+
+    lint {
+        // registerForActivityResult works fine with ComponentActivity (no Fragment needed).
+        // This lint check is a false positive for Compose-only apps without Fragment dependency.
+        disable += "InvalidFragmentVersionForActivityResult"
+    }
 }
 
 dependencies {
