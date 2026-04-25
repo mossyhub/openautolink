@@ -20,12 +20,13 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystoreFile = rootProject.file("secrets/companion-key.jks")
+            // Use the same keystore as the car app for simplicity
+            val keystoreFile = rootProject.file("secrets/upload-key.jks")
             if (keystoreFile.exists()) {
                 storeFile = keystoreFile
-                storePassword = System.getenv("COMPANION_STORE_PASSWORD") ?: ""
-                keyAlias = System.getenv("COMPANION_KEY_ALIAS") ?: "companion"
-                keyPassword = System.getenv("COMPANION_KEY_PASSWORD") ?: ""
+                storePassword = System.getenv("UPLOAD_STORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("UPLOAD_KEY_ALIAS") ?: "upload"
+                keyPassword = System.getenv("UPLOAD_KEY_PASSWORD") ?: ""
             }
         }
     }
