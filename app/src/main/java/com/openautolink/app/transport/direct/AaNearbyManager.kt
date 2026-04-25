@@ -48,6 +48,8 @@ class AaNearbyManager(
         private const val TAG = "AaNearby"
         // Service ID must match the companion app's NearbyAdvertiser.SERVICE_ID
         private const val SERVICE_ID = "com.openautolink"
+        // Legacy service ID for backward compatibility with Wireless Helper
+        private const val LEGACY_SERVICE_ID = "com.andrerinas.hurev"
         private val STRATEGY = Strategy.P2P_POINT_TO_POINT
 
         private val _discoveredEndpoints = MutableStateFlow<List<DiscoveredEndpoint>>(emptyList())
@@ -93,9 +95,9 @@ class AaNearbyManager(
             .setStrategy(STRATEGY)
             .build()
 
-        OalLog.i(TAG, "Starting Nearby discovery (service=$SERVICE_ID)")
+        OalLog.i(TAG, "Starting Nearby discovery (service=$LEGACY_SERVICE_ID)")
         try {
-            connectionsClient.startDiscovery(SERVICE_ID, discoveryCallback, options)
+            connectionsClient.startDiscovery(LEGACY_SERVICE_ID, discoveryCallback, options)
                 .addOnSuccessListener {
                     OalLog.i(TAG, "Discovery started")
                     _status.value = "Discovering..."

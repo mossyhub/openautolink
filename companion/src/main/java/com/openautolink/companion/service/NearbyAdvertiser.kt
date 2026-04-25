@@ -80,8 +80,8 @@ class NearbyAdvertiser(
         val endpointName = resolveEndpointName()
         Log.i(TAG, "Advertising as \"$endpointName\" (service=$SERVICE_ID)")
 
-        connectionsClient.startAdvertising(endpointName, SERVICE_ID, connectionCallback, options)
-            .addOnSuccessListener { Log.i(TAG, "Advertising started") }
+        connectionsClient.startAdvertising(endpointName, LEGACY_SERVICE_ID, connectionCallback, options)
+            .addOnSuccessListener { Log.i(TAG, "Advertising started (service=$LEGACY_SERVICE_ID)") }
             .addOnFailureListener { e -> Log.e(TAG, "Advertising failed: ${e.message}") }
     }
 
@@ -233,5 +233,7 @@ class NearbyAdvertiser(
     companion object {
         private const val TAG = "OAL_Nearby"
         const val SERVICE_ID = "com.openautolink"
+        // Also advertise legacy ID for backward compat with older car app versions
+        const val LEGACY_SERVICE_ID = "com.andrerinas.hurev"
     }
 }
