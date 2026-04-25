@@ -101,18 +101,26 @@ Install the **OpenAutoLink Companion** app on your phone. It handles:
 - Android Auto Service auto-start detection
 - Custom device name for multi-phone identification
 
-The companion app is in the `companion/` directory of this repo.
+You can either download a prebuilt APK from [GitHub Actions](https://github.com/mossyhub/openautolink/actions/workflows/build-companion.yml) (click the latest run → Artifacts → `companion-debug-apk`) or build it yourself from the `companion/` directory.
 
 ## Quick Start
 
-### 1. Build and Install the Companion App (Phone)
+### 1. Install the Companion App (Phone)
 
+**Option A — Download prebuilt APK:**
+1. Go to [Build Companion APK](https://github.com/mossyhub/openautolink/actions/workflows/build-companion.yml) on GitHub Actions.
+2. Click the latest successful run.
+3. Download the `companion-debug-apk` artifact.
+4. Unzip and install the APK on your phone (enable "Install from unknown sources" if prompted).
+
+**Option B — Build from source:**
 ```powershell
 cd companion
 ..\gradlew assembleDebug
-# Install on your phone via ADB
-adb install -r app/build/outputs/apk/debug/*.apk
+adb install -r build/outputs/apk/debug/*.apk
 ```
+
+The companion APK is signed with the Android debug key, which is fine for sideloading.
 
 ### 2. Build and Publish the Car App (AAOS)
 
