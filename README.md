@@ -5,6 +5,7 @@
 # OpenAutoLink
 
 > **Direct Mode — No Bridge Required**
+> THIS IS NOW UNDER HEAVE DEVELOPMENT AND NOT YET WORKING IN THIS NEW MODE. Give me some time and i will get it all working
 > As of v0.1.177, OpenAutoLink runs Android Auto directly on the AAOS head unit — no SBC, no bridge hardware, no Ethernet cable. The phone connects wirelessly via Google Nearby Connections through the OpenAutoLink Companion app on the phone. The old bridge architecture has been fully removed.
 
 [![CI](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml/badge.svg)](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml)
