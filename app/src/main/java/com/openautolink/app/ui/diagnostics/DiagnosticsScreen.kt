@@ -1,6 +1,8 @@
 package com.openautolink.app.ui.diagnostics
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.openautolink.app.ui.diagnostics.carplay.CarPlayReconScreen
 
 private enum class DiagnosticsTab(
     val title: String,
@@ -73,6 +76,7 @@ private enum class DiagnosticsTab(
     LOGS("Logs", Icons.Default.Terminal),
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DiagnosticsScreen(
     viewModel: DiagnosticsViewModel = viewModel(),
@@ -80,6 +84,13 @@ fun DiagnosticsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableStateOf(DiagnosticsTab.SYSTEM) }
+    var showReconScreen by remember { mutableStateOf(false) }
+
+    // If recon screen is active, render it instead
+    if (showReconScreen) {
+        CarPlayReconScreen(onBack = { showReconScreen = false })
+        return
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -122,7 +133,18 @@ fun DiagnosticsScreen(
                                 )
                             },
                             label = { Text(tab.title) },
-                            modifier = Modifier.padding(vertical = 8.dp),
+                            modifier = Modifier
+                                .padding(vertical = 8.dp)
+                                .then(
+                                    if (tab == DiagnosticsTab.DEBUG) {
+                                        Modifier.combinedClickable(
+                                            onClick = { selectedTab = tab },
+                                            onLongClick = { showReconScreen = true },
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))

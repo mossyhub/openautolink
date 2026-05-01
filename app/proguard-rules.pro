@@ -33,6 +33,10 @@
 # DiagnosticLog — native code calls nativeLog() via FindClass + CallStaticVoidMethod
 -keep class com.openautolink.app.diagnostics.DiagnosticLog { *; }
 
+# CarPlay Recon — hidden investigation screen reached via long-press.
+# R8 strips it because the entry point is a Compose lambda not visible to static analysis.
+-keep class com.openautolink.app.ui.diagnostics.carplay.** { *; }
+
 # Conscrypt SSL provider — suppress warnings for optional platform classes
 -dontwarn com.android.org.conscrypt.SSLParametersImpl
 -dontwarn org.apache.harmony.xnet.provider.jsse.SSLParametersImpl
