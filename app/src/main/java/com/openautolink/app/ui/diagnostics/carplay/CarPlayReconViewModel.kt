@@ -143,7 +143,7 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
             if (report.isNotEmpty()) {
                 try {
                     val reportFile = File(reconDir, "recon-report.txt")
-                    reportFile.writeText(report)
+                    writeTextSynced(reportFile, report)
                     _uiState.update { it.copy(saveProgress = "Report saved (${formatSizeVm(reportFile.length())})") }
                     OalLog.i(TAG, "Report saved: ${reportFile.absolutePath}")
                 } catch (e: Exception) {
@@ -157,7 +157,7 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
             if (apks.isNotEmpty()) {
                 try {
                     val catalogFile = File(reconDir, "apk-catalog.txt")
-                    catalogFile.writeText(buildApkCatalogText(apks))
+                    writeTextSynced(catalogFile, buildApkCatalogText(apks))
                     OalLog.i(TAG, "APK catalog saved: ${catalogFile.absolutePath}")
                 } catch (e: Exception) {
                     OalLog.e(TAG, "Catalog save failed: ${e.message}")
@@ -175,15 +175,30 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
                 copyApks(readable, reconDir)
             }
 
+            // Final flush of the directory itself so the FAT/exFAT directory entries
+            // are committed before we tell the user it's safe to unplug.
+            try { java.io.FileOutputStream(File(reconDir, ".sync")).use { it.fd.sync() } } catch (_: Exception) {}
+            try { File(reconDir, ".sync").delete() } catch (_: Exception) {}
+
             val totalFiles = reconDir.listFiles()?.size ?: 0
             val totalSize = reconDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            val ejectMsg = if (isRemovable) "  ⚠ EJECT before unplugging: Settings → Storage → eject the drive." else ""
             _uiState.update {
                 it.copy(
-                    saveStatus = "Done! $totalFiles files saved to $storageLabel (${formatSizeVm(totalSize)})",
+                    saveStatus = "Done! $totalFiles files saved to $storageLabel (${formatSizeVm(totalSize)}).$ejectMsg",
                     saveProgress = "Path: ${reconDir.absolutePath}",
                 )
             }
             OalLog.i(TAG, "Recon save complete: $totalFiles files, ${formatSizeVm(totalSize)} at ${reconDir.absolutePath}")
+        }
+    }
+
+    /** Write text and force a kernel sync to physical media. */
+    private fun writeTextSynced(file: File, text: String) {
+        java.io.FileOutputStream(file).use { fos ->
+            fos.write(text.toByteArray(Charsets.UTF_8))
+            fos.flush()
+            try { fos.fd.sync() } catch (_: Exception) {}
         }
     }
 
@@ -209,7 +224,17 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
                             if (n <= 0) break
                             output.write(buf, 0, n)
                         }
+                        output.flush()
+                        // CRITICAL: force kernel page cache to physical USB media.
+                        // Without this, large files end up truncated when the drive is unplugged.
+                        try { output.fd.sync() } catch (_: Exception) {}
                     }
+                }
+                // Sanity check: did we write the full file?
+                if (destFile.length() != srcFile.length()) {
+                    errors++
+                    OalLog.e(TAG, "Size mismatch for ${apk.packageName}: src=${srcFile.length()} dst=${destFile.length()}")
+                    continue
                 }
                 copied++
 
@@ -226,7 +251,14 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
                             val libDestDir = File(apkDir, "${safeName}_libs")
                             libDestDir.mkdirs()
                             nativeDir.listFiles()?.filter { it.canRead() }?.forEach { lib ->
-                                lib.copyTo(File(libDestDir, lib.name), overwrite = true)
+                                val libDest = File(libDestDir, lib.name)
+                                FileInputStream(lib).use { input ->
+                                    FileOutputStream(libDest).use { output ->
+                                        input.copyTo(output)
+                                        output.flush()
+                                        try { output.fd.sync() } catch (_: Exception) {}
+                                    }
+                                }
                             }
                         }
                     } catch (_: Exception) {}
