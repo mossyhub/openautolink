@@ -1,6 +1,7 @@
 package com.openautolink.app.ui.diagnostics.carplay
 
 import android.app.Application
+import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openautolink.app.diagnostics.OalLog
@@ -14,21 +15,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
-import java.net.ServerSocket
-import java.net.Socket
+import java.io.FileOutputStream
 
 private const val TAG = "CarPlayRecon"
+private const val RECON_DIR = "openautolink/recon"
 
 data class CarPlayReconUiState(
     val scanRunning: Boolean = false,
     val probes: List<ReconProbeResult> = emptyList(),
     val fullReport: String = "",
-    val tcpTransferActive: Boolean = false,
-    val tcpTransferStatus: String = "",
-    val apkExtractStatus: String = "",
     val allApks: List<ApkEntry> = emptyList(),
     val apkCatalogScanning: Boolean = false,
-    val apkBulkTransferProgress: String = "",
+    val saveStatus: String = "",
+    val saveProgress: String = "",
 )
 
 class CarPlayReconViewModel(application: Application) : AndroidViewModel(application) {
@@ -37,7 +36,7 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
     val uiState: StateFlow<CarPlayReconUiState> = _uiState.asStateFlow()
 
     private var scanJob: Job? = null
-    private var tcpServerJob: Job? = null
+    private var saveJob: Job? = null
 
     fun runFullScan() {
         if (_uiState.value.scanRunning) return
@@ -59,6 +58,7 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
                 "Intents" to { CarPlayReconScanner.probeIntents(context) },
                 "Features" to { CarPlayReconScanner.scanFeatures(context) },
                 "APK Paths" to { CarPlayReconScanner.scanApkPaths(context) },
+                "I²C MFi Chip" to { CarPlayReconScanner.probeI2cMfiChip() },
             )
 
             // Show all probes as pending
@@ -107,43 +107,6 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    /**
-     * Start a TCP server on the given port that serves the recon report
-     * and can transfer APK files on request.
-     *
-     * Protocol:
-     * - Client connects → server sends full text report → closes
-     * - Or client sends "GET_APK:<package_name>\n" → server sends APK binary
-     */
-    fun startTcpServer(port: Int = 5289) {
-        if (tcpServerJob != null) return
-        tcpServerJob = viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(tcpTransferActive = true, tcpTransferStatus = "Listening on :$port") }
-            OalLog.i(TAG, "Recon TCP server starting on port $port")
-            try {
-                val server = ServerSocket(port)
-                server.soTimeout = 0 // block indefinitely
-                while (true) {
-                    val client: Socket = server.accept()
-                    _uiState.update { it.copy(tcpTransferStatus = "Client connected: ${client.inetAddress}") }
-                    OalLog.i(TAG, "Recon TCP client connected: ${client.inetAddress}")
-                    launch(Dispatchers.IO) {
-                        handleTcpClient(client)
-                    }
-                }
-            } catch (e: Exception) {
-                OalLog.e(TAG, "TCP server error: ${e.message}")
-                _uiState.update { it.copy(tcpTransferActive = false, tcpTransferStatus = "Error: ${e.message}") }
-            }
-        }
-    }
-
-    fun stopTcpServer() {
-        tcpServerJob?.cancel()
-        tcpServerJob = null
-        _uiState.update { it.copy(tcpTransferActive = false, tcpTransferStatus = "Stopped") }
-    }
-
     fun scanAllApks() {
         viewModelScope.launch {
             _uiState.update { it.copy(apkCatalogScanning = true) }
@@ -153,170 +116,132 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    private suspend fun handleTcpClient(client: Socket) {
-        try {
-            client.soTimeout = 5000
-            val input = client.getInputStream()
-            val output = client.getOutputStream()
-
-            // Read the first line (if any) within timeout
-            val firstLine = try {
-                val buf = ByteArray(1024)
-                val n = input.read(buf)
-                if (n > 0) String(buf, 0, n).trim() else ""
-            } catch (_: java.net.SocketTimeoutException) {
-                "" // No data — send report by default
+    /**
+     * Save the full report + all readable APKs to USB drive (or fallback storage).
+     * Uses the same removable-storage-first pattern as FileLogWriter.
+     */
+    fun saveToUsb() {
+        if (saveJob?.isActive == true) return
+        saveJob = viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val reconDir = resolveReconDir(context)
+            if (reconDir == null) {
+                _uiState.update { it.copy(saveStatus = "No writable storage found (USB or internal)") }
+                OalLog.e(TAG, "No writable storage found")
+                return@launch
             }
 
-            if (firstLine == "GET_ALL_APKS") {
-                // Bulk APK transfer mode
-                transferAllApks(output)
-            } else if (firstLine.startsWith("GET_APK:")) {
-                // Single APK transfer mode
-                val packageName = firstLine.removePrefix("GET_APK:").trim()
-                transferApk(packageName, output)
-            } else if (firstLine == "LIST_APKS") {
-                // Send APK catalog as text
-                val apks = _uiState.value.allApks
-                if (apks.isEmpty()) {
-                    output.write("No APK catalog available. Run 'Scan All APKs' first.\n".toByteArray())
-                } else {
-                    val listing = buildApkCatalogText(apks)
-                    output.write(listing.toByteArray())
+            val isRemovable = try {
+                Environment.isExternalStorageRemovable(reconDir)
+            } catch (_: Exception) { false }
+            val storageLabel = if (isRemovable) "USB drive" else "internal storage"
+            _uiState.update { it.copy(saveStatus = "Saving to $storageLabel: ${reconDir.absolutePath}") }
+            OalLog.i(TAG, "Saving recon to: ${reconDir.absolutePath} ($storageLabel)")
+
+            // 1. Save text report
+            val report = _uiState.value.fullReport
+            if (report.isNotEmpty()) {
+                try {
+                    val reportFile = File(reconDir, "recon-report.txt")
+                    reportFile.writeText(report)
+                    _uiState.update { it.copy(saveProgress = "Report saved (${formatSizeVm(reportFile.length())})") }
+                    OalLog.i(TAG, "Report saved: ${reportFile.absolutePath}")
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(saveProgress = "Report save failed: ${e.message}") }
+                    OalLog.e(TAG, "Report save failed: ${e.message}")
                 }
+            }
+
+            // 2. Save APK catalog
+            val apks = _uiState.value.allApks
+            if (apks.isNotEmpty()) {
+                try {
+                    val catalogFile = File(reconDir, "apk-catalog.txt")
+                    catalogFile.writeText(buildApkCatalogText(apks))
+                    OalLog.i(TAG, "APK catalog saved: ${catalogFile.absolutePath}")
+                } catch (e: Exception) {
+                    OalLog.e(TAG, "Catalog save failed: ${e.message}")
+                }
+            }
+
+            // 3. Copy all readable APKs
+            val readable = apks.filter { it.readable }
+            if (readable.isEmpty()) {
+                // If no catalog was scanned, scan now
+                val freshApks = CarPlayReconScanner.scanAllApks(context)
+                _uiState.update { it.copy(allApks = freshApks) }
+                copyApks(freshApks.filter { it.readable }, reconDir)
             } else {
-                // Default: send the full text report
-                val report = _uiState.value.fullReport
-                if (report.isEmpty()) {
-                    output.write("No report available. Run scan first.\n".toByteArray())
-                } else {
-                    output.write(report.toByteArray())
-                }
+                copyApks(readable, reconDir)
             }
 
-            output.flush()
-            client.close()
-            _uiState.update { it.copy(tcpTransferStatus = "Client served, listening...") }
-        } catch (e: Exception) {
-            OalLog.e(TAG, "TCP client handler error: ${e.message}")
-        } finally {
-            try { client.close() } catch (_: Exception) {}
+            val totalFiles = reconDir.listFiles()?.size ?: 0
+            val totalSize = reconDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            _uiState.update {
+                it.copy(
+                    saveStatus = "Done! $totalFiles files saved to $storageLabel (${formatSizeVm(totalSize)})",
+                    saveProgress = "Path: ${reconDir.absolutePath}",
+                )
+            }
+            OalLog.i(TAG, "Recon save complete: $totalFiles files, ${formatSizeVm(totalSize)} at ${reconDir.absolutePath}")
         }
     }
 
-    private fun transferApk(packageName: String, output: java.io.OutputStream) {
-        try {
-            val context = getApplication<Application>()
-            val pm = context.packageManager
-            val ai = pm.getApplicationInfo(packageName, 0)
-            val apkFile = File(ai.sourceDir)
-            if (!apkFile.canRead()) {
-                output.write("ERROR: APK not readable: ${ai.sourceDir}\n".toByteArray())
-                _uiState.update { it.copy(apkExtractStatus = "Error: APK not readable") }
-                return
-            }
+    private suspend fun copyApks(apks: List<ApkEntry>, reconDir: File) {
+        val apkDir = File(reconDir, "apks")
+        apkDir.mkdirs()
+        var copied = 0
+        var errors = 0
 
-            val header = "APK:${apkFile.name}:${apkFile.length()}\n"
-            output.write(header.toByteArray())
-            _uiState.update { it.copy(apkExtractStatus = "Transferring ${apkFile.name} (${apkFile.length()} bytes)") }
-            OalLog.i(TAG, "Transferring APK: ${apkFile.absolutePath} (${apkFile.length()} bytes)")
-
-            FileInputStream(apkFile).use { fis ->
-                val buf = ByteArray(65536)
-                var totalSent = 0L
-                while (true) {
-                    val n = fis.read(buf)
-                    if (n <= 0) break
-                    output.write(buf, 0, n)
-                    totalSent += n
+        for (apk in apks) {
+            try {
+                _uiState.update {
+                    it.copy(saveProgress = "Copying APK ${copied + 1}/${apks.size}: ${apk.packageName}")
                 }
-                _uiState.update { it.copy(apkExtractStatus = "Sent $totalSent bytes of ${apkFile.name}") }
-                OalLog.i(TAG, "APK transfer complete: $totalSent bytes")
-            }
-
-            // Also transfer native libs if present
-            val libDir = File(ai.nativeLibraryDir)
-            if (libDir.exists() && libDir.isDirectory) {
-                val libs = libDir.listFiles()?.filter { it.canRead() } ?: emptyList()
-                for (lib in libs) {
-                    val libHeader = "LIB:${lib.name}:${lib.length()}\n"
-                    output.write(libHeader.toByteArray())
-                    FileInputStream(lib).use { fis ->
+                val srcFile = File(apk.apkPath)
+                val safeName = apk.packageName.replace('.', '_')
+                val destFile = File(apkDir, "$safeName.apk")
+                FileInputStream(srcFile).use { input ->
+                    FileOutputStream(destFile).use { output ->
                         val buf = ByteArray(65536)
                         while (true) {
-                            val n = fis.read(buf)
+                            val n = input.read(buf)
                             if (n <= 0) break
                             output.write(buf, 0, n)
                         }
                     }
-                    OalLog.i(TAG, "Lib transfer: ${lib.name} (${lib.length()} bytes)")
                 }
-            }
+                copied++
 
-            output.write("DONE\n".toByteArray())
-        } catch (e: Exception) {
-            OalLog.e(TAG, "APK transfer error: ${e.message}")
-            try { output.write("ERROR: ${e.message}\n".toByteArray()) } catch (_: Exception) {}
-            _uiState.update { it.copy(apkExtractStatus = "Error: ${e.message}") }
-        }
-    }
-
-    private fun transferAllApks(output: java.io.OutputStream) {
-        val context = getApplication<Application>()
-        val pm = context.packageManager
-        @Suppress("DEPRECATION")
-        val packages = pm.getInstalledPackages(0)
-        val readable = packages.filter { pkg ->
-            val ai = pkg.applicationInfo ?: return@filter false
-            File(ai.sourceDir).canRead()
-        }
-
-        // Send manifest first so the client knows what to expect
-        val manifest = buildString {
-            appendLine("MANIFEST:${readable.size}")
-            for (pkg in readable) {
-                val ai = pkg.applicationInfo!!
-                val size = File(ai.sourceDir).length()
-                appendLine("${pkg.packageName}:${size}")
-            }
-            appendLine("END_MANIFEST")
-        }
-        output.write(manifest.toByteArray())
-        output.flush()
-
-        var transferred = 0
-        for (pkg in readable) {
-            val ai = pkg.applicationInfo!!
-            val apkFile = File(ai.sourceDir)
-            try {
-                _uiState.update {
-                    it.copy(apkBulkTransferProgress = "Sending ${transferred + 1}/${readable.size}: ${pkg.packageName}")
+                // Copy native libs if present
+                if (apk.nativeLibs.isNotEmpty()) {
+                    val libSrcDir = File(apk.apkPath).parentFile?.let { File(it, "lib") }
+                        ?: continue
+                    // Get the actual native lib dir from PackageManager
+                    try {
+                        val pm = getApplication<Application>().packageManager
+                        val ai = pm.getApplicationInfo(apk.packageName, 0)
+                        val nativeDir = File(ai.nativeLibraryDir)
+                        if (nativeDir.exists() && nativeDir.isDirectory) {
+                            val libDestDir = File(apkDir, "${safeName}_libs")
+                            libDestDir.mkdirs()
+                            nativeDir.listFiles()?.filter { it.canRead() }?.forEach { lib ->
+                                lib.copyTo(File(libDestDir, lib.name), overwrite = true)
+                            }
+                        }
+                    } catch (_: Exception) {}
                 }
-                val header = "APK:${pkg.packageName}:${apkFile.length()}\n"
-                output.write(header.toByteArray())
-                FileInputStream(apkFile).use { fis ->
-                    val buf = ByteArray(65536)
-                    while (true) {
-                        val n = fis.read(buf)
-                        if (n <= 0) break
-                        output.write(buf, 0, n)
-                    }
-                }
-                output.flush()
-                transferred++
-                OalLog.i(TAG, "Bulk transfer [$transferred/${readable.size}]: ${pkg.packageName} (${apkFile.length()} bytes)")
+
+                OalLog.i(TAG, "Copied [$copied/${apks.size}]: ${apk.packageName} (${formatSizeVm(srcFile.length())})")
             } catch (e: Exception) {
-                OalLog.e(TAG, "Bulk transfer error for ${pkg.packageName}: ${e.message}")
-                try {
-                    output.write("ERROR:${pkg.packageName}:${e.message}\n".toByteArray())
-                } catch (_: Exception) { break }
+                errors++
+                OalLog.e(TAG, "Failed to copy ${apk.packageName}: ${e.message}")
             }
         }
-        try {
-            output.write("ALL_DONE:$transferred\n".toByteArray())
-        } catch (_: Exception) {}
-        _uiState.update { it.copy(apkBulkTransferProgress = "Done: $transferred/${readable.size} APKs sent") }
-        OalLog.i(TAG, "Bulk APK transfer complete: $transferred/${readable.size}")
+
+        _uiState.update {
+            it.copy(saveProgress = "APKs: $copied copied, $errors errors (of ${apks.size})")
+        }
     }
 
     fun buildApkCatalogText(apks: List<ApkEntry>): String = buildString {
@@ -339,10 +264,32 @@ class CarPlayReconViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    /**
+     * Find the best directory for recon output.
+     * Prefers removable storage (USB stick) over internal shared storage.
+     */
+    private fun resolveReconDir(context: android.content.Context): File? {
+        val externalDirs = context.getExternalFilesDirs(null)
+        for (dir in externalDirs) {
+            if (dir == null) continue
+            if (Environment.isExternalStorageRemovable(dir)) {
+                val reconDir = File(dir, RECON_DIR)
+                if (reconDir.exists() || reconDir.mkdirs()) return reconDir
+            }
+        }
+        // Fallback: primary external storage
+        val primary = context.getExternalFilesDir(null)
+        if (primary != null) {
+            val reconDir = File(primary, RECON_DIR)
+            if (reconDir.exists() || reconDir.mkdirs()) return reconDir
+        }
+        return null
+    }
+
     override fun onCleared() {
         super.onCleared()
         scanJob?.cancel()
-        tcpServerJob?.cancel()
+        saveJob?.cancel()
     }
 
     companion object {

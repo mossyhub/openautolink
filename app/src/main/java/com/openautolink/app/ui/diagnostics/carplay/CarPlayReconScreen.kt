@@ -129,69 +129,32 @@ fun CarPlayReconContent(
                         Text(if (uiState.scanRunning) "Scanning..." else "Run Full Scan")
                     }
 
-                    // TCP server controls
-                    if (uiState.tcpTransferActive) {
-                        FilledTonalButton(
-                            onClick = { viewModel.stopTcpServer() },
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                        ) {
-                            Text("Stop TCP (5289)", fontSize = 12.sp)
-                        }
-                    } else {
-                        FilledTonalButton(
-                            onClick = { viewModel.startTcpServer() },
-                            enabled = uiState.fullReport.isNotEmpty(),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                        ) {
-                            Text("Serve via TCP (5289)", fontSize = 12.sp)
-                        }
+                    // Save to USB button
+                    FilledTonalButton(
+                        onClick = { viewModel.saveToUsb() },
+                        enabled = uiState.fullReport.isNotEmpty(),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                    ) {
+                        Text("Save to USB", fontSize = 12.sp)
                     }
                 }
 
-                // TCP status
-                if (uiState.tcpTransferStatus.isNotEmpty()) {
+                // Save status
+                if (uiState.saveStatus.isNotEmpty()) {
                     Text(
-                        uiState.tcpTransferStatus,
-                        color = Color(0xFF64B5F6),
+                        uiState.saveStatus,
+                        color = Color(0xFF4CAF50),
                         fontSize = 11.sp,
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-                if (uiState.apkExtractStatus.isNotEmpty()) {
+                if (uiState.saveProgress.isNotEmpty()) {
                     Text(
-                        uiState.apkExtractStatus,
-                        color = Color(0xFFFFC107),
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // TCP usage instructions
-                if (uiState.fullReport.isNotEmpty()) {
-                    Text(
-                        "To retrieve report: nc <car-ip> 5289\n" +
-                        "To extract APK:     echo 'GET_APK:<package>' | nc <car-ip> 5289 > out.apk\n" +
-                        "To list all APKs:   echo 'LIST_APKS' | nc <car-ip> 5289\n" +
-                        "To grab ALL APKs:   echo 'GET_ALL_APKS' | nc <car-ip> 5289 > all_apks.bin",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        color = Color(0xFF808080),
-                        modifier = Modifier.padding(bottom = 16.dp),
-                    )
-                }
-
-                // Bulk transfer progress
-                if (uiState.apkBulkTransferProgress.isNotEmpty()) {
-                    Text(
-                        uiState.apkBulkTransferProgress,
+                        uiState.saveProgress,
                         color = Color(0xFF64B5F6),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(bottom = 8.dp),
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
 
@@ -247,19 +210,6 @@ fun CarPlayReconContent(
                 }
 
                 if (uiState.allApks.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Grab-all command
-                    if (uiState.tcpTransferActive) {
-                        Text(
-                            "Grab all readable APKs:\n  echo 'GET_ALL_APKS' | nc <car-ip> 5289 > all_apks.bin",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
-                            color = Color(0xFFFFC107),
-                            modifier = Modifier.padding(vertical = 8.dp),
-                        )
-                    }
-
                     Spacer(modifier = Modifier.height(8.dp))
 
                     // APK list

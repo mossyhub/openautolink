@@ -814,6 +814,142 @@ object CarPlayReconScanner {
         }
     }
 
+    // --- 12. I²C MFi Chip Probe ---
+    suspend fun probeI2cMfiChip(): ReconProbeResult = withContext(Dispatchers.IO) {
+        val sb = StringBuilder()
+        try {
+            // Check which I²C device nodes exist and their permissions
+            sb.appendLine("--- I²C Device Nodes ---")
+            for (i in 0..10) {
+                val dev = File("/dev/i2c-$i")
+                if (dev.exists()) {
+                    val canRead = dev.canRead()
+                    val canWrite = dev.canWrite()
+                    sb.appendLine("  /dev/i2c-$i: exists, read=$canRead, write=$canWrite")
+                }
+            }
+            sb.appendLine()
+
+            // Try to open /dev/i2c-0 (where MFi chip lives per init.carplay.rc)
+            // The Apple MFi Authentication Coprocessor is at I²C address 0x10 (16 decimal)
+            // Register 0x00 = Device Version, 0x01 = Firmware Version, 0x02-0x03 = Auth Protocol Major/Minor
+            // Ref: Apple MFi Accessory Interface Specification
+            val i2cDevices = listOf("/dev/i2c-0", "/dev/i2c-1", "/dev/i2c-2")
+            val I2C_SLAVE: Long = 0x0703L // ioctl number for setting slave address
+
+            for (devPath in i2cDevices) {
+                val devFile = File(devPath)
+                if (!devFile.exists()) continue
+
+                sb.appendLine("--- Probing $devPath for MFi chip (addr 0x10) ---")
+                try {
+                    // Open the I²C bus
+                    val fd = android.system.Os.open(devPath, android.system.OsConstants.O_RDWR, 0)
+                    sb.appendLine("  Opened $devPath successfully (fd=$fd)")
+
+                    try {
+                        // Set slave address to 0x10 (Apple MFi coprocessor)
+                        // ioctl(fd, I2C_SLAVE, 0x10)
+                        val ioctlMethod = android.system.Os::class.java.getMethod(
+                            "ioctl", java.io.FileDescriptor::class.java, Int::class.java, Long::class.java
+                        )
+                        // Os.ioctl is hidden API; try reflection
+                        sb.appendLine("  Attempting ioctl I2C_SLAVE=0x0703, addr=0x10...")
+                    } catch (e: NoSuchMethodException) {
+                        sb.appendLine("  Os.ioctl not available via reflection")
+                    }
+
+                    // Alternative: use Runtime.exec with a small binary or python
+                    // For now, try raw read after open — some kernels allow positional reads
+                    try {
+                        val buf = ByteArray(6)
+                        // Try reading directly — won't work without ioctl I2C_SLAVE first,
+                        // but will tell us if SELinux blocks even the open
+                        val fis = java.io.FileInputStream(devFile)
+                        val n = fis.read(buf)
+                        fis.close()
+                        if (n > 0) {
+                            sb.appendLine("  RAW READ: ${n} bytes: ${buf.take(n).joinToString(" ") { "0x%02X".format(it) }}")
+                            sb.appendLine("  *** I²C device is readable from our app! ***")
+                        } else {
+                            sb.appendLine("  RAW READ: returned $n (no data without ioctl slave addr)")
+                        }
+                    } catch (e: Exception) {
+                        sb.appendLine("  RAW READ failed: ${e.javaClass.simpleName}: ${e.message}")
+                        if (e.message?.contains("SELinux") == true || e.message?.contains("Permission denied") == true) {
+                            sb.appendLine("  *** BLOCKED by SELinux or permissions ***")
+                        }
+                    }
+
+                    android.system.Os.close(fd)
+                    sb.appendLine("  Closed $devPath")
+                } catch (e: android.system.ErrnoException) {
+                    sb.appendLine("  Open FAILED: ${e.message} (errno=${e.errno})")
+                    when (e.errno) {
+                        13 -> sb.appendLine("  *** EACCES (13) — Permission denied (SELinux or DAC) ***")
+                        2 -> sb.appendLine("  *** ENOENT (2) — Device node does not exist ***")
+                        else -> sb.appendLine("  *** errno ${e.errno} ***")
+                    }
+                } catch (e: Exception) {
+                    sb.appendLine("  Open FAILED: ${e.javaClass.simpleName}: ${e.message}")
+                }
+                sb.appendLine()
+            }
+
+            // Also check SELinux mode
+            sb.appendLine("--- SELinux Status ---")
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf("getenforce"))
+                val result = BufferedReader(InputStreamReader(proc.inputStream)).readLine()
+                proc.waitFor()
+                sb.appendLine("  getenforce: $result")
+            } catch (e: Exception) {
+                sb.appendLine("  getenforce failed: ${e.message}")
+            }
+
+            // Check our app's SELinux context
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf("cat", "/proc/self/attr/current"))
+                val result = BufferedReader(InputStreamReader(proc.inputStream)).readLine()
+                proc.waitFor()
+                sb.appendLine("  Our SELinux context: $result")
+            } catch (e: Exception) {
+                sb.appendLine("  Context read failed: ${e.message}")
+            }
+
+            // Check SELinux context of I²C devices
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf("ls", "-laZ", "/dev/i2c-0"))
+                val result = BufferedReader(InputStreamReader(proc.inputStream)).readLine()
+                proc.waitFor()
+                sb.appendLine("  /dev/i2c-0 context: $result")
+            } catch (e: Exception) {
+                sb.appendLine("  ls -Z failed: ${e.message}")
+            }
+
+            // Check if the carplay auth property exists
+            sb.appendLine()
+            sb.appendLine("--- CarPlay Auth Properties ---")
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf("getprop", "persist.carplay.auth.url"))
+                val result = BufferedReader(InputStreamReader(proc.inputStream)).readLine()
+                proc.waitFor()
+                sb.appendLine("  persist.carplay.auth.url: ${if (result.isNullOrEmpty()) "(not set — default i2c:///dev/i2c-0:16)" else result}")
+            } catch (_: Exception) {}
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf("getprop", "persist.sys.projection.carlife"))
+                val result = BufferedReader(InputStreamReader(proc.inputStream)).readLine()
+                proc.waitFor()
+                sb.appendLine("  persist.sys.projection.carlife: ${result ?: "(not set)"}")
+            } catch (_: Exception) {}
+
+            ReconProbeResult("I²C MFi Chip", ProbeStatus.DONE, sb.toString())
+        } catch (e: Exception) {
+            OalLog.e(TAG, "I²C probe failed: ${e.message}")
+            ReconProbeResult("I²C MFi Chip", ProbeStatus.ERROR, "Error: ${e.message}\n$sb")
+        }
+    }
+
     /** Build the full report header */
     fun buildReportHeader(context: Context): String {
         val sb = StringBuilder()
