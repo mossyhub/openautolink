@@ -77,11 +77,20 @@ fun CarPlayReconScreen(
             }
 
             // Content
+            CarPlayReconContent(viewModel = viewModel, uiState = uiState)
+        }
+    }
+}
+
+/** Embeddable content — used both as a standalone screen and as a Diagnostics tab. */
+@Composable
+fun CarPlayReconContent(
+    viewModel: CarPlayReconViewModel = viewModel(),
+    uiState: CarPlayReconUiState = viewModel.uiState.collectAsStateWithLifecycle().value,
+) {
             Column(
                 modifier = Modifier
-                    .fillMaxHeight()
-                    .weight(1f)
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                    .fillMaxSize()
                     .verticalScroll(rememberScrollState()),
             ) {
                 // Header
@@ -269,8 +278,6 @@ fun CarPlayReconScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                 }
             }
-        }
-    }
 }
 
 @Composable

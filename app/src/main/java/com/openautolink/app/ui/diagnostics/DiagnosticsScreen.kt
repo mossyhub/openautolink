@@ -1,8 +1,6 @@
 package com.openautolink.app.ui.diagnostics
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +32,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalIconButton
@@ -63,7 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.openautolink.app.ui.diagnostics.carplay.CarPlayReconScreen
+import com.openautolink.app.ui.diagnostics.carplay.CarPlayReconContent
 
 private enum class DiagnosticsTab(
     val title: String,
@@ -74,9 +73,9 @@ private enum class DiagnosticsTab(
     CAR("Car", Icons.Default.DirectionsCar),
     DEBUG("Debug", Icons.Default.BugReport),
     LOGS("Logs", Icons.Default.Terminal),
+    RECON("Recon", Icons.Default.Search),
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DiagnosticsScreen(
     viewModel: DiagnosticsViewModel = viewModel(),
@@ -84,13 +83,6 @@ fun DiagnosticsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableStateOf(DiagnosticsTab.SYSTEM) }
-    var showReconScreen by remember { mutableStateOf(false) }
-
-    // If recon screen is active, render it instead
-    if (showReconScreen) {
-        CarPlayReconScreen(onBack = { showReconScreen = false })
-        return
-    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -133,18 +125,7 @@ fun DiagnosticsScreen(
                                 )
                             },
                             label = { Text(tab.title) },
-                            modifier = Modifier
-                                .padding(vertical = 8.dp)
-                                .then(
-                                    if (tab == DiagnosticsTab.DEBUG) {
-                                        Modifier.combinedClickable(
-                                            onClick = { selectedTab = tab },
-                                            onLongClick = { showReconScreen = true },
-                                        )
-                                    } else {
-                                        Modifier
-                                    }
-                                ),
+                            modifier = Modifier.padding(vertical = 8.dp),
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))
@@ -166,6 +147,7 @@ fun DiagnosticsScreen(
                     DiagnosticsTab.CAR -> CarTab(uiState.car)
                     DiagnosticsTab.DEBUG -> DebugTab(uiState.debugProbe, viewModel)
                     DiagnosticsTab.LOGS -> LogsTab(uiState.logs, uiState.logFilter, viewModel)
+                    DiagnosticsTab.RECON -> CarPlayReconContent()
                 }
               }
             }
