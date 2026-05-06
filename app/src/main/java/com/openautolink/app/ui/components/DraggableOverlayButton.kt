@@ -32,8 +32,9 @@ import kotlin.math.roundToInt
  * Tap triggers [onClick]. Drag moves the button. Drag vs tap is distinguished
  * by tracking cumulative drag distance — only taps with < threshold movement fire onClick.
  * Position is persisted across restarts via SharedPreferences.
- * Positions are clamped to [maxBoundsX] and [maxBoundsY] to ensure the button
- * stays visible when display mode changes (e.g., fullscreen → system UI visible).
+ * Positions are clamped to ±[maxBoundsX] / ±[maxBoundsY] so the button can be
+ * dragged anywhere within the screen bounds (including left/top of the default
+ * bottom-right placement) while still staying visible across display mode changes.
  */
 @Composable
 fun DraggableOverlayButton(
@@ -55,11 +56,12 @@ fun DraggableOverlayButton(
         context.getSharedPreferences("overlay_positions", Context.MODE_PRIVATE)
     }
 
-    // Helper to clamp offset to bounds
+    // Helper to clamp offset to bounds.
+    // Minimum is negative to allow dragging left/up from the default bottom-right position.
     fun clampOffset(offset: Offset): Offset {
         return Offset(
-            x = offset.x.coerceIn(0f, maxBoundsX),
-            y = offset.y.coerceIn(0f, maxBoundsY)
+            x = offset.x.coerceIn(-maxBoundsX, maxBoundsX),
+            y = offset.y.coerceIn(-maxBoundsY, maxBoundsY)
         )
     }
 
