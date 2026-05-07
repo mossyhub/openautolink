@@ -1968,9 +1968,15 @@ private fun InputTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
         // the dialog window get routed into KeyCaptureBus.
         val dialogView = androidx.compose.ui.platform.LocalView.current
         DisposableEffect(target, dialogView) {
-            val provider = generateSequence<Any?>(dialogView.parent) { (it as? android.view.View)?.parent }
-                .firstOrNull { it is androidx.compose.ui.window.DialogWindowProvider }
-                    as? androidx.compose.ui.window.DialogWindowProvider
+            var node: android.view.ViewParent? = dialogView.parent
+            var provider: androidx.compose.ui.window.DialogWindowProvider? = null
+            while (node != null) {
+                if (node is androidx.compose.ui.window.DialogWindowProvider) {
+                    provider = node
+                    break
+                }
+                node = (node as? android.view.View)?.parent
+            }
             val window = provider?.window
             val original = window?.callback
             if (window != null && original != null) {
