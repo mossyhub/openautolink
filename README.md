@@ -301,6 +301,7 @@ The original architecture used an SBC (single-board computer) running a C++ brid
 ## Known Issues
 
 - **H.265 video may appear green-tinted** on first connection for 30–45 seconds. May be Qualcomm-specific — not yet confirmed on other SoCs
+- **System UI Display mode has wide margins** selecting this mode will have wide margins when the AA UI should console the entire space available. Full screen/immersive mode works fine.
 
 If you encounter other problems, please [open an issue](https://github.com/mossyhub/openautolink/issues).
 
