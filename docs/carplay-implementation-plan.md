@@ -2,9 +2,44 @@
 
 ## Executive Summary
 
-The GM Blazer EV AAOS head unit contains a **complete CarPlay hardware and software stack** that GM has disabled via a calibration flag. Through reverse engineering of the decompiled GM CarPlay APKs, we have a full reference implementation showing every iAP2 message, state machine transition, and VHAL-to-CarPlay mapping. Combined with OpenAutoLink's existing video/audio/sensor/cluster infrastructure, this is a viable path to native CarPlay on AAOS — the only solution that would offer cluster/HUD, VHAL integration, factory touch, and proper audio routing.
+The GM Blazer EV AAOS head unit contains a **complete CarPlay hardware and software stack** that GM has disabled via a calibration flag (`Enable_Application_Apple_Carplay`). Through reverse engineering of the decompiled GM CarPlay APKs, we have a full reference implementation showing every iAP2 message, state machine transition, and VHAL-to-CarPlay mapping. Combined with OpenAutoLink's existing video/audio/sensor/cluster infrastructure, this is a viable path to native CarPlay on AAOS — the only solution that would offer cluster/HUD, VHAL integration, factory touch, and proper audio routing.
 
-**Prerequisite**: Access to an MFi authentication coprocessor — either the GM head unit's built-in chip (I²C probe pending) or a rooted CPC200 as a remote auth dongle.
+**MFi Authentication**: A rooted CPC200 AutoKit dongle serves as a remote MFi signing daemon over TCP. The GM head unit's built-in chip is present but SELinux-blocked (`u:r:untrusted_app` cannot access `/dev/i2c-0`).
+
+## Current Status (updated 2026-05-07)
+
+### Confirmed Hardware
+- **GM I²C MFi chip**: EXISTS at `/dev/i2c-0:0x10`, but EACCES (SELinux `untrusted_app` context). **Dead — no userspace path without root.**
+- **CPC200 MFi chip**: CONFIRMED at `/dev/i2c-1:0x11`. Apple Auth Coprocessor v3, firmware 0x01, protocol 2.0. 945-byte certificate reads successfully. Signing works.
+
+### Built & Tested
+- [x] Recon scanner — probed all packages, properties, filesystem, services, USB, features, I²C
+- [x] MFi auth daemon (`scripts/mfi_auth_daemon.c`) — deployed on CPC200, TCP port 5290, tested: PING, GET_INFO, GET_CERT, SIGN all working
+- [x] MFi probe tool (`scripts/mfi_probe.c`) — confirmed chip on CPC200
+- [x] Key-based SSH to CPC200 (dropbear, RSA-2048)
+- [x] iAP2 link layer (`transport/carplay/iap2/Iap2LinkLayer.kt`) — frame encode/decode, SYN params
+- [x] iAP2 message serialization (`transport/carplay/iap2/Iap2Message.kt`) — message + param TLV, message ID catalog
+- [x] MFi auth client (`transport/carplay/auth/MfiAuthClient.kt`) — Kotlin TCP client for CPC200 daemon
+
+### Architecture (confirmed)
+```
+iPhone ──USB──→ GM Head Unit (our app)
+                  ├── iAP2 link layer (Iap2LinkLayer.kt)
+                  ├── iAP2 control session (Iap2Message.kt)
+                  ├── MFi auth relay ──WiFi TCP──→ CPC200 (/dev/i2c-1:0x11)
+                  ├── H.264 video → MediaCodec [EXISTING]
+                  ├── Audio → AudioTrack [EXISTING]
+                  ├── Touch → iAP2 HID [EXISTING logic]
+                  ├── VHAL/GPS/Cluster [EXISTING]
+                  └── CarPlay data channel (AirPlay over USB NCM or WiFi)
+```
+
+### Key Findings from Decompiled Code
+- **Calibration gatekeeper**: `Enable_Application_Apple_Carplay` → `stopSelf()` if false
+- **Error 30**: "compatible phone not connected" = wireless CarPlay unavailable (phone reports via iAP2)
+- **IP redirect works**: `CarPlayStartSession.setIPAddress()` accepts any IP — validated from decompiled `getWirelessAttributes()`
+- **Wireless requires BT**: iPhone must BT-discover CarPlay SDP service. No software-only trigger exists on iOS (unlike AA's `WirelessStartupReceiver`)
+- **CPC200 is AutoKit**: model = "Magic-Car-Link-1.00", has `ARMiPhoneIAP2`, `AppleCarPlay`, `usbmuxd` binaries
 
 ---
 
@@ -12,7 +47,7 @@ The GM Blazer EV AAOS head unit contains a **complete CarPlay hardware and softw
 
 ### 1.1 Priority Files to Reverse Engineer
 
-These are in `D:\personal\recon_dump\apks\com_gm_domain_server_delayed\java_src\com\p006gm\`:
+These are in `D:\personal\openautolink\recon_dump\apks\com_gm_domain_server_delayed\java_src\com\p006gm\`:
 
 #### Critical Path (auth + connection)
 | File | What to Extract |
@@ -288,54 +323,28 @@ VehicleProperty.TURN_SIGNAL_STATE   → iAP2 TurnSignal
 - [ ] Settings UI: CarPlay resolution, FPS, enable/disable
 - [ ] Error handling, edge cases, OOM prevention
 
-### 2.4 MFi Auth: Two Paths
+### 2.4 MFi Auth: CPC200 Remote Signing (confirmed working)
 
-#### Path A: GM Built-in Chip (preferred)
 ```
-Probe result needed: /dev/i2c-0 accessible from our app (SELinux check pending)
+Hardware: Rooted CPC200 AutoKit "Magic-Car-Link-1.00"
+  SSH: root@192.168.43.1 (dropbear, key auth, RSA-2048)
+  MFi chip: /dev/i2c-1 addr 0x11, Apple Auth Coprocessor v3
+  Daemon: /tmp/mfi_auth_daemon on TCP port 5290
 
-Pros:
-  - No external hardware
-  - Lowest latency
-  - Simplest architecture
-  
-Cons:
-  - SELinux may block (likely)
-  - GM could patch in OTA update
-  
-Implementation:
-  I2cMfiAuth.kt opens /dev/i2c-0
-  ioctl I2C_SLAVE 0x10
-  Write challenge → register 0x10/0x11
-  Read response → register 0x12/0x13
-  Read certificate → register 0x20/0x21
-```
+Protocol: [cmd:1][len:2 LE][data:len] → [status:1][len:2 LE][data:len]
+  0x01 PING → "OK"
+  0x02 GET_CERT → 945-byte Apple certificate
+  0x03 SIGN_CHALLENGE → ECDSA signed response
+  0x04 GET_INFO → chip version/firmware/proto/error/selftest
 
-#### Path B: Rooted CPC200 Remote Auth
-```
-Hardware: Any CPC200 (~$30-50 on AliExpress), rooted
+Tested: All commands work. Certificate is valid ASN.1/DER (starts with 0x3082).
+Cross-compile: wsl arm-linux-gnueabihf-gcc -static -O2
 
-CPC200 side (daemon, ~80 lines Python):
-  - Listen TCP port 5290
-  - Receive: AUTH_CERT request → read register 0x20 → return cert bytes
-  - Receive: AUTH_SIGN:<challenge> → write to 0x10, read 0x12 → return sig
-  - Receive: AUTH_SELFTEST → read 0x30 → return status
-
-Car side (our app):
-  - CPC200 connected via USB to GM head unit (or on same WiFi)
-  - RemoteMfiAuth.kt connects to CPC200 daemon
-  - Proxies auth requests from iAP2 stack to CPC200
-
-Network options:
-  1. USB serial (CPC200 USB gadget mode) — most reliable
-  2. WiFi (CPC200 on phone hotspot or car WiFi) — wireless
-  3. Bluetooth serial — no extra cables
-
-Latency budget:
-  - iAP2 auth timeout is ~10 seconds
-  - WiFi round-trip: ~5-20ms
-  - USB serial round-trip: ~1-2ms
-  - Both well within budget
+Note: GM head unit I²C path is DEAD.
+  /dev/i2c-0 exists, chmod 0666 in init.carplay.rc, but:
+  - DAC: read=false, write=false (chmod didn't run or was overridden)
+  - SELinux: our app context u:r:untrusted_app blocks I²C access
+  - No path to system_app context without GM's platform signing key
 ```
 
 ### 2.5 Risk Assessment
@@ -350,21 +359,24 @@ Latency budget:
 | Video/audio format differs from AA | Low | Decoder issues | CarPlay uses standard H.264 + PCM/AAC — well-supported |
 | Apple legal action | Low | Project takedown | Same risk as every CarPlay dongle manufacturer. Don't sell it. |
 
-### 2.6 Open Questions (resolve during M1)
+### 2.6 Resolved Questions
 
-1. **I²C probe result** — can we open `/dev/i2c-0` from our app? (test pending with v275)
-2. **USB host permission** — can we claim the iPhone's iAP2 USB interface without root? (the report showed one USB device that needed permission)
-3. **NCM interface** — does the GM kernel have CDC-NCM support? Check `/proc/config.gz` for `CONFIG_USB_NET_CDC_NCM`
-4. **Cinemo native libs** — can we `System.load()` them? (probably license-locked, but worth testing)
-5. **Audio channel mapping** — exactly which iAP2 audio types map to which AudioTrack purposes?
-6. **Wireless CarPlay BT profile** — which RFCOMM channel and SDP record? (ref: `WPService.java`)
+1. **I²C probe result** — BLOCKED. EACCES (errno 13), SELinux `untrusted_app` context. No path without root.
+2. **USB host permission** — GM AAOS prompts every time (known bug). Functional but annoying.
+3. **NCM interface** — TBD. Need to check `/proc/config.gz` for `CONFIG_USB_NET_CDC_NCM`.
+4. **Cinemo native libs** — Not pursuing. Building our own iAP2 stack from decompiled reference.
+5. **Audio channel mapping** — TBD. Will map during M2.
+6. **Wireless CarPlay BT profile** — Requires CPC200 BT. iPhone must discover SDP service. No software-only trigger on iOS.
+7. **CarPlay IP redirect** — CONFIRMED. `setIPAddress()` in StartCarPlay accepts any IP. CPC200 can tell iPhone to connect data channel to head unit's IP.
 
 ---
 
-## Part 3: Immediate Next Steps
+## Part 3: Current Next Steps
 
-1. **Get I²C probe results** — upload v275 AAB, run scan, check "I²C MFi Chip" section
-2. **Systematic APK teardown** — read every file listed in §1.1, document in `docs/carplay-protocol.md`
-3. **Prototype iAP2 link layer** — start with USB bulk transfer to iPhone, get SYN/ACK working
-4. **Source a CPC200** — if I²C is blocked, order one as backup auth path
-5. **Study node-carplay** — working open-source reference for the full flow
+1. ~~Get I²C probe results~~ → DONE. Blocked by SELinux.
+2. ~~Source a CPC200~~ → DONE. Rooted, MFi daemon running.
+3. ~~Prototype iAP2 link layer~~ → DONE. Frame codec + SYN params.
+4. **Build USB host transport** — `UsbDeviceConnection` to claim iPhone iAP2 interface
+5. **Build iAP2 session manager** — state machine: SYN → auth → identify → StartCarPlay
+6. **Get first iAP2 handshake working** — iPhone accepts our SYN, we pass auth via CPC200
+7. **CarPlay data channel** — receive AirPlay H.264 stream, feed to MediaCodec
