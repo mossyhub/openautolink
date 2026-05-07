@@ -35,64 +35,71 @@ const val IAP2_MSG_MARKER_2: Byte = 0x40
  * Messages sent by device (iPhone) start from 0x4xxx as well but different ranges.
  */
 object Iap2MessageId {
-    // --- Authentication ---
-    const val REQUEST_AUTH_CERTIFICATE = 0xAA00.toInt()
-    const val AUTH_CERTIFICATE = 0xAA01.toInt()
-    const val REQUEST_AUTH_CHALLENGE_RESPONSE = 0xAA02.toInt()
-    const val AUTH_CHALLENGE_RESPONSE = 0xAA03.toInt()
-    const val AUTH_FAILED = 0xAA04.toInt()
-    const val AUTH_SUCCEEDED = 0xAA05.toInt()
+    // --- Authentication (handled by Cinemo native lib in GM — IDs from MFi spec) ---
+    // These are the standard iAP2 auth message IDs. Not visible in decompiled
+    // Java (Cinemo handles them in C++) but documented in MFi spec R30+.
+    const val REQUEST_AUTH_CERTIFICATE = 0xAA00
+    const val AUTH_CERTIFICATE = 0xAA01
+    const val REQUEST_AUTH_CHALLENGE_RESPONSE = 0xAA02
+    const val AUTH_CHALLENGE_RESPONSE = 0xAA03
+    const val AUTH_FAILED = 0xAA04
+    const val AUTH_SUCCEEDED = 0xAA05
 
-    // --- Identification ---
-    const val START_IDENTIFICATION = 0x1D00.toInt()
-    const val IDENTIFICATION_INFORMATION = 0x1D01.toInt()
-    const val IDENTIFICATION_ACCEPTED = 0x1D02.toInt()
-    const val IDENTIFICATION_REJECTED = 0x1D03.toInt()
-    const val CANCEL_IDENTIFICATION = 0x1D05.toInt()
+    // --- Identification (standard iAP2, not in decompiled Java) ---
+    const val START_IDENTIFICATION = 0x1D00
+    const val IDENTIFICATION_INFORMATION = 0x1D01
+    const val IDENTIFICATION_ACCEPTED = 0x1D02
+    const val IDENTIFICATION_REJECTED = 0x1D03
+    const val CANCEL_IDENTIFICATION = 0x1D05
 
-    // --- CarPlay ---
-    const val START_CARPLAY = 0x4301.toInt()
-    const val STOP_CARPLAY = 0x4302.toInt()
-    const val CARPLAY_AVAILABILITY = 0x4303.toInt()
+    // --- CarPlay (CONFIRMED from decompiled CarPlayAvailability/StartSession) ---
+    const val CARPLAY_AVAILABILITY = 0x4300     // 17152 — CarPlayAvailability.java
+    const val START_CARPLAY = 0x4301            // 17153 — CarPlayStartSession.java
+    const val STOP_CARPLAY = 0x4302             // presumed from sequence
 
-    // --- Power ---
-    const val POWER_UPDATE = 0x4E00.toInt()
-    const val START_POWER_UPDATES = 0x4E01.toInt()
-    const val STOP_POWER_UPDATES = 0x4E02.toInt()
+    // --- Power (CONFIRMED from decompiled PowerUpdate.java) ---
+    const val POWER_UPDATE_RECV = 0xAE00        // 44544
+    const val START_POWER_UPDATES = 0xAE01      // 44545
+    const val STOP_POWER_UPDATES = 0xAE02       // 44546
+    const val POWER_UPDATE_SEND = 0xAE03        // 44547
 
-    // --- Vehicle Status ---
-    const val START_VEHICLE_STATUS_UPDATES = 0x6000.toInt()
-    const val STOP_VEHICLE_STATUS_UPDATES = 0x6001.toInt()
-    const val VEHICLE_STATUS_UPDATE = 0x6002.toInt()
+    // --- Vehicle Status (CONFIRMED from decompiled VehicleStatus.java) ---
+    const val START_VEHICLE_STATUS_UPDATES = 0xA100   // 41216
+    const val STOP_VEHICLE_STATUS_UPDATES = 0xA101    // 41217
+    const val VEHICLE_STATUS_UPDATE = 0xA102          // 41218
 
-    // --- Location ---
-    const val START_LOCATION_INFO = 0x6100.toInt()
-    const val STOP_LOCATION_INFO = 0x6101.toInt()
-    const val LOCATION_INFO_UPDATE = 0x6102.toInt()
+    // --- Location (CONFIRMED from decompiled LocationInfo.java) ---
+    const val START_LOCATION_INFO = 0xFFFA      // 65530
+    const val STOP_LOCATION_INFO = 0xFFFB       // 65531
+    const val LOCATION_INFO_UPDATE = 0xFFFC     // 65532
 
-    // --- Communications ---
-    const val CALL_STATE_UPDATE = 0x5600.toInt()
-    const val LIST_UPDATE = 0x5601.toInt()
-    const val COMMUNICATIONS_UPDATE = 0x5602.toInt()
+    // --- Communications (CONFIRMED from decompiled CommunicationManager.java) ---
+    // Send (accessory → device)
+    const val CALL_STATE_UPDATE_SEND = 0x4154   // 16724
+    const val LIST_UPDATE_SEND = 0x4155         // 16725
+    const val COMMUNICATIONS_UPDATE_SEND = 0x4156 // 16726
+    // Receive (device → accessory)
+    const val CALL_STATE_UPDATE_RECV = 0x4170   // 16752
+    const val LIST_UPDATE_RECV = 0x4171         // 16753
+    const val COMMUNICATIONS_UPDATE_RECV = 0x4172 // 16754
 
-    // --- Route Guidance ---
-    const val ROUTE_GUIDANCE_UPDATE = 0x6700.toInt()
-    const val MANEUVER_UPDATE = 0x6701.toInt()
-    const val LANE_GUIDANCE = 0x6702.toInt()
+    // --- Device Notifications (CONFIRMED from decompiled DeviceNotifications.java) ---
+    const val DEVICE_NOTIFICATION_1 = 0x4E09    // 19977
+    const val DEVICE_NOTIFICATION_2 = 0x4E0A    // 19978
+    const val DEVICE_NOTIFICATION_3 = 0x4E0B    // 19979
+    const val DEVICE_NOTIFICATION_4 = 0x4E0C    // 19980
 
-    // --- Device Information ---
-    const val DEVICE_INFO_UPDATE = 0x4004.toInt()
-    const val DEVICE_LANGUAGE_UPDATE = 0x4005.toInt()
-    const val DEVICE_TIME_UPDATE = 0x4006.toInt()
+    // --- Bluetooth OOB Pairing (CONFIRMED from decompiled BTOOBPairing.java) ---
+    const val OOB_BT_PAIRING_START = 0x0B00     // 2816
+    const val OOB_BT_PAIRING_STOP = 0x0B01      // 2817
+    const val OOB_BT_PAIRING_LINK_KEY = 0x0B02  // 2818
+    const val OOB_BT_PAIRING_3 = 0x0B03         // 2819
 
-    // --- Bluetooth ---
-    const val BT_COMPONENT_INFO = 0xAE00.toInt()
-    const val BT_PAIRING_START = 0xAE01.toInt()
-    const val BT_PAIRING_STOP = 0xAE02.toInt()
-    const val BT_CONNECTION_UPDATE = 0xAE03.toInt()
-
-    // --- WiFi ---
-    const val WIFI_CONFIG_INFO = 0x4700.toInt()
+    // --- EAP (CONFIRMED from decompiled EAPManager.java) ---
+    const val EAP_SESSION_RECV = 0xEA00         // 59904
+    const val EAP_SESSION_SEND = 0xEA01         // 59905
+    const val EAP_DATA_1 = 0xEA02               // 59906
+    const val EAP_DATA_2 = 0xEA03               // 59907
 
     fun name(id: Int): String = when (id) {
         REQUEST_AUTH_CERTIFICATE -> "RequestAuthCertificate"
@@ -105,12 +112,19 @@ object Iap2MessageId {
         IDENTIFICATION_INFORMATION -> "IdentificationInformation"
         IDENTIFICATION_ACCEPTED -> "IdentificationAccepted"
         IDENTIFICATION_REJECTED -> "IdentificationRejected"
+        CARPLAY_AVAILABILITY -> "CarPlayAvailability"
         START_CARPLAY -> "StartCarPlay"
         STOP_CARPLAY -> "StopCarPlay"
-        CARPLAY_AVAILABILITY -> "CarPlayAvailability"
+        START_VEHICLE_STATUS_UPDATES -> "StartVehicleStatusUpdates"
+        STOP_VEHICLE_STATUS_UPDATES -> "StopVehicleStatusUpdates"
         VEHICLE_STATUS_UPDATE -> "VehicleStatusUpdate"
+        START_LOCATION_INFO -> "StartLocationInfo"
+        STOP_LOCATION_INFO -> "StopLocationInfo"
         LOCATION_INFO_UPDATE -> "LocationInfoUpdate"
-        ROUTE_GUIDANCE_UPDATE -> "RouteGuidanceUpdate"
+        START_POWER_UPDATES -> "StartPowerUpdates"
+        POWER_UPDATE_RECV -> "PowerUpdate(recv)"
+        EAP_SESSION_RECV -> "EAPSession(recv)"
+        EAP_SESSION_SEND -> "EAPSession(send)"
         else -> "Unknown(0x${id.toString(16)})"
     }
 }

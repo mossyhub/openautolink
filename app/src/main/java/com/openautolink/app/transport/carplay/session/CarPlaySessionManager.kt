@@ -395,7 +395,7 @@ class CarPlaySessionManager(
                 OalLog.i(TAG, "iPhone wants location info")
                 // TODO: Start forwarding GPS
             }
-            Iap2MessageId.DEVICE_INFO_UPDATE -> {
+            Iap2MessageId.DEVICE_NOTIFICATION_1 -> {
                 OalLog.i(TAG, "Device info update received")
             }
             else -> {
