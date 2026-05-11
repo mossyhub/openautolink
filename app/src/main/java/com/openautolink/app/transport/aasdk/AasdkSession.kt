@@ -45,6 +45,22 @@ class AasdkSession(
 
     companion object {
         private const val TAG = "AasdkSession"
+
+        /** Process-wide native onError coalescer.
+         *
+         *  Lives in the companion object (not on instances) so it survives
+         *  AasdkSession instance churn — every startSession() in
+         *  SessionManager creates a new AasdkSession, and per-instance state
+         *  would reset the dedup window on each new instance. Production logs
+         *  showed 14+ identical "Native error: AASDK Error: 30" lines at the
+         *  same ms because the storm spans several rapid session recreations.
+         *
+         *  At most one log per second per (instance-agnostic) message text.
+         */
+        @Volatile private var lastOnErrorLogMs: Long = 0
+        @Volatile private var lastOnErrorMsg: String = ""
+        private var onErrorSuppressedCount = 0
+        private val onErrorLock = Any()
     }
 
     // -- Output flows (consumed by SessionManager) --
@@ -505,15 +521,13 @@ class AasdkSession(
         // Audio focus is handled by the native layer — always grants
     }
 
-    /** Coalesce native onError log spam: at most one log per second per message. */
-    @Volatile private var lastOnErrorLogMs: Long = 0
-    @Volatile private var lastOnErrorMsg: String = ""
-    private var onErrorSuppressedCount = 0
-
+    /** Coalesce native onError log spam: at most one log per second per
+     *  message text, deduplicated across instance churn (the state lives in
+     *  the companion object, see [Companion.onErrorLock]). */
     override fun onError(message: String) {
         val now = android.os.SystemClock.elapsedRealtime()
         var shouldEmit = false
-        synchronized(this) {
+        synchronized(onErrorLock) {
             if (message == lastOnErrorMsg && (now - lastOnErrorLogMs) < 1000) {
                 onErrorSuppressedCount++
                 return
