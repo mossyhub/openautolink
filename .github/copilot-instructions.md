@@ -47,7 +47,7 @@ When modifying **app Kotlin** code that interacts with the JNI layer, **read the
 | Island | Responsibility | Test Anchor |
 |--------|---------------|-------------|
 | `transport/aasdk/` | aasdk JNI session (C++ pipeline), TCP transport, AA protocol | Integration: companion app + phone |
-| `transport/direct/` | TCP connector + phone discovery (mDNS / UDP sweep) over car or phone hotspot | Unit: discovery mocks |
+| `transport/hotspot/` | TCP connector + phone discovery (mDNS / UDP sweep) over car or phone hotspot | Unit: discovery mocks |
 | `video/` | MediaCodec lifecycle, Surface rendering, codec detection | Unit: frame header parsing. Integration: decode test streams |
 | `audio/` | Multi-purpose AudioTrack (5 slots), mic capture, ring buffer | Unit: purpose routing, ring buffer. Integration: PCM playback |
 | `input/` | Touch forwarding, GNSS, vehicle data (VHAL), IMU sensors (accel/gyro/compass) | Unit: coordinate scaling, NMEA formatting. Integration: VHAL mock |

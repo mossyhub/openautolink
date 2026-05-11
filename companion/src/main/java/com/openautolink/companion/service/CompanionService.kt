@@ -24,15 +24,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service that manages the Nearby advertising lifecycle.
- * Keeps the phone discoverable by the car's OAL app and relays AA
- * traffic through a Nearby stream tunnel.
+ * Foreground service that manages the TCP advertising lifecycle.
+ * Listens on port 5277 for the car app over the shared WiFi (Car Hotspot
+ * or Phone Hotspot), registers an mDNS service for discovery, and bridges
+ * incoming connections through AaProxy to the local Android Auto service.
  */
-class CompanionService : Service(), NearbyAdvertiser.StateListener {
+class CompanionService : Service(), TcpAdvertiser.StateListener {
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
-    private var nearbyAdvertiser: NearbyAdvertiser? = null
     private var tcpAdvertiser: TcpAdvertiser? = null
     private var carWifiManager: com.openautolink.companion.wifi.CarWifiManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -84,7 +84,7 @@ class CompanionService : Service(), NearbyAdvertiser.StateListener {
                 _isRunning.value = true
                 _isConnected.value = false
                 _statusText.value = "Advertising..."
-                startNearby()
+                startTcp()
                 if (intent.getBooleanExtra(EXTRA_START_LOGGING, false)) {
                     startFileLogging()
                 }
@@ -94,42 +94,22 @@ class CompanionService : Service(), NearbyAdvertiser.StateListener {
                 // System restart
                 if (_isRunning.value) {
                     CompanionLog.i(TAG, "Service restarted by system, resuming")
-                    startNearby()
+                    startTcp()
                 }
             }
         }
         return START_STICKY
     }
 
-    private fun startNearby() {
+    private fun startTcp() {
         acquireWakeLock()
-        nearbyAdvertiser?.stop()
         tcpAdvertiser?.stop()
 
-
-        val prefs = getSharedPreferences(CompanionPrefs.NAME, MODE_PRIVATE)
-        // Nearby mode is disabled in the UI for now (see MainScreen) because
-        // the car-side app can't get the system permissions needed for the
-        // BT→WiFi handoff on GM AAOS. Force TCP regardless of any stale pref.
-        val rawMode = prefs.getString(CompanionPrefs.TRANSPORT_MODE, CompanionPrefs.DEFAULT_TRANSPORT)
-        val mode = if (rawMode == CompanionPrefs.TRANSPORT_NEARBY) CompanionPrefs.TRANSPORT_TCP else rawMode
-
-        when (mode) {
-            CompanionPrefs.TRANSPORT_TCP -> {
-                CompanionLog.i(TAG, "Transport mode: TCP (hotspot)")
-                tcpAdvertiser = TcpAdvertiser(this, this)
-                tcpAdvertiser?.start()
-                updateNotification("TCP: waiting for car on port ${TcpAdvertiser.PORT}...")
-                startCarWifiIfConfigured()
-            }
-            else -> {
-                // Unreachable while Nearby is disabled; fall back to TCP for safety.
-                CompanionLog.w(TAG, "Unknown transport mode '$mode', falling back to TCP")
-                tcpAdvertiser = TcpAdvertiser(this, this)
-                tcpAdvertiser?.start()
-                updateNotification("TCP: waiting for car on port ${TcpAdvertiser.PORT}...")
-            }
-        }
+        CompanionLog.i(TAG, "Transport: TCP on port ${TcpAdvertiser.PORT}")
+        tcpAdvertiser = TcpAdvertiser(this, this)
+        tcpAdvertiser?.start()
+        updateNotification("TCP: waiting for car on port ${TcpAdvertiser.PORT}...")
+        startCarWifiIfConfigured()
     }
 
     /**
@@ -159,7 +139,7 @@ class CompanionService : Service(), NearbyAdvertiser.StateListener {
         startCarWifiIfConfigured()
     }
 
-    // ── NearbyAdvertiser.StateListener ─────────────────────────────────
+    // ── TcpAdvertiser.StateListener ────────────────────────────────────
 
     override fun onConnecting() {
         _statusText.value = "Connecting..."
@@ -256,7 +236,6 @@ class CompanionService : Service(), NearbyAdvertiser.StateListener {
         _isRunning.value = false
         _isConnected.value = false
         _statusText.value = "Stopped"
-        nearbyAdvertiser?.stop()
         tcpAdvertiser?.stop()
         carWifiManager?.stop()
         stopFileLogging()

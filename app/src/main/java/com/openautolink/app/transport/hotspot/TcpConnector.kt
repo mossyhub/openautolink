@@ -1,4 +1,4 @@
-package com.openautolink.app.transport.direct
+package com.openautolink.app.transport.hotspot
 
 import android.content.Context
 import android.net.nsd.NsdManager

@@ -245,13 +245,21 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     init {
         registerTransportNetworkCallback()
 
-        // Mirror SessionManager's connected phone name. SessionManager owns
-        // resolution (it sees PhoneConnected control messages and the active
-        // hotspot phone pick) — the projection overlay just reflects it.
+        // Resolve the projection overlay's "connected phone" label from
+        // whatever we currently know: prefer the live mDNS friendly_name for
+        // [_activePhoneId], fall back to the known-phones store entry, and
+        // null out when no phone is active. Recomputes when any of the three
+        // inputs change.
         viewModelScope.launch {
-            sessionManager.connectedPhoneName.collect { name ->
-                _phoneName.value = name
-            }
+            kotlinx.coroutines.flow.combine(
+                _activePhoneId,
+                phoneDiscovery.phones,
+                knownPhonesStore.phones,
+            ) { activeId, discovered, known ->
+                if (activeId.isNullOrBlank()) return@combine null
+                discovered.firstOrNull { it.phoneId == activeId }?.friendlyName
+                    ?: known.firstOrNull { it.phoneId == activeId }?.friendlyName
+            }.collect { name -> _phoneName.value = name }
         }
 
         // Collect video and audio stats when streaming

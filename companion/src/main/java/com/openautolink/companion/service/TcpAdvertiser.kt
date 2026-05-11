@@ -27,8 +27,16 @@ import java.net.Socket
  */
 class TcpAdvertiser(
     private val context: Context,
-    private val stateListener: NearbyAdvertiser.StateListener,
+    private val stateListener: StateListener,
 ) {
+    /** Lifecycle callbacks for the AA proxy bridge. */
+    interface StateListener {
+        fun onConnecting()
+        fun onProxyConnected()
+        fun onProxyDisconnected()
+        fun onLaunchTimeout()
+    }
+
     companion object {
         private const val TAG = "OAL_TcpAdv"
         const val PORT = 5277

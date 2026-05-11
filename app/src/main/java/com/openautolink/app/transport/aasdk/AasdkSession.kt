@@ -8,7 +8,7 @@ import com.openautolink.app.transport.AudioPurpose
 import com.openautolink.app.transport.ConnectionState
 import com.openautolink.app.transport.ControlMessage
 
-import com.openautolink.app.transport.direct.TcpConnector
+import com.openautolink.app.transport.hotspot.TcpConnector
 import com.openautolink.app.transport.usb.UsbConnectionManager
 import com.openautolink.app.video.VideoFrame
 import kotlinx.coroutines.CoroutineScope
@@ -28,11 +28,14 @@ import java.net.Socket
 /**
  * AA session backed by native aasdk via JNI.
  *
- * Replaces DirectAaSession — same TCP transport, but the AA wire protocol
- * is handled by the proven aasdk C++ library instead of the Kotlin port.
+ * The Kotlin layer owns transport (TCP socket to the phone-side companion app
+ * over the shared WiFi — Car Hotspot or Phone Hotspot) and exposes the
+ * resulting byte streams to the native aasdk C++ library, which speaks the
+ * full AA wire protocol. Decoded frames + control messages come back through
+ * JNI callbacks and are republished as Kotlin flows.
  *
  * Data flow:
- *   Phone ←→ Nearby (companion app) ←→ AaNearbyManager ←→ streams
+ *   Phone ↔ TCP (companion app over shared WiFi) ↔ TcpConnector ↔ streams
  *     → AasdkTransportPipe → JNI → aasdk C++ → JNI callbacks
  *     → AasdkSession flows → SessionManager → VideoDecoder/AudioPlayer
  */
@@ -45,7 +48,7 @@ class AasdkSession(
         private const val TAG = "AasdkSession"
     }
 
-    // -- Output flows (same interface as DirectAaSession) --
+    // -- Output flows (consumed by SessionManager) --
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -63,7 +66,7 @@ class AasdkSession(
     private val _controlMessages = MutableSharedFlow<ControlMessage>(extraBufferCapacity = 64)
     val controlMessages: Flow<ControlMessage> = _controlMessages.asSharedFlow()
 
-    // -- Config (set before start(), same as DirectAaSession) --
+    // -- Config (set before start()) --
 
     var sdrConfig = AasdkSdrConfig()
 

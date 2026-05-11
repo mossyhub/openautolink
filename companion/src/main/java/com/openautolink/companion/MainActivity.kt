@@ -24,7 +24,6 @@ class MainActivity : ComponentActivity() {
         add(Manifest.permission.BLUETOOTH_SCAN)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
-            add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
     }.toTypedArray()
 
@@ -133,11 +132,6 @@ object CompanionPrefs {
     // Car Hotspot WiFi credentials for WifiNetworkSpecifier auto-connect.
     // Stored as Set<String>, each entry formatted as "ssid\tpassword".
     const val CAR_WIFI_ENTRIES = "car_wifi_entries"
-
-    const val TRANSPORT_MODE = "transport_mode"
-    const val TRANSPORT_NEARBY = "nearby"
-    const val TRANSPORT_TCP = "tcp"
-    const val DEFAULT_TRANSPORT = TRANSPORT_TCP
 
     // Connection mode — distinguishes which side hosts the WiFi network.
     // PHONE_HOTSPOT: phone is the AP, car is the client (current default).

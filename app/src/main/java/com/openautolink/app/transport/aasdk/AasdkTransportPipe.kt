@@ -6,7 +6,8 @@ import java.io.OutputStream
 /**
  * Bidirectional byte pipe that the native aasdk transport reads/writes through.
  *
- * Backed by Nearby Connections streams. The native read thread calls [readBytes]
+ * Backed by TCP streams to the companion app over the shared WiFi. The
+ * native read thread calls [readBytes]
  * which blocks on the InputStream until data arrives. The native send strand
  * calls [writeBytes] to push data to the OutputStream.
  *
@@ -19,7 +20,7 @@ class AasdkTransportPipe(
     private val outputStream: OutputStream
 ) {
     /**
-     * Read up to [maxSize] bytes from the Nearby input stream.
+     * Read up to [maxSize] bytes from the TCP input stream.
      * Called from native read thread — blocks until data is available.
      * Returns null if the stream is closed.
      */
@@ -35,7 +36,7 @@ class AasdkTransportPipe(
     }
 
     /**
-     * Write bytes to the Nearby output stream.
+     * Write bytes to the TCP output stream.
      * Called from the native io_service send strand.
      */
     fun writeBytes(data: ByteArray) {
