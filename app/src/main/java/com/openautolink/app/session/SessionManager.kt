@@ -303,6 +303,13 @@ class SessionManager(
 
     // Media session
     private var _mediaSessionManager: OalMediaSessionManager? = null
+    /** Cache of the most recently observed [ControlMessage.MediaMetadata] so
+     *  we can replay it to the cluster on reconnect. The phone sends metadata
+     *  only on track change, so after an unrelated reconnect (sleep/wake,
+     *  Error 30, etc.) the cluster would otherwise see no update and could
+     *  stay stuck on stale data. */
+    @Volatile private var lastMediaMetadata: ControlMessage.MediaMetadata? = null
+    @Volatile private var lastMediaPlaybackState: ControlMessage.MediaPlaybackState? = null
 
     // Cluster manager
     private var _clusterManager: com.openautolink.app.cluster.ClusterManager? = null
@@ -482,12 +489,33 @@ class SessionManager(
             }
         }
 
-        // Create media session for AAOS system UI integration
-        _mediaSessionManager?.release()
-        _mediaSessionManager = context?.let { OalMediaSessionManager(it) }
-        _mediaSessionManager?.initialize()
-        _mediaSessionManager?.getSessionToken()?.let { token ->
-            OalMediaBrowserService.updateSessionToken(token)
+        // Create media session for AAOS system UI integration.
+        // Only construct once per SessionManager lifetime: recreating the
+        // MediaSession invalidates the cluster widget's MediaController
+        // binding (GM cluster doesn't rebind cleanly), which is why the
+        // user previously saw stale album art after a Save & Reconnect or
+        // post-wake reconnect cycle. The session lives until SessionManager
+        // is fully torn down in stop().
+        if (_mediaSessionManager == null) {
+            _mediaSessionManager = context?.let { OalMediaSessionManager(it) }
+            _mediaSessionManager?.initialize()
+            _mediaSessionManager?.getSessionToken()?.let { token ->
+                OalMediaBrowserService.updateSessionToken(token)
+            }
+        } else {
+            // Replay the most-recent metadata + playback state in case the
+            // cluster widget needs nudging after a reconnect. Cheap; setMetadata
+            // is a binder call but the data is identical to what's already set
+            // so the cluster either updates from this or no-ops.
+            lastMediaMetadata?.let { m ->
+                _mediaSessionManager?.updateMetadata(
+                    title = m.title, artist = m.artist, album = m.album,
+                    durationMs = m.durationMs, albumArtBase64 = m.albumArtBase64,
+                )
+            }
+            lastMediaPlaybackState?.let { p ->
+                _mediaSessionManager?.updatePlaybackState(p.playing, p.positionMs)
+            }
         }
 
         // Enable cluster service — always enable so Templates Host can discover it.
@@ -931,6 +959,8 @@ class SessionManager(
         ClusterNavigationState.clear()
         _mediaSessionManager?.release()
         _mediaSessionManager = null
+        lastMediaMetadata = null
+        lastMediaPlaybackState = null
         _clusterManager?.release()
         _clusterManager = null
         _telemetryCollector?.stop()
@@ -1404,17 +1434,21 @@ class SessionManager(
                 ClusterNavigationState.clear()
             }
             is ControlMessage.MediaMetadata -> {
+                lastMediaMetadata = message
                 _mediaSessionManager?.updateMetadata(
                     title = message.title, artist = message.artist, album = message.album,
                     durationMs = message.durationMs, albumArtBase64 = message.albumArtBase64
                 )
                 if (message.playing != null) {
-                    _mediaSessionManager?.updatePlaybackState(
+                    val pb = ControlMessage.MediaPlaybackState(
                         playing = message.playing, positionMs = message.positionMs ?: 0
                     )
+                    lastMediaPlaybackState = pb
+                    _mediaSessionManager?.updatePlaybackState(pb.playing, pb.positionMs)
                 }
             }
             is ControlMessage.MediaPlaybackState -> {
+                lastMediaPlaybackState = message
                 _mediaSessionManager?.updatePlaybackState(
                     playing = message.playing, positionMs = message.positionMs
                 )
