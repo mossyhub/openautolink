@@ -150,9 +150,6 @@ dependencies {
     // Conscrypt (TLS provider for AA SSL handshake)
     implementation(libs.conscrypt.android)
 
-    // Google Nearby Connections (peer-to-peer transport for direct mode)
-    implementation(libs.nearby.connections)
-
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.turbine)

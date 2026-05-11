@@ -1,11 +1,13 @@
 /*
  * jni_transport.h — aasdk ITransport backed by JNI byte pipe.
  *
- * Nearby Connections on the Kotlin side provides InputStream/OutputStream.
- * This transport reads/writes through JNI callbacks to those streams.
+ * The Kotlin side provides InputStream/OutputStream from a TCP socket
+ * connected to the phone-side companion app (running on the shared WiFi
+ * — Car Hotspot or Phone Hotspot). This transport reads/writes through
+ * JNI callbacks to those streams.
  *
  * Data flow:
- *   Phone ←→ Nearby (Kotlin) ←→ JniTransport (C++) ←→ aasdk Messenger
+ *   Phone ↔ TCP (Kotlin) ↔ JniTransport (C++) ↔ aasdk Messenger
  */
 #pragma once
 
@@ -28,9 +30,9 @@ namespace openautolink::jni {
  * Transport that bridges aasdk's async receive/send to JNI pipe I/O.
  *
  * Architecture:
- * - A read thread calls back into Kotlin to read bytes from Nearby InputStream.
+ * - A read thread calls back into Kotlin to read bytes from the TCP InputStream.
  * - On receive, data is posted to the io_service strand for aasdk consumption.
- * - send() calls back into Kotlin to write bytes to Nearby OutputStream.
+ * - send() calls back into Kotlin to write bytes to the TCP OutputStream.
  *
  * Thread model:
  * - readThread_: pulls data from Java InputStream, posts to strand
@@ -53,7 +55,7 @@ public:
     void send(aasdk::common::Data data, SendPromise::Pointer promise) override;
     void stop() override;
 
-    /** Called from Kotlin when Nearby stream data arrives (push model). */
+    /** Called from Kotlin when TCP stream data arrives (push model). */
     void onDataReceived(const uint8_t* data, size_t length);
 
 private:

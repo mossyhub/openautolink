@@ -295,7 +295,7 @@ The original architecture used an SBC (single-board computer) running a C++ brid
 | [USB Transport Plan](docs/usb-transport-plan.md) | AOA v2 design and implementation |
 | [Local Testing](docs/testing.md) | Emulator testing, remote diagnostics, no-ADB debugging |
 | [Wire Protocol](docs/protocol.md) | OAL protocol details (bridge-mode reference) |
-| [Multi-Phone Plan](docs/multi-phone-nearby.md) | Multi-phone Nearby Connections design |
+| [Multi-Phone Plan](docs/multi-phone.md) | Multi-phone design over Car Hotspot (TCP/mDNS) |
 | [HUR Feature Comparison](docs/headunit-revived-feature-comparison.md) | Feature parity tracking vs Headunit Revived |
 
 ## Known Issues
@@ -308,7 +308,7 @@ If you encounter other problems, please [open an issue](https://github.com/mossy
 
 Validated on a **2024 Chevrolet Blazer EV** running AAOS 12L. Other GM EVs on similar AAOS platforms likely work but have not been broadly tested. Non-GM AAOS vehicles may have different restrictions.
 
-The companion app runs on any Android phone with Google Play Services (Nearby Connections requires it).
+The companion app runs on any Android phone over WiFi. The car app and the phone need to be on the same network — either the car's hotspot or the phone's hotspot.
 
 ## Acknowledgments
 

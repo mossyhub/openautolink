@@ -1004,7 +1004,8 @@ void JniBluetoothHandler::onBluetoothPairingRequest(
 {
     LOGI("Bluetooth pairing request");
     logProtoRaw("BTPairing", request);
-    // In JNI mode, BT pairing is handled by Nearby Ã¢â‚¬â€ just acknowledge
+    // In JNI mode the AA session runs over TCP -- BT pairing is handled by
+    // the companion app outside the AA wire protocol. Acknowledge silently.
     channel_->receive(shared_from_this());
 }
 

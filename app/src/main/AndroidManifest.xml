@@ -15,15 +15,17 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Bluetooth permissions for Direct Mode AA handshake.
-         The app registers an RFCOMM server on the AA UUID so the phone can
-         discover and initiate wireless AA projection via BT. -->
+    <!-- Bluetooth permissions. BLUETOOTH_CONNECT is needed to read the head
+         unit's BT MAC address (Settings.Secure["bluetooth_address"] /
+         BluetoothAdapter.getAddress()) for the AA Service Discovery Response.
+         The other BLUETOOTH_* flags are kept as belt-and-suspenders for
+         AAOS BT adapters that gate getAddress() behind older permission
+         names; they cost nothing on modern API levels. -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
 
     <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
     <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />

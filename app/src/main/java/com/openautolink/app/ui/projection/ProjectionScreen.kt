@@ -642,8 +642,7 @@ fun ProjectionScreen(
         }
 
         // Phone chooser overlay — Car Hotspot mode uses the centered overlay
-        // backed by PhoneDiscovery (mDNS + sweep). Legacy Nearby mode falls
-        // through to the slide-in version.
+        // backed by PhoneDiscovery (mDNS + sweep).
         val showChooser by viewModel.showPhoneChooser.collectAsStateWithLifecycle()
         if (isCarHotspotMode) {
             // Fade-in centered modal — independent of the floating button's
@@ -677,19 +676,6 @@ fun ProjectionScreen(
                     onSetDefault = { viewModel.setDefaultPhoneId(it) },
                     onForget = { viewModel.forgetKnownPhone(it) },
                     onRescan = { viewModel.rescanCarHotspotPhones() },
-                    onDismiss = { viewModel.dismissPhoneChooser() },
-                )
-            }
-        } else {
-            val endpoints by viewModel.discoveredEndpoints.collectAsStateWithLifecycle()
-            AnimatedVisibility(
-                visible = showChooser,
-                enter = slideInHorizontally { it }, // slide in from right
-                exit = slideOutHorizontally { it },  // slide out to right
-            ) {
-                PhoneChooserOverlay(
-                    endpoints = endpoints,
-                    onSelect = { id, name -> viewModel.selectPhone(id, name) },
                     onDismiss = { viewModel.dismissPhoneChooser() },
                 )
             }
@@ -796,90 +782,6 @@ private data class Quad(
     val isError: Boolean,
     val isAwaitingPick: Boolean,
 )
-
-@Composable
-private fun PhoneChooserOverlay(
-    endpoints: List<com.openautolink.app.transport.direct.AaNearbyManager.DiscoveredEndpoint>,
-    onSelect: (id: String, name: String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f))
-            .clickable(onClick = onDismiss),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(24.dp)
-                .clickable(enabled = false) {} // prevent click-through
-                .width(360.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                "Select Phone",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (endpoints.isEmpty()) {
-                Spacer(modifier = Modifier.height(24.dp))
-                CircularProgressIndicator(
-                    modifier = Modifier.size(32.dp),
-                    strokeWidth = 3.dp,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    "Searching for phones...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "Make sure the companion app is running on your phone",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-            } else {
-                Spacer(modifier = Modifier.height(12.dp))
-                endpoints.forEach { endpoint ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSelect(endpoint.id, endpoint.name) }
-                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Default.PhoneAndroid,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            endpoint.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            androidx.compose.material3.TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    }
-}
 
 /**
  * Centered, modal phone chooser for Car Hotspot mode.

@@ -172,7 +172,9 @@ data class NetworkProbeState(
     val localHotspotSsid: String? = null,
     val localHotspotPassword: String? = null,
     val localHotspotStatus: String = "",
-    // WiFi Direct / P2P probe (does this device support Nearby's preferred medium?)
+    // WiFi Direct / P2P probe — does this device support acting as a P2P
+    // Group Owner? Useful as a sanity check for future peer-to-peer features;
+    // not on the current TCP-over-shared-hotspot path.
     val p2pActive: Boolean = false,
     val p2pSupported: Boolean? = null,
     val p2pSsid: String? = null,

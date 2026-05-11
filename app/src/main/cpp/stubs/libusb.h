@@ -1,6 +1,6 @@
 /*
  * Minimal libusb-1.0 header stub — just enough types/functions for aasdk to link.
- * Real USB is not used on Android (we use Nearby Connections transport).
+ * Real USB is not used on Android (the AA session runs over TCP via JniTransport).
  */
 #pragma once
 

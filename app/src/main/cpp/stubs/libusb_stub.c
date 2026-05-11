@@ -1,6 +1,6 @@
 /*
  * libusb stub — satisfies aasdk linker without pulling in real USB support.
- * We use Nearby Connections transport on Android, not USB.
+ * On Android the AA session runs over TCP via JniTransport, not libusb.
  */
 #include "libusb.h"
 #include <stdlib.h>

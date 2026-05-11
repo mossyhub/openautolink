@@ -13,7 +13,7 @@ When implementing or modifying any app code that communicates with the JNI layer
    - `app/src/main/cpp/aasdk_jni.cpp` — JNI entry point, native method registration
    - `app/src/main/cpp/jni_session.{h,cpp}` — aasdk pipeline: SSL → Cryptor → Messenger → channels
    - `app/src/main/cpp/jni_channel_handlers.{h,cpp}` — audio, sensor, input, nav, mic handlers
-   - `app/src/main/cpp/jni_transport.{h,cpp}` — ITransport backed by Nearby streams
+   - `app/src/main/cpp/jni_transport.{h,cpp}` — ITransport backed by TCP socket streams
    - `external/opencardev-aasdk/include/aasdk/Channel/` — aasdk channel interfaces
 
 ## Architecture
@@ -25,7 +25,7 @@ When implementing or modifying any app code that communicates with the JNI layer
 ## Package Structure
 ```
 com.openautolink.app/
-├── transport/   # aasdk JNI session + Nearby transport
+├── transport/   # aasdk JNI session + TCP companion transport
 ├── video/       # MediaCodec decoder + Surface
 ├── audio/       # AudioTrack management + mic
 ├── input/       # Touch, GNSS, vehicle data

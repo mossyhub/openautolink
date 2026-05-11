@@ -7,7 +7,7 @@ import com.openautolink.app.diagnostics.OalLog
 import com.openautolink.app.transport.AudioPurpose
 import com.openautolink.app.transport.ConnectionState
 import com.openautolink.app.transport.ControlMessage
-import com.openautolink.app.transport.direct.AaNearbyManager
+
 import com.openautolink.app.transport.direct.TcpConnector
 import com.openautolink.app.transport.usb.UsbConnectionManager
 import com.openautolink.app.video.VideoFrame
@@ -28,7 +28,7 @@ import java.net.Socket
 /**
  * AA session backed by native aasdk via JNI.
  *
- * Replaces DirectAaSession — same Nearby transport, but the AA wire protocol
+ * Replaces DirectAaSession — same TCP transport, but the AA wire protocol
  * is handled by the proven aasdk C++ library instead of the Kotlin port.
  *
  * Data flow:
@@ -67,23 +67,13 @@ class AasdkSession(
 
     var sdrConfig = AasdkSdrConfig()
 
-    /** Default phone name for Nearby auto-connect */
-    var defaultPhoneName: String = ""
-
-    /** Callback when a phone connects via Nearby */
-    var onPhoneConnected: ((String) -> Unit)? = null
-
-    // Nearby manager — only used in "nearby" transport mode
-    private var _nearbyManager: AaNearbyManager? = null
-    val nearbyManager: AaNearbyManager? get() = _nearbyManager
-
-    // TCP connector — only used in "hotspot" transport mode
+    // TCP connector — used in "hotspot" transport mode (Car Hotspot / Phone Hotspot)
     private var _tcpConnector: TcpConnector? = null
 
     // USB connection manager — only used in "usb" transport mode
     private var _usbConnectionManager: UsbConnectionManager? = null
 
-    /** Current transport mode: "nearby", "hotspot", or "usb" */
+    /** Current transport mode: "hotspot" or "usb" */
     var transportMode: String = "hotspot"
 
     /** Manual IP address for testing (emulator). Overrides gateway/mDNS discovery. */
@@ -112,24 +102,9 @@ class AasdkSession(
         _connectionState.value = ConnectionState.DISCONNECTED
 
         when (transportMode) {
-            "hotspot" -> startTcp()
             "usb" -> startUsb()
-            else -> startNearby()
+            else -> startTcp()
         }
-    }
-
-    private fun startNearby() {
-        OalLog.i(TAG, "Starting aasdk session (Nearby transport)")
-        _nearbyManager?.stop()
-        _nearbyManager = AaNearbyManager(context, scope) { nearbySocket ->
-            scope.launch(Dispatchers.IO) {
-                OalLog.i(TAG, "Nearby socket ready — starting aasdk native session")
-                handleConnection(nearbySocket)
-            }
-        }
-        _nearbyManager?.defaultPhoneName = defaultPhoneName
-        _nearbyManager?.onPhoneConnected = onPhoneConnected
-        _nearbyManager?.start()
     }
 
     private fun startTcp() {
@@ -199,8 +174,6 @@ class AasdkSession(
     fun stop() {
         explicitStop = true
         OalLog.i(TAG, "Stopping aasdk session")
-        _nearbyManager?.stop()
-        _nearbyManager = null
         _tcpConnector?.stop()
         _tcpConnector = null
         _usbConnectionManager?.stop()
@@ -224,8 +197,6 @@ class AasdkSession(
         // later — we're doing the restart ourselves immediately. Without this
         // both reconnects race and one fails with "Native session start failed".
         explicitStop = true
-        _nearbyManager?.stop()
-        _nearbyManager = null
         _tcpConnector?.stop()
         _tcpConnector = null
         _usbConnectionManager?.stop()
@@ -239,9 +210,8 @@ class AasdkSession(
         explicitStop = false
         // Restart transport.
         when (transportMode) {
-            "hotspot" -> startTcp()
             "usb" -> startUsb()
-            else -> startNearby()
+            else -> startTcp()
         }
     }
 
@@ -340,9 +310,8 @@ class AasdkSession(
                 if (!explicitStop) {
                     OalLog.i(TAG, "Restarting transport connector")
                     when (transportMode) {
-                        "hotspot" -> startTcp()
                         "usb" -> startUsb()
-                        else -> startNearby()
+                        else -> startTcp()
                     }
                 }
             }

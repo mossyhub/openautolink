@@ -290,7 +290,7 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
              sdrConfig_.safeAreaLeft, sdrConfig_.safeAreaRight);
     }
 
-    // Create JNI transport from the Nearby stream pipe
+    // Create JNI transport from the TCP stream pipe (Kotlin side)
     transport_ = std::make_shared<JniTransport>(*ioService_, jvm_, transportRef);
     rawTransport_ = transport_;
 

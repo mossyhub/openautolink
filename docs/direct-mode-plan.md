@@ -1,6 +1,6 @@
 # Direct Mode — Bridgeless Android Auto for AAOS
 
-> **SUPERSEDED**: This document describes the **pure-Kotlin AA protocol** approach (ported from HeadUnit Revived). That approach has been replaced by **aasdk C++ via JNI** on the `feature/aasdk-jni` branch — the same proven aasdk library from the bridge, now running inside the Android app. The Nearby Connections transport described here is still used.
+> **SUPERSEDED**: This document describes the **pure-Kotlin AA protocol** approach (ported from HeadUnit Revived). That approach has been replaced by **aasdk C++ via JNI** \u2014 the same proven aasdk library from the bridge, running inside the Android app. The Nearby Connections transport originally described here has also been retired in favor of plain TCP over Car Hotspot / Phone Hotspot WiFi (companion app listens on port 5277). This document is kept for historical context only.
 
 ## Overview (Historical — Kotlin AA protocol)
 

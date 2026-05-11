@@ -33,7 +33,6 @@ import com.openautolink.app.transport.ConnectionState
 import com.openautolink.app.transport.ControlMessage
 import com.openautolink.app.transport.aasdk.AasdkSession
 import com.openautolink.app.transport.aasdk.AasdkSdrConfig
-import com.openautolink.app.transport.direct.AaNearbyManager
 import com.openautolink.app.transport.usb.UsbConnectionManager
 import com.openautolink.app.video.DecoderState
 import com.openautolink.app.video.MediaCodecDecoder
@@ -53,7 +52,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Session orchestrator -- connects component islands, manages lifecycle.
- * aasdk JNI mode -- native aasdk C++ handles AA protocol via Nearby transport.
+ * aasdk JNI mode -- native aasdk C++ handles AA protocol over TCP transport.
  */
 class SessionManager(
     externalScope: CoroutineScope,
@@ -255,17 +254,20 @@ class SessionManager(
     private val _phoneSignalStrength = MutableStateFlow<Int?>(null)
     val phoneSignalStrength: StateFlow<Int?> = _phoneSignalStrength.asStateFlow()
 
-    // WiFi frequency (from Nearby's underlying WiFi Direct)
-    val wifiFrequencyMhz: StateFlow<Int> = AaNearbyManager.wifiFrequencyMhz
+    // WiFi frequency. Reserved for future use — the TCP hotspot path doesn't
+    // currently report this. Kept as a flow so the stats overlay can keep its
+    // existing wiring; reports 0 (unknown) until a producer is added.
+    private val _wifiFrequencyMhz = MutableStateFlow(0)
+    val wifiFrequencyMhz: StateFlow<Int> = _wifiFrequencyMhz.asStateFlow()
 
-    // Current transport mode — UI uses this to show/hide Nearby-specific features
+    // Current transport mode. Today only "hotspot" and "usb" are wired.
     private val _transportMode = MutableStateFlow("hotspot")
     val transportMode: StateFlow<String> = _transportMode.asStateFlow()
 
-    // Multi-phone (only active in Nearby mode)
+    // Multi-phone: current connected phone friendly name.
     private val _phoneName = MutableStateFlow<String?>(null)
     val phoneName: StateFlow<String?> = _phoneName.asStateFlow()
-    val connectedPhoneName: StateFlow<String?> = AaNearbyManager.connectedPhoneName
+    val connectedPhoneName: StateFlow<String?> = _phoneName.asStateFlow()
     @Volatile private var _defaultPhoneName: String = ""
 
     /** Set the default phone name from preferences (called at session start). */
@@ -285,11 +287,6 @@ class SessionManager(
     /** Switch phone: disconnect, restart discovery in chooser mode. */
     fun switchPhone() {
         stop()
-    }
-
-    /** Connect to a specific discovered Nearby endpoint by ID. */
-    fun connectToNearbyEndpoint(endpointId: String) {
-        aasdkSession?.nearbyManager?.connectToEndpoint(endpointId)
     }
 
     // Media session
@@ -323,7 +320,7 @@ class SessionManager(
         codecPreference: String = "h264",
         micSourcePreference: String = "car",
         scalingMode: String = "letterbox",
-        directTransport: String = "nearby",
+        directTransport: String = "hotspot",
         hotspotSsid: String = "",
         hotspotPassword: String = "",
         videoAutoNegotiate: Boolean = true,
@@ -745,22 +742,6 @@ class SessionManager(
         _touchHeight.value = resH
         _effectiveDpi.value = effectiveDpi
 
-        // Multi-phone: only relevant in nearby mode
-        if (directTransport == "nearby") {
-            session.defaultPhoneName = _defaultPhoneName
-            session.onPhoneConnected = { phoneName ->
-                _phoneName.value = phoneName
-                if (_defaultPhoneName.isEmpty()) {
-                    _defaultPhoneName = phoneName
-                    scope.launch {
-                        val c = context ?: return@launch
-                        AppPreferences.getInstance(c).setDefaultPhoneName(phoneName)
-                        OalLog.i(TAG, "Default phone saved: $phoneName")
-                    }
-                }
-            }
-        }
-
         aasdkSession = session
 
         // Observe session state
@@ -770,7 +751,6 @@ class SessionManager(
                 _sessionState.value = newState
                 _statusMessage.value = when (newState) {
                     SessionState.IDLE -> when (directTransport) {
-                        "nearby" -> "Nearby: ${AaNearbyManager.status.value}"
                         "usb" -> "USB: ${UsbConnectionManager.status.value}"
                         else -> "Searching for phone…"
                     }
@@ -816,17 +796,6 @@ class SessionManager(
         scope.launch(audioDispatcher) {
             session.audioFrames.collect { frame ->
                 _audioPlayer?.onAudioFrame(frame)
-            }
-        }
-
-        // Observe Nearby status (only in nearby mode)
-        if (directTransport == "nearby") {
-            scope.launch {
-                AaNearbyManager.status.collect { nearbyStatus ->
-                    if (_sessionState.value == SessionState.IDLE) {
-                        _statusMessage.value = "Nearby: $nearbyStatus"
-                    }
-                }
             }
         }
 
@@ -939,7 +908,7 @@ class SessionManager(
         codecPreference: String = "h264",
         micSourcePreference: String = "car",
         scalingMode: String = "letterbox",
-        directTransport: String = "nearby",
+        directTransport: String = "hotspot",
         hotspotSsid: String = "",
         hotspotPassword: String = "",
         videoAutoNegotiate: Boolean = true,

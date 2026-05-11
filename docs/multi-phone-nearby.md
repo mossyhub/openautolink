@@ -1,8 +1,14 @@
 # Multi-Phone Support — Nearby Connections Plan
 
 **Date**: 2026-04-24  
-**Status**: Planning  
+**Status**: HISTORICAL — superseded by [multi-phone.md](multi-phone.md)  
 **Scope**: Phone identification, default phone auto-connect, phone switching UI
+
+> **Note (2026-05)**: Nearby Connections is no longer used. The shipping multi-phone
+> implementation runs over TCP on the shared hotspot WiFi (Car Hotspot or Phone
+> Hotspot) with mDNS / UDP broadcast / directed warm-cache probing for discovery.
+> See [multi-phone.md](multi-phone.md) for the current design. This document is
+> kept for historical context only.
 
 ---
 

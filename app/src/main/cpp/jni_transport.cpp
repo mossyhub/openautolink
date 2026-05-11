@@ -1,8 +1,9 @@
 /*
  * jni_transport.cpp — aasdk ITransport backed by JNI byte pipe.
  *
- * Bridges Nearby Connections streams (Kotlin InputStream/OutputStream)
- * to aasdk's async Promise-based transport interface.
+ * Bridges TCP socket streams (Kotlin InputStream/OutputStream from the
+ * shared-WiFi connection to the companion app) to aasdk's async
+ * Promise-based transport interface.
  */
 #include "jni_transport.h"
 

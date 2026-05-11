@@ -168,7 +168,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_VIDEO_SCALING_MODE = "crop" // "letterbox" or "crop"
         const val DEFAULT_HOTSPOT_SSID = ""
         const val DEFAULT_HOTSPOT_PASSWORD = ""
-        const val DEFAULT_DIRECT_TRANSPORT = "hotspot" // "nearby", "hotspot", "usb"
+        const val DEFAULT_DIRECT_TRANSPORT = "hotspot" // "hotspot" (TCP over shared WiFi), "usb" (AOAv2)
         const val DEFAULT_MANUAL_IP_ENABLED = false
         const val DEFAULT_MANUAL_IP_ADDRESS = ""
         const val DEFAULT_AA_RESOLUTION = "1080p" // "480p", "720p", "1080p", "1440p", "4k"
@@ -309,10 +309,8 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
     }
 
     val directTransport: Flow<String> = dataStore.data.map { prefs ->
-        // Migrate any saved "nearby" preference to "hotspot" — Nearby mode is
-        // disabled in the UI for now (see SettingsScreen) because the system
-        // permissions needed for the BT→WiFi handoff aren't grantable on GM
-        // AAOS.
+        // Migrate any saved "nearby" preference to "hotspot" — Nearby Connections
+        // is no longer used; the companion app speaks TCP over the shared WiFi.
         val raw = prefs[DIRECT_TRANSPORT] ?: DEFAULT_DIRECT_TRANSPORT
         if (raw == "nearby") "hotspot" else raw
     }

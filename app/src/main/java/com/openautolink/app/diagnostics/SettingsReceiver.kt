@@ -38,7 +38,7 @@ import kotlinx.coroutines.runBlocking
  *   video_auto_negotiate --ez bvalue <bool>    true/false
  *   video_codec         --es svalue <str>      h264, h265
  *   video_fps           --ei value <int>       30, 60
- *   direct_transport    --es svalue <str>      hotspot, nearby
+ *   direct_transport    --es svalue <str>      hotspot, usb
  *   drive_side          --es svalue <str>      left, right
  *   manual_ip_enabled   --ez bvalue <bool>     true/false
  *   manual_ip_address   --es svalue <str>      e.g. 10.0.2.2

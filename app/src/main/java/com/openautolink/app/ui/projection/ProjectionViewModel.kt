@@ -25,7 +25,6 @@ import com.openautolink.app.input.TouchForwarderImpl
 import com.openautolink.app.navigation.ManeuverState
 import com.openautolink.app.session.SessionManager
 import com.openautolink.app.session.SessionState
-import com.openautolink.app.transport.direct.AaNearbyManager
 import com.openautolink.app.video.VideoStats
 import com.openautolink.app.diagnostics.OalLog
 import com.openautolink.app.diagnostics.DiagnosticLog
@@ -246,9 +245,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     init {
         registerTransportNetworkCallback()
 
-        // Collect connected phone name from Nearby
+        // Mirror SessionManager's connected phone name. SessionManager owns
+        // resolution (it sees PhoneConnected control messages and the active
+        // hotspot phone pick) — the projection overlay just reflects it.
         viewModelScope.launch {
-            AaNearbyManager.connectedPhoneName.collect { name ->
+            sessionManager.connectedPhoneName.collect { name ->
                 _phoneName.value = name
             }
         }
@@ -549,9 +550,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // --- Multi-phone: Phone Chooser ---
-
-    /** Discovered endpoints for the phone chooser overlay. */
-    val discoveredEndpoints = AaNearbyManager.discoveredEndpoints
 
     /**
      * Live phone discovery for Car Hotspot mode. Runs mDNS passively while
@@ -1137,13 +1135,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         return host.startsWith("fe80:", ignoreCase = true)
     }
 
-    /** User selected a phone from the chooser — connect without changing default. */
-    fun selectPhone(endpointId: String, phoneName: String) {
-        _showPhoneChooser.value = false
-        // Connect to the selected endpoint without saving as default
-        sessionManager.connectToNearbyEndpoint(endpointId)
-    }
-
     /**
      * Close the phone chooser without picking a new phone.
      *
@@ -1151,7 +1142,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      * a live session and should never tear it down on dismiss. The user's
      * intent is "I changed my mind / closed the picker."
      *
-     * In legacy **Nearby/phone-hotspot mode** the chooser was opened by
+     * In **Phone Hotspot mode** the chooser was historically opened by
      * actively disconnecting (so the user could pick from the discovery
      * list), so dismissing has to restore the default phone and reconnect.
      */
@@ -1162,7 +1153,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             // Car Hotspot: chooser was opened over a live session. Do nothing.
             return
         }
-        // Legacy path: chooser was opened with the session torn down — restore.
+        // Phone Hotspot path: chooser was opened with the session torn down — restore.
         viewModelScope.launch {
             val savedDefault = preferences.defaultPhoneName.first()
             sessionManager.setDefaultPhoneName(savedDefault)

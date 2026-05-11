@@ -393,11 +393,11 @@ private fun NetworkTab(info: NetworkInfo, probe: NetworkProbeState, viewModel: D
         probe.localHotspotSsid?.let { DiagRow("SSID", it, valueColor = Color(0xFF90CAF9)) }
         probe.localHotspotPassword?.let { DiagRow("Password", it, valueColor = Color(0xFF90CAF9)) }
 
-        // WiFi Direct (P2P) probe — does Nearby's preferred medium work here?
+        // WiFi Direct (P2P) probe — capability check, not on the current data path
         Spacer(modifier = Modifier.height(24.dp))
-        SectionHeader("WiFi Direct / P2P (Nearby preferred medium)")
+        SectionHeader("WiFi Direct / P2P (capability probe)")
         Text(
-            "Tries to create a WiFi Direct group. This is the medium Nearby Connections prefers; if it fails here, that's why Nearby mode never created its own network.",
+            "Tries to create a WiFi Direct group. Capability probe only — not on the current TCP-over-shared-hotspot data path. Useful for future peer-to-peer features.",
             color = Color(0xFF808080),
             fontSize = 11.sp,
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
