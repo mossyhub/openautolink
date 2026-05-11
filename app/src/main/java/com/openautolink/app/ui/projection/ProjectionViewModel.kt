@@ -35,7 +35,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -318,11 +317,15 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      */
     private val IDLE_SWEEP_INTERVAL_MS = 15_000L
     /**
-     * Minimum gap between activePhoneId-clear-on-IDLE and the actual
-     * clear. Sessions can briefly bounce IDLE → CONNECTING → IDLE during
-     * retries; debouncing prevents the ACTIVE badge from flickering.
+     * Wake-gap threshold above which the in-memory active phone pick is
+     * cleared so the persisted default phone re-wins. Anything past this is
+     * presumed to be a "new visit to the car": mid-drive WiFi blips and brief
+     * pauses are typically under 30s, while AAOS actually suspending the SoC
+     * long enough to produce a >1 min gap means the user almost certainly
+     * left the car (or the car genuinely powered down). Tunable from
+     * always-USB-log captures once we have real wake-gap data.
      */
-    private val ACTIVE_PHONE_ID_CLEAR_DEBOUNCE_MS = 4_000L
+    private val LONG_WAKE_CLEAR_ACTIVE_PHONE_MS = 60_000L  // 1 minute
     private val connectLock = Any()
 
     fun connect() {
@@ -688,20 +691,24 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 }
         }
-        // Clear `activePhoneId` when the session leaves STREAMING — but
-        // only after [ACTIVE_PHONE_ID_CLEAR_DEBOUNCE_MS] of continuous
-        // non-active state. Sessions can briefly bounce IDLE → CONNECTING
-        // → IDLE during retries; without the debounce the chooser's
-        // ACTIVE badge flickers off and back on.
+        // Clear the in-memory active-phone pick on a long wake gap. The pick
+        // sticks across mid-drive WiFi blips and short pit-stops (intentional:
+        // "I picked phone B for this drive"), but a long sleep gap proxies for
+        // "user left the car / fresh visit," after which the default phone
+        // should win again. Threshold tuned conservatively — see
+        // [LONG_WAKE_CLEAR_ACTIVE_PHONE_MS].
         viewModelScope.launch {
-            sessionManager.sessionState
-                .debounce(ACTIVE_PHONE_ID_CLEAR_DEBOUNCE_MS)
-                .collect { state ->
-                    if (state == SessionState.IDLE && _activePhoneId.value != null) {
-                        OalLog.d(TAG, "Clearing activePhoneId after debounced IDLE")
-                        _activePhoneId.value = null
-                    }
+            sessionManager.wakeEvents.collect { event ->
+                if (event.gapMs >= LONG_WAKE_CLEAR_ACTIVE_PHONE_MS &&
+                    _activePhoneId.value != null) {
+                    OalLog.i(
+                        TAG,
+                        "Wake gap ${event.gapMs}ms ≥ ${LONG_WAKE_CLEAR_ACTIVE_PHONE_MS}ms — " +
+                            "clearing active phone pick (reason=${event.reason})",
+                    )
+                    _activePhoneId.value = null
                 }
+            }
         }
         // Drive the [carHotspotStatus] flow from connection mode +
         // sessionState + chooser visibility + switching flag + default-set

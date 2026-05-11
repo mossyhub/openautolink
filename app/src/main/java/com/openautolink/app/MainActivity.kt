@@ -92,8 +92,19 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // On AAOS, resume after car sleep leaves TCP sockets dead.
-        // Detect time gaps and force-reconnect stale connections.
+        // SessionManager dedupes against the SCREEN_ON broadcast receiver
+        // (which empirically does not fire on this car) and emits a wake
+        // event observers can react to.
         com.openautolink.app.session.SessionManager.instanceOrNull()?.onSystemWake()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Mirror onResume on the sleep side. Lets the next markWake compute
+        // gap from "going idle" rather than "last control message", which
+        // matters when streaming keeps lastActiveTimestamp fresh right up
+        // until the SoC suspends.
+        com.openautolink.app.session.SessionManager.instanceOrNull()?.onActivityPaused()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

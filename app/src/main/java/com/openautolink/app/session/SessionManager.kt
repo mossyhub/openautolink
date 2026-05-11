@@ -43,8 +43,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.cancelAndJoin
@@ -298,21 +301,35 @@ class SessionManager(
     private var keyframeWatchJob: Job? = null
     private var callStateJob: Job? = null
 
-    // Track last known active time for sleep/wake detection
+    // Track last known active time for sleep/wake detection.
+    // Single source of truth, updated on:
+    //   - every incoming control message (proves we're running)
+    //   - Activity.onPause / SCREEN_OFF via markGoingIdle ("freeze" the timestamp before suspend)
+    //   - markWake itself (so a second wake signal within a few seconds doesn't recompute the same gap)
     private var lastActiveTimestamp = SystemClock.elapsedRealtime()
+
+    /**
+     * Wake-event flow. Emits whenever the system or activity transitions back
+     * to running after a (possibly long) idle period. Fed from two redundant
+     * sources — Activity.onResume and the SCREEN_ON broadcast — with dedupe in
+     * [markWake] so observers see exactly one event per real wake.
+     */
+    data class WakeEvent(val reason: String, val gapMs: Long)
+    private val _wakeEvents = MutableSharedFlow<WakeEvent>(extraBufferCapacity = 4)
+    val wakeEvents: SharedFlow<WakeEvent> = _wakeEvents.asSharedFlow()
+
+    /** Dedupe window for wake signals from multiple sources firing in quick succession. */
+    private val WAKE_DEDUPE_MS = 2_000L
+    /** Wake gap beyond which the current TCP socket is presumed dead and we force a reconnect. */
+    private val LONG_WAKE_FORCE_RECONNECT_MS = 30_000L
+    /** Last elapsedRealtime we ran the full wake handler for. Used for dedupe. */
+    @Volatile private var lastWakeHandledAtMs = 0L
 
     /** Reentrancy guard for reconnect() so rapid Save&Reconnect taps coalesce. */
     @Volatile private var reconnectInProgress = false
 
-    /** Screen-off receiver registration tracker. */
+    /** SCREEN_OFF/_ON receiver registration tracker. */
     private var screenReceiver: android.content.BroadcastReceiver? = null
-    /** True when we proactively stopped the session for sleep; restart on wake. */
-    @Volatile private var pausedForSleep = false
-    /** Timestamp of the most recent SCREEN_ON / USER_PRESENT — used to suppress
-     *  SCREEN_OFF that AAOS sometimes delivers seconds AFTER wake (queued during
-     *  input dispatch). Without this, a queued SCREEN_OFF tears down a freshly
-     *  woken session right after we restored it. */
-    @Volatile private var lastWakeTimestamp = 0L
 
     fun start(
         codecPreference: String = "h264",
@@ -1069,64 +1086,100 @@ class SessionManager(
     }
 
     /**
-     * Called from Activity.onResume() to detect system sleep/wake.
+     * Called from [MainActivity.onResume]. Belt-and-suspenders alongside the
+     * SCREEN_ON broadcast receiver registered in [registerScreenReceiver] —
+     * both call into [markWake], which dedupes via [WAKE_DEDUPE_MS] so only
+     * one wake handler runs per real wake regardless of source.
      */
     fun onSystemWake() {
-        val now = SystemClock.elapsedRealtime()
-        val elapsed = now - lastActiveTimestamp
-        lastActiveTimestamp = now
-        // Mark wake so a queued SCREEN_OFF that arrives moments later (AAOS
-        // sometimes delivers it post-wake) is ignored by the screen receiver.
-        lastWakeTimestamp = now
+        markWake("activity_resume")
+    }
 
-        // If we paused for sleep, always restart on wake regardless of gap.
-        if (pausedForSleep) {
-            pausedForSleep = false
-            OalLog.i(TAG, "System wake: restarting session paused for sleep (${elapsed / 1000}s gap)")
-            DiagnosticLog.i("transport", "Wake: restart paused session (${elapsed / 1000}s)")
-            // Run on IO — start() reaches into JNI/SSL init.
-            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                aasdkSession?.start()
-            }
-            _clusterManager?.ensureAlive()
-            _mediaSessionManager?.getSessionToken()?.let { token ->
-                OalMediaBrowserService.updateSessionToken(token)
-            }
+    /**
+     * Called from [MainActivity.onPause]. Mirrors [onSystemWake] on the sleep
+     * side — both this and the SCREEN_OFF broadcast call [markGoingIdle],
+     * which freezes [lastActiveTimestamp] so the gap on the next wake is
+     * measured from this point rather than the last incoming control message.
+     */
+    fun onActivityPaused() {
+        markGoingIdle("activity_pause")
+    }
+
+    /**
+     * Single entry point for "the system just woke up". Called from multiple
+     * sources (Activity.onResume + SCREEN_ON / USER_PRESENT broadcasts);
+     * deduplicated via [WAKE_DEDUPE_MS] so a second source firing within a
+     * few seconds is a no-op.
+     *
+     * Behavior:
+     *  - Emit a [WakeEvent] on [wakeEvents] for observers (e.g. ProjectionViewModel
+     *    clears its in-memory active phone on a long gap).
+     *  - Re-assert cluster binding + MediaSession token (cheap; GM cluster can
+     *    drop these during suspend).
+     *  - If the gap is "long" and we were not IDLE before sleep, force a clean
+     *    reconnect — the TCP socket is almost certainly dead from the suspend.
+     */
+    fun markWake(reason: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastWakeHandledAtMs < WAKE_DEDUPE_MS) {
+            OalLog.d(TAG, "Wake dedup (reason=$reason within ${WAKE_DEDUPE_MS}ms)")
             return
         }
+        val gap = now - lastActiveTimestamp
+        lastWakeHandledAtMs = now
+        lastActiveTimestamp = now
 
-        if (elapsed < 10_000) return
-        val state = _sessionState.value
-        if (state == SessionState.IDLE) return
+        val gapStr = formatGap(gap)
+        OalLog.i(TAG, "Wake: reason=$reason gap=$gapStr")
+        DiagnosticLog.i("transport", "Wake: $reason gap=$gapStr")
 
-        OalLog.i(TAG, "System wake detected (${elapsed / 1000}s gap, state=$state)")
-        DiagnosticLog.i("transport", "System wake detected (${elapsed / 1000}s gap)")
+        _wakeEvents.tryEmit(WakeEvent(reason, gap))
 
-        // Re-establish cluster binding — GM Templates Host may have killed
-        // the session during sleep/suspend
+        // Re-establish cluster + MediaSession bindings — GM Templates Host can
+        // drop these during suspend even when our process survives.
         _clusterManager?.ensureAlive()
-
-        // Re-push MediaSession token — cluster media widget may have lost binding
         _mediaSessionManager?.getSessionToken()?.let { token ->
             OalMediaBrowserService.updateSessionToken(token)
         }
 
-        // Long gap (>30s) with the session not in IDLE means our TCP socket is
-        // almost certainly dead from suspend. Force a clean reconnect rather
-        // than wait for the keepalive/ping watchdog to notice.
-        if (elapsed > 30_000) {
-            OalLog.w(TAG, "Long wake gap — forcing clean reconnect")
+        // Long gap means TCP socket is almost certainly dead. Force a clean
+        // reconnect rather than wait for the keepalive watchdog.
+        if (gap > LONG_WAKE_FORCE_RECONNECT_MS &&
+            _sessionState.value != SessionState.IDLE) {
+            OalLog.w(TAG, "Long wake gap ($gapStr) — forcing clean reconnect")
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                aasdkSession?.forceReconnect("system wake after ${elapsed / 1000}s gap")
+                aasdkSession?.forceReconnect("wake gap $gapStr")
             }
         }
     }
 
     /**
-     * Register a receiver for ACTION_SCREEN_OFF so we can gracefully tear down
-     * the AA session before AAOS deep-suspends. Without this, sockets go stale
-     * during sleep and on wake the app sits on a dead pipe rendering the last
-     * frame until the user manually reconnects.
+     * Single entry point for "system is going idle." Called from
+     * Activity.onPause and SCREEN_OFF. Freezes [lastActiveTimestamp] so the
+     * gap measured at the next wake reflects time-since-going-idle, not
+     * time-since-last-control-message (the latter can be many seconds stale
+     * during steady streaming).
+     */
+    fun markGoingIdle(reason: String) {
+        lastActiveTimestamp = SystemClock.elapsedRealtime()
+        OalLog.i(TAG, "Going idle: $reason")
+        DiagnosticLog.i("transport", "Going idle: $reason")
+    }
+
+    private fun formatGap(ms: Long): String = when {
+        ms < 1_000 -> "${ms}ms"
+        ms < 60_000 -> "${ms / 1000}s"
+        ms < 3_600_000 -> "${ms / 60_000}m${(ms % 60_000) / 1000}s"
+        else -> "${ms / 3_600_000}h${(ms % 3_600_000) / 60_000}m"
+    }
+
+    /**
+     * Register a receiver for ACTION_SCREEN_OFF / _ON / USER_PRESENT. These
+     * broadcasts are not reliably delivered on every AAOS build (empirical:
+     * never observed firing on the 2024 Blazer EV during driving sessions),
+     * so the Activity.onResume / onPause callbacks in [MainActivity] are the
+     * primary signal. This receiver is belt-and-suspenders: when broadcasts
+     * do fire, [markWake]'s dedupe ensures we don't run the handler twice.
      */
     private fun registerScreenReceiver() {
         if (screenReceiver != null) return
@@ -1134,39 +1187,11 @@ class SessionManager(
         val r = object : android.content.BroadcastReceiver() {
             override fun onReceive(c: android.content.Context?, intent: android.content.Intent?) {
                 when (intent?.action) {
-                    android.content.Intent.ACTION_SCREEN_OFF -> {
-                        // Suppress SCREEN_OFF that arrives shortly after a wake.
-                        // AAOS broadcasts can be queued/delayed during input
-                        // dispatch and we'd otherwise tear down a freshly woken
-                        // session. 5s window is generous; real sleep events
-                        // come in solo with no recent wake.
-                        val now = SystemClock.elapsedRealtime()
-                        if ((now - lastWakeTimestamp) < 5_000) {
-                            OalLog.i(TAG, "SCREEN_OFF ignored — arrived ${now - lastWakeTimestamp}ms after wake")
-                            return
-                        }
-                        if (_sessionState.value != SessionState.IDLE && aasdkSession != null) {
-                            OalLog.i(TAG, "SCREEN_OFF — pausing AA session for sleep")
-                            DiagnosticLog.i("transport", "SCREEN_OFF: pause for sleep")
-                            pausedForSleep = true
-                            _statusMessage.value = "Paused for sleep"
-                            // Run aasdkSession.stop() off Main — it joins the C++
-                            // io_thread via JNI and can take 100s of ms. Doing this
-                            // on Main causes ANRs which are reported as crashes.
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                aasdkSession?.stop()
-                            }
-                        }
-                    }
+                    android.content.Intent.ACTION_SCREEN_OFF ->
+                        markGoingIdle("screen_off")
                     android.content.Intent.ACTION_SCREEN_ON,
-                    android.content.Intent.ACTION_USER_PRESENT -> {
-                        // Record wake so a queued SCREEN_OFF arriving moments
-                        // later doesn't tear down our just-restarted session.
-                        lastWakeTimestamp = SystemClock.elapsedRealtime()
-                        if (pausedForSleep) {
-                            OalLog.i(TAG, "SCREEN_ON received — wake handler will restart session")
-                        }
-                    }
+                    android.content.Intent.ACTION_USER_PRESENT ->
+                        markWake(intent.action ?: "screen_on")
                 }
             }
         }
@@ -1177,8 +1202,8 @@ class SessionManager(
         }
         try {
             // SCREEN_OFF / SCREEN_ON / USER_PRESENT are protected system
-            // broadcasts — they're never sent by other apps, so RECEIVER_NOT_EXPORTED
-            // is safe and required on Android 14+ (target SDK 34+).
+            // broadcasts so RECEIVER_NOT_EXPORTED is safe and required on
+            // Android 14+ (target SDK 34+).
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                 ctx.registerReceiver(r, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
             } else {
