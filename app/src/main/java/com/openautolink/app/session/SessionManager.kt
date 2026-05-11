@@ -264,10 +264,8 @@ class SessionManager(
     private val _transportMode = MutableStateFlow("hotspot")
     val transportMode: StateFlow<String> = _transportMode.asStateFlow()
 
-    // Multi-phone: current connected phone friendly name. Resolved by
-    // ProjectionViewModel from mDNS / known-phones store; not set here.
-    private val _phoneName = MutableStateFlow<String?>(null)
-    val phoneName: StateFlow<String?> = _phoneName.asStateFlow()
+    // Multi-phone default. The currently-connected phone's friendly name is
+    // resolved by ProjectionViewModel from PhoneDiscovery + knownPhonesStore.
     @Volatile private var _defaultPhoneName: String = ""
 
     /** Set the default phone name from preferences (called at session start). */

@@ -7,7 +7,6 @@ import com.openautolink.app.diagnostics.OalLog
 import com.openautolink.app.transport.AudioPurpose
 import com.openautolink.app.transport.ConnectionState
 import com.openautolink.app.transport.ControlMessage
-
 import com.openautolink.app.transport.hotspot.TcpConnector
 import com.openautolink.app.transport.usb.UsbConnectionManager
 import com.openautolink.app.video.VideoFrame
