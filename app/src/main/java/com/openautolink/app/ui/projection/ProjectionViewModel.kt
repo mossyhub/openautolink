@@ -815,6 +815,16 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     connect()
                 }
         }
+
+        // Auto-start file logging on USB whenever the pref is on AND a USB
+        // drive is mounted. Watch both the pref and storage-volume mount
+        // events so attaching a stick mid-session also starts logging.
+        registerUsbStorageReceiver()
+        viewModelScope.launch {
+            preferences.fileLoggingAutoStartUsb.collect { enabled ->
+                evaluateAutoUsbLogging(enabled, "pref-change")
+            }
+        }
     }
 
     /**
@@ -1235,42 +1245,147 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     private var fileLogToggleLock = Any()
 
+    /** True while the auto-start-on-USB pref owns the current file-logger session.
+     *  When the user manually stops via the overlay record button we clear this
+     *  so the auto-start observer won't immediately restart it on the next USB
+     *  mount event \u2014 they'll have to toggle the pref off/on or restart the app. */
+    @Volatile private var autoUsbLoggingActive = false
+
     fun toggleFileLogging() {
         synchronized(fileLogToggleLock) {
             if (_fileLoggingActive.value) {
-                // Stop
-                logcatCapture?.stop()
-                logcatCapture = null
-                fileLogWriter?.stop()
-                DiagnosticLog.fileLogWriter = null
-                fileLogWriter = null
-                _fileLoggingActive.value = false
-                _fileLoggingPath.value = null
+                stopFileLoggingLocked()
+                autoUsbLoggingActive = false
             } else {
-                // Start
-                val writer = FileLogWriter(getApplication())
-                val path = writer.start()
-                if (path != null) {
-                    fileLogWriter = writer
-                    DiagnosticLog.fileLogWriter = writer
-                    _fileLoggingActive.value = true
-                    _fileLoggingPath.value = path
-                    // Write existing ring buffer entries so we have context
-                    writer.writeExistingLogs(DiagnosticLog.localLogs.value)
+                startFileLoggingLocked(requireRemovable = false)
+            }
+        }
+    }
 
-                    // Optionally start logcat capture if enabled in settings
-                    viewModelScope.launch {
-                        val captureEnabled = preferences.logcatCaptureEnabled.first()
-                        if (captureEnabled) {
-                            val logDir = java.io.File(path).parentFile
-                            if (logDir != null) {
-                                val capture = LogcatCapture()
-                                capture.start(logDir)
-                                logcatCapture = capture
-                            }
-                        }
-                    }
+    /**
+     * Internal start helper \u2014 must be called under [fileLogToggleLock].
+     * Returns true if logging actually started.
+     */
+    private fun startFileLoggingLocked(requireRemovable: Boolean): Boolean {
+        if (_fileLoggingActive.value) return true
+        val writer = FileLogWriter(getApplication())
+        val path = writer.start(requireRemovable) ?: return false
+        fileLogWriter = writer
+        DiagnosticLog.fileLogWriter = writer
+        _fileLoggingActive.value = true
+        _fileLoggingPath.value = path
+        // Write existing ring buffer entries so we have context
+        writer.writeExistingLogs(DiagnosticLog.localLogs.value)
+
+        // Optionally start logcat capture if enabled in settings
+        viewModelScope.launch {
+            val captureEnabled = preferences.logcatCaptureEnabled.first()
+            if (captureEnabled) {
+                val logDir = java.io.File(path).parentFile
+                if (logDir != null) {
+                    val capture = LogcatCapture()
+                    capture.start(logDir)
+                    logcatCapture = capture
                 }
+            }
+        }
+        return true
+    }
+
+    /** Internal stop helper — must be called under [fileLogToggleLock]. */
+    private fun stopFileLoggingLocked() {
+        logcatCapture?.stop()
+        logcatCapture = null
+        fileLogWriter?.stop()
+        DiagnosticLog.fileLogWriter = null
+        fileLogWriter = null
+        _fileLoggingActive.value = false
+        _fileLoggingPath.value = null
+    }
+
+    /** Receiver for USB storage mount/unmount so auto-USB logging can react
+     *  to a stick being plugged in or yanked mid-session. */
+    private var usbStorageReceiver: android.content.BroadcastReceiver? = null
+
+    private fun registerUsbStorageReceiver() {
+        if (usbStorageReceiver != null) return
+        val ctx = getApplication<Application>()
+        val r = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: android.content.Context?, intent: android.content.Intent?) {
+                val action = intent?.action ?: return
+                viewModelScope.launch {
+                    val enabled = preferences.fileLoggingAutoStartUsb.first()
+                    evaluateAutoUsbLogging(enabled, action)
+                }
+            }
+        }
+        val filter = android.content.IntentFilter().apply {
+            addAction(android.content.Intent.ACTION_MEDIA_MOUNTED)
+            addAction(android.content.Intent.ACTION_MEDIA_UNMOUNTED)
+            addAction(android.content.Intent.ACTION_MEDIA_EJECT)
+            addAction(android.content.Intent.ACTION_MEDIA_REMOVED)
+            addAction(android.content.Intent.ACTION_MEDIA_BAD_REMOVAL)
+            addDataScheme("file")
+        }
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                ctx.registerReceiver(r, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                ctx.registerReceiver(r, filter)
+            }
+            usbStorageReceiver = r
+        } catch (e: Exception) {
+            OalLog.w(TAG, "USB storage receiver registration failed: ${e.message}")
+        }
+    }
+
+    private fun unregisterUsbStorageReceiver() {
+        val ctx = getApplication<Application>()
+        usbStorageReceiver?.let {
+            try { ctx.unregisterReceiver(it) } catch (_: Exception) {}
+        }
+        usbStorageReceiver = null
+    }
+
+    /**
+     * Apply the auto-USB-logging pref against current storage state.
+     *
+     * - Pref on + USB present + not currently logging → start (USB-only).
+     * - Pref on + USB present + manually-stopped session → don't restart
+     *   (user explicitly stopped via overlay button this app-run).
+     * - Pref off + auto-owned session active → stop.
+     * - USB removed while auto-owned session active → stop.
+     */
+    private fun evaluateAutoUsbLogging(prefEnabled: Boolean, reason: String) {
+        synchronized(fileLogToggleLock) {
+            if (!prefEnabled) {
+                if (autoUsbLoggingActive && _fileLoggingActive.value) {
+                    OalLog.i(TAG, "USB auto-logging: stopping (pref off, reason=$reason)")
+                    stopFileLoggingLocked()
+                }
+                autoUsbLoggingActive = false
+                return
+            }
+            val probe = FileLogWriter(getApplication())
+            val hasUsb = probe.hasRemovableStorage()
+            if (!hasUsb) {
+                if (autoUsbLoggingActive && _fileLoggingActive.value) {
+                    OalLog.i(TAG, "USB auto-logging: stopping (USB removed, reason=$reason)")
+                    stopFileLoggingLocked()
+                }
+                // Keep autoUsbLoggingActive flag so we restart on next mount.
+                autoUsbLoggingActive = true
+                return
+            }
+            if (_fileLoggingActive.value) {
+                autoUsbLoggingActive = true
+                return
+            }
+            val started = startFileLoggingLocked(requireRemovable = true)
+            if (started) {
+                autoUsbLoggingActive = true
+                OalLog.i(TAG, "USB auto-logging: started (reason=$reason)")
             }
         }
     }
@@ -1422,6 +1537,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         logcatCapture?.stop()
         fileLogWriter?.stop()
         DiagnosticLog.fileLogWriter = null
+        unregisterUsbStorageReceiver()
         sessionManager.stop()
         super.onCleared()
     }

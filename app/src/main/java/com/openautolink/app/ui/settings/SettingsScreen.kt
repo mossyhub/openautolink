@@ -2294,6 +2294,28 @@ private fun DiagnosticsSettingsTab(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                Text("Always Log to USB", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Automatically start file logging whenever the app is running, " +
+                        "but ONLY if a USB drive is mounted. No fallback to internal " +
+                        "storage. Logging starts as soon as a stick is attached and " +
+                        "stops when it's removed. Independent of the overlay record " +
+                        "button \u2014 it can still be used to stop a session early.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = uiState.fileLoggingAutoStartUsb,
+                onCheckedChange = { viewModel.updateFileLoggingAutoStartUsb(it) },
+                modifier = Modifier.testTag("fileLoggingAutoUsbToggle"),
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(0.7f).padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text("Include Full Logcat", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     "Also capture the full Android logcat for our app's process " +

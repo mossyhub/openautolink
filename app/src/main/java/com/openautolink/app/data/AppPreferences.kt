@@ -73,6 +73,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val CLUSTER_NAVIGATION = booleanPreferencesKey("cluster_navigation")
         val OVERLAY_STATS_BUTTON = booleanPreferencesKey("overlay_stats_button")
         val FILE_LOGGING_ENABLED = booleanPreferencesKey("file_logging_enabled")
+        val FILE_LOGGING_AUTOSTART_USB = booleanPreferencesKey("file_logging_autostart_usb")
         val LOGCAT_CAPTURE_ENABLED = booleanPreferencesKey("logcat_capture_enabled")
 
         // AA safe area (stable) insets — maps render, UI stays inside
@@ -199,6 +200,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_CLUSTER_NAVIGATION = true
         const val DEFAULT_OVERLAY_STATS_BUTTON = true
         const val DEFAULT_FILE_LOGGING_ENABLED = false
+        const val DEFAULT_FILE_LOGGING_AUTOSTART_USB = false
         const val DEFAULT_LOGCAT_CAPTURE_ENABLED = false
         const val DEFAULT_SAFE_AREA_TOP = 0
         const val DEFAULT_SAFE_AREA_BOTTOM = 0
@@ -383,6 +385,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         prefs[FILE_LOGGING_ENABLED] ?: DEFAULT_FILE_LOGGING_ENABLED
     }
 
+    val fileLoggingAutoStartUsb: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[FILE_LOGGING_AUTOSTART_USB] ?: DEFAULT_FILE_LOGGING_AUTOSTART_USB
+    }
+
     val logcatCaptureEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[LOGCAT_CAPTURE_ENABLED] ?: DEFAULT_LOGCAT_CAPTURE_ENABLED
     }
@@ -541,6 +547,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setFileLoggingEnabled(enabled: Boolean) {
         dataStore.edit { it[FILE_LOGGING_ENABLED] = enabled }
+    }
+
+    suspend fun setFileLoggingAutoStartUsb(enabled: Boolean) {
+        dataStore.edit { it[FILE_LOGGING_AUTOSTART_USB] = enabled }
     }
 
     suspend fun setLogcatCaptureEnabled(enabled: Boolean) {

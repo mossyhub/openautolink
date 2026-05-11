@@ -58,13 +58,22 @@ class FileLogWriter(private val context: Context) {
 
     /**
      * Start writing logs to a new file. Returns the file path or null on failure.
+     *
+     * When [requireRemovable] is true, only removable storage (USB stick) is used.
+     * If no removable volume is mounted, this returns null and does NOT fall back
+     * to internal shared storage — used by the auto-start-on-USB pref so we don't
+     * silently fill internal storage when no USB drive is present.
      */
-    fun start(): String? {
+    fun start(requireRemovable: Boolean = false): String? {
         synchronized(lock) {
             if (isActive) return currentFilePath
 
-            val dir = resolveLogDir() ?: run {
-                OalLog.w(TAG, "No writable storage found for file logging")
+            val dir = resolveLogDir(requireRemovable) ?: run {
+                if (requireRemovable) {
+                    OalLog.i(TAG, "USB-only file logging requested but no removable storage found")
+                } else {
+                    OalLog.w(TAG, "No writable storage found for file logging")
+                }
                 return null
             }
 
@@ -168,8 +177,9 @@ class FileLogWriter(private val context: Context) {
     /**
      * Find the best directory for log files.
      * Prefers removable storage (USB stick) over internal shared storage.
+     * When [removableOnly] is true, returns null if no removable volume is mounted.
      */
-    private fun resolveLogDir(): File? {
+    private fun resolveLogDir(removableOnly: Boolean = false): File? {
         // Try removable storage volumes first (USB sticks)
         val externalDirs = context.getExternalFilesDirs(null)
         for (dir in externalDirs) {
@@ -181,6 +191,8 @@ class FileLogWriter(private val context: Context) {
             }
         }
 
+        if (removableOnly) return null
+
         // Fallback: primary external storage (internal shared storage)
         val primary = context.getExternalFilesDir(null)
         if (primary != null) {
@@ -189,6 +201,25 @@ class FileLogWriter(private val context: Context) {
         }
 
         return null
+    }
+
+    /**
+     * Returns true if any removable storage volume is currently mounted and writable.
+     * Used by the USB-auto-start path to skip starting a writer when no stick is
+     * present.
+     */
+    fun hasRemovableStorage(): Boolean {
+        return try {
+            val externalDirs = context.getExternalFilesDirs(null)
+            externalDirs.any { dir ->
+                dir != null && Environment.isExternalStorageRemovable(dir) && run {
+                    val logDir = File(dir, DIR_NAME)
+                    ensureDir(logDir)
+                }
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun ensureDir(dir: File): Boolean {
