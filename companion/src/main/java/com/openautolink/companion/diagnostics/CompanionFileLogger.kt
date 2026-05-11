@@ -160,7 +160,7 @@ class CompanionFileLogger(private val context: Context) {
                 val process = Runtime.getRuntime().exec(arrayOf(
                     "logcat", "-v", "threadtime",
                     // Filter to our tags + system WiFi/connectivity
-                    "OAL_Service:V", "OAL_Nearby:V", "OAL_TcpAdv:V",
+                    "OAL_Service:V", "OAL_TcpAdv:V",
                     "OAL_Proxy:V", "OAL_BtAutoStart:V", "OAL_WifiJob:V",
                     "OAL_WifiRx:V", "OAL_Trigger:V", "OAL_FileLog:V",
                     "WifiStateMachine:I", "ConnectivityService:I",

@@ -15,7 +15,7 @@ import com.openautolink.companion.service.CompanionService
 /**
  * Broadcast receiver for Bluetooth ACL connect/disconnect events.
  * When a target BT device connects and auto-start mode is BT,
- * starts the CompanionService to begin Nearby advertising.
+ * starts the CompanionService to begin TCP advertising.
  */
 class AutoStartReceiver : BroadcastReceiver() {
 

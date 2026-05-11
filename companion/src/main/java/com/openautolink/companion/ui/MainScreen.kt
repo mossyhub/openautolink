@@ -361,18 +361,6 @@ fun MainScreen(
             HorizontalDivider()
             Spacer(Modifier.height(20.dp))
 
-            // Migrate any legacy "nearby" transport pref to TCP. The Nearby
-            // path is broken on GM AAOS (the car-side app can't get the
-            // permissions needed for the BT→WiFi handoff), so TCP is the
-            // only working transport. Done silently — the user has no
-            // choice to make here.
-            run {
-                val current = prefs.getString(CompanionPrefs.TRANSPORT_MODE, CompanionPrefs.DEFAULT_TRANSPORT)
-                if (current != CompanionPrefs.TRANSPORT_TCP) {
-                    prefs.edit().putString(CompanionPrefs.TRANSPORT_MODE, CompanionPrefs.TRANSPORT_TCP).apply()
-                }
-            }
-
             // ── Auto-Start Section ─────────────────────────────────
             Text(
                 text = "Auto-Start",

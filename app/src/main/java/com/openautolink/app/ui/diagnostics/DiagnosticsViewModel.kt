@@ -797,8 +797,8 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     // ── WiFi Direct (P2P) Probe ─────────────────────────────────────
     // Tests whether the head unit can act as a WiFi Direct Group Owner.
-    // Nearby Connections prefers this medium when available; if it fails
-    // here, that's why "Nearby mode" never created its own network.
+    // Not used by the current TCP-over-shared-hotspot path; kept as a
+    // capability probe for future peer-to-peer features.
 
     private var p2pManager: android.net.wifi.p2p.WifiP2pManager? = null
     private var p2pChannel: android.net.wifi.p2p.WifiP2pManager.Channel? = null

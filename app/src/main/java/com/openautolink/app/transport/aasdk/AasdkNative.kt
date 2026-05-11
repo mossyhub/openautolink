@@ -5,7 +5,7 @@ package com.openautolink.app.transport.aasdk
  *
  * This is the single entry point for all native calls. The native library
  * manages a single aasdk session that speaks the AA wire protocol directly
- * to the phone via a transport pipe (Nearby Connections stream).
+ * to the phone via a transport pipe (TCP socket streams).
  *
  * Threading: All native methods are thread-safe. The C++ side uses
  * boost::asio::io_service with strand-based serialization.
@@ -28,7 +28,7 @@ object AasdkNative {
 
     /**
      * Start the AA session over the given transport pipe.
-     * @param transportPipe provides readBytes/writeBytes for the Nearby stream
+     * @param transportPipe provides readBytes/writeBytes for the TCP stream
      * @param callback receives AA events (video, audio, nav, etc.)
      * @param sdrConfig service discovery response configuration
      */

@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Local TCP proxy that relays Android Auto protocol data between the AA
  * app on this phone (connected via localhost) and the car (connected via
- * a pre-connected NearbySocket or remote TCP).
+ * a pre-existing TCP socket from [TcpAdvertiser]).
  *
  * Note: preConnectedSocket is used for exactly one bridge session.
  * If AA reconnects, the proxy must be recreated with a new socket.
@@ -122,7 +122,7 @@ class AaProxy(
                 CompanionLog.i(TAG, "Bridge closed")
                 activeCarSocket = null
                 runCatching { aaSocket.close() }
-                // Don't close carSocket here — let the NearbyAdvertiser manage it via cleanup()
+                // Don't close carSocket here — let the TcpAdvertiser manage it via cleanup()
                 if (activeBridges.decrementAndGet() <= 0) {
                     listener?.onDisconnected()
                 }
