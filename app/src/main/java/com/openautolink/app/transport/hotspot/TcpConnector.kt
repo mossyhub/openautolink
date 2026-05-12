@@ -28,6 +28,14 @@ class TcpConnector(
     private val context: Context,
     private val scope: CoroutineScope,
     private val onSocketReady: (Socket) -> Unit,
+    /**
+     * Optional: called once after a full attempt cycle fails to connect (one
+     * tryConnect for manual IP, or all of mDNS+gateway). Used to drive UI
+     * escalation (e.g. open the phone picker after N failures) without
+     * relying on session-level retries — when the phone is unreachable at
+     * the TCP layer we never get an onSessionStopped to count from.
+     */
+    private val onConnectFailure: (() -> Unit)? = null,
 ) {
     companion object {
         private const val TAG = "OAL-TcpConn"
@@ -70,24 +78,29 @@ class TcpConnector(
                 // Manual IP — skip all discovery, connect directly
                 if (manual != null) {
                     if (tryConnect(manual, COMPANION_PORT, "manual")) return@launch
+                    onConnectFailure?.invoke()
                     delay(RETRY_DELAY_MS)
                     continue
                 }
 
                 // Try mDNS-discovered host first
                 val nsdHost = nsdFoundHost
+                var anyTried = false
                 if (nsdHost != null && nsdFoundPort > 0) {
+                    anyTried = true
                     if (tryConnect(nsdHost, nsdFoundPort, "mDNS")) return@launch
                 }
 
                 // Fall back to gateway IP (works on phone hotspot)
                 val gatewayIp = getGatewayIp()
                 if (gatewayIp != null) {
+                    anyTried = true
                     if (tryConnect(gatewayIp, COMPANION_PORT, "gateway")) return@launch
                 } else {
                     OalLog.d(TAG, "No WiFi gateway — waiting for mDNS or network...")
                 }
 
+                if (anyTried) onConnectFailure?.invoke()
                 delay(RETRY_DELAY_MS)
             }
         }

@@ -133,12 +133,23 @@ class AasdkSession(
     private fun startTcp() {
         OalLog.i(TAG, "Starting aasdk session (TCP/hotspot transport)")
         _tcpConnector?.stop()
-        _tcpConnector = TcpConnector(context, scope) { tcpSocket ->
-            scope.launch(Dispatchers.IO) {
-                OalLog.i(TAG, "TCP socket ready — starting aasdk native session")
-                handleConnection(tcpSocket)
-            }
-        }
+        _tcpConnector = TcpConnector(
+            context,
+            scope,
+            onSocketReady = { tcpSocket ->
+                scope.launch(Dispatchers.IO) {
+                    OalLog.i(TAG, "TCP socket ready — starting aasdk native session")
+                    handleConnection(tcpSocket)
+                }
+            },
+            onConnectFailure = {
+                // Drive the same reconnectAttempt counter the session-stopped
+                // path uses, so picker escalation works even when we never
+                // got to handshake (companion not listening, phone off-net).
+                consecutiveReconnectFailures++
+                _reconnectAttempt.value = consecutiveReconnectFailures
+            },
+        )
         _tcpConnector?.manualIp = manualIpAddress
         _tcpConnector?.start()
     }

@@ -340,33 +340,62 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         //   - No default phone is set yet (first-run or after Forget — the
         //     user hasn't told us which phone to prefer, so don't guess).
         // Explicit picks pass overrideIp and bypass this gate entirely.
+        //
+        // IMPORTANT: read these prefs via `.first()` instead of `.value` on
+        // the stateIn StateFlows — the StateFlows seed an INITIAL VALUE
+        // (empty / DEFAULT_*) before DataStore has actually emitted, so a
+        // connect() called immediately after Activity creation (e.g. from
+        // the projection screen's DisposableEffect) saw stale "no default
+        // phone" and popped the chooser even when the user had a saved
+        // default. DataStore's Flow guarantees the first emission carries
+        // the persisted value, so awaiting it here is correct and cheap.
         if (overrideIp == null) {
-            val mode = connectionMode.value
-            if (mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
-                val noDefault = defaultPhoneId.value.isBlank()
-                val askMode = alwaysAskPhone.value
-                if (noDefault || askMode) {
-                    val reason = when {
-                        askMode && noDefault -> "always-ask + no default"
-                        askMode -> "always-ask is on"
-                        else -> "no default phone set"
-                    }
-                    OalLog.i(TAG, "Opening chooser instead of auto-connecting: $reason")
-                    _showPhoneChooser.value = true
-                    phoneDiscovery.start()
-                    // No sweep here — mDNS handles the common case; user taps
-                    // Scan in the chooser if it doesn't surface their phone.
+            // Acquire the in-flight slot synchronously before suspending so
+            // concurrent connect() callers don't all race past the gate.
+            synchronized(connectLock) {
+                if (hasConnected && sessionManager.sessionState.value != SessionState.IDLE) {
+                    sessionManager.ensureClusterAlive()
                     return
                 }
+                if (connectInFlight) {
+                    OalLog.d(TAG, "connect() ignored — another connect coroutine is already in flight")
+                    return
+                }
+                connectInFlight = true
+                hasConnected = true
             }
+            viewModelScope.launch {
+                try {
+                    val mode = preferences.connectionMode.first()
+                    if (mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
+                        val defaultId = preferences.defaultPhoneId.first()
+                        val askMode = preferences.alwaysAskPhone.first()
+                        val noDefault = defaultId.isBlank()
+                        if (noDefault || askMode) {
+                            val reason = when {
+                                askMode && noDefault -> "always-ask + no default"
+                                askMode -> "always-ask is on"
+                                else -> "no default phone set"
+                            }
+                            OalLog.i(TAG, "Opening chooser instead of auto-connecting: $reason")
+                            _showPhoneChooser.value = true
+                            phoneDiscovery.start()
+                            return@launch
+                        }
+                    }
+                    doConnect(overrideIp = null)
+                } catch (e: Exception) {
+                    OalLog.e(TAG, "connect() failed: ${e.message}")
+                } finally {
+                    connectInFlight = false
+                }
+            }
+            return
         }
+
+        // Explicit override (chooser tap) — bypass the chooser-open gate and
+        // run the connect pipeline directly.
         synchronized(connectLock) {
-            // Reentrancy guard. Three states:
-            //   1. Already streaming/connecting → no-op.
-            //   2. A previous connect() coroutine hasn't finished its
-            //      resolve+start phase yet → no-op (otherwise N parallel
-            //      callers each run the full pipeline; observed 21x in logs).
-            //   3. Truly idle → claim the slot and proceed.
             if (hasConnected && sessionManager.sessionState.value != SessionState.IDLE) {
                 sessionManager.ensureClusterAlive()
                 return
@@ -380,6 +409,21 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         }
         viewModelScope.launch {
             try {
+                doConnect(overrideIp)
+            } catch (e: Exception) {
+                OalLog.e(TAG, "connect() failed: ${e.message}")
+            } finally {
+                connectInFlight = false
+            }
+        }
+    }
+
+    /**
+     * Inner connect — assumes the in-flight slot is already claimed and the
+     * chooser-open gate has been cleared. Reads all remaining settings and
+     * hands off to SessionManager.start.
+     */
+    private suspend fun doConnect(overrideIp: String?) {
             val codec = preferences.videoCodec.first()
             val micSrc = preferences.micSource.first()
             val scalingMode = preferences.videoScalingMode.first()
@@ -483,7 +527,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                             "If the connection looks good, tap your phone again. If its IP changed, press Scan."
                     _showPhoneChooser.value = true
                     OalLog.w(TAG, "Car Hotspot resolve gave up after 45s — re-opening chooser with guidance")
-                    return@launch
+                    return
                 }
             }
 
@@ -523,13 +567,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 safeAreaLeft = saLeft,
                 safeAreaRight = saRight,
             )
-            } finally {
-                // Release the in-flight slot once we hand off to SessionManager.
-                // sessionManager owns the post-start lifecycle from here; if it
-                // settles back to IDLE the auto-reconnect collector picks up.
-                connectInFlight = false
-            }
-        }
     }
 
     /**
