@@ -90,6 +90,24 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
                 }
             }
 
+            ACTION_PREWARM -> {
+                // Pre-warm path: car-presence signal (BT, scripted, etc.) tells
+                // us a car connection is imminent. Start the AA pipeline now so
+                // by the time the car's TCP arrives ~3–10s later, AA is warm
+                // and the bridge lights up instantly. If the service wasn't
+                // running yet, start it first.
+                if (!_isRunning.value) {
+                    CompanionLog.i(TAG, "Pre-warm requested but service not running — starting first")
+                    _isRunning.value = true
+                    _isConnected.value = false
+                    _statusText.value = "Pre-warming..."
+                    startTcp()
+                } else {
+                    CompanionLog.i(TAG, "Pre-warm requested while running")
+                }
+                tcpAdvertiser?.preWarmAaPipeline()
+            }
+
             else -> {
                 // System restart
                 if (_isRunning.value) {
@@ -301,6 +319,7 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
 
         const val ACTION_START = "com.openautolink.companion.ACTION_START"
         const val ACTION_STOP = "com.openautolink.companion.ACTION_STOP"
+        const val ACTION_PREWARM = "com.openautolink.companion.ACTION_PREWARM"
         /** Optional extra on ACTION_START: also start file logging once the service is up. */
         const val EXTRA_START_LOGGING = "com.openautolink.companion.EXTRA_START_LOGGING"
 

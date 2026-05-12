@@ -78,6 +78,7 @@
             <intent-filter>
                 <action android:name="com.openautolink.companion.ACTION_START" />
                 <action android:name="com.openautolink.companion.ACTION_STOP" />
+                <action android:name="com.openautolink.companion.ACTION_PREWARM" />
             </intent-filter>
         </service>
 

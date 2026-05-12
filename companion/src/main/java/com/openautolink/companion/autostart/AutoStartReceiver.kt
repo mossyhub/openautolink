@@ -67,6 +67,20 @@ class AutoStartReceiver : BroadcastReceiver() {
                 } catch (e: Exception) {
                     CompanionLog.e(TAG, "Failed to start service: ${e.message}")
                 }
+
+                // Immediately pre-warm AA so its ~10s cold-start runs in
+                // parallel with the car's boot + WiFi-join (typically 3–10s).
+                // By the time the car TCP-connects, AA is already alive and
+                // the proxy bridge lights up in milliseconds.
+                val prewarmIntent = Intent(context, CompanionService::class.java).apply {
+                    action = CompanionService.ACTION_PREWARM
+                }
+                try {
+                    ContextCompat.startForegroundService(context, prewarmIntent)
+                    CompanionLog.i(TAG, "Pre-warm intent dispatched on BT-connect")
+                } catch (e: Exception) {
+                    CompanionLog.w(TAG, "Pre-warm intent failed: ${e.message}")
+                }
             }
 
             BluetoothDevice.ACTION_ACL_DISCONNECTED -> {

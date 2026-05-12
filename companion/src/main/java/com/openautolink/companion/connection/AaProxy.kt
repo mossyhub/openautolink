@@ -101,9 +101,17 @@ class AaProxy(
 
                 // Use the most-recently-updated car socket (from a reconnect
                 // while waiting for AA), falling back to the original socket.
+                // Pre-warm path: if AA connected to the proxy BEFORE the car
+                // (i.e. we started the proxy proactively on BT-connect and AA
+                // came up before the car ignition's WiFi finished), no socket
+                // exists yet — wait briefly for one to arrive via
+                // updateCarSocket() rather than failing immediately.
                 carSocket = pendingCarSocket?.also { pendingCarSocket = null }
                     ?: preConnectedSocket
-                    ?: throw IllegalStateException("No car socket available")
+                    ?: awaitPendingCarSocket(PREWARM_CAR_WAIT_MS)
+                    ?: throw IllegalStateException(
+                        "No car socket within ${PREWARM_CAR_WAIT_MS}ms — AA connected but no car ready"
+                    )
                 activeCarSocket = carSocket
 
                 CompanionLog.i(TAG, "Bridge established: AA <-> Car")
@@ -128,6 +136,27 @@ class AaProxy(
                 }
             }
         }
+    }
+
+    /**
+     * Pre-warm support: poll [pendingCarSocket] for up to [timeoutMs] in case
+     * AA has connected to the proxy before the car TCP arrived. Returns the
+     * car socket once it lands or null on timeout. Cheap polling at 50ms
+     * granularity — total cost over a full window is ~30 wakeups, negligible.
+     */
+    private suspend fun awaitPendingCarSocket(timeoutMs: Long): Socket? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        CompanionLog.i(TAG, "AA connected first (pre-warm) — waiting up to ${timeoutMs}ms for car")
+        while (System.currentTimeMillis() < deadline && isRunning) {
+            val s = pendingCarSocket
+            if (s != null) {
+                pendingCarSocket = null
+                CompanionLog.i(TAG, "Pre-warm: car socket arrived after AA")
+                return s
+            }
+            kotlinx.coroutines.delay(50)
+        }
+        return null
     }
 
     private suspend fun pump(input: InputStream, output: OutputStream, name: String) =
@@ -177,5 +206,10 @@ class AaProxy(
 
     companion object {
         private const val TAG = "OAL_Proxy"
+        /** Max time the bridge waits for a car socket when AA connected first
+         *  (pre-warm path). 30s comfortably covers car-side boot + WiFi join
+         *  on most vehicles; if no car arrives in that window we fail gracefully
+         *  and AA can retry. */
+        private const val PREWARM_CAR_WAIT_MS = 30_000L
     }
 }
