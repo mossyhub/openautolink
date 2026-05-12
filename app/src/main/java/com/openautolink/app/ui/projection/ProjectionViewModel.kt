@@ -681,6 +681,26 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
         }
+        // Debug aid for emulator testing: when manualIpEnabled is on, inject
+        // a synthetic resolved phone into PhoneDiscovery so the picker /
+        // auto-reconnect / IP-cache flows exercise the same code paths as
+        // the car. The AVD's 10.0.2.0/24 NAT prevents real discovery from
+        // ever surfacing a phone on the host's WiFi, but outbound TCP to a
+        // home-WiFi IP still works (NAT'd through the host). On real
+        // hardware the user shouldn't have manualIpEnabled on, so this is
+        // a no-op there.
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(
+                preferences.manualIpEnabled,
+                preferences.manualIpAddress,
+            ) { enabled, ip -> if (enabled && ip.isNotBlank()) ip else "" }
+                .distinctUntilChanged()
+                .collect { ip ->
+                    if (ip.isNotBlank()) {
+                        phoneDiscovery.injectDebugPhone(host = ip)
+                    }
+                }
+        }
         // Auto-touch known phones as their identity becomes visible. We
         // distinct on (id, name, host) tuple so identical successive
         // emissions don't drive any DataStore writes (KnownPhonesStore.touch

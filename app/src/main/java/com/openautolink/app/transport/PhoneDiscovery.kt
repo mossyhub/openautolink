@@ -806,6 +806,34 @@ class PhoneDiscovery private constructor(private val context: Context) {
         publish()
     }
 
+    /**
+     * Inject a synthetic resolved phone, sourced as if mDNS had returned it.
+     *
+     * Intended for emulator integration testing: the AVD's NAT network
+     * (10.0.2.0/24) prevents mDNS, UDP broadcast, and /24 sweep from ever
+     * surfacing the phone on the host's home WiFi, but outbound TCP to a
+     * home-WiFi IP still works (NAT'd through the host). Calling this with
+     * the phone's home-WiFi IP makes the discovery flow look exactly like
+     * the car: a resolved entry shows up in [phones], the picker renders
+     * it, auto-reconnect-on-wake / chooser-auto-close / IP-cache paths
+     * exercise normally, and the actual TCP connect lands via the AVD NAT.
+     *
+     * No-op when [host] is blank. Safe to call repeatedly — addOrUpdate
+     * merges by canonical key, so the entry stays sticky across re-injects.
+     */
+    fun injectDebugPhone(host: String, port: Int = 5277, friendlyName: String = "Test Phone (debug)", phoneId: String = "debug_test_phone") {
+        if (host.isBlank()) return
+        OalLog.i(TAG, "injectDebugPhone host=$host port=$port name=$friendlyName")
+        addOrUpdate(
+            phoneId = phoneId,
+            friendlyName = friendlyName,
+            host = host,
+            port = port,
+            mdnsServiceName = null,
+            viaSource = SourceBit.MDNS,
+        )
+    }
+
     private fun removeMdnsEntryByServiceName(serviceName: String) {
         synchronized(lock) {
             val match = byKey.entries.firstOrNull { it.value.mdnsServiceName == serviceName }
