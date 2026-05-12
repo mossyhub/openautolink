@@ -313,10 +313,16 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      * Consecutive auto-reconnect attempts after which we escalate to the
      * phone picker. Auto-reconnect with backoff is fine for short blips but
      * if we're this far in, the user needs to intervene (wrong phone,
-     * companion not running, network change). 3 attempts ≈ 9–60 s of trying
-     * given the existing exponential backoff in AasdkSession.
+     * companion not running, network change).
+     *
+     * Tuning: each TCP attempt is `CONNECT_TIMEOUT_MS` (5s) + `RETRY_DELAY_MS`
+     * (3s) = 8s, so threshold=2 surfaces the picker ~16s after the user
+     * gets in the car, vs ~24s at threshold=3. WiFi blips that come back
+     * within 5-10s still ride out cleanly because the auto-reconnect
+     * counter resets the moment a connection succeeds — even if the picker
+     * has opened, the chooser-auto-close fix slams it shut on STREAMING.
      */
-    private val PICKER_ESCALATION_THRESHOLD = 3
+    private val PICKER_ESCALATION_THRESHOLD = 2
     /**
      * Minimum wake gap that should force an auto-reconnect re-arm. Short
      * pause/resume blips (sub-second) shouldn't trigger; anything that looks
