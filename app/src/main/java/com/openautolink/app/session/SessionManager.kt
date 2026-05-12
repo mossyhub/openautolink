@@ -402,6 +402,7 @@ class SessionManager(
         safeAreaBottom: Int = 0,
         safeAreaLeft: Int = 0,
         safeAreaRight: Int = 0,
+        callAudioViaCar: Boolean = false,
     ) {
         // Cache for later reconnects that don't know the resolved IP (e.g.
         // Settings "Save & Reconnect" in Car Hotspot mode).
@@ -627,6 +628,7 @@ class SessionManager(
         scalingMode: String = "letterbox",
         manualIpAddress: String? = null,
         safeAreaTop: Int = 0, safeAreaBottom: Int = 0, safeAreaLeft: Int = 0, safeAreaRight: Int = 0,
+        callAudioViaCar: Boolean = false,
     ) {
         aasdkSession?.stop()
         _transportMode.value = directTransport
@@ -838,6 +840,7 @@ class SessionManager(
             panelWidth = panelW,
             panelHeight = panelH,
             autoMargins = aaAutoMargins,
+            enableTelephonyAudio = callAudioViaCar,
         )
         _touchWidth.value = resW
         _touchHeight.value = resH
@@ -1064,6 +1067,7 @@ class SessionManager(
         safeAreaBottom: Int = 0,
         safeAreaLeft: Int = 0,
         safeAreaRight: Int = 0,
+        callAudioViaCar: Boolean = false,
     ) {
         // "Save & Reconnect" from Settings doesn't know the resolved Car
         // Hotspot IP — fall back to the last value we successfully used so
@@ -1082,6 +1086,7 @@ class SessionManager(
                 driveSide, hideClock, hideSignal, hideBattery,
                 volumeOffsetMedia, volumeOffsetNavigation, volumeOffsetAssistant,
                 effectiveManualIp, safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight,
+                callAudioViaCar,
             )
             return
         }
@@ -1117,6 +1122,7 @@ class SessionManager(
                     videoFps, driveSide, hideClock, hideSignal, hideBattery,
                     volumeOffsetMedia, volumeOffsetNavigation, volumeOffsetAssistant,
                     effectiveManualIp, safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight,
+                    callAudioViaCar,
                 )
             } catch (e: Exception) {
                 OalLog.e(TAG, "reconnect() failed: ${e.message}")
@@ -1141,6 +1147,7 @@ class SessionManager(
         volumeOffsetMedia: Int, volumeOffsetNavigation: Int, volumeOffsetAssistant: Int,
         manualIpAddress: String?,
         safeAreaTop: Int, safeAreaBottom: Int, safeAreaLeft: Int, safeAreaRight: Int,
+        callAudioViaCar: Boolean,
     ) {
         observeJob = null
         decoderWatchJob = null
@@ -1192,7 +1199,8 @@ class SessionManager(
                 videoFps,
                 driveSide, hideClock, hideSignal, hideBattery, scalingMode,
                 manualIpAddress,
-                safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight)
+                safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight,
+                callAudioViaCar)
         }
 
         // 9. Re-establish cluster binding — GM Templates Host may have killed

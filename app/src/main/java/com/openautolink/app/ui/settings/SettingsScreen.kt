@@ -2126,6 +2126,45 @@ private fun AudioTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // --- Phone Call Routing ---
+        SectionHeader("Phone Calls")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Route calls through car (experimental)",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Stream in-call audio over Android Auto so the car " +
+                        "mic and speakers are used even when Bluetooth Call " +
+                        "audio is disabled on the phone. Requires Save & Reconnect. " +
+                        "Disable if calls fail to connect.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = uiState.callAudioViaCar,
+                onCheckedChange = { viewModel.updateCallAudioViaCar(it) },
+                modifier = Modifier.testTag("callAudioViaCarToggle"),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // --- Per-Purpose Volume Offsets ---
         SectionHeader("Volume Offsets")
 

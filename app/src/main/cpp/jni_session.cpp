@@ -259,6 +259,7 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
     sdrConfig_.panelWidth = env->GetIntField(sdrConfig, env->GetFieldID(sdrClass, "panelWidth", "I"));
     sdrConfig_.panelHeight = env->GetIntField(sdrConfig, env->GetFieldID(sdrClass, "panelHeight", "I"));
     sdrConfig_.autoMargins = env->GetBooleanField(sdrConfig, env->GetFieldID(sdrClass, "autoMargins", "Z")) != JNI_FALSE;
+    sdrConfig_.enableTelephonyAudio = env->GetBooleanField(sdrConfig, env->GetFieldID(sdrClass, "enableTelephonyAudio", "Z")) != JNI_FALSE;
 
     // Read int arrays: fuelTypes and evConnectorTypes
     auto readIntArray = [&](const char* field) -> std::vector<int> {
@@ -341,8 +342,13 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
             *strand_, messenger_);
         systemAudioChannel_ = std::make_shared<aasdk::channel::mediasink::audio::channel::SystemAudioChannel>(
             *strand_, messenger_);
-        // Telephony audio disabled — crashes AA without BT HFP
-        // telephonyAudioChannel_ = ...
+        // Opt-in: telephony audio sink lets the phone route call audio over
+        // AA instead of BT HFP. Off by default — historically caused AA to
+        // disconnect on some phones when no HFP profile was available.
+        if (sdrConfig_.enableTelephonyAudio) {
+            telephonyAudioChannel_ = std::make_shared<aasdk::channel::mediasink::audio::channel::TelephonyAudioChannel>(
+                *strand_, messenger_);
+        }
         inputChannel_ = std::make_shared<aasdk::channel::inputsource::InputSourceService>(
             *strand_, messenger_);
         sensorChannel_ = std::make_shared<aasdk::channel::sensorsource::SensorSourceService>(
@@ -1028,9 +1034,11 @@ void JniSession::startAllHandlers()
         *strand_, systemAudioChannel_, *this, JniAudioSinkHandler::AudioType::System);
     systemAudioHandler_->start();
 
-    // Telephony audio disabled — crashes AA without BT HFP
-    // telephonyAudioHandler_ = ...
-    // telephonyAudioHandler_->start();
+    if (telephonyAudioChannel_) {
+        telephonyAudioHandler_ = std::make_shared<JniAudioSinkHandler>(
+            *strand_, telephonyAudioChannel_, *this, JniAudioSinkHandler::AudioType::Telephony);
+        telephonyAudioHandler_->start();
+    }
 
     // Sensor handler
     sensorHandler_ = std::make_shared<JniSensorHandler>(*strand_, sensorChannel_, *this);
@@ -1363,16 +1371,17 @@ void JniSession::buildServiceDiscoveryResponse(
       ac->set_sampling_rate(16000); ac->set_number_of_bits(16); ac->set_number_of_channels(1);
     }
 
-    // ---- Telephony audio (16kHz mono) — disabled: crashes AA without BT HFP ----
-    // { auto* svc = response.add_channels();
-    //   svc->set_id(static_cast<int32_t>(aasdk::messenger::ChannelId::MEDIA_SINK_TELEPHONY_AUDIO));
-    //   auto* ms = svc->mutable_media_sink_service();
-    //   ms->set_available_type(aap_protobuf::service::media::shared::message::MEDIA_CODEC_AUDIO_PCM);
-    //   ms->set_audio_type(aap_protobuf::service::media::sink::message::AUDIO_STREAM_TELEPHONY);
-    //   ms->set_available_while_in_call(true);
-    //   auto* ac = ms->add_audio_configs();
-    //   ac->set_sampling_rate(16000); ac->set_number_of_bits(16); ac->set_number_of_channels(1);
-    // }
+    // ---- Telephony audio (16kHz mono) — opt-in via enableTelephonyAudio ----
+    if (sdrConfig_.enableTelephonyAudio) {
+      auto* svc = response.add_channels();
+      svc->set_id(static_cast<int32_t>(aasdk::messenger::ChannelId::MEDIA_SINK_TELEPHONY_AUDIO));
+      auto* ms = svc->mutable_media_sink_service();
+      ms->set_available_type(aap_protobuf::service::media::shared::message::MEDIA_CODEC_AUDIO_PCM);
+      ms->set_audio_type(aap_protobuf::service::media::sink::message::AUDIO_STREAM_TELEPHONY);
+      ms->set_available_while_in_call(true);
+      auto* ac = ms->add_audio_configs();
+      ac->set_sampling_rate(16000); ac->set_number_of_bits(16); ac->set_number_of_channels(1);
+    }
 
     // ---- Mic input (16kHz mono) ----
     { auto* svc = response.add_channels();

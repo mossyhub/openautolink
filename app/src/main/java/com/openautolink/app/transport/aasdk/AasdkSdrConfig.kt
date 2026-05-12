@@ -118,4 +118,12 @@ class AasdkSdrConfig(
      */
     @JvmField val panelWidth: Int = 0,
     @JvmField val panelHeight: Int = 0,
+
+    /**
+     * When true, advertise the AA telephony audio sink so the phone streams
+     * in-call audio (and pulls mic input) over AA instead of relying on
+     * Bluetooth HFP. Lets users keep BT Call audio disabled on the phone
+     * but still hear calls through the car speakers.
+     */
+    @JvmField val enableTelephonyAudio: Boolean = false,
 )

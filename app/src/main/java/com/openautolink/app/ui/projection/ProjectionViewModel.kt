@@ -442,6 +442,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private suspend fun doConnect(overrideIp: String?) {
             val codec = preferences.videoCodec.first()
             val micSrc = preferences.micSource.first()
+            val callAudioViaCar = preferences.callAudioViaCar.first()
             val scalingMode = preferences.videoScalingMode.first()
             val hotspotSsid = preferences.hotspotSsid.first()
             val hotspotPassword = preferences.hotspotPassword.first()
@@ -593,6 +594,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 safeAreaBottom = saBottom,
                 safeAreaLeft = saLeft,
                 safeAreaRight = saRight,
+                callAudioViaCar = callAudioViaCar,
             )
     }
 

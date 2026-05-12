@@ -24,6 +24,7 @@ data class SettingsUiState(
     val videoFps: Int = AppPreferences.DEFAULT_VIDEO_FPS,
     val displayMode: String = AppPreferences.DEFAULT_DISPLAY_MODE,
     val micSource: String = AppPreferences.DEFAULT_MIC_SOURCE,
+    val callAudioViaCar: Boolean = AppPreferences.DEFAULT_CALL_AUDIO_VIA_CAR,
     val videoScalingMode: String = AppPreferences.DEFAULT_VIDEO_SCALING_MODE,
     val aaResolution: String = AppPreferences.DEFAULT_AA_RESOLUTION,
     val aaDpi: Int = AppPreferences.DEFAULT_AA_DPI,
@@ -116,6 +117,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         preferences.defaultPhoneName,
         preferences.manualIpEnabled,
         preferences.manualIpAddress,
+        preferences.callAudioViaCar,
     ) { values: Array<Any> ->
         SettingsUiState(
             videoAutoNegotiate = values[0] as Boolean,
@@ -158,6 +160,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             defaultPhoneName = values[37] as String,
             manualIpEnabled = values[38] as Boolean,
             manualIpAddress = values[39] as String,
+            callAudioViaCar = values[40] as Boolean,
         )
     }.stateIn(
         viewModelScope,
@@ -304,6 +307,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateMicSource(source: String) {
         viewModelScope.launch { preferences.setMicSource(source) }
+    }
+
+    fun updateCallAudioViaCar(enabled: Boolean) {
+        viewModelScope.launch { preferences.setCallAudioViaCar(enabled) }
     }
 
     fun updateVideoScalingMode(mode: String) {
@@ -461,6 +468,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val sm = com.openautolink.app.session.SessionManager.instanceOrNull() ?: return@launch
             val codec = preferences.videoCodec.first()
             val micSrc = preferences.micSource.first()
+            val callAudioViaCar = preferences.callAudioViaCar.first()
             val scalingMode = preferences.videoScalingMode.first()
             val hotspotSsid = preferences.hotspotSsid.first()
             val hotspotPassword = preferences.hotspotPassword.first()
@@ -521,6 +529,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 safeAreaBottom = saBottom,
                 safeAreaLeft = saLeft,
                 safeAreaRight = saRight,
+                callAudioViaCar = callAudioViaCar,
             )
         }
     }
