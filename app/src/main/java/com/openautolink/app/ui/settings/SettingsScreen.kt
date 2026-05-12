@@ -2168,7 +2168,7 @@ private fun AudioTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Route calls through car (experimental)",
+                    text = "Route calls through car",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
                 )

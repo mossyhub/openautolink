@@ -125,5 +125,5 @@ class AasdkSdrConfig(
      * Bluetooth HFP. Lets users keep BT Call audio disabled on the phone
      * but still hear calls through the car speakers.
      */
-    @JvmField val enableTelephonyAudio: Boolean = false,
+    @JvmField val enableTelephonyAudio: Boolean = true,
 )

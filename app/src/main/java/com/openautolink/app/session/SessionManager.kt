@@ -402,7 +402,7 @@ class SessionManager(
         safeAreaBottom: Int = 0,
         safeAreaLeft: Int = 0,
         safeAreaRight: Int = 0,
-        callAudioViaCar: Boolean = false,
+        callAudioViaCar: Boolean = true,
     ) {
         // Cache for later reconnects that don't know the resolved IP (e.g.
         // Settings "Save & Reconnect" in Car Hotspot mode).
@@ -628,7 +628,7 @@ class SessionManager(
         scalingMode: String = "letterbox",
         manualIpAddress: String? = null,
         safeAreaTop: Int = 0, safeAreaBottom: Int = 0, safeAreaLeft: Int = 0, safeAreaRight: Int = 0,
-        callAudioViaCar: Boolean = false,
+        callAudioViaCar: Boolean = true,
     ) {
         aasdkSession?.stop()
         _transportMode.value = directTransport
@@ -1067,7 +1067,7 @@ class SessionManager(
         safeAreaBottom: Int = 0,
         safeAreaLeft: Int = 0,
         safeAreaRight: Int = 0,
-        callAudioViaCar: Boolean = false,
+        callAudioViaCar: Boolean = true,
     ) {
         // "Save & Reconnect" from Settings doesn't know the resolved Car
         // Hotspot IP — fall back to the last value we successfully used so
