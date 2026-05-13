@@ -176,8 +176,14 @@ class MediaCodecDecoder(
     override fun detach() {
         Log.i(TAG, "Detaching surface")
         releaseCodec()
-        cachedIdrFrame = null  // Prevent stale IDR replay on reattach (e.g. phone switch)
-        codecConfigData = null // Force fresh SPS/PPS from new phone
+        // Keep codecConfigData and cachedIdrFrame across detach. This path
+        // fires on transient backgrounding (nav-away to AAOS home, OEM
+        // overlays, etc.) where the AA session is still alive and the phone
+        // does NOT re-send SPS/PPS — only an IDR in response to our
+        // VideoFocusIndication. Wiping the cached config would leave the
+        // decoder unconfigurable on return, producing permanent black until
+        // the phone's next periodic IDR (~2 min) coincides with re-attach.
+        // Phone-switch / session-teardown wipes happen via [release] instead.
         surface = null
         surfaceWidth = 0
         surfaceHeight = 0
