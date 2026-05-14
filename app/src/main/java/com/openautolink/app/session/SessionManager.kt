@@ -1,5 +1,6 @@
 ﻿package com.openautolink.app.session
 
+import android.content.res.Configuration
 import android.content.Context
 import android.media.AudioManager
 import android.os.SystemClock
@@ -327,7 +328,8 @@ class SessionManager(
     // tick is wasted IPC at best, and at worst it might cause the phone to
     // re-render UI (e.g. NIGHT_MODE → AA theme change) too frequently. We
     // only forward to native when the value differs from the last sent.
-    // Reset to null on session start so the very first tick always fires.
+    // Reset to null on every new phone session so the very first tick always fires.
+    @Volatile private var lastKnownUiNightMode: Boolean? = currentUiNightMode()
     @Volatile private var lastSentNightMode: Boolean? = null
     @Volatile private var lastSentParkingBrake: Boolean? = null
     @Volatile private var lastSentDriving: Boolean? = null
@@ -379,6 +381,37 @@ class SessionManager(
 
     /** SCREEN_OFF/_ON receiver registration tracker. */
     private var screenReceiver: android.content.BroadcastReceiver? = null
+
+    private fun currentUiNightMode(): Boolean? {
+        val nightMask = context?.resources?.configuration?.uiMode?.and(Configuration.UI_MODE_NIGHT_MASK)
+            ?: return null
+        return when (nightMask) {
+            Configuration.UI_MODE_NIGHT_YES -> true
+            Configuration.UI_MODE_NIGHT_NO -> false
+            else -> null
+        }
+    }
+
+    private fun resetLatchedVehicleSensorState(reason: String) {
+        lastSentNightMode = null
+        lastSentParkingBrake = null
+        lastSentDriving = null
+        lastSentGearRaw = null
+        OalLog.d(TAG, "Reset latched vehicle sensor state: $reason")
+    }
+
+    private fun seedCurrentUiNightMode(reason: String) {
+        val night = currentUiNightMode() ?: lastKnownUiNightMode
+        if (night == null) {
+            OalLog.d(TAG, "UI night mode unknown — skipping seed ($reason)")
+            return
+        }
+        lastKnownUiNightMode = night
+        val session = aasdkSession ?: return
+        lastSentNightMode = night
+        OalLog.i(TAG, "UI night mode → $night (reason=$reason)")
+        session.sendNightMode(night)
+    }
 
     fun start(
         codecPreference: String = "h264",
@@ -454,10 +487,7 @@ class SessionManager(
         // Reset edge-trigger memory so the first tick of the new session
         // unconditionally publishes nightMode / parking / driving / gear to
         // the phone — the phone has no prior state from us.
-        lastSentNightMode = null
-        lastSentParkingBrake = null
-        lastSentDriving = null
-        lastSentGearRaw = null
+        resetLatchedVehicleSensorState("start_session")
         _vehicleDataForwarder = context?.let { ctx ->
             VehicleDataForwarderImpl(
                 ctx,
@@ -1272,6 +1302,7 @@ class SessionManager(
      * occasional duplicate event to the phone is harmless.
      */
     fun onUiNightModeChanged(night: Boolean) {
+        lastKnownUiNightMode = night
         val session = aasdkSession ?: return
         lastSentNightMode = night
         OalLog.i(TAG, "UI night mode → $night (forwarding to phone)")
@@ -1642,6 +1673,8 @@ class SessionManager(
         when (message) {
             is ControlMessage.PhoneConnected -> {
                 _remoteDiagnostics?.log(DiagnosticLevel.INFO, "session", "Phone connected: ${message.phoneName}")
+                resetLatchedVehicleSensorState("phone_connected")
+                seedCurrentUiNightMode("phone_connected")
                 _sessionState.value = SessionState.STREAMING
                 _statusMessage.value = "Streaming"
                 aasdkSession?.let { startLocationForwarding(it) }
