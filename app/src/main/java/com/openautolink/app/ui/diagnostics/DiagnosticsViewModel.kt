@@ -123,6 +123,10 @@ data class DebugProbeState(
     val usbDevices: List<com.openautolink.app.diagnostics.DeviceDebugProbe.UsbDeviceInfo> = emptyList(),
     val sysfsDevices: List<Map<String, String>> = emptyList(),
     val usbScanDone: Boolean = false,
+    // GM AAOS recon probes — see docs/gm-aaos-recon.md §10
+    val gmRecon: com.openautolink.app.diagnostics.GmReconProbe.Result? = null,
+    val gmReconRunning: Boolean = false,
+    val gmAdbEnableResult: String? = null,
 )
 
 data class DiagnosticsUiState(
@@ -684,6 +688,45 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             val sysfs = com.openautolink.app.diagnostics.DeviceDebugProbe.scanSysfsUsbDevices()
             _debugProbe.value = _debugProbe.value.copy(sysfsDevices = sysfs)
+        }
+    }
+
+    // ── GM AAOS Recon Probes ────────────────────────────────────────
+    // Pen-test the four enable paths documented in docs/gm-aaos-recon.md §10.
+
+    fun runGmReconProbes() {
+        if (_debugProbe.value.gmReconRunning) return
+        _debugProbe.value = _debugProbe.value.copy(gmReconRunning = true)
+        viewModelScope.launch {
+            val result = com.openautolink.app.diagnostics.GmReconProbe.run(getApplication())
+            _debugProbe.value = _debugProbe.value.copy(
+                gmRecon = result,
+                gmReconRunning = false,
+            )
+        }
+    }
+
+    fun callRdmsAdbEnable(enable: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val (ok, detail) = com.openautolink.app.diagnostics.GmReconProbe.callRdmsAdbEnable(enable)
+            val label = if (ok) "✓" else "✗"
+            _debugProbe.value = _debugProbe.value.copy(
+                gmAdbEnableResult = "$label RDMSADBEnable(${if (enable) "true" else "false"}) — $detail",
+            )
+        }
+    }
+
+    fun clearGmAdbEnableResult() {
+        _debugProbe.value = _debugProbe.value.copy(gmAdbEnableResult = null)
+    }
+
+    fun execAdboverBcs(arg: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val (ok, detail) = com.openautolink.app.diagnostics.GmReconProbe.execAdboverBcs(arg)
+            val label = if (ok) "✓" else "✗"
+            _debugProbe.value = _debugProbe.value.copy(
+                gmAdbEnableResult = "$label /system/bin/ADBoverBCS.sh $arg — $detail",
+            )
         }
     }
 

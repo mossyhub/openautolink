@@ -909,6 +909,252 @@ private fun DebugTab(debug: DebugProbeState, viewModel: DiagnosticsViewModel) {
                 }
             }
         }
+
+        // GM AAOS Recon Probes — see docs/gm-aaos-recon.md §10
+        Spacer(modifier = Modifier.height(24.dp))
+        GmReconSection(debug, viewModel)
+    }
+}
+
+// --- GM Recon Probes Section ---
+
+@Composable
+private fun GmReconSection(debug: DebugProbeState, viewModel: DiagnosticsViewModel) {
+    var showEnableDialog by remember { mutableStateOf(false) }
+
+    SectionHeader("GM AAOS Recon Probes")
+    Text(
+        "Probes the four ADB-enable paths documented in docs/gm-aaos-recon.md §10. " +
+            "All probes are read-only — toggling ADB requires the separate button below " +
+            "and a confirmation dialog. Safe to run on any device.",
+        color = Color(0xFF808080),
+        fontSize = 11.sp,
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (debug.gmReconRunning) "Running probes…" else
+                debug.gmRecon?.let { "Last run: ${ageString(it.timestampMs)} ago" } ?: "Not yet run",
+            color = if (debug.gmReconRunning) Color(0xFF64B5F6) else Color.Gray,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f),
+        )
+        androidx.compose.material3.FilledTonalButton(
+            onClick = { viewModel.runGmReconProbes() },
+            enabled = !debug.gmReconRunning,
+            modifier = Modifier.height(36.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+        ) {
+            Text("Run Recon Probes", fontSize = 12.sp)
+        }
+    }
+
+    debug.gmRecon?.let { result ->
+        val wins = result.outcomes.count { it.status == com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.WIN }
+        val blocked = result.outcomes.count { it.status == com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.BLOCKED }
+        val info = result.outcomes.count { it.status == com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.INFO }
+        val errors = result.outcomes.count { it.status == com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.ERROR }
+        Text(
+            "$wins win • $blocked blocked • $info info • $errors error",
+            color = if (wins > 0) Color(0xFF4CAF50) else Color(0xFFB0BEC5),
+            fontSize = 11.sp,
+            fontWeight = if (wins > 0) FontWeight.Bold else FontWeight.Normal,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+        )
+        for (outcome in result.outcomes) {
+            val color = when (outcome.status) {
+                com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.WIN -> Color(0xFF4CAF50)
+                com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.BLOCKED -> Color(0xFFFF7043)
+                com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.INFO -> Color(0xFF90A4AE)
+                com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.ERROR -> Color(0xFFEF5350)
+            }
+            val badge = when (outcome.status) {
+                com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.WIN -> "WIN"
+                com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.BLOCKED -> "blk"
+                com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.INFO -> "info"
+                com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.ERROR -> "err"
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .background(
+                        color = color.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(4.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        badge,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = color,
+                        modifier = Modifier
+                            .width(34.dp),
+                    )
+                    Text(
+                        outcome.name,
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Text(
+                    outcome.detail,
+                    fontSize = 11.sp,
+                    color = Color(0xFFB0BEC5),
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(start = 34.dp, top = 2.dp),
+                )
+            }
+        }
+
+        // Show the RDMSADBEnable dangerous-action button only if the binder probe won
+        val rdmsWon = result.outcomes.any {
+            it.name.startsWith("binder ") &&
+                it.status == com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.WIN
+        }
+        if (rdmsWon) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "⚠ RDMSADBHandler binder is reachable. Tapping the button below " +
+                    "calls RDMSADBEnable(true) which flips the USB hub port to device " +
+                    "mode and enables ADB. You may need to plug a USB-A→USB-A cable " +
+                    "from the armrest port to a laptop afterwards.",
+                color = Color(0xFFFFC107),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = { showEnableDialog = true },
+                    colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color(0xFFFFC107).copy(alpha = 0.2f),
+                    ),
+                    modifier = Modifier.height(36.dp),
+                ) {
+                    Text("Enable ADB via RDMS", fontSize = 12.sp, color = Color(0xFFFFC107))
+                }
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = { viewModel.callRdmsAdbEnable(false) },
+                    modifier = Modifier.height(36.dp),
+                ) {
+                    Text("Disable ADB via RDMS", fontSize = 12.sp)
+                }
+            }
+        }
+
+        // ADBoverBCS.sh runner — only if Phase 2 read confirmed exec=true
+        val bcsScriptOutcome = result.outcomes.firstOrNull { it.name == "read /system/bin/ADBoverBCS.sh" }
+        val bcsExecutable = bcsScriptOutcome != null &&
+            bcsScriptOutcome.status == com.openautolink.app.diagnostics.GmReconProbe.ProbeOutcome.Status.WIN &&
+            bcsScriptOutcome.detail.contains("exec=true")
+        if (bcsExecutable) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "⚠ /system/bin/ADBoverBCS.sh is readable AND executable from this UID. " +
+                    "Tapping below runs it directly. The script normally flips the " +
+                    "bridge-chip hub port so a connected laptop enumerates an ADB " +
+                    "device. The configfs writes inside may still be SELinux-blocked " +
+                    "for our domain; the output below will tell you which.",
+                color = Color(0xFFFFC107),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = { viewModel.execAdboverBcs("on") },
+                    colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color(0xFFFFC107).copy(alpha = 0.2f),
+                    ),
+                    modifier = Modifier.height(36.dp),
+                ) {
+                    Text("Run ADBoverBCS.sh on", fontSize = 12.sp, color = Color(0xFFFFC107))
+                }
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = { viewModel.execAdboverBcs("off") },
+                    modifier = Modifier.height(36.dp),
+                ) {
+                    Text("Run …sh off", fontSize = 12.sp)
+                }
+            }
+        }
+        debug.gmAdbEnableResult?.let { msg ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
+                    .background(
+                        color = Color.White.copy(alpha = 0.06f),
+                        shape = RoundedCornerShape(4.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    msg,
+                    fontSize = 11.sp,
+                    color = Color(0xFFE0E0E0),
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { viewModel.clearGmAdbEnableResult() }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Clear")
+                }
+            }
+        }
+    }
+
+    if (showEnableDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showEnableDialog = false },
+            title = { Text("Enable ADB via RDMS?") },
+            text = {
+                Text(
+                    "This calls RDMSADBHandler.RDMSADBEnable(true) on the GM " +
+                        "system service. On the head unit it will:\n\n" +
+                        "• Flip the USB hub port role to device mode\n" +
+                        "• Set sys.usb.controller and sys.usb.config\n" +
+                        "• Write Settings.Global.adb_enabled = 1\n" +
+                        "• Set vendor.gm.test.adb = on\n\n" +
+                        "It does not require a reboot and is reversible by tapping " +
+                        "Disable ADB via RDMS afterwards."
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showEnableDialog = false
+                        viewModel.callRdmsAdbEnable(true)
+                    }
+                ) { Text("Enable ADB") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { showEnableDialog = false }
+                ) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+private fun ageString(timestampMs: Long): String {
+    val ageSec = (System.currentTimeMillis() - timestampMs) / 1000
+    return when {
+        ageSec < 60 -> "${ageSec}s"
+        ageSec < 3600 -> "${ageSec / 60}m"
+        else -> "${ageSec / 3600}h"
     }
 }
 
