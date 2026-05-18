@@ -127,6 +127,9 @@ data class DebugProbeState(
     val gmRecon: com.openautolink.app.diagnostics.GmReconProbe.Result? = null,
     val gmReconRunning: Boolean = false,
     val gmAdbEnableResult: String? = null,
+    // Car-property enumeration: what VHAL properties are visible to our UID
+    val carPropEnum: com.openautolink.app.diagnostics.CarPropertyEnumerator.Result? = null,
+    val carPropEnumRunning: Boolean = false,
 )
 
 data class DiagnosticsUiState(
@@ -726,6 +729,18 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             val label = if (ok) "✓" else "✗"
             _debugProbe.value = _debugProbe.value.copy(
                 gmAdbEnableResult = "$label /system/bin/ADBoverBCS.sh $arg — $detail",
+            )
+        }
+    }
+
+    fun enumerateCarProperties() {
+        if (_debugProbe.value.carPropEnumRunning) return
+        _debugProbe.value = _debugProbe.value.copy(carPropEnumRunning = true)
+        viewModelScope.launch {
+            val result = com.openautolink.app.diagnostics.CarPropertyEnumerator.enumerate(getApplication())
+            _debugProbe.value = _debugProbe.value.copy(
+                carPropEnum = result,
+                carPropEnumRunning = false,
             )
         }
     }

@@ -913,6 +913,10 @@ private fun DebugTab(debug: DebugProbeState, viewModel: DiagnosticsViewModel) {
         // GM AAOS Recon Probes — see recon_dump/gm-aaos-recon.md §10 (local-only; gitignored)
         Spacer(modifier = Modifier.height(24.dp))
         GmReconSection(debug, viewModel)
+
+        // Car-property enumeration — what VHAL properties is our UID allowed to see
+        Spacer(modifier = Modifier.height(24.dp))
+        CarPropertyEnumerationSection(debug, viewModel)
     }
 }
 
@@ -1155,6 +1159,78 @@ private fun ageString(timestampMs: Long): String {
         ageSec < 60 -> "${ageSec}s"
         ageSec < 3600 -> "${ageSec / 60}m"
         else -> "${ageSec / 3600}h"
+    }
+}
+
+// --- Car-Property Enumeration Section ---
+// Asks CarPropertyManager.getPropertyList() what VHAL properties the calling
+// UID can actually see. This is the ground-truth answer to "what can a
+// sideloaded app read/control on this car?" — no speculation needed.
+
+@Composable
+private fun CarPropertyEnumerationSection(
+    debug: DebugProbeState,
+    viewModel: DiagnosticsViewModel,
+) {
+    SectionHeader("Car Property Enumeration")
+    Text(
+        "Asks CarPropertyManager what VHAL properties this app can see. " +
+            "Useful for discovering reads/writes available to a sideloaded app.",
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+
+    androidx.compose.material3.FilledTonalButton(
+        onClick = { viewModel.enumerateCarProperties() },
+        enabled = !debug.carPropEnumRunning,
+        modifier = Modifier.padding(16.dp),
+    ) {
+        Text(if (debug.carPropEnumRunning) "Enumerating…" else "Enumerate Car Properties")
+    }
+
+    debug.carPropEnum?.let { res ->
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Text("Feature automotive: ${res.featureAutomotive}", style = MaterialTheme.typography.bodySmall)
+            Text("Car API connected: ${res.carConnected}", style = MaterialTheme.typography.bodySmall)
+            Text("Total visible: ${res.totalCount}", style = MaterialTheme.typography.bodyMedium)
+            Text("  • Readable: ${res.readableCount}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "  • Writable: ${res.writableCount}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (res.writableCount > 0)
+                    MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface,
+            )
+            Text("  • Vendor (GM-specific): ${res.vendorCount}", style = MaterialTheme.typography.bodySmall)
+            res.errorOrNull?.let {
+                Text("Error: $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error)
+            }
+
+            if (res.entries.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Writable properties first, then read-only:",
+                    style = MaterialTheme.typography.labelMedium)
+                val sorted = res.entries.sortedWith(
+                    compareByDescending<com.openautolink.app.diagnostics.CarPropertyEnumerator.PropertyEntry> {
+                        it.access == "READ_WRITE" || it.access == "WRITE"
+                    }.thenBy { it.name },
+                )
+                sorted.forEach { e ->
+                    val color = when (e.access) {
+                        "READ_WRITE", "WRITE" -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
+                    Text(
+                        "${e.access.padEnd(11)} ${e.changeMode.padEnd(11)} ${e.areaType.padEnd(8)} " +
+                            "${e.valueType.padEnd(10)} ${if (e.isVendor) "VENDOR " else "       "} ${e.name}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = color,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+            }
+        }
     }
 }
 
