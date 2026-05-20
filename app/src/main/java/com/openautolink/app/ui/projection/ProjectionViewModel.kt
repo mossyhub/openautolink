@@ -310,6 +310,17 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      */
     private val IDLE_SWEEP_INTERVAL_MS = 15_000L
     /**
+     * Shorter sweep interval used briefly after a resolve failure (45s
+     * give-up). Collapses the worst-case "phone joined the AP right after
+     * we gave up" recovery time from ~15s to ~3s. Returns to the regular
+     * cadence after [FAST_SWEEP_WINDOW_MS].
+     */
+    private val FAST_IDLE_SWEEP_INTERVAL_MS = 3_000L
+    /** How long after a resolve failure we run the faster sweep cadence. */
+    private val FAST_SWEEP_WINDOW_MS = 90_000L
+    /** elapsedRealtime stamp of the last resolve failure, or 0 if none. */
+    @Volatile private var lastResolveFailureMs: Long = 0L
+    /**
      * Wake-gap threshold above which the in-memory active phone pick is
      * cleared so the persisted default phone re-wins. Anything past this is
      * presumed to be a "new visit to the car": mid-drive WiFi blips and brief
@@ -375,6 +386,20 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         // default. DataStore's Flow guarantees the first emission carries
         // the persisted value, so awaiting it here is correct and cheap.
         if (overrideIp == null) {
+            // Suppress auto-connect when ignition is known to be OFF/LOCK.
+            // AAOS dispatches a "ghost wake" (onCreate → onPause → onStop)
+            // ~2 minutes after ignition off; without this gate we burn the
+            // full 45s "no IPv4 interface — awaiting WiFi" timeout into a
+            // dead AP. Null state == unknown == don't block (covers genuine
+            // cold starts before the Car API has reported a value).
+            if (com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()) {
+                OalLog.i(
+                    TAG,
+                    "Auto-connect suppressed — ignition state = ${com.openautolink.app.input.IgnitionMonitor.ignitionState.value} " +
+                        "(off ${com.openautolink.app.input.IgnitionMonitor.msSinceIgnitionOff()}ms ago)",
+                )
+                return
+            }
             // Acquire the in-flight slot synchronously before suspending so
             // concurrent connect() callers don't all race past the gate.
             synchronized(connectLock) {
@@ -559,9 +584,15 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                         _activePhoneId.value = pickedId
                     }
                 }
-                // Resolve failed and we have nothing to fall back to → guide
-                // the user. Re-open the chooser with a clear message; the
-                // user can re-tap a phone or press Scan.
+                // Resolve failed. Don't open the chooser yet — the periodic
+                // sweep + WiFi onAvailable callbacks + ignition-ON edge keep
+                // retrying behind the scenes, and the user is most often
+                // just "phone hasn't joined the AP yet" on a fresh car-on.
+                // We leave the existing reconnect-attempt machinery to
+                // escalate to the chooser via PICKER_ESCALATION_THRESHOLD
+                // only if recovery genuinely fails to land. Set the message
+                // for whenever the chooser does eventually open, and update
+                // the status banner so the UI reflects the wait.
                 if (carHotspotPhone == null && manualIp == null) {
                     val defaultName = try {
                         knownPhonesStore.phones.first()
@@ -578,12 +609,15 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                         "Couldn't reach $who. Verify it's connected to this car's WiFi and the companion app is started. " +
                             "If the connection looks good, tap your phone again. If its IP changed, press Scan."
                     }
-                    _showPhoneChooser.value = true
                     OalLog.w(
                         TAG,
-                        if (noIface) "Car Hotspot resolve gave up after 45s \u2014 no IPv4 interface present, awaiting WiFi"
-                        else "Car Hotspot resolve gave up after 45s \u2014 re-opening chooser with guidance",
+                        if (noIface) "Car Hotspot resolve gave up after 45s \u2014 no IPv4 interface, retrying silently"
+                        else "Car Hotspot resolve gave up after 45s \u2014 retrying silently (auto-recovery handles it)",
                     )
+                    // Mark a recent failure so the idle sweep cadence
+                    // tightens for the next ~90s. Helps the auto-recovery
+                    // land in ~5s instead of waiting up to 15s.
+                    lastResolveFailureMs = SystemClock.elapsedRealtime()
                     return
                 }
             }
@@ -864,6 +898,30 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
         }
+        // Ignition ON edge: when the user starts the car (IGNITION_STATE
+        // transitions to ON=4 or START=5), kick an auto-reconnect even if
+        // no other signal fired. This is the authoritative "car is alive
+        // now" event — earlier triggers (WiFi onAvailable, periodic sweep,
+        // phoneDiscovery edge) may race ahead of it, but on slow boots
+        // they're noisier and this edge is the canonical wake.
+        viewModelScope.launch {
+            com.openautolink.app.input.IgnitionMonitor.ignitionState
+                .collect { state ->
+                    val on = state == 4 || state == 5
+                    if (!on) return@collect
+                    if (connectionMode.value != AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) return@collect
+                    if (alwaysAskPhone.value) return@collect
+                    if (defaultPhoneId.value.isBlank()) return@collect
+                    if (connectInFlight) return@collect
+                    if (sessionManager.sessionState.value != SessionState.IDLE) return@collect
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastAutoReconnectAttemptMs < AUTO_RECONNECT_MIN_GAP_MS) return@collect
+                    lastAutoReconnectAttemptMs = now
+                    OalLog.i(TAG, "Ignition ON — kicking auto-reconnect")
+                    hasConnected = false
+                    connect()
+                }
+        }
         // Auto-close the phone chooser once we successfully reach STREAMING.
         // Without this the picker stays up after a successful tap-reconnect
         // and the user has to dismiss it manually.
@@ -944,7 +1002,14 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         //      subnet and nothing has triggered a re-resolve yet.
         viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(IDLE_SWEEP_INTERVAL_MS)
+                // Tighten cadence briefly after a resolve failure so the
+                // common case (phone joined the AP a few seconds after we
+                // gave up) recovers in ~3s instead of ~15s.
+                val sinceFailure = if (lastResolveFailureMs == 0L) Long.MAX_VALUE
+                    else SystemClock.elapsedRealtime() - lastResolveFailureMs
+                val interval = if (sinceFailure < FAST_SWEEP_WINDOW_MS)
+                    FAST_IDLE_SWEEP_INTERVAL_MS else IDLE_SWEEP_INTERVAL_MS
+                kotlinx.coroutines.delay(interval)
                 try {
                     val mode = connectionMode.value
                     val state = sessionManager.sessionState.value

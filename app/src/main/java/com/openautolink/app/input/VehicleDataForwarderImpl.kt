@@ -581,6 +581,11 @@ class VehicleDataForwarderImpl(
                 val v = value as? Int ?: return
                 if (lastLoggedGear != v) {
                     DiagnosticLog.i("vhal", "GEAR_SELECTION → ${gearToString(v)} ($v) [was ${lastLoggedGear ?: "?"}]")
+                    // Explicit PARKED marker (gear 4 == P per VehicleGear)
+                    // so shutdown-side log analysis has a clear anchor.
+                    if (v == 4 && lastLoggedGear != null) {
+                        DiagnosticLog.i("vhal", "PARKED")
+                    }
                     lastLoggedGear = v
                 }
             }
