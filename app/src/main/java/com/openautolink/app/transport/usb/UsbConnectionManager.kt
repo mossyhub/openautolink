@@ -28,12 +28,24 @@ import kotlinx.coroutines.launch
 enum class UsbConnectionState {
     IDLE,
     DEVICE_DETECTED,
+    AWAITING_USER_SELECTION,
     PERMISSION_REQUESTED,
     SWITCHING_TO_ACCESSORY,
     ACCESSORY_DETECTED,
     CONNECTING,
     CONNECTED,
 }
+
+/**
+ * A user-visible USB device candidate shown in the picker.
+ */
+data class UsbDeviceCandidate(
+    val deviceName: String,        // stable id from UsbDevice.deviceName (e.g. /dev/bus/usb/001/002)
+    val vendorId: Int,
+    val productId: Int,
+    val friendlyName: String,      // manufacturer + product, falling back to VID:PID
+    val isAccessoryMode: Boolean,  // true if already in Google Accessory mode
+)
 
 /**
  * Manages the full USB transport lifecycle:
@@ -62,6 +74,17 @@ class UsbConnectionManager(
 
         private val _connectionState = MutableStateFlow(UsbConnectionState.IDLE)
         val connectionState: StateFlow<UsbConnectionState> = _connectionState.asStateFlow()
+
+        private val _availableDevices = MutableStateFlow<List<UsbDeviceCandidate>>(emptyList())
+        val availableDevices: StateFlow<List<UsbDeviceCandidate>> = _availableDevices.asStateFlow()
+
+        @Volatile
+        private var activeInstance: UsbConnectionManager? = null
+
+        /** Called from the UI when the user picks a device from the picker. */
+        fun selectDevice(deviceName: String) {
+            activeInstance?.onUserSelectedDevice(deviceName)
+        }
     }
 
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -114,6 +137,7 @@ class UsbConnectionManager(
     fun start() {
         if (isRunning) return
         isRunning = true
+        activeInstance = this
         _connectionState.value = UsbConnectionState.IDLE
         _status.value = "Waiting for USB device..."
 
@@ -124,19 +148,22 @@ class UsbConnectionManager(
         }
         context.registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
 
-        // Check for already-connected devices
+        // Enumerate currently-attached devices and either auto-connect to an
+        // already-switched accessory or publish the candidate list for the UI.
         scanExistingDevices()
     }
 
     fun stop() {
         if (!isRunning) return
         isRunning = false
+        if (activeInstance === this) activeInstance = null
         scanJob?.cancel()
         scanJob = null
         try {
             context.unregisterReceiver(usbReceiver)
         } catch (_: IllegalArgumentException) { }
         closePipe()
+        _availableDevices.value = emptyList()
         _connectionState.value = UsbConnectionState.IDLE
         _status.value = "Stopped"
     }
@@ -144,6 +171,11 @@ class UsbConnectionManager(
     private fun scanExistingDevices() {
         val devices = usbManager.deviceList
         OalLog.i(TAG, "Scanning ${devices.size} existing USB devices")
+
+        // Auto-handle a device already in accessory mode — this is the return
+        // path after we triggered an AOA switch on a previous selection, so
+        // there's no point re-prompting the user. Permission is still requested
+        // (it persists across the re-enumeration on most cars but not all).
         for ((_, device) in devices) {
             if (UsbConstants.isAccessoryDevice(device.vendorId, device.productId)) {
                 OalLog.i(TAG, "Found device already in accessory mode: ${device.deviceName}")
@@ -152,27 +184,21 @@ class UsbConnectionManager(
                 return
             }
         }
-        // No accessory device — check for any phone-like device
-        for ((_, device) in devices) {
-            if (!isHubOrSystemDevice(device)) {
-                OalLog.i(TAG, "Found candidate USB device: ${device.deviceName} " +
-                        "VID=${String.format("%04X", device.vendorId)} " +
-                        "PID=${String.format("%04X", device.productId)}")
-                handleDeviceAttached(device)
-                return
-            }
-        }
+
+        publishCandidates()
     }
 
     private fun handleDeviceAttached(device: UsbDevice) {
         if (UsbConstants.isAccessoryDevice(device.vendorId, device.productId)) {
+            // Accessory came back after our AOA switch — connect without prompting again.
             _connectionState.value = UsbConnectionState.ACCESSORY_DETECTED
             _status.value = "Accessory device detected"
             requestPermissionOrConnect(device)
         } else {
-            _connectionState.value = UsbConnectionState.DEVICE_DETECTED
-            _status.value = "Device detected — requesting permission..."
-            requestPermissionOrConnect(device)
+            // Newly-attached non-accessory device: refresh the picker list.
+            // Do NOT auto-request permission — we only ever prompt for the
+            // device the user explicitly selects.
+            publishCandidates()
         }
     }
 
@@ -180,6 +206,64 @@ class UsbConnectionManager(
         closePipe()
         _connectionState.value = UsbConnectionState.IDLE
         _status.value = "USB device disconnected"
+        publishCandidates()
+    }
+
+    /**
+     * Re-enumerates attached USB devices and publishes the user-visible
+     * candidate list. Hubs and mass-storage devices are filtered out.
+     */
+    private fun publishCandidates() {
+        val list = usbManager.deviceList.values
+            .filterNot { isHubOrSystemDevice(it) }
+            .map { d ->
+                UsbDeviceCandidate(
+                    deviceName = d.deviceName,
+                    vendorId = d.vendorId,
+                    productId = d.productId,
+                    friendlyName = friendlyNameFor(d),
+                    isAccessoryMode = UsbConstants.isAccessoryDevice(d.vendorId, d.productId),
+                )
+            }
+            .sortedBy { it.friendlyName.lowercase() }
+        _availableDevices.value = list
+        if (_connectionState.value == UsbConnectionState.IDLE && list.isNotEmpty()) {
+            _connectionState.value = UsbConnectionState.AWAITING_USER_SELECTION
+            _status.value = "Select a USB device to connect"
+        } else if (list.isEmpty() && _connectionState.value == UsbConnectionState.AWAITING_USER_SELECTION) {
+            _connectionState.value = UsbConnectionState.IDLE
+            _status.value = "Waiting for USB device..."
+        }
+    }
+
+    private fun friendlyNameFor(device: UsbDevice): String {
+        val mfg = try { device.manufacturerName } catch (_: SecurityException) { null }
+        val prod = try { device.productName } catch (_: SecurityException) { null }
+        val composed = listOfNotNull(mfg?.trim(), prod?.trim())
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+        if (composed.isNotEmpty()) return composed
+        return "USB Device %04X:%04X".format(device.vendorId, device.productId)
+    }
+
+    /**
+     * Called when the user taps a device in the picker. Looks the device up
+     * by its stable [UsbDevice.deviceName] and starts the permission/AOA flow.
+     */
+    private fun onUserSelectedDevice(deviceName: String) {
+        if (!isRunning) return
+        val device = usbManager.deviceList[deviceName]
+        if (device == null) {
+            OalLog.w(TAG, "User selected device $deviceName but it is no longer attached")
+            publishCandidates()
+            return
+        }
+        OalLog.i(TAG, "User selected USB device: ${device.deviceName} " +
+                "VID=${String.format("%04X", device.vendorId)} " +
+                "PID=${String.format("%04X", device.productId)}")
+        _connectionState.value = UsbConnectionState.DEVICE_DETECTED
+        _status.value = "Requesting permission for ${friendlyNameFor(device)}..."
+        requestPermissionOrConnect(device)
     }
 
     private fun requestPermissionOrConnect(device: UsbDevice) {

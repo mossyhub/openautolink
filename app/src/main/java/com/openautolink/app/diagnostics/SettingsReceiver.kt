@@ -134,6 +134,10 @@ class SettingsReceiver : BroadcastReceiver() {
                     val v = intent.getStringExtra("svalue") ?: return@runBlocking
                     prefs.setMicSource(v); log("mic_source=$v")
                 }
+                "bt_mac_override" -> {
+                    val v = intent.getStringExtra("svalue") ?: ""
+                    prefs.setBtMacOverride(v); log("bt_mac_override=$v")
+                }
                 else -> log("Unknown key: $key")
             }
         }

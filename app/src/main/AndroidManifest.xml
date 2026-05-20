@@ -40,6 +40,12 @@
     <uses-permission android:name="android.car.permission.CAR_INFO" />
     <uses-permission android:name="android.car.permission.CAR_ENERGY_PORTS" />
     <uses-permission android:name="android.car.permission.READ_CAR_DISPLAY_UNITS" />
+    <!-- Round-6 audit additions — dangerous-level perms grantable to normal apps.
+         CAR_MILEAGE unlocks PERF_ODOMETER; CAR_TIRES unlocks TIRE_PRESSURE per wheel;
+         CAR_DYNAMICS_STATE unlocks ABS_ACTIVE / TRACTION_CONTROL_ACTIVE. -->
+    <uses-permission android:name="android.car.permission.CAR_MILEAGE" />
+    <uses-permission android:name="android.car.permission.CAR_TIRES" />
+    <uses-permission android:name="android.car.permission.CAR_DYNAMICS_STATE" />
 
     <uses-feature
         android:name="android.hardware.type.automotive"
@@ -68,7 +74,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection|navigation|touchscreen"
             android:screenOrientation="sensorLandscape"
             android:launchMode="singleTask"
             android:windowSoftInputMode="stateAlwaysHidden">

@@ -238,6 +238,10 @@ fun ProjectionScreen(
             SurfaceView(context).apply {
                 holder.addCallback(object : SurfaceHolder.Callback {
                     override fun surfaceCreated(holder: SurfaceHolder) {
+                        com.openautolink.app.diagnostics.DiagnosticLog.i(
+                            "video",
+                            "SurfaceView.surfaceCreated: ${holder.surfaceFrame.width()}x${holder.surfaceFrame.height()}"
+                        )
                         viewModel.onSurfaceAvailable(
                             holder.surface,
                             holder.surfaceFrame.width(),
@@ -251,10 +255,18 @@ fun ProjectionScreen(
                         width: Int,
                         height: Int
                     ) {
+                        com.openautolink.app.diagnostics.DiagnosticLog.i(
+                            "video",
+                            "SurfaceView.surfaceChanged: ${width}x${height} format=0x${Integer.toHexString(format)}"
+                        )
                         viewModel.onSurfaceAvailable(holder.surface, width, height)
                     }
 
                     override fun surfaceDestroyed(holder: SurfaceHolder) {
+                        com.openautolink.app.diagnostics.DiagnosticLog.i(
+                            "video",
+                            "SurfaceView.surfaceDestroyed"
+                        )
                         viewModel.onSurfaceDestroyed()
                     }
                 })
@@ -491,8 +503,14 @@ fun ProjectionScreen(
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 16.dp),
         ) {
-            val maxBoundsX = this.maxWidth.value
-            val maxBoundsY = this.maxHeight.value
+            // `maxWidth.value` returns DP, but the drag offset inside
+            // DraggableOverlayButton is in PIXELS. Passing the DP value
+            // was clamping the drag to ~screen_width/density pixels —
+            // i.e. an "invisible wall" roughly 1/3 of the way across the
+            // screen on common AAOS panel densities. Convert to pixels.
+            val density = LocalDensity.current
+            val maxBoundsX = with(density) { this@BoxWithConstraints.maxWidth.toPx() }
+            val maxBoundsY = with(density) { this@BoxWithConstraints.maxHeight.toPx() }
 
             Column {
                 // Settings button — draggable
@@ -679,6 +697,16 @@ fun ProjectionScreen(
                     onDismiss = { viewModel.dismissPhoneChooser() },
                 )
             }
+        }
+
+        // USB device picker overlay — shown whenever the user has selected the
+        // USB transport, no session is connected yet, and one or more candidate
+        // devices are attached. Only the device the user picks will be granted
+        // permission and switched into AOA mode; we do NOT auto-prompt for
+        // every USB device the head unit enumerates.
+        val transportMode by viewModel.transportMode.collectAsStateWithLifecycle()
+        if (transportMode == "usb") {
+            UsbDevicePickerOverlay()
         }
 
     }
@@ -1439,3 +1467,128 @@ private fun SafeAreaOverlay(
         drawInsetLines(contentTop, contentBottom, contentLeft, contentRight, contentColor)
     }
 }
+
+/**
+ * Modal picker for USB transport mode.
+ *
+ * Shown only while the USB transport is selected and there is no active
+ * AA session yet. Lists every non-hub USB device currently attached to the
+ * head unit with a friendly name. Tapping a device triggers the OS USB
+ * permission prompt and then the AOA v2 switch + connect flow.
+ */
+@Composable
+private fun UsbDevicePickerOverlay() {
+    val devices by com.openautolink.app.transport.usb.UsbConnectionManager
+        .availableDevices.collectAsStateWithLifecycle()
+    val state by com.openautolink.app.transport.usb.UsbConnectionManager
+        .connectionState.collectAsStateWithLifecycle()
+    val status by com.openautolink.app.transport.usb.UsbConnectionManager
+        .status.collectAsStateWithLifecycle()
+
+    val showPicker = state != com.openautolink.app.transport.usb.UsbConnectionState.CONNECTED &&
+            state != com.openautolink.app.transport.usb.UsbConnectionState.CONNECTING &&
+            state != com.openautolink.app.transport.usb.UsbConnectionState.SWITCHING_TO_ACCESSORY &&
+            state != com.openautolink.app.transport.usb.UsbConnectionState.PERMISSION_REQUESTED
+
+    AnimatedVisibility(
+        visible = showPicker,
+        enter = androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.fadeOut(),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.75f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .widthIn(min = 360.dp, max = 560.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(24.dp),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.Start,
+                ) {
+                    Text(
+                        text = "Select your phone",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (devices.isEmpty())
+                            "Plug your phone into the car's USB port. Detected USB devices will appear here."
+                        else
+                            "Tap your phone in the list. The car will request permission, then switch it to Android Auto accessory mode.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    if (devices.isEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Waiting for USB device...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            devices.forEach { device ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            com.openautolink.app.transport.usb.UsbConnectionManager
+                                                .selectDevice(device.deviceName)
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.PhoneAndroid,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            text = device.friendlyName,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Text(
+                                            text = "VID:%04X PID:%04X%s".format(
+                                                device.vendorId, device.productId,
+                                                if (device.isAccessoryMode) "  •  Accessory mode" else "",
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+

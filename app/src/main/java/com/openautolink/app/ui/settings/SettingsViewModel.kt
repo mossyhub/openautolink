@@ -24,6 +24,7 @@ data class SettingsUiState(
     val videoFps: Int = AppPreferences.DEFAULT_VIDEO_FPS,
     val displayMode: String = AppPreferences.DEFAULT_DISPLAY_MODE,
     val micSource: String = AppPreferences.DEFAULT_MIC_SOURCE,
+    val btMacOverride: String = AppPreferences.DEFAULT_BT_MAC_OVERRIDE,
     val videoScalingMode: String = AppPreferences.DEFAULT_VIDEO_SCALING_MODE,
     val aaResolution: String = AppPreferences.DEFAULT_AA_RESOLUTION,
     val aaDpi: Int = AppPreferences.DEFAULT_AA_DPI,
@@ -116,6 +117,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         preferences.defaultPhoneName,
         preferences.manualIpEnabled,
         preferences.manualIpAddress,
+        preferences.btMacOverride,
     ) { values: Array<Any> ->
         SettingsUiState(
             videoAutoNegotiate = values[0] as Boolean,
@@ -158,6 +160,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             defaultPhoneName = values[37] as String,
             manualIpEnabled = values[38] as Boolean,
             manualIpAddress = values[39] as String,
+            btMacOverride = values[40] as String,
         )
     }.stateIn(
         viewModelScope,
@@ -304,6 +307,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateMicSource(source: String) {
         viewModelScope.launch { preferences.setMicSource(source) }
+    }
+
+    fun updateBtMacOverride(mac: String) {
+        viewModelScope.launch { preferences.setBtMacOverride(mac) }
     }
 
     fun updateVideoScalingMode(mode: String) {

@@ -28,6 +28,14 @@ class TcpConnector(
     private val context: Context,
     private val scope: CoroutineScope,
     private val onSocketReady: (Socket) -> Unit,
+    /**
+     * Optional: called once after a full attempt cycle fails to connect (one
+     * tryConnect for manual IP, or all of mDNS+gateway). Used to drive UI
+     * escalation (e.g. open the phone picker after N failures) without
+     * relying on session-level retries — when the phone is unreachable at
+     * the TCP layer we never get an onSessionStopped to count from.
+     */
+    private val onConnectFailure: (() -> Unit)? = null,
 ) {
     companion object {
         private const val TAG = "OAL-TcpConn"
@@ -58,36 +66,58 @@ class TcpConnector(
         isRunning = true
         OalLog.i(TAG, "Starting TCP connector (port $COMPANION_PORT)")
 
-        val manual = manualIp?.takeIf { it.isNotBlank() }
-        if (manual != null) {
-            OalLog.i(TAG, "Manual IP mode: $manual")
+        // Manual IP may be either "host" or "host:port". If a port is given it
+        // overrides COMPANION_PORT — used by the debug discovery-injection
+        // path (DEBUG_INJECT_PHONE), and harmless when omitted in production
+        // since every companion listens on the canonical port.
+        val raw = manualIp?.takeIf { it.isNotBlank() }
+        val manualHost: String?
+        val manualPort: Int
+        if (raw != null) {
+            val colonIdx = raw.lastIndexOf(':')
+            val parsedPort = if (colonIdx > 0) raw.substring(colonIdx + 1).toIntOrNull() else null
+            if (parsedPort != null && parsedPort in 1..65535 && !raw.contains(']')) {
+                manualHost = raw.substring(0, colonIdx)
+                manualPort = parsedPort
+            } else {
+                manualHost = raw
+                manualPort = COMPANION_PORT
+            }
+            OalLog.i(TAG, "Manual IP mode: $manualHost:$manualPort")
         } else {
+            manualHost = null
+            manualPort = COMPANION_PORT
             startNsdDiscovery()
         }
 
         connectJob = scope.launch(Dispatchers.IO) {
             while (isActive && isRunning) {
                 // Manual IP — skip all discovery, connect directly
-                if (manual != null) {
-                    if (tryConnect(manual, COMPANION_PORT, "manual")) return@launch
+                if (manualHost != null) {
+                    if (tryConnect(manualHost, manualPort, "manual")) return@launch
+                    onConnectFailure?.invoke()
                     delay(RETRY_DELAY_MS)
                     continue
                 }
 
                 // Try mDNS-discovered host first
                 val nsdHost = nsdFoundHost
+                var anyTried = false
                 if (nsdHost != null && nsdFoundPort > 0) {
+                    anyTried = true
                     if (tryConnect(nsdHost, nsdFoundPort, "mDNS")) return@launch
                 }
 
                 // Fall back to gateway IP (works on phone hotspot)
                 val gatewayIp = getGatewayIp()
                 if (gatewayIp != null) {
+                    anyTried = true
                     if (tryConnect(gatewayIp, COMPANION_PORT, "gateway")) return@launch
                 } else {
                     OalLog.d(TAG, "No WiFi gateway — waiting for mDNS or network...")
                 }
 
+                if (anyTried) onConnectFailure?.invoke()
                 delay(RETRY_DELAY_MS)
             }
         }

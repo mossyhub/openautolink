@@ -341,8 +341,10 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
             *strand_, messenger_);
         systemAudioChannel_ = std::make_shared<aasdk::channel::mediasink::audio::channel::SystemAudioChannel>(
             *strand_, messenger_);
-        // Telephony audio disabled — crashes AA without BT HFP
-        // telephonyAudioChannel_ = ...
+        // NOTE: TelephonyAudioChannel intentionally not created — phone-side
+        // AA's CAR.AUDIO.AFM explicitly refuses focus events for phone calls,
+        // and the obfuscated C0000a.m5F mapper crashes on AUDIO_STREAM_TELEPHONY.
+        // See docs/aa-undocumented-features.md.
         inputChannel_ = std::make_shared<aasdk::channel::inputsource::InputSourceService>(
             *strand_, messenger_);
         sensorChannel_ = std::make_shared<aasdk::channel::sensorsource::SensorSourceService>(
@@ -429,7 +431,7 @@ void JniSession::stop()
         JNIEnv* env = getEnv(attached);
         if (env) {
             if (!sessionStoppedFired_.exchange(true) && cbMethods_.onSessionStopped) {
-                jstring reason = env->NewStringUTF("stopped");
+                jstring reason = env->NewStringUTF(stopReason_.c_str());
                 env->CallVoidMethod(callbackRef_, cbMethods_.onSessionStopped, reason);
                 env->DeleteLocalRef(reason);
             }
@@ -594,15 +596,35 @@ void JniSession::onNavigationFocusRequest(
 }
 
 void JniSession::onByeByeRequest(
-    const aap_protobuf::service::control::message::ByeByeRequest& /*request*/)
+    const aap_protobuf::service::control::message::ByeByeRequest& request)
 {
-    LOGI("ByeBye request Ã¢â‚¬â€ disconnecting");
+    const char* reasonStr = "byebye_unknown";
+    switch (request.reason()) {
+        case aap_protobuf::service::control::message::USER_SELECTION:
+            reasonStr = "byebye_user_selection"; break;
+        case aap_protobuf::service::control::message::DEVICE_SWITCH:
+            reasonStr = "byebye_device_switch"; break;
+        case aap_protobuf::service::control::message::NOT_SUPPORTED:
+            reasonStr = "byebye_not_supported"; break;
+        case aap_protobuf::service::control::message::NOT_CURRENTLY_SUPPORTED:
+            reasonStr = "byebye_not_currently_supported"; break;
+        case aap_protobuf::service::control::message::PROBE_SUPPORTED:
+            reasonStr = "byebye_probe_supported"; break;
+        default: break;
+    }
+    LOGI("ByeBye request reason=%d (%s) - disconnecting",
+         static_cast<int>(request.reason()), reasonStr);
+    stopReason_ = reasonStr;
     aap_protobuf::service::control::message::ByeByeResponse response;
     auto promise = aasdk::channel::SendPromise::defer(*strand_);
-    promise->then([this]() { stop(); }, [this](const auto&) { stop(); });
+    // See onVideoFocusRequest: stop() joins ioThread_, so detach it to avoid
+    // joining the thread we're running on.
+    auto self = shared_from_this();
+    promise->then(
+        [self]() { std::thread([self] { self->stop(); }).detach(); },
+        [self](const auto&) { std::thread([self] { self->stop(); }).detach(); });
     controlChannel_->sendShutdownResponse(response, std::move(promise));
 }
-
 void JniSession::onByeByeResponse(
     const aap_protobuf::service::control::message::ByeByeResponse& /*response*/)
 {
@@ -975,24 +997,49 @@ void JniSession::onMediaIndication(const aasdk::common::DataConstBuffer& buffer)
 void JniSession::onVideoFocusRequest(
     const aap_protobuf::service::media::video::message::VideoFocusRequestNotification& request)
 {
-    // The phone sends VideoFocusRequest when its projection state machine needs
-    // to re-arbitrate focus — e.g., day/night theme transitions (tunnel entry),
-    // phone-screen-off, or returning from a phone-native UI. The phone STALLS
-    // projection until we reply with a VideoFocusIndication, which on the car
-    // manifests as a black screen during a night-mode flip.
-    //
-    // Mirror GM's GALDisplayManager.onVideoFocusRequest pattern: reply with our
-    // *current* focus state, not the requested mode. On AAOS we are always
-    // projecting, so currentVideoFocus_ is PROJECTED unless a future feature
-    // (cluster surrender, back-to-Home-while-AA-alive) explicitly changes it.
-    // unsolicited=false: this IS a reply to a request.
     int mode = request.has_mode() ? static_cast<int>(request.mode()) : -1;
     int reason = request.has_reason() ? static_cast<int>(request.reason()) : -1;
-    int reply = currentVideoFocus_.load();
-    LOGI("Video focus request from phone: mode=%d reason=%d -> replying with current=%d "
+    LOGI("Video focus request from phone: mode=%d reason=%d "
          "(focus 1=PROJECTED 2=NATIVE 3=NATIVE_TRANSIENT; "
-         "reason 1=PHONE_SCREEN_OFF 2=LAUNCH_NATIVE)", mode, reason, reply);
+         "reason 1=PHONE_SCREEN_OFF 2=LAUNCH_NATIVE)", mode, reason);
 
+    // VIDEO_FOCUS_NATIVE = user tapped "Exit" in the AA app launcher on the
+    // phone (the phone never sends ByeBye for this; it just asks us to show
+    // our native UI). Mirror headunit-revived's AapControl.kt behavior: ack
+    // with NATIVE focus, mark this as a user exit, and tear down the session.
+    // The Kotlin onSessionStopped("byebye_user_selection") handler then drives
+    // MainActivity to finishAndRemoveTask() (returns AAOS to its launcher).
+    if (mode == static_cast<int>(aap_protobuf::service::media::video::message::VIDEO_FOCUS_NATIVE)) {
+        LOGI("VIDEO_FOCUS_NATIVE received - treating as user Exit, stopping session");
+        currentVideoFocus_.store(
+            aap_protobuf::service::media::video::message::VIDEO_FOCUS_NATIVE);
+        aap_protobuf::service::media::video::message::VideoFocusNotification focus;
+        focus.set_focus(aap_protobuf::service::media::video::message::VIDEO_FOCUS_NATIVE);
+        focus.set_unsolicited(false);
+        auto promise = aasdk::channel::SendPromise::defer(*strand_);
+        // stop() joins ioThread_; if we called it directly from this promise
+        // callback we'd be joining the thread we're running on (UB / silent
+        // abort — observed: the Kotlin onSessionStopped JNI call never fires,
+        // so cluster teardown is skipped). Detach onto a worker so stop() can
+        // safely join the io_thread.
+        auto self = shared_from_this();
+        promise->then(
+            [self]() {
+                self->stopReason_ = "byebye_user_selection";
+                std::thread([self] { self->stop(); }).detach();
+            },
+            [self](const auto&) {
+                self->stopReason_ = "byebye_user_selection";
+                std::thread([self] { self->stop(); }).detach();
+            });
+        videoChannel_->sendVideoFocusIndication(focus, std::move(promise));
+        return;
+    }
+
+    // PROJECTED / NATIVE_TRANSIENT (e.g. day/night theme transitions, phone
+    // screen off) — keep projecting. Reply with our current focus state.
+    int reply = currentVideoFocus_.load();
+    LOGI("Replying with current focus=%d", reply);
     aap_protobuf::service::media::video::message::VideoFocusNotification focus;
     focus.set_focus(
         static_cast<aap_protobuf::service::media::video::message::VideoFocusMode>(reply));
@@ -1027,10 +1074,6 @@ void JniSession::startAllHandlers()
     systemAudioHandler_ = std::make_shared<JniAudioSinkHandler>(
         *strand_, systemAudioChannel_, *this, JniAudioSinkHandler::AudioType::System);
     systemAudioHandler_->start();
-
-    // Telephony audio disabled — crashes AA without BT HFP
-    // telephonyAudioHandler_ = ...
-    // telephonyAudioHandler_->start();
 
     // Sensor handler
     sensorHandler_ = std::make_shared<JniSensorHandler>(*strand_, sensorChannel_, *this);
@@ -1363,16 +1406,8 @@ void JniSession::buildServiceDiscoveryResponse(
       ac->set_sampling_rate(16000); ac->set_number_of_bits(16); ac->set_number_of_channels(1);
     }
 
-    // ---- Telephony audio (16kHz mono) — disabled: crashes AA without BT HFP ----
-    // { auto* svc = response.add_channels();
-    //   svc->set_id(static_cast<int32_t>(aasdk::messenger::ChannelId::MEDIA_SINK_TELEPHONY_AUDIO));
-    //   auto* ms = svc->mutable_media_sink_service();
-    //   ms->set_available_type(aap_protobuf::service::media::shared::message::MEDIA_CODEC_AUDIO_PCM);
-    //   ms->set_audio_type(aap_protobuf::service::media::sink::message::AUDIO_STREAM_TELEPHONY);
-    //   ms->set_available_while_in_call(true);
-    //   auto* ac = ms->add_audio_configs();
-    //   ac->set_sampling_rate(16000); ac->set_number_of_bits(16); ac->set_number_of_channels(1);
-    // }
+    // NOTE: MEDIA_SINK_TELEPHONY_AUDIO intentionally not advertised — it is
+    // dead infrastructure in phone-side AA. See docs/aa-undocumented-features.md.
 
     // ---- Mic input (16kHz mono) ----
     { auto* svc = response.add_channels();

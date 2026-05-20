@@ -129,7 +129,6 @@ int JniAudioSinkHandler::purposeFromType() const
         case AudioType::Media:    return 0;
         case AudioType::Guidance: return 1;
         case AudioType::System:   return 2;
-        case AudioType::Telephony: return 4;
     }
     return 0;
 }

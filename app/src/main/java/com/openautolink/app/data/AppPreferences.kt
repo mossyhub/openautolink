@@ -35,6 +35,16 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val VIDEO_FPS = intPreferencesKey("video_fps")
         val DISPLAY_MODE = stringPreferencesKey("display_mode")
         val MIC_SOURCE = stringPreferencesKey("mic_source")
+        // Manual override for the head unit's Bluetooth MAC, advertised in
+        // the AA ServiceDiscoveryResponse's bluetooth_service.car_address.
+        // Some AAOS builds return empty / 02:00:00:00:00:00 / "None" from
+        // both Settings.Secure["bluetooth_address"] and BluetoothAdapter
+        // .getAddress(), and a few phones won't enter wireless AA pairing
+        // without a valid car MAC. Users can read the real MAC from
+        // AAOS Settings → About → Bluetooth address and paste it here.
+        // Does NOT affect call audio routing — calls always follow the
+        // phone's BT pairing settings, regardless of what's in the SDR.
+        val BT_MAC_OVERRIDE = stringPreferencesKey("bt_mac_override")
         val SYNC_AA_THEME = booleanPreferencesKey("sync_aa_theme")
         val HIDE_AA_CLOCK = booleanPreferencesKey("hide_aa_clock")
         val HIDE_PHONE_SIGNAL = booleanPreferencesKey("hide_phone_signal")
@@ -159,6 +169,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_VIDEO_FPS = 60
         const val DEFAULT_DISPLAY_MODE = "fullscreen_immersive"
         const val DEFAULT_MIC_SOURCE = "car"
+        const val DEFAULT_BT_MAC_OVERRIDE = ""
         const val DEFAULT_SYNC_AA_THEME = true
         const val DEFAULT_HIDE_AA_CLOCK = false
         const val DEFAULT_HIDE_PHONE_SIGNAL = false
@@ -270,6 +281,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     val micSource: Flow<String> = dataStore.data.map { prefs ->
         prefs[MIC_SOURCE] ?: DEFAULT_MIC_SOURCE
+    }
+
+    val btMacOverride: Flow<String> = dataStore.data.map { prefs ->
+        prefs[BT_MAC_OVERRIDE] ?: DEFAULT_BT_MAC_OVERRIDE
     }
 
     val syncAaTheme: Flow<Boolean> = dataStore.data.map { prefs ->
@@ -497,6 +512,12 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setMicSource(source: String) {
         dataStore.edit { it[MIC_SOURCE] = source }
+    }
+
+    /** Normalise a user-entered MAC: strip whitespace, uppercase, accept blank to clear. */
+    suspend fun setBtMacOverride(mac: String) {
+        val cleaned = mac.trim().uppercase().replace('-', ':')
+        dataStore.edit { it[BT_MAC_OVERRIDE] = cleaned }
     }
 
     suspend fun setSyncAaTheme(enabled: Boolean) {

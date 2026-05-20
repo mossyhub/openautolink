@@ -32,7 +32,7 @@ OpenAutoLink runs the full Android Auto protocol stack natively on an AAOS head 
 
 See the full installation and setup walkthrough video on YouTube:
 
-[![OpenAutoLink Walkthrough](https://img.youtube.com/vi/AmQOL05EM5k/0.jpg)](https://www.youtube.com/watch?v=AmQOL05EM5k)
+[![OpenAutoLink Walkthrough](https://img.youtube.com/vi/2KcsTZalXcc/0.jpg)](https://youtu.be/2KcsTZalXcc)
 
 > **Discuss on XDA:** [OpenAutoLink — Wireless Android Auto for AAOS (GM EVs)](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/)
 

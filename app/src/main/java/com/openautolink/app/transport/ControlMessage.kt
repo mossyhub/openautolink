@@ -165,7 +165,15 @@ sealed class ControlMessage {
         val satInView: Int? = null,
         val satellites: List<SatelliteInfo>? = null,
         // RPM
-        val rpmE3: Int? = null
+        val rpmE3: Int? = null,
+        // Round-6 — extra VHAL reads (CAR_MILEAGE, CAR_TIRES, CAR_DYNAMICS_STATE)
+        val tirePressuresKpa: List<Float>? = null,
+        val absActive: Boolean? = null,
+        val tractionControlActive: Boolean? = null,
+        // From com.gm.vehicleinfo.HistoryProvider (Finding F.2) — latest sample.
+        // Null when provider returns nothing (patch / SecurityException / empty).
+        val evMotorPowerW: Float? = null,
+        val evMotorTorqueNm: Float? = null,
     ) : ControlMessage()
 
     data class SatelliteInfo(

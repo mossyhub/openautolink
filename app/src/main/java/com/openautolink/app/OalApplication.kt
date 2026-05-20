@@ -37,6 +37,11 @@ class OalApplication : Application() {
         loadPreviousNativeCrash()
         installCrashHandler()
         installNativeCrashHandler()
+        // Start VHAL ignition watcher for the lifetime of the process so the
+        // wake-handling code knows real ignition state before deciding to
+        // auto-connect. Without this, the "ghost wake" AAOS dispatches during
+        // shutdown burns a 45s timeout into a dead WiFi.
+        com.openautolink.app.input.IgnitionMonitor.start(this)
     }
 
     /**

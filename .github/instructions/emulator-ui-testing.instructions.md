@@ -53,13 +53,18 @@ $ms | Where-Object { $_ -match 'checked="true"' }
 
 ## Projection Screen Navigation
 
-### Button positions (system_ui_visible mode, typical)
+### Floating overlay buttons (right side, draggable)
 
-| Element | Typical Bounds | Content Description |
-|---------|---------------|---------------------|
-| Settings gear | [2320,664][2384,720] | `Settings` |
-| Stats overlay | [2320,728][2384,784] | `Stats for nerds` |
-| Phone switcher | [2320,792][2384,848] | `Switch phone` |
+The right-side overlay column has these icon buttons. Positions shift with display mode and the user can drag the column; **always use dynamic lookup by `content-desc`**:
+
+| Element | Typical Bounds (system_ui_visible) | Content Description | Notes |
+|---------|------------------------------------|---------------------|-------|
+| Settings gear | [2320,664][2384,720] | `Settings` | |
+| Stats overlay | [2320,728][2384,784] | `Stats for nerds` | |
+| Switch phone | [2790,967][2918,1031] | `Switch phone` | Opens the multi-phone chooser. Approx (2854, 999) when overlay column is bottom-right. |
+| Info / version | varies | `Info` | |
+
+The drag wall is at ~1/3 across the screen — the column snaps to the nearest left/right edge.
 
 **IMPORTANT**: In fullscreen/immersive modes, buttons shift down since more vertical space is available. In `nav_bar_hidden`, the Settings button moves to ~[2320,760][2384,816]. Always use dynamic lookup.
 
@@ -102,6 +107,96 @@ adb shell input tap 40 $y
 ### Right pane content
 
 Content starts at x=104. Radio buttons at x ~120-130, labels at x ~164+. The clickable row spans x=[104, ~1694].
+
+## Multi-Phone & Direct-Mode Testing
+
+The emulator's user-mode NAT (10.0.2.0/24) **cannot see real mDNS** on your home WiFi, so phones never auto-discover. The emulator CAN reach phones via outbound TCP through host NAT (`10.0.2.15 → 10.0.2.2 → host LAN`). Three ways to bootstrap a phone into discovery:
+
+### A) `SET_PREF` broadcast → manualIp auto-inject (preferred, no UI)
+
+The `SettingsReceiver` (manifest-registered, exported) lets you write any DataStore pref via ADB without launching settings UI. Setting `manual_ip_enabled=true` + `manual_ip_address=<phone-ip>` makes `ProjectionViewModel` inject the phone into discovery on next launch (`phone_id=debug_test_phone`, `name="Test Phone (debug)"`).
+
+```powershell
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+# App must be alive for the broadcast to be received (statically-registered
+# receiver still needs the process running). Launch once, then SET_PREF, then
+# force-stop + relaunch to apply.
+& $adb -s emulator-5554 shell monkey -p com.openautolink.app -c android.intent.category.LAUNCHER 1
+Start-Sleep -Seconds 3
+& $adb -s emulator-5554 shell "am broadcast -a com.openautolink.app.SET_PREF --es key manual_ip_enabled --ez bvalue true com.openautolink.app"
+& $adb -s emulator-5554 shell "am broadcast -a com.openautolink.app.SET_PREF --es key manual_ip_address --es svalue 192.168.1.174 com.openautolink.app"
+# Verify receiver fired:
+& $adb -s emulator-5554 logcat -d | Select-String 'SettingsRcv.*manual_ip'
+# Restart so the new pref takes effect:
+& $adb -s emulator-5554 shell am force-stop com.openautolink.app
+& $adb -s emulator-5554 shell monkey -p com.openautolink.app -c android.intent.category.LAUNCHER 1
+```
+
+Full pref list and key names: see [SettingsReceiver.kt](app/src/main/java/com/openautolink/app/diagnostics/SettingsReceiver.kt) (KDoc header). Supports `aa_dpi`, `aa_resolution`, `video_codec`, `manual_ip_enabled`, `manual_ip_address`, `call_audio_via_car`, `bt_mac_override`, and more.
+
+**Watch out**: `pm clear com.openautolink.app` does NOT reset manualIp on the next launch reliably — the prior value persists somehow (DataStore quirk). After `pm clear`, the very first launch may still inject the old IP. Always re-set via `SET_PREF` after a clear.
+
+### B) `DEBUG_INJECT_PHONE` broadcast (multi-phone scenarios)
+
+Register sites: `SessionManager.registerDebugReceiver()` — called from inside `startSession`, so **the receiver is only live after at least one session attempt**. For a clean cold-launch test, bootstrap with `SET_PREF`/manualIp first, then broadcast additional phones.
+
+```powershell
+adb shell "am broadcast -a com.openautolink.app.DEBUG_INJECT_PHONE \
+  --es host 192.168.0.29 \
+  --es phone_id samsung_test \
+  --es name 'Samsung (debug)' \
+  com.openautolink.app"
+```
+
+Extras: `host` (required), `port` (default 5277), `phone_id` (default `debug_inject_<host>`), `name` (default `Test Phone @ <host>`).
+
+### C) `DEBUG_SIMULATE_SLEEP` broadcast (car-sleep/wake)
+
+```powershell
+adb shell "am broadcast -a com.openautolink.app.DEBUG_SIMULATE_SLEEP \
+  --es duration_ms 60000 \
+  com.openautolink.app"
+```
+
+Tears down the active session, sleeps for `duration_ms` (min 1000), then exercises the wake auto-reconnect path. Use to validate: clean idle, IDR-only first frame on resume, no audio pop.
+
+### Phone chooser UI
+
+Opens automatically when `defaultPhoneId` is blank (first install / data wipe), or after `PICKER_ESCALATION_THRESHOLD=2` consecutive auto-reconnect failures, or via the **Switch phone** overlay button.
+
+Each phone row has:
+- **ACTIVE** badge — currently in-session
+- **DEFAULT** badge — `defaultPhoneId` in DataStore
+- `Default` button — promote this phone to default (clickable if not already)
+- `Forget` button — remove from `KnownPhonesStore`
+
+Dynamic Default-button lookup (skip the one rendered as the **DEFAULT** badge — it's not clickable):
+
+```powershell
+adb shell uiautomator dump /sdcard/ui.xml 2>$null
+adb pull /sdcard/ui.xml D:\temp\ui.xml | Out-Null
+$c = Get-Content D:\temp\ui.xml -Raw
+[regex]::Matches($c, 'text="Default"[^/]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"') |
+  ForEach-Object { $cx=([int]$_.Groups[1].Value+[int]$_.Groups[3].Value)/2; $cy=([int]$_.Groups[2].Value+[int]$_.Groups[4].Value)/2; "Default @ $cx,$cy" }
+adb shell input tap <cx> <cy>
+```
+
+### Validated test scenarios
+
+| Scenario | Setup | Expected log signature |
+|---|---|---|
+| **First-discovery auto-promote** | Uninstall app → install → set manualIp → launch | `No default phone yet — auto-promoting first discovered '<name>'` |
+| **Default-arrives-first** | Default set, manualIp on, cold launch | `Resolved via mDNS within 3000ms` (no head-start log) — ~1s to STREAMING |
+| **Non-default-first, default wins race** | Flip default to phone B in picker, cold launch, broadcast B inject within 500ms of resolve start | `Non-default '<A>' arrived first — waiting 500ms for default head-start` → `Default arrived during head-start — using <B>` |
+| **Non-default-first, no default arrives** | Flip default to unreachable phone, cold launch | `Non-default '<A>' arrived first — waiting 500ms for default head-start` → `Default head-start elapsed — using <A>` (~524ms) |
+| **Picker escalation** | Set default to unreachable IP, cold launch | 2 TCP failures → `Reconnect attempt 2 reached escalation threshold — opening chooser` |
+| **Sleep/wake** | Active session → `DEBUG_SIMULATE_SLEEP` 5000 | Session torn down → auto-reconnect → first frame IDR (no artifact frames) |
+
+### Race-timing tips
+
+- Broadcasts via `am` have ~50-150ms slop. To land an inject inside the 500ms head-start window, use a `Start-Sleep -Milliseconds <2050±100>` after `monkey` launch (resolve typically starts ~2050ms after launch).
+- The `manualIpAddress` pref watcher auto-injects ~700-900ms after app launch — this is **always the first phone in discovery** unless you suppress it first by clearing the pref.
+- `phoneDiscovery.phones` is a debounced flow; emissions can lag the broadcast by ~50ms.
 
 ## Display Mode Testing
 

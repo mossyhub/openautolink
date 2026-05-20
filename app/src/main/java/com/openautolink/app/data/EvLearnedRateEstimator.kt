@@ -101,12 +101,21 @@ class EvLearnedRateEstimator private constructor(
             val dKm = speedKmh * dtH
             if (dKm < MIN_SAMPLE_KM_PER_TICK) return "skip:dKm<$MIN_SAMPLE_KM_PER_TICK"
 
-            val dWh = (prevBattery - batteryWh).toFloat()  // > 0 = consumed
+            // Energy delta — prefer motor-power × dt when HistoryProvider is
+            // serving samples (Finding F.2: more responsive, less SOC-quantization
+            // noise than batteryWh delta). Falls back to batteryWh delta when
+            // the provider is patched / unavailable / returns null.
+            val motorW = vd.evMotorPowerW
+            val (dWh, source) = if (motorW != null && motorW > 0f) {
+                (motorW * dtH) to "gt"   // ground-truth integration
+            } else {
+                ((prevBattery - batteryWh).toFloat()) to "bd"   // battery delta
+            }
             if (dWh <= 0f) return "skip:regen(dWh=${dWh.toInt()})"
 
             val instWhPerKm = dWh / dKm
             if (instWhPerKm < MIN_INST_WH_PER_KM || instWhPerKm > MAX_INST_WH_PER_KM) {
-                return "skip:outlier(${instWhPerKm.toInt()})"
+                return "skip:outlier(${instWhPerKm.toInt()},src=$source)"
             }
 
             // EMA — alpha scales with sample distance so a long stretch counts more
@@ -117,7 +126,7 @@ class EvLearnedRateEstimator private constructor(
             s.sampleKm += dKm
             s.lastUpdateMs = System.currentTimeMillis()
 
-            return "ok:inst=${instWhPerKm.toInt()} ema=${s.whPerKm.toInt()}"
+            return "ok:$source inst=${instWhPerKm.toInt()} ema=${s.whPerKm.toInt()}"
         }
     }
 

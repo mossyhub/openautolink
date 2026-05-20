@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Match all USB devices for initial enumeration (pre-AOA switch) -->
-    <usb-device />
-    <!-- Google Accessory mode devices (after AOA switch) -->
+    <!--
+      Only match Google Accessory-mode devices. Pre-AOA enumeration is
+      handled by the dynamic broadcast receiver inside UsbConnectionManager
+      while the app is running in USB mode; the wildcard <usb-device /> filter
+      was removed because it caused the OS to launch us (and prompt for
+      permission) for every USB device plugged into the head unit.
+    -->
     <usb-device vendor-id="6353" product-id="11520" /> <!-- 0x18D1:0x2D00 -->
     <usb-device vendor-id="6353" product-id="11521" /> <!-- 0x18D1:0x2D01 (with ADB) -->
 </resources>

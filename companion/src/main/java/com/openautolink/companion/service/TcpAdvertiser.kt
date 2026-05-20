@@ -137,6 +137,66 @@ class TcpAdvertiser(
     }
 
     /**
+     * Spin up the local AA proxy and broadcast the AA-launch intent BEFORE
+     * any car has connected. Used on car-presence signals (BT ACL_CONNECTED
+     * to the head unit, etc.) so Android Auto's ~10s cold-start happens
+     * while the car is still booting + joining WiFi — by the time the car
+     * actually TCP-connects, AA is already warm and the bridge lights up
+     * in milliseconds.
+     *
+     * Idempotent. If a proxy is already running and idle, re-fires the
+     * launch intent (in case AA missed the previous one). If a bridge is
+     * already active, no-op.
+     */
+    fun preWarmAaPipeline() {
+        if (!isRunning) {
+            CompanionLog.w(TAG, "preWarmAaPipeline ignored — TcpAdvertiser not running")
+            return
+        }
+        val existing = activeProxy
+        if (existing != null) {
+            if (existing.hasActiveBridge()) {
+                CompanionLog.i(TAG, "preWarmAaPipeline: bridge already active, skipping")
+                return
+            }
+            CompanionLog.i(TAG, "preWarmAaPipeline: re-firing AA launch on existing warm proxy ${existing.localPort}")
+            fireAaLaunchIntent(existing.localPort)
+            return
+        }
+        CompanionLog.i(TAG, "preWarmAaPipeline: creating warm proxy (no car socket yet)")
+        scope.launch {
+            try {
+                val proxy = AaProxy(
+                    preConnectedSocket = null,
+                    listener = object : AaProxy.Listener {
+                        override fun onConnected() {
+                            CompanionLog.i(TAG, "AA flowing through warm proxy")
+                            aaConnectWatchdog?.cancel()
+                            aaConnectWatchdog = null
+                            aaLaunchAttempts = 0
+                            stateListener.onProxyConnected()
+                        }
+                        override fun onDisconnected() {
+                            CompanionLog.i(TAG, "Warm proxy disconnected")
+                            stateListener.onProxyDisconnected()
+                            isLaunching = false
+                        }
+                    },
+                )
+                activeProxy = proxy
+                isLaunching = true
+                val localPort = proxy.start()
+                fireAaLaunchIntent(localPort)
+                // No car-socket watchdog yet — that's started by
+                // handleCarConnection when the car arrives.
+            } catch (e: Exception) {
+                CompanionLog.e(TAG, "preWarmAaPipeline failed: ${e.message}")
+                isLaunching = false
+            }
+        }
+    }
+
+    /**
      * Run a tiny dedicated server on [IDENTITY_PORT] that answers identity
      * probes. Each connection: peer sends `OAL?\n`, we reply with
      * `OAL!{phone_id}\t{friendly_name}\n` and close. Single-purpose — never
@@ -275,9 +335,11 @@ class TcpAdvertiser(
         // swap in the new car socket so the next AA connection bridges to the
         // freshest car TCP session. This avoids throwing away a proxy whose port
         // we already broadcast to AA — AA may still be cold-starting and will
-        // connect to that same port imminently.
+        // connect to that same port imminently. This is also the connection
+        // point for the pre-warm path: a proxy created by preWarmAaPipeline()
+        // has no car socket yet, and lands here when the car finally arrives.
         if (proxy != null && !proxy.hasActiveBridge()) {
-            CompanionLog.i(TAG, "Car reconnected while waiting for AA — reusing proxy on port ${proxy.localPort}")
+            CompanionLog.i(TAG, "Car connection landing on warm proxy on port ${proxy.localPort}")
             activeCarSocket?.let { runCatching { it.close() } }
             activeCarSocket = carSocket
             proxy.updateCarSocket(carSocket)

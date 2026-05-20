@@ -64,6 +64,13 @@ class PhoneDiscovery private constructor(private val context: Context) {
          */
         private const val SWEEP_PARALLELISM = 128
 
+        /** Max retries when NSD resolves with no usable host. */
+        private const val MDNS_RESOLVE_MAX_ATTEMPTS = 4
+        private const val MDNS_RESOLVE_RETRY_GAP_MS = 500L
+
+        /** Throttle for the "no IPv4 on any interface" warning. */
+        private const val NO_IFACE_WARN_GAP_MS = 60_000L
+
         /**
          * Interfaces tried first on the phone-discovery sweep. On GM AAOS
          * head units the phone joins the car's AP via `ap_br_swlan0` (a
@@ -171,6 +178,17 @@ class PhoneDiscovery private constructor(private val context: Context) {
 
     private val sweepScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var sweepJob: Job? = null
+
+    /** Last wall-clock ms at which the \"no IPv4 interface\" warning was emitted. */
+    @Volatile private var lastNoIfaceWarnMs: Long = 0L
+
+    /**
+     * Returns true if at least one real (non-virtual) network interface is
+     * currently up with an IPv4 address. Used by the UI to differentiate
+     * \"phone unreachable\" (interface up, peer absent) from \"car WiFi not
+     * yet up\" (cold boot, hotspot still negotiating) failure modes.
+     */
+    fun hasAnyIpv4Interface(): Boolean = currentIpv4Addresses().isNotEmpty()
 
     private var nsdManager: NsdManager? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
@@ -297,6 +315,14 @@ class PhoneDiscovery private constructor(private val context: Context) {
                         TAG,
                         "ServiceUpdated ${si.serviceName} → $host:$port (addrs=${addrs.size}, ipv4=${ipv4?.hostAddress}) phone_id=${phoneId?.take(8)} name=$friendlyName",
                     )
+                    // Wait for an update that carries a real address before
+                    // publishing. Surfacing a null-host entry pollutes the
+                    // chooser and causes auto-connect to try (and log) a
+                    // "missing host" select on a ghost phone.
+                    if (host == null) {
+                        OalLog.d(TAG, "ServiceUpdated with no usable host for ${si.serviceName} — awaiting next update")
+                        return
+                    }
                     addOrUpdate(
                         phoneId = phoneId,
                         friendlyName = friendlyName,
@@ -332,11 +358,12 @@ class PhoneDiscovery private constructor(private val context: Context) {
     }
 
     @Suppress("DEPRECATION")
-    private fun resolveLegacy(serviceInfo: NsdServiceInfo) {
+    private fun resolveLegacy(serviceInfo: NsdServiceInfo, attempt: Int = 1) {
         try {
             nsdManager?.resolveService(serviceInfo, object : NsdManager.ResolveListener {
                 override fun onResolveFailed(si: NsdServiceInfo, errorCode: Int) {
-                    OalLog.d(TAG, "Resolve failed for ${si.serviceName}: error $errorCode")
+                    OalLog.d(TAG, "Resolve failed for ${si.serviceName}: error $errorCode (attempt $attempt)")
+                    maybeRetry(si)
                 }
 
                 override fun onServiceResolved(si: NsdServiceInfo) {
@@ -359,8 +386,16 @@ class PhoneDiscovery private constructor(private val context: Context) {
                     val friendlyName = attrs["friendly_name"]
                     OalLog.i(
                         TAG,
-                        "Resolved ${si.serviceName} → $host:$port phone_id=${phoneId?.take(8)} name=$friendlyName",
+                        "Resolved ${si.serviceName} → $host:$port phone_id=${phoneId?.take(8)} name=$friendlyName (attempt $attempt)",
                     )
+                    // NSD on AAOS sometimes returns null host or only an
+                    // unusable IPv6 link-local on the first resolve, then
+                    // the A record on a subsequent call. Don't publish a
+                    // ghost — retry with a small backoff before giving up.
+                    if (host == null) {
+                        maybeRetry(si)
+                        return
+                    }
                     addOrUpdate(
                         phoneId = phoneId,
                         friendlyName = friendlyName,
@@ -369,6 +404,17 @@ class PhoneDiscovery private constructor(private val context: Context) {
                         mdnsServiceName = si.serviceName,
                         viaSource = SourceBit.MDNS,
                     )
+                }
+
+                private fun maybeRetry(si: NsdServiceInfo) {
+                    if (attempt >= MDNS_RESOLVE_MAX_ATTEMPTS) {
+                        OalLog.d(TAG, "Giving up resolve for ${si.serviceName} after $attempt attempts")
+                        return
+                    }
+                    sweepScope.launch {
+                        kotlinx.coroutines.delay(MDNS_RESOLVE_RETRY_GAP_MS)
+                        resolveLegacy(si, attempt + 1)
+                    }
                 }
             })
         } catch (e: Exception) {
@@ -407,9 +453,18 @@ class PhoneDiscovery private constructor(private val context: Context) {
         val all = currentIpv4Addresses() // already filters out vt*, dummy*, etc.
         if (all.isEmpty()) {
             _sweepProgress.value = "No IPv4 on any interface — sweep skipped"
-            OalLog.w(TAG, "Sweep aborted: no IPv4 address on any interface")
+            // Throttle: cold-boot / hotspot-off can spam this every 15s for
+            // minutes. Log once on edge, then debug-level until recovery.
+            val now = System.currentTimeMillis()
+            if (now - lastNoIfaceWarnMs > NO_IFACE_WARN_GAP_MS) {
+                OalLog.w(TAG, "Sweep aborted: no IPv4 address on any interface")
+                lastNoIfaceWarnMs = now
+            } else {
+                OalLog.d(TAG, "Sweep aborted: no IPv4 address on any interface (suppressed)")
+            }
             return
         }
+        lastNoIfaceWarnMs = 0L
 
         // Manual override path: scan only the user-specified interface, no
         // fallback. If the named interface isn't present, log + abort.
@@ -804,6 +859,34 @@ class PhoneDiscovery private constructor(private val context: Context) {
             byKey[canonicalKey] = merged
         }
         publish()
+    }
+
+    /**
+     * Inject a synthetic resolved phone, sourced as if mDNS had returned it.
+     *
+     * Intended for emulator integration testing: the AVD's NAT network
+     * (10.0.2.0/24) prevents mDNS, UDP broadcast, and /24 sweep from ever
+     * surfacing the phone on the host's home WiFi, but outbound TCP to a
+     * home-WiFi IP still works (NAT'd through the host). Calling this with
+     * the phone's home-WiFi IP makes the discovery flow look exactly like
+     * the car: a resolved entry shows up in [phones], the picker renders
+     * it, auto-reconnect-on-wake / chooser-auto-close / IP-cache paths
+     * exercise normally, and the actual TCP connect lands via the AVD NAT.
+     *
+     * No-op when [host] is blank. Safe to call repeatedly — addOrUpdate
+     * merges by canonical key, so the entry stays sticky across re-injects.
+     */
+    fun injectDebugPhone(host: String, port: Int = 5277, friendlyName: String = "Test Phone (debug)", phoneId: String = "debug_test_phone") {
+        if (host.isBlank()) return
+        OalLog.i(TAG, "injectDebugPhone host=$host port=$port name=$friendlyName")
+        addOrUpdate(
+            phoneId = phoneId,
+            friendlyName = friendlyName,
+            host = host,
+            port = port,
+            mdnsServiceName = null,
+            viaSource = SourceBit.MDNS,
+        )
     }
 
     private fun removeMdnsEntryByServiceName(serviceName: String) {

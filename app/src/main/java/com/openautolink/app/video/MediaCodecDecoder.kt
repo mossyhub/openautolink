@@ -52,6 +52,14 @@ class MediaCodecDecoder(
     override val stats: StateFlow<VideoStats> = _stats.asStateFlow()
 
     @Volatile private var codec: MediaCodec? = null
+    /** Serializes releaseCodec invocations. Without this, the drain thread,
+     *  the frame-input coroutine, the surface-detach path, and the
+     *  SessionManager teardown can all race into release() concurrently and
+     *  produce a storm of stop()/release() calls on the same MediaCodec
+     *  instance — observed in production as 20+ "Codec released (reset #1)"
+     *  log lines at the same millisecond, which on some Qualcomm decoders
+     *  leaves the codec in an unrecoverable state. */
+    private val codecReleaseLock = Any()
     @Volatile private var activeDecoderName: String? = null
     @Volatile private var surface: Surface? = null
     private var surfaceWidth: Int = 0
@@ -157,6 +165,16 @@ class MediaCodecDecoder(
                     DiagnosticLog.i("video", "Replaying cached IDR (${cachedIdr.data.size} bytes) after surface attach")
                     cachedIdrFrame = null
                     handleKeyframe(cachedIdr)
+                    // Cached IDR gives us a fast unblank, but it's only the
+                    // anchor frame for a P-frame chain we no longer have
+                    // (we missed everything between when the IDR was sent
+                    // and now). Without a fresh IDR, incoming P-frames
+                    // reference data we never decoded → permanent blocky
+                    // artifacts until something else (Save&Reconnect,
+                    // periodic ~2min IDR) clears it. Ask the phone for a
+                    // new keyframe right away so the next IDR re-anchors.
+                    _needsKeyframe = false
+                    _needsKeyframeFlow.value = true
                 } else {
                     _needsKeyframe = false
                     _needsKeyframeFlow.value = true  // Signal caller to request IDR
@@ -168,8 +186,14 @@ class MediaCodecDecoder(
     override fun detach() {
         Log.i(TAG, "Detaching surface")
         releaseCodec()
-        cachedIdrFrame = null  // Prevent stale IDR replay on reattach (e.g. phone switch)
-        codecConfigData = null // Force fresh SPS/PPS from new phone
+        // Keep codecConfigData and cachedIdrFrame across detach. This path
+        // fires on transient backgrounding (nav-away to AAOS home, OEM
+        // overlays, etc.) where the AA session is still alive and the phone
+        // does NOT re-send SPS/PPS — only an IDR in response to our
+        // VideoFocusIndication. Wiping the cached config would leave the
+        // decoder unconfigurable on return, producing permanent black until
+        // the phone's next periodic IDR (~2 min) coincides with re-attach.
+        // Phone-switch / session-teardown wipes happen via [release] instead.
         surface = null
         surfaceWidth = 0
         surfaceHeight = 0
@@ -793,25 +817,25 @@ class MediaCodecDecoder(
     }
 
     private fun releaseCodec() {
-        val wasActive = codec != null
-        stopDrainThread()
-        try {
-            codec?.stop()
-        } catch (_: Exception) {}
-        try {
-            codec?.release()
-        } catch (_: Exception) {}
-        if (wasActive) {
+        synchronized(codecReleaseLock) {
+            val current = codec ?: return  // already released; nothing to do
+            stopDrainThread()
+            try {
+                current.stop()
+            } catch (_: Exception) {}
+            try {
+                current.release()
+            } catch (_: Exception) {}
             codecResetCount++
             DiagnosticLog.i("video", "Codec released (reset #$codecResetCount), renderGate -> false")
+            codec = null
+            activeDecoderName = null
+            receivedIdr = false
+            renderingEnabled = false
+            seedIdrTimeMs = 0
+            lastQueuedPtsMs = -1
+            consecutiveDrops = 0
         }
-        codec = null
-        activeDecoderName = null
-        receivedIdr = false
-        renderingEnabled = false
-        seedIdrTimeMs = 0
-        lastQueuedPtsMs = -1
-        consecutiveDrops = 0
     }
 
     /**

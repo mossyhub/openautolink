@@ -1,5 +1,6 @@
 ﻿package com.openautolink.app.session
 
+import android.content.res.Configuration
 import android.content.Context
 import android.media.AudioManager
 import android.os.SystemClock
@@ -43,8 +44,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.cancelAndJoin
@@ -63,6 +67,11 @@ class SessionManager(
     companion object {
         private const val TAG = "SessionManager"
 
+        // Activity-sourced UI-mode snapshot that can be published before
+        // SessionManager exists (ViewModel lazy creation path).
+        @Volatile
+        private var bootUiNightModeSnapshot: Boolean? = null
+
         @Volatile
         private var instance: SessionManager? = null
 
@@ -73,6 +82,11 @@ class SessionManager(
         }
 
         fun instanceOrNull(): SessionManager? = instance
+
+        fun noteUiNightMode(night: Boolean) {
+            bootUiNightModeSnapshot = night
+            instance?.lastKnownUiNightMode = night
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
@@ -98,6 +112,17 @@ class SessionManager(
 
     private val _statusMessage = MutableStateFlow("Ready")
     val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
+
+    /**
+     * Mirror of [AasdkSession.reconnectAttempt] hoisted to SessionManager so
+     * observers (UI controller, status banner) don't have to track which
+     * AasdkSession instance is current. Updated by the per-session collector
+     * in [startSession] and reset to 0 whenever a new session is wired up.
+     * 0 = no failures yet (or a session is healthy); N > 0 = currently in
+     * the Nth consecutive reconnect attempt.
+     */
+    private val _reconnectAttempt = MutableStateFlow(0)
+    val reconnectAttempt: StateFlow<Int> = _reconnectAttempt.asStateFlow()
 
     // Video decoder
     private var _videoDecoder: VideoDecoder? = null
@@ -161,6 +186,13 @@ class SessionManager(
     // Mic capture
     private var _micCaptureManager: MicCaptureManager? = null
     private var micSource: String = "car"
+
+    // HFP RFCOMM "presence" advertiser — mirrors headunit-revived's trick of
+    // listening on the Hands-Free Profile UUID so the phone sees an
+    // HFP-advertising device during BT scan. We never speak HFP AT commands
+    // and never accept SCO; this is purely for discovery/handshake. See
+    // [com.openautolink.app.transport.bluetooth.HfpPresenceServer].
+    private var _hfpPresence: com.openautolink.app.transport.bluetooth.HfpPresenceServer? = null
 
     val callState: StateFlow<CallState>? get() = _audioPlayer?.callState
 
@@ -268,6 +300,15 @@ class SessionManager(
     // resolved by ProjectionViewModel from PhoneDiscovery + knownPhonesStore.
     @Volatile private var _defaultPhoneName: String = ""
 
+    /**
+     * Last manualIpAddress used by start()/reconnect() for the current/most
+     * recent session. Cached so that "Save & Reconnect" — which doesn't know
+     * the resolved Car Hotspot IP — can keep dialing the same phone instead
+     * of dropping to mDNS-only resolution (which times out without an IP).
+     * Cleared by clearDefaultPhone().
+     */
+    @Volatile private var _lastManualIpAddress: String? = null
+
     /** Set the default phone name from preferences (called at session start). */
     fun setDefaultPhoneName(name: String) { _defaultPhoneName = name }
 
@@ -277,6 +318,7 @@ class SessionManager(
     /** Clear the default phone — next connection will pick any phone. */
     fun clearDefaultPhone() {
         _defaultPhoneName = ""
+        _lastManualIpAddress = null
         scope.launch {
             context?.let { AppPreferences.getInstance(it).setDefaultPhoneName("") }
         }
@@ -289,6 +331,26 @@ class SessionManager(
 
     // Media session
     private var _mediaSessionManager: OalMediaSessionManager? = null
+    /** Cache of the most recently observed [ControlMessage.MediaMetadata] so
+     *  we can replay it to the cluster on reconnect. The phone sends metadata
+     *  only on track change, so after an unrelated reconnect (sleep/wake,
+     *  Error 30, etc.) the cluster would otherwise see no update and could
+     *  stay stuck on stale data. */
+    @Volatile private var lastMediaMetadata: ControlMessage.MediaMetadata? = null
+    @Volatile private var lastMediaPlaybackState: ControlMessage.MediaPlaybackState? = null
+
+    // Edge-trigger memory for low-cadence VHAL booleans + gear. The VHAL
+    // forwarder sends a full bundle every ~100ms while connected, but the
+    // phone only cares when these actually transition. Spamming them every
+    // tick is wasted IPC at best, and at worst it might cause the phone to
+    // re-render UI (e.g. NIGHT_MODE → AA theme change) too frequently. We
+    // only forward to native when the value differs from the last sent.
+    // Reset to null on every new phone session so the very first tick always fires.
+    @Volatile private var lastKnownUiNightMode: Boolean? = bootUiNightModeSnapshot
+    @Volatile private var lastSentNightMode: Boolean? = null
+    @Volatile private var lastSentParkingBrake: Boolean? = null
+    @Volatile private var lastSentDriving: Boolean? = null
+    @Volatile private var lastSentGearRaw: Int? = null
 
     // Cluster manager
     private var _clusterManager: com.openautolink.app.cluster.ClusterManager? = null
@@ -298,21 +360,77 @@ class SessionManager(
     private var keyframeWatchJob: Job? = null
     private var callStateJob: Job? = null
 
-    // Track last known active time for sleep/wake detection
+    // Track last known active time for sleep/wake detection.
+    // Single source of truth, updated on:
+    //   - every incoming control message (proves we're running)
+    //   - Activity.onPause / SCREEN_OFF via markGoingIdle ("freeze" the timestamp before suspend)
+    //   - markWake itself (so a second wake signal within a few seconds doesn't recompute the same gap)
     private var lastActiveTimestamp = SystemClock.elapsedRealtime()
+
+    /**
+     * Wake-event flow. Emits whenever the system or activity transitions back
+     * to running after a (possibly long) idle period. Fed from two redundant
+     * sources — Activity.onResume and the SCREEN_ON broadcast — with dedupe in
+     * [markWake] so observers see exactly one event per real wake.
+     */
+    data class WakeEvent(val reason: String, val gapMs: Long)
+    private val _wakeEvents = MutableSharedFlow<WakeEvent>(extraBufferCapacity = 4)
+    val wakeEvents: SharedFlow<WakeEvent> = _wakeEvents.asSharedFlow()
+
+    /**
+     * Emitted when the user taps the Exit button in the AA app launcher on
+     * the phone (ByeByeReason.USER_SELECTION). MainActivity observes this and
+     * backgrounds the entire app — user re-enters by tapping our icon in the
+     * AAOS launcher, which starts a fresh session.
+     */
+    private val _userExitEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val userExitEvents: SharedFlow<Unit> = _userExitEvents.asSharedFlow()
+
+    /** Dedupe window for wake signals from multiple sources firing in quick succession. */
+    private val WAKE_DEDUPE_MS = 2_000L
+    /** Wake gap beyond which the current TCP socket is presumed dead and we force a reconnect. */
+    private val LONG_WAKE_FORCE_RECONNECT_MS = 30_000L
+    /** Last elapsedRealtime we ran the full wake handler for. Used for dedupe. */
+    @Volatile private var lastWakeHandledAtMs = 0L
 
     /** Reentrancy guard for reconnect() so rapid Save&Reconnect taps coalesce. */
     @Volatile private var reconnectInProgress = false
 
-    /** Screen-off receiver registration tracker. */
+    /** SCREEN_OFF/_ON receiver registration tracker. */
     private var screenReceiver: android.content.BroadcastReceiver? = null
-    /** True when we proactively stopped the session for sleep; restart on wake. */
-    @Volatile private var pausedForSleep = false
-    /** Timestamp of the most recent SCREEN_ON / USER_PRESENT — used to suppress
-     *  SCREEN_OFF that AAOS sometimes delivers seconds AFTER wake (queued during
-     *  input dispatch). Without this, a queued SCREEN_OFF tears down a freshly
-     *  woken session right after we restored it. */
-    @Volatile private var lastWakeTimestamp = 0L
+
+    private fun currentUiNightMode(): Boolean? {
+        val nightMask = context?.resources?.configuration?.uiMode?.and(Configuration.UI_MODE_NIGHT_MASK)
+            ?: return null
+        return when (nightMask) {
+            Configuration.UI_MODE_NIGHT_YES -> true
+            Configuration.UI_MODE_NIGHT_NO -> false
+            else -> null
+        }
+    }
+
+    private fun resetLatchedVehicleSensorState(reason: String) {
+        lastSentNightMode = null
+        lastSentParkingBrake = null
+        lastSentDriving = null
+        lastSentGearRaw = null
+        OalLog.d(TAG, "Reset latched vehicle sensor state: $reason")
+    }
+
+    private fun seedCurrentUiNightMode(reason: String) {
+        // Prefer Activity-reported state. Application-context config can be
+        // stale on AAOS and default to day mode until a config callback fires.
+        val night = lastKnownUiNightMode ?: currentUiNightMode()
+        if (night == null) {
+            OalLog.d(TAG, "UI night mode unknown — skipping seed ($reason)")
+            return
+        }
+        lastKnownUiNightMode = night
+        val session = aasdkSession ?: return
+        lastSentNightMode = night
+        OalLog.i(TAG, "UI night mode → $night (reason=$reason)")
+        session.sendNightMode(night)
+    }
 
     fun start(
         codecPreference: String = "h264",
@@ -346,6 +464,9 @@ class SessionManager(
         safeAreaLeft: Int = 0,
         safeAreaRight: Int = 0,
     ) {
+        // Cache for later reconnects that don't know the resolved IP (e.g.
+        // Settings "Save & Reconnect" in Car Hotspot mode).
+        if (!manualIpAddress.isNullOrBlank()) _lastManualIpAddress = manualIpAddress
         micSource = micSourcePreference
         observeJob?.cancel()
 
@@ -372,6 +493,15 @@ class SessionManager(
             }
         }
 
+        // Start HFP RFCOMM presence advertiser (no-op call audio path, just a
+        // discovery hint for the phone). Recreated per-start so it survives
+        // BT adapter cycles across sleep/wake.
+        _hfpPresence?.stop()
+        _hfpPresence = context?.let { ctx ->
+            com.openautolink.app.transport.bluetooth.HfpPresenceServer(ctx, scope)
+                .also { it.start() }
+        }
+
         // Create GNSS forwarder (NMEA not used in direct mode -- LocationListener used instead)
         _gnssForwarder?.stop()
         _directLocationListener = null
@@ -381,16 +511,34 @@ class SessionManager(
 
         // Create vehicle data forwarder -- sends via AasdkSession
         _vehicleDataForwarder?.stop()
+        // Reset edge-trigger memory so the first tick of the new session
+        // unconditionally publishes nightMode / parking / driving / gear to
+        // the phone — the phone has no prior state from us.
+        resetLatchedVehicleSensorState("start_session")
         _vehicleDataForwarder = context?.let { ctx ->
             VehicleDataForwarderImpl(
                 ctx,
                 sendMessage = { vd ->
                     val session = aasdkSession ?: return@VehicleDataForwarderImpl
                     vd.speedKmh?.let { session.sendSpeed((it / 3.6f * 1000).toInt()) }
-                    vd.gearRaw?.let { session.sendGear(it) }
-                    vd.parkingBrake?.let { session.sendParkingBrake(it) }
-                    vd.nightMode?.let { session.sendNightMode(it) }
-                    vd.driving?.let { session.sendDrivingStatus(it) }
+                    // Edge-trigger the low-cadence properties so each
+                    // transition fires the phone exactly once. Spamming
+                    // nightMode 10×/s while it's steady-state may have
+                    // contributed to issue #6 (day/night theme transition →
+                    // black video). Same defense for the others — cheap and
+                    // strictly correct.
+                    vd.gearRaw?.let {
+                        if (lastSentGearRaw != it) { lastSentGearRaw = it; session.sendGear(it) }
+                    }
+                    vd.parkingBrake?.let {
+                        if (lastSentParkingBrake != it) { lastSentParkingBrake = it; session.sendParkingBrake(it) }
+                    }
+                    vd.nightMode?.let {
+                        if (lastSentNightMode != it) { lastSentNightMode = it; session.sendNightMode(it) }
+                    }
+                    vd.driving?.let {
+                        if (lastSentDriving != it) { lastSentDriving = it; session.sendDrivingStatus(it) }
+                    }
                     if (vd.fuelLevelPct != null || vd.rangeKm != null) {
                         session.sendFuel(
                             vd.fuelLevelPct ?: 0,
@@ -454,23 +602,67 @@ class SessionManager(
             }
         }
 
-        // Create media session for AAOS system UI integration
-        _mediaSessionManager?.release()
-        _mediaSessionManager = context?.let { OalMediaSessionManager(it) }
-        _mediaSessionManager?.initialize()
-        _mediaSessionManager?.getSessionToken()?.let { token ->
-            OalMediaBrowserService.updateSessionToken(token)
+        // Create media session for AAOS system UI integration.
+        // Only construct once per SessionManager lifetime: recreating the
+        // MediaSession invalidates the cluster widget's MediaController
+        // binding (GM cluster doesn't rebind cleanly), which is why the
+        // user previously saw stale album art after a Save & Reconnect or
+        // post-wake reconnect cycle. The session lives until SessionManager
+        // is fully torn down in stop().
+        if (_mediaSessionManager == null) {
+            _mediaSessionManager = context?.let { OalMediaSessionManager(it) }
+            _mediaSessionManager?.initialize()
+            _mediaSessionManager?.getSessionToken()?.let { token ->
+                OalMediaBrowserService.updateSessionToken(token)
+            }
+        } else {
+            // Replay the most-recent metadata + playback state in case the
+            // cluster widget needs nudging after a reconnect. Cheap; setMetadata
+            // is a binder call but the data is identical to what's already set
+            // so the cluster either updates from this or no-ops.
+            lastMediaMetadata?.let { m ->
+                _mediaSessionManager?.updateMetadata(
+                    title = m.title, artist = m.artist, album = m.album,
+                    durationMs = m.durationMs, albumArtBase64 = m.albumArtBase64,
+                )
+            }
+            lastMediaPlaybackState?.let { p ->
+                _mediaSessionManager?.updatePlaybackState(p.playing, p.positionMs)
+            }
         }
 
-        // Enable cluster service — always enable so Templates Host can discover it.
-        // On non-AAOS devices Templates Host won't exist so the service simply won't bind.
+        // Cluster service is gated by user preference (default ON). When disabled,
+        // the CarAppService component is disabled so Templates Host won't bind it.
         _clusterManager?.release()
-        _clusterManager = context?.let { com.openautolink.app.cluster.ClusterManager(it) }
-        _clusterManager?.setClusterEnabled(true)
-        // Proactively launch cluster binding — Templates Host on GM doesn't auto-discover
-        // the service via intent filter; it requires CarAppActivity to be launched first.
-        _clusterManager?.launchClusterBinding()
-        OalLog.i(TAG, "Cluster manager initialized and binding launched")
+        _clusterManager = null
+        val clusterEnabled = context?.let { ctx ->
+            try {
+                kotlinx.coroutines.runBlocking {
+                    AppPreferences.getInstance(ctx).clusterNavigation.first()
+                }
+            } catch (e: Exception) {
+                OalLog.w(TAG, "Failed to read clusterNavigation pref: ${e.message}")
+                AppPreferences.DEFAULT_CLUSTER_NAVIGATION
+            }
+        } ?: false
+        if (clusterEnabled) {
+            _clusterManager = context?.let { com.openautolink.app.cluster.ClusterManager(it) }
+            _clusterManager?.setClusterEnabled(true)
+            // Proactively launch cluster binding — Templates Host on GM doesn't auto-discover
+            // the service via intent filter; it requires CarAppActivity to be launched first.
+            _clusterManager?.launchClusterBinding()
+            OalLog.i(TAG, "Cluster manager initialized and binding launched")
+        } else {
+            // Disable the component so Templates Host won't try to bind it on next boot.
+            context?.let { ctx ->
+                try {
+                    com.openautolink.app.cluster.ClusterManager(ctx).setClusterEnabled(false)
+                } catch (e: Exception) {
+                    OalLog.w(TAG, "Failed to disable cluster component: ${e.message}")
+                }
+            }
+            OalLog.i(TAG, "Cluster service disabled by user preference")
+        }
 
         // Create diagnostics (local-only)
         _telemetryCollector?.stop()
@@ -508,6 +700,7 @@ class SessionManager(
         // Listen for system sleep so we can gracefully tear down before the
         // socket goes stale. Wake is handled in MainActivity.onResume().
         registerScreenReceiver()
+        registerDebugReceiver()
     }
 
     private fun startSession(
@@ -547,12 +740,27 @@ class SessionManager(
 
         // Get BT MAC — BluetoothAdapter.getAddress() returns 02:00:00:00:00:00
         // on Android 8+ due to privacy. Try Settings.Secure first, then adapter.
-        // GM AAOS returns literal "None" for missing properties.
+        // GM AAOS returns literal "None" for missing properties. Some builds
+        // refuse both: in that case the user can paste a real MAC into the
+        // BT MAC override setting, which takes precedence over auto-detect.
         var btMac = ""
         try {
-            btMac = android.provider.Settings.Secure.getString(
-                ctx.contentResolver, "bluetooth_address") ?: ""
+            val override = kotlinx.coroutines.runBlocking {
+                AppPreferences.getInstance(ctx).btMacOverride.first().trim()
+            }
+            if (override.isNotEmpty()
+                && override != "02:00:00:00:00:00"
+                && !override.equals("none", ignoreCase = true)) {
+                btMac = override.uppercase().replace('-', ':')
+                OalLog.i(TAG, "BT MAC override in use: $btMac")
+            }
         } catch (_: Exception) {}
+        if (btMac.isEmpty()) {
+            try {
+                btMac = android.provider.Settings.Secure.getString(
+                    ctx.contentResolver, "bluetooth_address") ?: ""
+            } catch (_: Exception) {}
+        }
         if (btMac.isEmpty() || btMac == "02:00:00:00:00:00"
             || btMac.equals("none", ignoreCase = true)) {
             btMac = ""
@@ -741,26 +949,51 @@ class SessionManager(
         _effectiveDpi.value = effectiveDpi
 
         aasdkSession = session
+        // Reset the mirrored reconnect counter at session boundary. The
+        // per-session collector below will republish updates as they fire.
+        _reconnectAttempt.value = 0
 
         // Observe session state
         scope.launch {
             session.connectionState.collect { connState ->
                 val newState = connState.toSessionState()
                 _sessionState.value = newState
+                val attempt = _reconnectAttempt.value
                 _statusMessage.value = when (newState) {
-                    SessionState.IDLE -> when (directTransport) {
-                        "usb" -> "USB: ${UsbConnectionManager.status.value}"
-                        else -> "Searching for phone…"
-                    }
-                    SessionState.CONNECTING -> "Phone connecting..."
+                    SessionState.IDLE ->
+                        if (attempt > 0) "Reconnecting (attempt $attempt)…"
+                        else when (directTransport) {
+                            "usb" -> "USB: ${UsbConnectionManager.status.value}"
+                            else -> "Searching for phone…"
+                        }
+                    SessionState.CONNECTING ->
+                        if (attempt > 0) "Reconnecting (attempt $attempt)…"
+                        else "Phone connecting..."
                     SessionState.CONNECTED -> "Handshake..."
                     SessionState.STREAMING -> "Streaming"
-                    SessionState.ERROR -> "Error"
+                    SessionState.ERROR ->
+                        if (attempt > 0) "Reconnecting (attempt $attempt)…"
+                        else "Error"
                 }
                 if (newState == SessionState.STREAMING) {
                     startLocationForwarding(session)
                     _vehicleDataForwarder?.start()
                     _imuForwarder?.start()
+                }
+            }
+        }
+
+        // Mirror per-session reconnect-attempt counter so observers (UI banner,
+        // 3-failure picker escalation) don't have to track AasdkSession identity.
+        scope.launch {
+            session.reconnectAttempt.collect { attempt ->
+                _reconnectAttempt.value = attempt
+                // Also refresh the status message so the banner updates when
+                // the attempt counter advances without an accompanying state
+                // change (the connection-state collector above only fires on
+                // state transitions).
+                if (attempt > 0 && _sessionState.value != SessionState.STREAMING) {
+                    _statusMessage.value = "Reconnecting (attempt $attempt)…"
                 }
             }
         }
@@ -851,6 +1084,7 @@ class SessionManager(
 
     fun stop() {
         unregisterScreenReceiver()
+        unregisterDebugReceiver()
         observeJob?.cancel()
         observeJob = null
         decoderWatchJob?.cancel()
@@ -868,6 +1102,8 @@ class SessionManager(
         _audioPlayer = null
         _micCaptureManager?.release()
         _micCaptureManager = null
+        _hfpPresence?.stop()
+        _hfpPresence = null
         _gnssForwarder?.stop()
         _gnssForwarder = null
         _vehicleDataForwarder?.stop()
@@ -878,6 +1114,8 @@ class SessionManager(
         ClusterNavigationState.clear()
         _mediaSessionManager?.release()
         _mediaSessionManager = null
+        lastMediaMetadata = null
+        lastMediaPlaybackState = null
         _clusterManager?.release()
         _clusterManager = null
         _telemetryCollector?.stop()
@@ -934,6 +1172,13 @@ class SessionManager(
         safeAreaLeft: Int = 0,
         safeAreaRight: Int = 0,
     ) {
+        // "Save & Reconnect" from Settings doesn't know the resolved Car
+        // Hotspot IP — fall back to the last value we successfully used so
+        // TcpConnector doesn't drop to mDNS-only mode and stall.
+        val effectiveManualIp = manualIpAddress?.takeIf { it.isNotBlank() }
+            ?: _lastManualIpAddress
+        if (!effectiveManualIp.isNullOrBlank()) _lastManualIpAddress = effectiveManualIp
+
         // If islands were never initialized, do a full start
         if (_audioPlayer == null) {
             start(
@@ -943,7 +1188,7 @@ class SessionManager(
                 aaViewingDistanceMm, aaDecoderAdditionalDepth, aaAutoMargins, videoFps,
                 driveSide, hideClock, hideSignal, hideBattery,
                 volumeOffsetMedia, volumeOffsetNavigation, volumeOffsetAssistant,
-                manualIpAddress, safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight,
+                effectiveManualIp, safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight,
             )
             return
         }
@@ -978,7 +1223,7 @@ class SessionManager(
                     aaViewingDistanceMm, aaDecoderAdditionalDepth, aaAutoMargins,
                     videoFps, driveSide, hideClock, hideSignal, hideBattery,
                     volumeOffsetMedia, volumeOffsetNavigation, volumeOffsetAssistant,
-                    manualIpAddress, safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight,
+                    effectiveManualIp, safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight,
                 )
             } catch (e: Exception) {
                 OalLog.e(TAG, "reconnect() failed: ${e.message}")
@@ -1069,64 +1314,160 @@ class SessionManager(
     }
 
     /**
-     * Called from Activity.onResume() to detect system sleep/wake.
+     * Called from [MainActivity.onResume]. Belt-and-suspenders alongside the
+     * SCREEN_ON broadcast receiver registered in [registerScreenReceiver] —
+     * both call into [markWake], which dedupes via [WAKE_DEDUPE_MS] so only
+     * one wake handler runs per real wake regardless of source.
      */
     fun onSystemWake() {
-        val now = SystemClock.elapsedRealtime()
-        val elapsed = now - lastActiveTimestamp
-        lastActiveTimestamp = now
-        // Mark wake so a queued SCREEN_OFF that arrives moments later (AAOS
-        // sometimes delivers it post-wake) is ignored by the screen receiver.
-        lastWakeTimestamp = now
+        markWake("activity_resume")
+    }
 
-        // If we paused for sleep, always restart on wake regardless of gap.
-        if (pausedForSleep) {
-            pausedForSleep = false
-            OalLog.i(TAG, "System wake: restarting session paused for sleep (${elapsed / 1000}s gap)")
-            DiagnosticLog.i("transport", "Wake: restart paused session (${elapsed / 1000}s)")
-            // Run on IO — start() reaches into JNI/SSL init.
-            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                aasdkSession?.start()
-            }
-            _clusterManager?.ensureAlive()
-            _mediaSessionManager?.getSessionToken()?.let { token ->
-                OalMediaBrowserService.updateSessionToken(token)
-            }
+    /**
+     * Called from [MainActivity.onPause]. Mirrors [onSystemWake] on the sleep
+     * side — both this and the SCREEN_OFF broadcast call [markGoingIdle],
+     * which freezes [lastActiveTimestamp] so the gap on the next wake is
+     * measured from this point rather than the last incoming control message.
+     */
+    fun onActivityPaused() {
+        markGoingIdle("activity_pause")
+    }
+
+    /**
+     * Called from [MainActivity.onConfigurationChanged] when the system
+     * UI night-mode flag flips. On real GM hardware, the VHAL NIGHT_MODE
+     * property drives the AA theme via [VehicleDataForwarder]; this hook
+     * covers AAOS images (and emulators) where the head unit theme is
+     * driven by [Configuration.uiMode] rather than VHAL.
+     *
+     * Always forwards — does NOT dedupe against [lastSentNightMode]. The
+     * VHAL path emits its (possibly stale) value every ~100ms and would
+     * otherwise reset [lastSentNightMode] between our UI events, silently
+     * dropping the back-flip. UI changes are discrete user actions, so an
+     * occasional duplicate event to the phone is harmless.
+     */
+    fun onUiNightModeChanged(night: Boolean) {
+        lastKnownUiNightMode = night
+        val session = aasdkSession ?: return
+        lastSentNightMode = night
+        OalLog.i(TAG, "UI night mode → $night (forwarding to phone)")
+        session.sendNightMode(night)
+    }
+
+    /**
+     * Single entry point for "the system just woke up". Called from multiple
+     * sources (Activity.onResume + SCREEN_ON / USER_PRESENT broadcasts);
+     * deduplicated via [WAKE_DEDUPE_MS] so a second source firing within a
+     * few seconds is a no-op.
+     *
+     * Behavior:
+     *  - Emit a [WakeEvent] on [wakeEvents] for observers (e.g. ProjectionViewModel
+     *    clears its in-memory active phone on a long gap).
+     *  - Re-assert cluster binding + MediaSession token (cheap; GM cluster can
+     *    drop these during suspend).
+     *  - If the gap is "long" and we were not IDLE before sleep, force a clean
+     *    reconnect — the TCP socket is almost certainly dead from the suspend.
+     */
+    fun markWake(reason: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastWakeHandledAtMs < WAKE_DEDUPE_MS) {
+            OalLog.d(TAG, "Wake dedup (reason=$reason within ${WAKE_DEDUPE_MS}ms)")
             return
         }
+        val gap = now - lastActiveTimestamp
+        lastWakeHandledAtMs = now
+        lastActiveTimestamp = now
 
-        if (elapsed < 10_000) return
-        val state = _sessionState.value
-        if (state == SessionState.IDLE) return
+        val gapStr = formatGap(gap)
+        OalLog.i(TAG, "Wake: reason=$reason gap=$gapStr")
+        DiagnosticLog.i("transport", "Wake: $reason gap=$gapStr")
 
-        OalLog.i(TAG, "System wake detected (${elapsed / 1000}s gap, state=$state)")
-        DiagnosticLog.i("transport", "System wake detected (${elapsed / 1000}s gap)")
+        _wakeEvents.tryEmit(WakeEvent(reason, gap))
 
-        // Re-establish cluster binding — GM Templates Host may have killed
-        // the session during sleep/suspend
+        // Re-establish cluster + MediaSession bindings — GM Templates Host can
+        // drop these during suspend even when our process survives.
         _clusterManager?.ensureAlive()
-
-        // Re-push MediaSession token — cluster media widget may have lost binding
         _mediaSessionManager?.getSessionToken()?.let { token ->
             OalMediaBrowserService.updateSessionToken(token)
         }
 
-        // Long gap (>30s) with the session not in IDLE means our TCP socket is
-        // almost certainly dead from suspend. Force a clean reconnect rather
-        // than wait for the keepalive/ping watchdog to notice.
-        if (elapsed > 30_000) {
-            OalLog.w(TAG, "Long wake gap — forcing clean reconnect")
+        // Long gap means TCP socket is almost certainly dead. Force a clean
+        // reconnect rather than wait for the keepalive watchdog.
+        if (gap > LONG_WAKE_FORCE_RECONNECT_MS &&
+            _sessionState.value != SessionState.IDLE) {
+            OalLog.w(TAG, "Long wake gap ($gapStr) — forcing clean reconnect")
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                aasdkSession?.forceReconnect("system wake after ${elapsed / 1000}s gap")
+                aasdkSession?.forceReconnect("wake gap $gapStr")
             }
         }
     }
 
     /**
-     * Register a receiver for ACTION_SCREEN_OFF so we can gracefully tear down
-     * the AA session before AAOS deep-suspends. Without this, sockets go stale
-     * during sleep and on wake the app sits on a dead pipe rendering the last
-     * frame until the user manually reconnects.
+     * Single entry point for "system is going idle." Called from
+     * Activity.onPause and SCREEN_OFF. Freezes [lastActiveTimestamp] so the
+     * gap measured at the next wake reflects time-since-going-idle, not
+     * time-since-last-control-message (the latter can be many seconds stale
+     * during steady streaming).
+     */
+    fun markGoingIdle(reason: String) {
+        lastActiveTimestamp = SystemClock.elapsedRealtime()
+        OalLog.i(TAG, "Going idle: $reason")
+        DiagnosticLog.i("transport", "Going idle: $reason")
+    }
+
+    /**
+     * Debug-only simulation of an AAOS car sleep → wake cycle.
+     *
+     * Drives the same code paths a real car sleep does:
+     *   1. markGoingIdle (publishes the idle timestamp used to compute the
+     *      next wake gap).
+     *   2. Stop the live aasdkSession with explicitStop=true so the
+     *      AasdkSession auto-reconnect loop does NOT fire during the
+     *      simulated sleep window. This leaves SessionState at IDLE just
+     *      like a real network loss would.
+     *   3. Wait [durationMs] real wall-clock seconds.
+     *   4. markWake → the WakeEvent flow fires with gap≈durationMs. The
+     *      ProjectionViewModel wake collector picks it up and (when
+     *      conditions match: Car Hotspot mode, default set, resolved phone
+     *      in discovery, idle) kicks connect(). This is exactly the same
+     *      auto-reconnect path real car-wake uses.
+     *
+     * Trigger from adb:
+     *   adb shell am broadcast \
+     *     -a com.openautolink.app.DEBUG_SIMULATE_SLEEP \
+     *     --el duration_ms 60000 \
+     *     com.openautolink.app
+     */
+    fun debugSimulateSleep(durationMs: Long) {
+        OalLog.i(TAG, "DEBUG: simulating car sleep for ${formatGap(durationMs)}")
+        markGoingIdle("debug_sleep_sim")
+        // Force a clean shutdown with explicitStop=true (AasdkSession.stop()
+        // sets that), so the AA session's own retry loop doesn't fire during
+        // the sleep window. The wake side will reconnect via the
+        // ProjectionViewModel wake collector.
+        aasdkSession?.stop()
+        aasdkSession = null
+        scope.launch {
+            kotlinx.coroutines.delay(durationMs)
+            OalLog.i(TAG, "DEBUG: simulating car wake (after ${formatGap(durationMs)})")
+            markWake("debug_wake_sim")
+        }
+    }
+
+    private fun formatGap(ms: Long): String = when {
+        ms < 1_000 -> "${ms}ms"
+        ms < 60_000 -> "${ms / 1000}s"
+        ms < 3_600_000 -> "${ms / 60_000}m${(ms % 60_000) / 1000}s"
+        else -> "${ms / 3_600_000}h${(ms % 3_600_000) / 60_000}m"
+    }
+
+    /**
+     * Register a receiver for ACTION_SCREEN_OFF / _ON / USER_PRESENT. These
+     * broadcasts are not reliably delivered on every AAOS build (empirical:
+     * never observed firing on the 2024 Blazer EV during driving sessions),
+     * so the Activity.onResume / onPause callbacks in [MainActivity] are the
+     * primary signal. This receiver is belt-and-suspenders: when broadcasts
+     * do fire, [markWake]'s dedupe ensures we don't run the handler twice.
      */
     private fun registerScreenReceiver() {
         if (screenReceiver != null) return
@@ -1134,39 +1475,11 @@ class SessionManager(
         val r = object : android.content.BroadcastReceiver() {
             override fun onReceive(c: android.content.Context?, intent: android.content.Intent?) {
                 when (intent?.action) {
-                    android.content.Intent.ACTION_SCREEN_OFF -> {
-                        // Suppress SCREEN_OFF that arrives shortly after a wake.
-                        // AAOS broadcasts can be queued/delayed during input
-                        // dispatch and we'd otherwise tear down a freshly woken
-                        // session. 5s window is generous; real sleep events
-                        // come in solo with no recent wake.
-                        val now = SystemClock.elapsedRealtime()
-                        if ((now - lastWakeTimestamp) < 5_000) {
-                            OalLog.i(TAG, "SCREEN_OFF ignored — arrived ${now - lastWakeTimestamp}ms after wake")
-                            return
-                        }
-                        if (_sessionState.value != SessionState.IDLE && aasdkSession != null) {
-                            OalLog.i(TAG, "SCREEN_OFF — pausing AA session for sleep")
-                            DiagnosticLog.i("transport", "SCREEN_OFF: pause for sleep")
-                            pausedForSleep = true
-                            _statusMessage.value = "Paused for sleep"
-                            // Run aasdkSession.stop() off Main — it joins the C++
-                            // io_thread via JNI and can take 100s of ms. Doing this
-                            // on Main causes ANRs which are reported as crashes.
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                aasdkSession?.stop()
-                            }
-                        }
-                    }
+                    android.content.Intent.ACTION_SCREEN_OFF ->
+                        markGoingIdle("screen_off")
                     android.content.Intent.ACTION_SCREEN_ON,
-                    android.content.Intent.ACTION_USER_PRESENT -> {
-                        // Record wake so a queued SCREEN_OFF arriving moments
-                        // later doesn't tear down our just-restarted session.
-                        lastWakeTimestamp = SystemClock.elapsedRealtime()
-                        if (pausedForSleep) {
-                            OalLog.i(TAG, "SCREEN_ON received — wake handler will restart session")
-                        }
-                    }
+                    android.content.Intent.ACTION_USER_PRESENT ->
+                        markWake(intent.action ?: "screen_on")
                 }
             }
         }
@@ -1177,8 +1490,8 @@ class SessionManager(
         }
         try {
             // SCREEN_OFF / SCREEN_ON / USER_PRESENT are protected system
-            // broadcasts — they're never sent by other apps, so RECEIVER_NOT_EXPORTED
-            // is safe and required on Android 14+ (target SDK 34+).
+            // broadcasts so RECEIVER_NOT_EXPORTED is safe and required on
+            // Android 14+ (target SDK 34+).
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                 ctx.registerReceiver(r, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
             } else {
@@ -1198,6 +1511,82 @@ class SessionManager(
             try { ctx.unregisterReceiver(it) } catch (_: Exception) {}
         }
         screenReceiver = null
+    }
+
+    // ------------------------------------------------------------------
+    // Debug-only: car sleep/wake simulation via broadcast.
+    //
+    // Trigger from a host running adb:
+    //   adb shell am broadcast \
+    //     -a com.openautolink.app.DEBUG_SIMULATE_SLEEP \
+    //     --el duration_ms 60000 \
+    //     com.openautolink.app
+    //
+    // Exposed for integration tests. Action is namespaced under our package
+    // and the receiver is package-internal (RECEIVER_NOT_EXPORTED on T+); on
+    // older platforms it's still package-scoped at the dispatch layer because
+    // we pass the package in the broadcast intent.
+    // ------------------------------------------------------------------
+    private var debugSleepReceiver: android.content.BroadcastReceiver? = null
+    private fun registerDebugReceiver() {
+        if (debugSleepReceiver != null) return
+        val ctx = context ?: return
+        val r = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: android.content.Context?, intent: android.content.Intent?) {
+                when (intent?.action) {
+                    "com.openautolink.app.DEBUG_SIMULATE_SLEEP" -> {
+                        val ms = intent.getLongExtra("duration_ms", 60_000L).coerceAtLeast(1_000L)
+                        debugSimulateSleep(ms)
+                    }
+                    "com.openautolink.app.DEBUG_INJECT_PHONE" -> {
+                        val host = intent.getStringExtra("host")
+                        if (host.isNullOrBlank()) {
+                            OalLog.w(TAG, "DEBUG_INJECT_PHONE missing 'host' extra")
+                            return
+                        }
+                        val port = intent.getIntExtra("port", 5277)
+                        val phoneId = intent.getStringExtra("phone_id")
+                            ?: "debug_inject_${host.replace('.', '_')}"
+                        val friendlyName = intent.getStringExtra("name")
+                            ?: "Test Phone @ $host"
+                        val ctxApp = context
+                        if (ctxApp != null) {
+                            com.openautolink.app.transport.PhoneDiscovery.getInstance(ctxApp)
+                                .injectDebugPhone(
+                                    host = host,
+                                    port = port,
+                                    friendlyName = friendlyName,
+                                    phoneId = phoneId,
+                                )
+                            OalLog.i(TAG, "DEBUG injected phone: $friendlyName ($phoneId) @ $host:$port")
+                        }
+                    }
+                }
+            }
+        }
+        val filter = android.content.IntentFilter().apply {
+            addAction("com.openautolink.app.DEBUG_SIMULATE_SLEEP")
+            addAction("com.openautolink.app.DEBUG_INJECT_PHONE")
+        }
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                ctx.registerReceiver(r, filter, android.content.Context.RECEIVER_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                ctx.registerReceiver(r, filter)
+            }
+            debugSleepReceiver = r
+            OalLog.i(TAG, "Debug receivers registered (DEBUG_SIMULATE_SLEEP, DEBUG_INJECT_PHONE)")
+        } catch (e: Exception) {
+            OalLog.w(TAG, "Debug receiver registration failed: ${e.message}")
+        }
+    }
+    private fun unregisterDebugReceiver() {
+        val ctx = context ?: return
+        debugSleepReceiver?.let {
+            try { ctx.unregisterReceiver(it) } catch (_: Exception) {}
+        }
+        debugSleepReceiver = null
     }
 
     suspend fun requestKeyframe() {
@@ -1242,10 +1631,22 @@ class SessionManager(
             is ControlMessage.KeyframeRequest -> session.requestKeyframe()
             is ControlMessage.VehicleData -> {
                 message.speedKmh?.let { session.sendSpeed((it / 3.6f * 1000).toInt()) }
-                message.gearRaw?.let { session.sendGear(it) }
-                message.parkingBrake?.let { session.sendParkingBrake(it) }
-                message.nightMode?.let { session.sendNightMode(it) }
-                message.driving?.let { session.sendDrivingStatus(it) }
+                // Same edge-trigger discipline as the inline sendMessage path
+                // in start() — see lastSent* fields. Necessary because both
+                // paths share these state vars; without it, manual injections
+                // would force a resend even when value unchanged.
+                message.gearRaw?.let {
+                    if (lastSentGearRaw != it) { lastSentGearRaw = it; session.sendGear(it) }
+                }
+                message.parkingBrake?.let {
+                    if (lastSentParkingBrake != it) { lastSentParkingBrake = it; session.sendParkingBrake(it) }
+                }
+                message.nightMode?.let {
+                    if (lastSentNightMode != it) { lastSentNightMode = it; session.sendNightMode(it) }
+                }
+                message.driving?.let {
+                    if (lastSentDriving != it) { lastSentDriving = it; session.sendDrivingStatus(it) }
+                }
             }
             is ControlMessage.Gnss -> {
                 // GPS forwarded via LocationListener, not control messages
@@ -1317,6 +1718,8 @@ class SessionManager(
         when (message) {
             is ControlMessage.PhoneConnected -> {
                 _remoteDiagnostics?.log(DiagnosticLevel.INFO, "session", "Phone connected: ${message.phoneName}")
+                resetLatchedVehicleSensorState("phone_connected")
+                seedCurrentUiNightMode("phone_connected")
                 _sessionState.value = SessionState.STREAMING
                 _statusMessage.value = "Streaming"
                 aasdkSession?.let { startLocationForwarding(it) }
@@ -1331,6 +1734,47 @@ class SessionManager(
                 stopDirectLocationForwarding()
                 _navigationDisplay.clear()
                 ClusterNavigationState.clear()
+                if (message.reason == "byebye_user_selection") {
+                    OalLog.i(TAG, "User tapped Exit in AA launcher — tearing down cluster + session")
+                    // Drive cluster + session teardown HERE rather than from
+                    // MainActivity. AAOS force-finishes our Activity within
+                    // ~1s of acknowledging VIDEO_FOCUS_NATIVE, which cancels
+                    // its lifecycleScope before any collector can run. Doing
+                    // the cleanup in SessionManager's own scope guarantees
+                    // navigationEnded() reaches Templates Host before our
+                    // process is wound down — otherwise Templates Host keeps
+                    // its cluster Activity bound and respawns our process to
+                    // serve it.
+                    try {
+                        com.openautolink.app.cluster.ClusterMainSession.endActiveNavigation()
+                    } catch (e: Exception) {
+                        OalLog.w(TAG, "endActiveNavigation() failed: ${e.message}")
+                    }
+                    try {
+                        _clusterManager?.release()
+                        _clusterManager = null
+                    } catch (e: Exception) {
+                        OalLog.w(TAG, "clusterManager.release() failed: ${e.message}")
+                    }
+                    // Finish every task this app owns. Doing this from
+                    // SessionManager (app-scoped) rather than MainActivity
+                    // (whose lifecycleScope is gone the moment the OS
+                    // force-finishes us) makes sure cleanup actually runs.
+                    try {
+                        val ctx = context
+                        if (ctx != null) {
+                            val am = ctx.getSystemService(Context.ACTIVITY_SERVICE)
+                                as? android.app.ActivityManager
+                            am?.appTasks?.forEach { task ->
+                                try { task.finishAndRemoveTask() } catch (_: Exception) {}
+                            }
+                            OalLog.i(TAG, "User exit: finished all app tasks")
+                        }
+                    } catch (e: Exception) {
+                        OalLog.w(TAG, "appTasks teardown failed: ${e.message}")
+                    }
+                    _userExitEvents.tryEmit(Unit)
+                }
             }
             is ControlMessage.NavState -> {
                 _navigationDisplay.onNavState(message)
@@ -1343,17 +1787,21 @@ class SessionManager(
                 ClusterNavigationState.clear()
             }
             is ControlMessage.MediaMetadata -> {
+                lastMediaMetadata = message
                 _mediaSessionManager?.updateMetadata(
                     title = message.title, artist = message.artist, album = message.album,
                     durationMs = message.durationMs, albumArtBase64 = message.albumArtBase64
                 )
                 if (message.playing != null) {
-                    _mediaSessionManager?.updatePlaybackState(
+                    val pb = ControlMessage.MediaPlaybackState(
                         playing = message.playing, positionMs = message.positionMs ?: 0
                     )
+                    lastMediaPlaybackState = pb
+                    _mediaSessionManager?.updatePlaybackState(pb.playing, pb.positionMs)
                 }
             }
             is ControlMessage.MediaPlaybackState -> {
+                lastMediaPlaybackState = message
                 _mediaSessionManager?.updatePlaybackState(
                     playing = message.playing, positionMs = message.positionMs
                 )

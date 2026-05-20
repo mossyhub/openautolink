@@ -46,7 +46,7 @@ class JniAudioSinkHandler
     , public std::enable_shared_from_this<JniAudioSinkHandler>
 {
 public:
-    enum class AudioType { Media, Guidance, System, Telephony };
+    enum class AudioType { Media, Guidance, System };
 
     JniAudioSinkHandler(boost::asio::io_service::strand& strand,
                         std::shared_ptr<aasdk::channel::mediasink::audio::AudioMediaSinkService> channel,

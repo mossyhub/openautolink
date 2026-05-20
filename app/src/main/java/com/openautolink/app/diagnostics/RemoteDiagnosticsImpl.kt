@@ -1,12 +1,20 @@
 ﻿package com.openautolink.app.diagnostics
 
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Local diagnostics implementation.
- * Logs to [DiagnosticLog]'s ring buffer for the in-app diagnostics screen.
+ *
+ * Historically this routed log lines into a TCP log server (since
+ * removed). Today there is no remote destination and the in-app ring
+ * buffer + file writer are populated directly by [DiagnosticLog.addLocal];
+ * we MUST NOT call back into DiagnosticLog from log() — DiagnosticLog
+ * also fans out to `instance?.log`, so doing so creates an infinite
+ * recursion that's only bounded by [maxMessagesPerWindow] (i.e. every
+ * log line was being written ~21 times to the file). log() is therefore
+ * a no-op now; the type is kept so TelemetryCollector and other
+ * consumers don't have to be refactored.
  */
 class RemoteDiagnosticsImpl : RemoteDiagnostics {
 
@@ -15,11 +23,6 @@ class RemoteDiagnosticsImpl : RemoteDiagnostics {
 
     private val _minLevel = AtomicReference(DiagnosticLevel.INFO)
     override val minLevel: DiagnosticLevel get() = _minLevel.get()
-
-    private val rateLimitWindowMs = 1000L
-    private val maxMessagesPerWindow = 20
-    @Volatile private var windowStart = 0L
-    private val windowCount = AtomicInteger(0)
 
     override fun setEnabled(enabled: Boolean) {
         _enabled.set(enabled)
@@ -30,29 +33,12 @@ class RemoteDiagnosticsImpl : RemoteDiagnostics {
     }
 
     override fun log(level: DiagnosticLevel, tag: String, msg: String) {
-        if (!_enabled.get()) return
-        if (level.ordinal < _minLevel.get().ordinal) return
-        if (!tryAcquireRate()) return
-
-        when (level) {
-            DiagnosticLevel.DEBUG -> DiagnosticLog.d(tag, msg)
-            DiagnosticLevel.INFO -> DiagnosticLog.i(tag, msg)
-            DiagnosticLevel.WARN -> DiagnosticLog.w(tag, msg)
-            DiagnosticLevel.ERROR -> DiagnosticLog.e(tag, msg)
-        }
+        // No remote destination. DiagnosticLog.addLocal already handles the
+        // local ring buffer + file writer; calling back through
+        // DiagnosticLog here would re-enter via `instance?.log` and recurse.
     }
 
     override fun sendTelemetry(telemetry: TelemetrySnapshot) {
         // Local-only — no remote destination
-    }
-
-    private fun tryAcquireRate(): Boolean {
-        val now = System.currentTimeMillis()
-        if (now - windowStart >= rateLimitWindowMs) {
-            windowStart = now
-            windowCount.set(1)
-            return true
-        }
-        return windowCount.incrementAndGet() <= maxMessagesPerWindow
     }
 }

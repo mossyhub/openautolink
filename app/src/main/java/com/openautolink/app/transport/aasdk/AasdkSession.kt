@@ -45,6 +45,22 @@ class AasdkSession(
 
     companion object {
         private const val TAG = "AasdkSession"
+
+        /** Process-wide native onError coalescer.
+         *
+         *  Lives in the companion object (not on instances) so it survives
+         *  AasdkSession instance churn — every startSession() in
+         *  SessionManager creates a new AasdkSession, and per-instance state
+         *  would reset the dedup window on each new instance. Production logs
+         *  showed 14+ identical "Native error: AASDK Error: 30" lines at the
+         *  same ms because the storm spans several rapid session recreations.
+         *
+         *  At most one log per second per (instance-agnostic) message text.
+         */
+        @Volatile private var lastOnErrorLogMs: Long = 0
+        @Volatile private var lastOnErrorMsg: String = ""
+        private var onErrorSuppressedCount = 0
+        private val onErrorLock = Any()
     }
 
     // -- Output flows (consumed by SessionManager) --
@@ -85,9 +101,13 @@ class AasdkSession(
     @Volatile
     private var explicitStop = false
 
-    /** Consecutive reconnect failures — drives exponential backoff. */
+    /** Consecutive reconnect failures — drives exponential backoff. Also
+     *  exposed as a StateFlow so the UI controller can escalate (e.g., open
+     *  the phone picker) after a threshold of repeated failures. */
     @Volatile
     private var consecutiveReconnectFailures = 0
+    private val _reconnectAttempt = MutableStateFlow(0)
+    val reconnectAttempt: StateFlow<Int> = _reconnectAttempt.asStateFlow()
 
     /** True when the last failure was an AA protocol/handshake error (Error 30). */
     @Volatile
@@ -100,6 +120,7 @@ class AasdkSession(
     fun start() {
         explicitStop = false
         consecutiveReconnectFailures = 0
+        _reconnectAttempt.value = 0
         lastFailureWasProtocolError = false
         _connectionState.value = ConnectionState.DISCONNECTED
 
@@ -112,12 +133,23 @@ class AasdkSession(
     private fun startTcp() {
         OalLog.i(TAG, "Starting aasdk session (TCP/hotspot transport)")
         _tcpConnector?.stop()
-        _tcpConnector = TcpConnector(context, scope) { tcpSocket ->
-            scope.launch(Dispatchers.IO) {
-                OalLog.i(TAG, "TCP socket ready — starting aasdk native session")
-                handleConnection(tcpSocket)
-            }
-        }
+        _tcpConnector = TcpConnector(
+            context,
+            scope,
+            onSocketReady = { tcpSocket ->
+                scope.launch(Dispatchers.IO) {
+                    OalLog.i(TAG, "TCP socket ready — starting aasdk native session")
+                    handleConnection(tcpSocket)
+                }
+            },
+            onConnectFailure = {
+                // Drive the same reconnectAttempt counter the session-stopped
+                // path uses, so picker escalation works even when we never
+                // got to handshake (companion not listening, phone off-net).
+                consecutiveReconnectFailures++
+                _reconnectAttempt.value = consecutiveReconnectFailures
+            },
+        )
         _tcpConnector?.manualIp = manualIpAddress
         _tcpConnector?.start()
     }
@@ -276,6 +308,7 @@ class AasdkSession(
     override fun onSessionStarted() {
         OalLog.i(TAG, "AA session started (native)")
         consecutiveReconnectFailures = 0
+        _reconnectAttempt.value = 0
         lastFailureWasProtocolError = false
         scope.launch {
             _connectionState.value = ConnectionState.CONNECTED
@@ -289,6 +322,15 @@ class AasdkSession(
         transportPipe?.close()
         transportPipe = null
 
+        // Phone-initiated user exit (Exit button in AA app launcher) — treat
+        // as an explicit stop so the auto-reconnect path below is skipped.
+        // MainActivity will background the app in response to the
+        // PhoneDisconnected(reason) message; user re-launches our icon to come
+        // back, which starts a fresh session.
+        if (reason == "byebye_user_selection") {
+            explicitStop = true
+        }
+
         scope.launch {
             _connectionState.value = ConnectionState.DISCONNECTED
             _controlMessages.emit(ControlMessage.PhoneDisconnected(reason = reason))
@@ -298,6 +340,7 @@ class AasdkSession(
             // retries connecting once WiFi comes back.
             if (!explicitStop) {
                 consecutiveReconnectFailures++
+                _reconnectAttempt.value = consecutiveReconnectFailures
 
                 // Exponential backoff: 3s base, longer if protocol error (phone
                 // needs time to tear down old SSL session). Cap at 30s.
@@ -498,15 +541,13 @@ class AasdkSession(
         // Audio focus is handled by the native layer — always grants
     }
 
-    /** Coalesce native onError log spam: at most one log per second per message. */
-    @Volatile private var lastOnErrorLogMs: Long = 0
-    @Volatile private var lastOnErrorMsg: String = ""
-    private var onErrorSuppressedCount = 0
-
+    /** Coalesce native onError log spam: at most one log per second per
+     *  message text, deduplicated across instance churn (the state lives in
+     *  the companion object, see [Companion.onErrorLock]). */
     override fun onError(message: String) {
         val now = android.os.SystemClock.elapsedRealtime()
         var shouldEmit = false
-        synchronized(this) {
+        synchronized(onErrorLock) {
             if (message == lastOnErrorMsg && (now - lastOnErrorLogMs) < 1000) {
                 onErrorSuppressedCount++
                 return

@@ -56,6 +56,25 @@ class ClusterMainSession : Session() {
 
         @Volatile
         private var primarySession: ClusterMainSession? = null
+
+        /**
+         * Proactively end any active cluster navigation. Called from
+         * MainActivity.handleUserExit so Templates Host dismisses the cluster
+         * Activity (ClusterTurnCardActivity) before our app tasks are killed.
+         * Without this, Templates Host keeps the cluster UI on its last frame
+         * because our process going away doesn't synchronously notify it.
+         */
+        fun endActiveNavigation() {
+            val session = primarySession ?: return
+            try {
+                session.navigationManager?.navigationEnded()
+                session.isNavigating = false
+                Log.i(TAG, "navigationEnded() forced on user exit")
+                DiagnosticLog.i("cluster", "navigationEnded() forced on user exit")
+            } catch (e: Exception) {
+                Log.w(TAG, "endActiveNavigation() failed: ${e.message}")
+            }
+        }
     }
 
     private var navigationManager: NavigationManager? = null

@@ -73,6 +73,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 import com.openautolink.app.session.SessionState
 import com.openautolink.app.data.AppPreferences
+import com.openautolink.app.ui.components.LocalEchoTextField
 import androidx.compose.material3.FilterChip
 
 private enum class SettingsTab(
@@ -285,6 +286,35 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
         val connectionMode by viewModel.connectionMode.collectAsStateWithLifecycle()
         val knownPhones by viewModel.knownPhones.collectAsStateWithLifecycle()
         val defaultPhoneId by viewModel.defaultPhoneId.collectAsStateWithLifecycle()
+
+        // --- Transport (WiFi vs USB) ---
+        SectionHeader("Transport")
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(
+                "hotspot" to "Wi-Fi",
+                "usb" to "USB",
+            ).forEach { (mode, label) ->
+                FilterChip(
+                    selected = uiState.directTransport == mode,
+                    onClick = { viewModel.updateDirectTransport(mode) },
+                    label = { Text(label) },
+                )
+            }
+        }
+        Text(
+            text = when (uiState.directTransport) {
+                "usb" -> "Phone connects to the car over a USB cable using AOA v2. The Wi-Fi connection mode below is ignored. A device picker is shown on the projection screen so the OS only prompts for the phone you select."
+                else -> "Phone and car talk over the shared Wi-Fi network configured below."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
         SectionHeader("Connection Mode")
         Spacer(modifier = Modifier.height(8.dp))
@@ -523,13 +553,12 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
                     uiState.manualIpAddress.isBlank() || isValidIpv4(uiState.manualIpAddress)
                 }
 
-                OutlinedTextField(
+                LocalEchoTextField(
                     value = uiState.manualIpAddress,
-                    onValueChange = { input ->
-                        // Allow only digits and dots
-                        val filtered = input.filter { it.isDigit() || it == '.' }
+                    onValueChange = { filtered ->
                         viewModel.updateManualIpAddress(filtered)
                     },
+                    filter = { input -> input.filter { it.isDigit() || it == '.' } },
                     label = { Text("Phone IP Address") },
                     placeholder = { Text("e.g. 192.168.1.100") },
                     singleLine = true,
@@ -753,7 +782,7 @@ private fun DisplayTab(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "Show turn-by-turn directions on the instrument cluster.",
+                    text = "Enable the cluster service to show turn-by-turn directions on the instrument cluster. Disable if your car doesn't have a cluster display or Templates Host. Takes effect on next connect.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1590,12 +1619,13 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.width(140.dp),
             )
-            OutlinedTextField(
+            LocalEchoTextField(
                 value = if (uiState.aaWidthMargin == 0) "" else uiState.aaWidthMargin.toString(),
-                onValueChange = { value ->
-                    val margin = value.filter { it.isDigit() }.toIntOrNull() ?: 0
+                onValueChange = { filtered ->
+                    val margin = filtered.toIntOrNull() ?: 0
                     viewModel.updateAaWidthMargin(margin.coerceIn(0, 1000))
                 },
+                filter = { it.filter { c -> c.isDigit() } },
                 placeholder = { Text("0 (auto)") },
                 singleLine = true,
                 modifier = Modifier.width(120.dp).testTag("aaWidthMargin"),
@@ -1616,12 +1646,13 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.width(140.dp),
             )
-            OutlinedTextField(
+            LocalEchoTextField(
                 value = if (uiState.aaHeightMargin == 0) "" else uiState.aaHeightMargin.toString(),
-                onValueChange = { value ->
-                    val margin = value.filter { it.isDigit() }.toIntOrNull() ?: 0
+                onValueChange = { filtered ->
+                    val margin = filtered.toIntOrNull() ?: 0
                     viewModel.updateAaHeightMargin(margin.coerceIn(0, 1000))
                 },
+                filter = { it.filter { c -> c.isDigit() } },
                 placeholder = { Text("0 (auto)") },
                 singleLine = true,
                 modifier = Modifier.width(120.dp).testTag("aaHeightMargin"),
@@ -1665,12 +1696,13 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.width(140.dp),
             )
-            OutlinedTextField(
+            LocalEchoTextField(
                 value = if (uiState.aaViewingDistanceMm == 0) "" else uiState.aaViewingDistanceMm.toString(),
-                onValueChange = { value ->
-                    val mm = value.filter { it.isDigit() }.toIntOrNull() ?: 0
+                onValueChange = { filtered ->
+                    val mm = filtered.toIntOrNull() ?: 0
                     viewModel.updateAaViewingDistanceMm(mm.coerceIn(0, 5000))
                 },
+                filter = { it.filter { c -> c.isDigit() } },
                 placeholder = { Text("0 (omit)") },
                 singleLine = true,
                 modifier = Modifier.width(120.dp).testTag("aaViewingDistanceMm"),
@@ -1690,12 +1722,13 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.width(140.dp),
             )
-            OutlinedTextField(
+            LocalEchoTextField(
                 value = if (uiState.aaDecoderAdditionalDepth == 0) "" else uiState.aaDecoderAdditionalDepth.toString(),
-                onValueChange = { value ->
-                    val depth = value.filter { it.isDigit() }.toIntOrNull() ?: 0
+                onValueChange = { filtered ->
+                    val depth = filtered.toIntOrNull() ?: 0
                     viewModel.updateAaDecoderAdditionalDepth(depth.coerceIn(0, 8))
                 },
+                filter = { it.filter { c -> c.isDigit() } },
                 placeholder = { Text("0 (omit)") },
                 singleLine = true,
                 modifier = Modifier.width(120.dp).testTag("aaDecoderAdditionalDepth"),
@@ -1778,12 +1811,13 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.width(180.dp),
                 )
-                OutlinedTextField(
+                LocalEchoTextField(
                     value = uiState.aaPixelAspect.toString(),
-                    onValueChange = { value ->
-                        val pa = value.filter { it.isDigit() }.toIntOrNull() ?: 10000
+                    onValueChange = { filtered ->
+                        val pa = filtered.toIntOrNull() ?: 10000
                         viewModel.updateAaPixelAspect(pa.coerceIn(1, 30000))
                     },
+                    filter = { it.filter { c -> c.isDigit() } },
                     placeholder = { Text("10000") },
                     singleLine = true,
                     modifier = Modifier.width(140.dp).testTag("aaPixelAspect"),
@@ -1956,12 +1990,26 @@ private fun InputTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
         // AlertDialog runs in its own Window so `Activity.dispatchKeyEvent`
         // is also bypassed — we have to hook the dialog window's callback.
         DisposableEffect(target) {
+            com.openautolink.app.diagnostics.OalLog.i(
+                "KeyRemapDialog",
+                "Capture dialog opened for target=${target.label} (aaKeycode=${target.aaKeycode}) — installing listener",
+            )
             com.openautolink.app.input.KeyCaptureBus.listener = { code ->
                 val name = android.view.KeyEvent.keyCodeToString(code)
                     .removePrefix("KEYCODE_")
+                com.openautolink.app.diagnostics.OalLog.i(
+                    "KeyRemapDialog",
+                    "Listener fired: keycode=$code name=$name",
+                )
                 lastDetectedKey = code to name
             }
-            onDispose { com.openautolink.app.input.KeyCaptureBus.listener = null }
+            onDispose {
+                com.openautolink.app.diagnostics.OalLog.i(
+                    "KeyRemapDialog",
+                    "Capture dialog closing — clearing listener",
+                )
+                com.openautolink.app.input.KeyCaptureBus.listener = null
+            }
         }
 
         // Hook the dialog's own Window so steering-wheel keys delivered to
@@ -1979,9 +2027,20 @@ private fun InputTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             }
             val window = provider?.window
             val original = window?.callback
+            com.openautolink.app.diagnostics.OalLog.i(
+                "KeyRemapDialog",
+                "Window hook setup: providerFound=${provider != null} " +
+                    "windowFound=${window != null} originalCallbackPresent=${original != null}",
+            )
             if (window != null && original != null) {
                 window.callback = object : android.view.Window.Callback by original {
                     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+                        com.openautolink.app.diagnostics.OalLog.i(
+                            "KeyRemapDialog",
+                            "Dialog window dispatchKeyEvent: keycode=${event.keyCode} " +
+                                "(${android.view.KeyEvent.keyCodeToString(event.keyCode)}) " +
+                                "action=${event.action} source=0x${Integer.toHexString(event.source)}",
+                        )
                         if (com.openautolink.app.input.KeyCaptureBus.handle(event)) return true
                         return original.dispatchKeyEvent(event)
                     }
@@ -2088,6 +2147,59 @@ private fun AudioTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                     )
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Phone Call Routing ---
+        SectionHeader("Phone Calls")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Android Auto routes call audio through your phone's Bluetooth pairing, not through OpenAutoLink. " +
+                "With \"Call audio\" enabled on the phone for this car's BT pairing, calls play through the car " +
+                "speakers and the car's built-in phone app takes the screen during the call. With \"Call audio\" " +
+                "disabled, AA shows its in-projection call card and audio plays through the phone earpiece. " +
+                "This matches every factory head unit.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(0.7f).padding(bottom = 12.dp),
+        )
+
+        // BT MAC override — used in the SDR's bluetooth_service.car_address.
+        // Some phones won't enter wireless AA pairing without a valid car MAC.
+        // Does NOT affect call audio routing.
+        Column(
+            modifier = Modifier.fillMaxWidth(0.7f).padding(vertical = 8.dp),
+        ) {
+            Text(
+                text = "Bluetooth MAC override",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Override the Bluetooth MAC reported to the phone in the AA Service Discovery " +
+                    "Response. Leave blank to auto-detect. Some phones won't enter wireless AA pairing " +
+                    "if auto-detect returns empty or 02:00:00:00:00:00. Read the head unit's BT MAC from " +
+                    "Settings → About → Bluetooth address and paste it here (format AA:BB:CC:DD:EE:FF). " +
+                    "Does NOT affect call audio routing. Requires Save & Reconnect.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            LocalEchoTextField(
+                value = uiState.btMacOverride,
+                onValueChange = { filtered -> viewModel.updateBtMacOverride(filtered) },
+                filter = { it.filter { c -> c.isLetterOrDigit() || c == ':' || c == '-' }.take(17).uppercase() },
+                placeholder = { Text("AA:BB:CC:DD:EE:FF") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("btMacOverride"),
+            )
         }
 
         Spacer(modifier = Modifier.height(24.dp))

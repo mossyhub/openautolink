@@ -255,6 +255,15 @@ object DeviceDebugProbe {
         // Standard Android Developer Options
         "Android Developer Options" to Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
 
+        // AAOS CarDeveloperOptions — verified present on GM Aegean firmware via APK recon.
+        // Activity is exported with intent-filter priority 1, no permission required.
+        "AAOS CarDeveloperOptions (direct)" to Intent().apply {
+            setClassName(
+                "com.android.car.developeroptions",
+                "com.android.car.developeroptions.CarDevelopmentSettingsDashboardActivity"
+            )
+        },
+
         // Direct component for Developer Options
         "Developer Options (component)" to Intent().apply {
             setClassName("com.android.settings", "com.android.settings.DevelopmentSettings")
