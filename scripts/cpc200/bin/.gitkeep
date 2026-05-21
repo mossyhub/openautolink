@@ -1,0 +1,6 @@
+# Compiled CPC200 binaries land here (gitignored sources, committed binaries).
+# Output of scripts/cpc200/build-wpa.sh:
+#   wpa_supplicant
+#   wpa_cli
+# Output of (future) scripts/cpc200/build-bridge.sh:
+#   oal-bridge

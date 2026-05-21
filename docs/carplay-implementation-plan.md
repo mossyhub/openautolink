@@ -1,12 +1,50 @@
 # CarPlay on AAOS — Investigation & Implementation Plan
 
+## Architecture (LOCKED 2026-05-20)
+
+Wireless CarPlay via the CPC200 dongle. **No vendor binary reverse engineering required.** The vendor stack on the CPC200 is left running purely as a BT/Wi-Fi pairing helper; its CarPlay daemons stall on "AppServer" — that is harmless noise and we ignore it.
+
+```
+iPhone ──BT pair (vendor stack)────────► CPC200 dongle
+   │                                       │  hands iPhone the Wi-Fi creds over RFCOMM
+   ▼                                       ▼
+iPhone joins shared Wi-Fi  ◄── CPC200 AP  OR  GM car AP (see "Subnet caveat" below)
+   │
+   │  iPhone resolves _carplay._tcp.local via mDNS
+   ▼
+   CPC200 broker (oal-cp-broker)
+     ├── mDNS responder      → advertises broker's own AP IP on port 7000
+     ├── TCP listener :7000  → accepts iPhone's CarPlay session
+     ├── TCP relay           → pipes bytes to AAOS app at <target>:7000
+     └── MFi auth daemon     → 127.0.0.1:5290 (i²c-1 0x11 signing)
+   │
+   ▼
+   AAOS app (CarPlayTcpListener) ── existing video/audio/sensor/cluster pipeline
+```
+
+**CPC200's complete responsibilities:**
+1. BT-pair iPhone (vendor `bluetoothDaemon` + `AppleCarPlay`)
+2. Hand iPhone Wi-Fi credentials over RFCOMM (vendor)
+3. Advertise `_carplay._tcp` via mDNS (broker — ✅ working)
+4. Accept iPhone TCP on port 7000 and relay to AAOS (broker — ✅ working as of 0.1.338)
+5. Expose `/dev/i2c-1:0x11` MFi co-processor as TCP service (mfi_auth_daemon — ✅ working)
+
+**Subnet caveat — GM car AP randomizes its subnet every boot.** Mirroring AA's pattern (the AAOS app does UDP broadcast discovery), the broker must not bake in a default subnet. As of 0.1.338 the broker:
+- Refuses to run relay modes without an explicit `--target IP`.
+- Auto-picks its mDNS advertise IP from the kernel's outbound route to `--target` (UDP-connect trick), so whichever subnet the AP gives us today, the broker advertises on the right interface.
+- Accepts `--target auto` to passive-listen on UDP/5278 for the AAOS app's `OAL-CP-ANNOUNCE` broadcast (mirror of `PhoneDiscovery` on the AA side). The AAOS app's `CarPlayAnnouncer` broadcasts `OAL-CP-ANNOUNCE v=<ver> ip=<dotted> port=<n>` every 2s from every non-virtual interface; broker learns the IP at boot without any static config.
+
+### Discarded paths (do not resurrect)
+- **Vendor binary RE / AppServer impersonation.** Hewei's `AppleCarPlay`/`ARMiPhoneIAP2`/`ARMadb-driver` are statically linked, section-header-stripped, and string-table-encrypted (each binary starts with a unique 29-char hex hash). The CPC200 kernel has ptrace disabled (PTRACE_TRACEME returns EINVAL even for `/bin/true`), no `/proc/config.gz`, no kallsyms — deliberate anti-RE matching the binary obfuscation. We do **not** need to understand or replace these binaries.
+- **USB CarPlay path on the GM HU.** The GM HU's internal MFi chip is SELinux-blocked from userspace (`u:r:untrusted_app` cannot touch `/dev/i2c-0`). Wireless via CPC200 is the only viable route.
+
 ## Executive Summary
 
 The GM Blazer EV AAOS head unit contains a **complete CarPlay hardware and software stack** that GM has disabled via a calibration flag (`Enable_Application_Apple_Carplay`). Through reverse engineering of the decompiled GM CarPlay APKs, we have a full reference implementation showing every iAP2 message, state machine transition, and VHAL-to-CarPlay mapping. Combined with OpenAutoLink's existing video/audio/sensor/cluster infrastructure, this is a viable path to native CarPlay on AAOS — the only solution that would offer cluster/HUD, VHAL integration, factory touch, and proper audio routing.
 
 **MFi Authentication**: A rooted CPC200 AutoKit dongle serves as a remote MFi signing daemon over TCP. The GM head unit's built-in chip is present but SELinux-blocked (`u:r:untrusted_app` cannot access `/dev/i2c-0`).
 
-## Current Status (updated 2026-05-07)
+## Current Status (updated 2026-05-20)
 
 ### Confirmed Hardware
 - **GM I²C MFi chip**: EXISTS at `/dev/i2c-0:0x10`, but EACCES (SELinux `untrusted_app` context). **Dead — no userspace path without root.**
@@ -20,19 +58,13 @@ The GM Blazer EV AAOS head unit contains a **complete CarPlay hardware and softw
 - [x] iAP2 link layer (`transport/carplay/iap2/Iap2LinkLayer.kt`) — frame encode/decode, SYN params
 - [x] iAP2 message serialization (`transport/carplay/iap2/Iap2Message.kt`) — message + param TLV, message ID catalog
 - [x] MFi auth client (`transport/carplay/auth/MfiAuthClient.kt`) — Kotlin TCP client for CPC200 daemon
+- [x] AAOS-side CarPlay TCP listener (`transport/carplay/wireless/CarPlayTcpListener.kt`) on port **5000** (RTSP/pair-setup entry, per `wireless_carplay.md`)
+- [x] **CPC200 broker** (`bridge/cpc200/oal-cp-broker`, 0.1.340) — mDNS responder + TCP relay + `--target auto` UDP discovery, auto-pick advertise IP, GM-AP-safe defaults
+- [x] **CarPlayAnnouncer** (`transport/carplay/wireless/CarPlayAnnouncer.kt`) — AAOS-side UDP broadcaster that feeds the broker's `--target auto`
+- [x] iPhone BT pair + Wi-Fi join on CPC200 AP, iPhone Discovery app sees `OpenAutoLink._carplay._tcp.local`
+- [x] **mDNS TXT records aligned to real receivers** (0.1.340): `model=A15W`, `features=0x5A7FFFFH`, `srcvers=320.17`, `vv=2` — required so iOS treats us as a valid CarPlay receiver and proceeds to TCP connect
 
-### Architecture (confirmed)
-```
-iPhone ──USB──→ GM Head Unit (our app)
-                  ├── iAP2 link layer (Iap2LinkLayer.kt)
-                  ├── iAP2 control session (Iap2Message.kt)
-                  ├── MFi auth relay ──WiFi TCP──→ CPC200 (/dev/i2c-1:0x11)
-                  ├── H.264 video → MediaCodec [EXISTING]
-                  ├── Audio → AudioTrack [EXISTING]
-                  ├── Touch → iAP2 HID [EXISTING logic]
-                  ├── VHAL/GPS/Cluster [EXISTING]
-                  └── CarPlay data channel (AirPlay over USB NCM or WiFi)
-```
+
 
 ### Key Findings from Decompiled Code
 - **Calibration gatekeeper**: `Enable_Application_Apple_Carplay` → `stopSelf()` if false
@@ -376,7 +408,160 @@ Note: GM head unit I²C path is DEAD.
 1. ~~Get I²C probe results~~ → DONE. Blocked by SELinux.
 2. ~~Source a CPC200~~ → DONE. Rooted, MFi daemon running.
 3. ~~Prototype iAP2 link layer~~ → DONE. Frame codec + SYN params.
-4. **Build USB host transport** — `UsbDeviceConnection` to claim iPhone iAP2 interface
-5. **Build iAP2 session manager** — state machine: SYN → auth → identify → StartCarPlay
-6. **Get first iAP2 handshake working** — iPhone accepts our SYN, we pass auth via CPC200
-7. **CarPlay data channel** — receive AirPlay H.264 stream, feed to MediaCodec
+4. ~~USB host transport~~ → DEPRIORITIZED. We have no GM head unit to develop on; see Part 4.
+5. ~~iAP2 session manager (USB)~~ → SCAFFOLDED in `transport/carplay/session/`, kept for reference.
+
+---
+
+## Part 4: Wireless CarPlay Pivot (2026-05-20)
+
+### Why pivot
+
+The USB plan assumed access to a GM AAOS head unit with the iPhone plugged in. We don't have that for dev; sitting in the car to iterate is too slow. The CPC200 dongle already does wireless CarPlay end-to-end in its stock firmware, with a known signing oracle (MFi chip on `/dev/i2c-1:0x11`) and a known WiFi handoff mechanism.
+
+**New plan:** put the CPC200 in **lean AP mode** (no Carlinkit CarPlay services, see [scripts/cpc200/Enter-LeanMode.ps1](../scripts/cpc200/Enter-LeanMode.ps1)), then build:
+- our own **CPC200 wireless broker binary** (replaces `AppleCarPlay`/`ARMiPhoneIAP2`) — does BT iAP2 handshake, calls our existing `mfi_auth_daemon` for signing, and tells the iPhone to send the CarPlay session to the **AAOS emulator's IP** (or eventually the head unit's IP).
+- our own **AAOS app TCP listener** — receives the CarPlay-over-WiFi data channel after handoff. Reuses existing iAP2 message catalog (the message-level protocol is the same; only the transport changes from USB-bulk to TCP).
+
+### Architecture (wireless)
+
+```
+┌─────────────┐                   ┌─────────────────────────────┐
+│   iPhone    │                   │      CPC200 dongle          │
+│             │                   │ (lean AP mode + our broker) │
+│             │ ─── BT iAP2 ────► │   /tmp/oal-cp-broker        │
+│             │  (RFCOMM ch 8)    │     ├── iAP2-over-RFCOMM    │
+│             │ ◄─────────────── │     ├── MFi via daemon :5290 │
+│             │                   │     └── injects target IP   │
+│             │                   │            of AAOS app      │
+│             │ ─── WiFi assoc ─► │   hostapd (AutoKit-XXXX)    │
+│             │   to AP            │                             │
+└──────┬──────┘                   └─────────────────────────────┘
+       │
+       │ ──── TCP :7000 ────►  ┌──────────────────────────────┐
+       │  (CarPlay data       │      AAOS Emulator / Head    │
+       │   channel:           │      Unit (our app)          │
+       │   AirPlay video,     │   transport/carplay/wireless │
+       │   audio, control)    │     ├── mDNS _carplay._tcp   │
+       │                      │     ├── TCP listener :7000   │
+       │                      │     └── iAP2 control session │
+       │                      │   ▼                          │
+       │                      │   video/ + audio/ + input/   │
+       │                      │   (existing AAOS islands)    │
+       │                      └──────────────────────────────┘
+```
+
+All three devices live on the CPC200's `192.168.43.x` subnet:
+- CPC200 AP gateway: `192.168.43.1`
+- iPhone (DHCP): observed `192.168.43.100`
+- AAOS emulator host: observed `192.168.43.101`
+
+### Component plan
+
+| Component | Location | Status |
+|-----------|----------|--------|
+| CPC200 lean-mode neutralizer | `scripts/cpc200/deploy/lean-ap-mode.sh` + `Enter-LeanMode.ps1` | DONE |
+| CPC200 MFi signing daemon | `scripts/mfi_auth_daemon.c` (port 5290) | DONE (from Part 2.4) |
+| **CPC200 wireless broker binary** | `bridge/cpc200/oal-cp-broker/` | **NEW — this PR** |
+| App: mDNS `_carplay._tcp` responder | `transport/carplay/wireless/CarPlayMdnsResponder.kt` | **NEW — this PR** |
+| App: CarPlay TCP listener (port 7000) | `transport/carplay/wireless/CarPlayTcpListener.kt` | **NEW — this PR** |
+| App: wireless probe orchestrator | `transport/carplay/wireless/CarPlayWirelessProbe.kt` | **NEW — this PR** |
+| App: diagnostic screen | `ui/diagnostics/carplay/CarPlayWirelessProbeScreen.kt` | **NEW — this PR** |
+| App: iAP2-over-TCP transport | `transport/carplay/wireless/Iap2TcpTransport.kt` | TODO (next PR) |
+| App: AirPlay receiver (RTSP + RAOP) | `transport/carplay/wireless/airplay/` | TODO |
+| App: CarPlay control protocol | reuse `Iap2Message.kt` catalog | TODO (wire to TCP transport) |
+
+### CPC200 broker — high-level flow
+
+```c
+// bridge/cpc200/oal-cp-broker (C, static armhf, runs on CPC200)
+main():
+  open BT HCI
+  register CarPlay SDP profile on RFCOMM ch 8
+  hciconfig hci0 piscan          // be discoverable
+  loop:
+    accept RFCOMM connection from iPhone
+    do iAP2 link-layer handshake (SYN/SYN-ACK/ACK)
+    on RequestAuthCertificate:
+      forward to mfi_auth_daemon @ 127.0.0.1:5290 GET_CERT, relay back
+    on RequestAuthChallengeResponse:
+      forward to mfi_auth_daemon SIGN, relay signed response back
+    on RequestIdentification:
+      send IdentificationInformation (model = OpenAutoLink, supports CarPlay)
+    on RequestWiFiInformation:
+      send our SSID + password (= CPC200 AP creds from /etc/wifi_name)
+    on StartCarPlay:
+      respond with target IP = AAOS_TARGET_IP (config), port 7000
+      close RFCOMM — iPhone now switches to WiFi+TCP
+    log everything to /tmp/oal-cp-broker.log with version stamp
+```
+
+Reference implementations to mine: `external/headunit-revived/` (HU Revived), `external/wireless-helper/`, and Carlinkit's own `AppleCarPlay`/`ARMiPhoneIAP2` binary strings (via `strings` on the binary in `/tmp/bin/`).
+
+### App-side first deliverable (this PR — testable now)
+
+A purely passive **wireless probe** in the app:
+1. Advertises `_carplay._tcp` on port 7000 via `NsdManager`.
+2. Listens on TCP 7000, logs the hex of any incoming bytes (since without the broker, the iPhone will not initiate CarPlay — but this confirms our listener is reachable and gives us a known-good baseline before plumbing the broker).
+3. Surfaces a Compose diagnostic screen showing: mDNS service name, listen port, current local IP, live event log (connections, bytes, errors).
+
+This is intentionally tiny. Its purpose is to (a) prove the listener-side plumbing on the AAOS emulator while connected to the CPC200 AP, and (b) be the home for the iAP2-over-TCP state machine in the next iteration.
+
+### Next milestones
+
+| Milestone | Deliverable |
+|-----------|-------------|
+| **W1** (this PR) | Lean AP + mDNS + TCP listener + diagnostic UI. Validate emulator reachable from iPhone on CPC200 subnet. |
+| **W2** | CPC200 broker C scaffold compiling in WSL. Empty BT listener + RFCOMM accept. Verify iPhone BT-discovers it as a CarPlay accessory. |
+| **W3-W4** | Broker iAP2 link layer + MFi relay. iPhone completes auth and joins our WiFi. |
+| **W5-W6** | Broker StartCarPlay → AAOS emulator IP. iPhone opens TCP to our app. Log raw protocol bytes. |
+| **W7-W10** | App: iAP2 control over TCP + AirPlay video receive + decode → MediaCodec → Surface. First frame. |
+| **W11+** | Audio, touch, control sites, vehicle data forwarding (these all reuse existing islands). |
+
+---
+
+## Part 5: Pivot 2026-05-20 (evening) — Hybrid hijack first, from-scratch iAP2 later
+
+### What we discovered on the CPC200
+
+The dongle already ships a full closed-source CarPlay stack:
+
+- `/usr/sbin/AppleCarPlay` (325 KB) — CarPlay orchestrator
+- `/usr/sbin/ARMiPhoneIAP2` (181 KB) — iAP2 link layer
+- `/usr/sbin/bluetoothDaemon`, `/usr/sbin/hcid`, `/usr/sbin/hciconfig`, `/usr/sbin/hcitool` — BlueZ-style BT stack
+- `/usr/sbin/hfpd` — Handsfree profile
+- `/usr/sbin/hwSecret` — wraps the on-board MFi co-processor
+- `/usr/sbin/usbmuxd`, `/usr/sbin/mdnsd`
+- Boot flow runs `/script/start_main_service.sh` → `init_bluetooth_wifi.sh` → `start_iap2_ncm.sh` → `boxNetworkService`
+
+This means BT pairing, iAP2 SYN/ACK, MFi cert + challenge signing, and the WiFi handoff RoleSwitch are all already implemented on the box — by binaries we don't own.
+
+### Decision
+
+**Short term (this milestone): Path #1 — hybrid hijack.** Let the vendor binaries do the BT/iAP2/MFi dance. After RoleSwitch, the iPhone opens a TCP session to the vendor's CarPlay listener on the CPC200. We **transparently NAT that TCP stream** to the AAOS app's `:7000` (via `iptables -t nat … DNAT --to 192.168.43.101:7000` or userspace `socat`), and keep our own `_carplay._tcp` mDNS advert pointing at the AAOS IP so the iPhone never sees the vendor target. Goal: get raw CarPlay-over-TCP bytes into the AAOS app the fastest possible way, then start decoding them.
+
+Trade-offs accepted: we depend on a closed binary, the vendor stack may also try to claim display/audio locally (we'll have to suppress or ignore), and the path won't survive a vendor firmware refresh.
+
+### TODO (must do later): Path #3 — from-scratch iAP2 + MFi proxy
+
+Replace the vendor stack entirely with our own broker. This is the only path that gives long-term control, allows us to ship without the Carlinkit dongle, and works on hardware we choose (e.g. a generic SBC + USB BT dongle + MFi chip).
+
+Scope of the eventual replacement:
+- Open `hci0` directly via BlueZ socket APIs; register CarPlay SDP record on RFCOMM ch 8.
+- Implement iAP2 link layer (SYN / SYN-ACK / ACK / EAP packets / control session messages) — reference: `external/headunit-revived/`, `external/wireless-helper/`, and reverse-engineered iAP2 specs.
+- Implement the MFi challenge flow against an MFi auth co-processor we control (I²C, same protocol as Apple's spec).
+- Implement `RequestWiFiInformation` (give iPhone our AP creds) and `StartCarPlay` (point it at our AAOS app IP/port).
+- Drop-in replace `AppleCarPlay` + `ARMiPhoneIAP2` on the CPC200, and also be portable to a non-CPC200 SBC.
+
+Reasons we're not doing this now: weeks of work, MFi co-processor RE on the CPC200 board, and we'd be unable to validate end-to-end video/audio decoding until all of it lands. Hijack lets us get the data flowing and start working on the AAOS-side decoder in parallel.
+
+### Hijack milestones (replaces W3-W6 above)
+
+| Milestone | Deliverable |
+|-----------|-------------|
+| **H1** | Identify which TCP port `AppleCarPlay` listens on after iPhone BT-pair + MFi success. Capture with `netstat`/`ss` while the vendor stack is alive. |
+| **H2** | Confirm vendor mDNS advert vs our own — leave only ours; verify iPhone still connects. |
+| **H3** | Add an `iptables` PREROUTING DNAT (or `socat` userspace tee) on the CPC200 from the vendor port → `192.168.43.101:7000`. Verify bytes hit AAOS app's TCP listener. |
+| **H4** | Hex-dump the first 4 KB of the post-MFi stream into a fixture file. Identify framing (AirPlay RTSP? raw iAP2? something else). |
+| **H5** | Build initial parser in `transport/carplay/wireless/` for whatever framing H4 reveals. First decoded frame on the AAOS side. |
+

@@ -84,6 +84,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     private val preferences = AppPreferences.getInstance(application)
     private val knownPhonesStore = KnownPhonesStore(preferences)
+
+    /**
+     * Live phone discovery for Car Hotspot mode. Runs mDNS passively while
+     * projection is visible; sweep is on-demand from the chooser UI.
+     * Declared early so the init block's combine() can safely reference it.
+     */
+    private val phoneDiscovery = com.openautolink.app.transport.PhoneDiscovery.getInstance(application)
     private val audioManager = application.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val sessionManager = SessionManager.getInstance(viewModelScope, application, audioManager)
@@ -244,22 +251,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     init {
         registerTransportNetworkCallback()
 
-        // Resolve the projection overlay's "connected phone" label from
-        // whatever we currently know: prefer the live mDNS friendly_name for
-        // [_activePhoneId], fall back to the known-phones store entry, and
-        // null out when no phone is active. Recomputes when any of the three
-        // inputs change.
-        viewModelScope.launch {
-            kotlinx.coroutines.flow.combine(
-                _activePhoneId,
-                phoneDiscovery.phones,
-                knownPhonesStore.phones,
-            ) { activeId, discovered, known ->
-                if (activeId.isNullOrBlank()) return@combine null
-                discovered.firstOrNull { it.phoneId == activeId }?.friendlyName
-                    ?: known.firstOrNull { it.phoneId == activeId }?.friendlyName
-            }.collect { name -> _phoneName.value = name }
-        }
 
         // Collect video and audio stats when streaming
         viewModelScope.launch {
@@ -704,13 +695,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     // --- Multi-phone: Phone Chooser ---
 
-    /**
-     * Live phone discovery for Car Hotspot mode. Runs mDNS passively while
-     * projection is visible; sweep is on-demand from the chooser UI. Results
-     * carry source tags ([PhoneDiscovery.Source.MDNS] / SWEEP / BOTH) so the
-     * UX can show which mechanism worked.
-     */
-    private val phoneDiscovery = com.openautolink.app.transport.PhoneDiscovery.getInstance(application)
     val carHotspotPhones: StateFlow<List<com.openautolink.app.transport.PhoneDiscovery.DiscoveredPhone>> =
         phoneDiscovery.phones
     val carHotspotSweepActive: StateFlow<Boolean> = phoneDiscovery.isSweeping
@@ -1638,12 +1622,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private val fileLogToggleLock: Any by lazy { Any() }
-
-    /** True while the auto-start-on-USB pref owns the current file-logger session.
-     *  When the user manually stops via the overlay record button we clear this
-     *  so the auto-start observer won't immediately restart it on the next USB
-     *  mount event \u2014 they'll have to toggle the pref off/on or restart the app. */
-    @Volatile private var autoUsbLoggingActive = false
 
     /** True while the auto-start-on-USB pref owns the current file-logger session.
      *  When the user manually stops via the overlay record button we clear this

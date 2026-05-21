@@ -1,0 +1,42 @@
+# oal-bridge.conf — RUNTIME config for the CPC200 CarPlay bridge binary
+#
+# Deploy to /etc/oal-bridge.conf on the CPC200.
+# The bridge reads this on startup to know:
+#   - which WiFi network to tell the iPhone to join (sent via iAP2 WiFiInformation)
+#   - where the iPhone should send AirPlay traffic (the head unit / dev PC IP)
+#   - identification info reported to the iPhone
+#   - MFi chip location
+
+# --- WiFi info sent to iPhone via iAP2 WiFiInformation -----------------------
+# The iPhone will auto-join this network after BT pairing + iAP2 handshake.
+# For dev: your home WiFi.
+# For car: the car hotspot's SSID/password.
+wifi_ssid=REPLACE_NETWORK_SSID
+wifi_password=REPLACE_NETWORK_PASSWORD
+wifi_security=WPA2          # WPA2 | WPA3 | OPEN
+
+# --- AirPlay target ----------------------------------------------------------
+# Where the iPhone should send CarPlay video/audio data.
+# Dev: dev PC's IP on the shared network.
+# Car: the head unit's IP on the car network.
+target_ip=REPLACE_TARGET_IP
+target_port=7000             # AirPlay default; head-unit-side app listens here
+
+# --- Accessory identity (reported during iAP2 IdentificationInformation) ----
+accessory_name=OpenAutoLink
+accessory_model=OAL-1.0
+accessory_manufacturer=OpenAutoLink Project
+accessory_serial=OAL000000001
+accessory_fw_version=1.0.0
+
+# --- MFi chip location -------------------------------------------------------
+mfi_i2c_bus=/dev/i2c-1
+mfi_i2c_addr=0x11
+
+# --- Bluetooth ---------------------------------------------------------------
+bt_device_name=OpenAutoLink
+bt_pin=0000
+
+# --- Logging -----------------------------------------------------------------
+log_level=info               # error | warn | info | debug
+log_file=/tmp/oal-bridge.log

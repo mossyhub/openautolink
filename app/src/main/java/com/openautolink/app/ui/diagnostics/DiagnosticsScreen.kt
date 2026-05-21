@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.openautolink.app.ui.diagnostics.carplay.CarPlayReconContent
+import com.openautolink.app.ui.diagnostics.carplay.CarPlayWirelessContent
 
 private enum class DiagnosticsTab(
     val title: String,
@@ -74,6 +76,7 @@ private enum class DiagnosticsTab(
     DEBUG("Debug", Icons.Default.BugReport),
     LOGS("Logs", Icons.Default.Terminal),
     RECON("Recon", Icons.Default.Search),
+    WIRELESS("Wireless", Icons.Default.Wifi),
 }
 
 @Composable
@@ -148,6 +151,7 @@ fun DiagnosticsScreen(
                     DiagnosticsTab.DEBUG -> DebugTab(uiState.debugProbe, viewModel)
                     DiagnosticsTab.LOGS -> LogsTab(uiState.logs, uiState.logFilter, viewModel)
                     DiagnosticsTab.RECON -> CarPlayReconContent()
+                    DiagnosticsTab.WIRELESS -> CarPlayWirelessContent()
                 }
               }
             }

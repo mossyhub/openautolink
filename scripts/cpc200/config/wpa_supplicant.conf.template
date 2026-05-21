@@ -1,0 +1,39 @@
+# wpa_supplicant.conf — RUNTIME config for CPC200 STA mode
+#
+# Deploy to /etc/wpa_supplicant.conf on the CPC200.
+# wpa_supplicant is started with:
+#   wpa_supplicant -B -i wlan0 -D nl80211 -c /etc/wpa_supplicant.conf
+# Then DHCP:
+#   udhcpc -i wlan0
+#
+# Multiple `network={}` blocks are tried by priority (highest first).
+# Add new networks here as you encounter them (car AP, phone hotspot, home WiFi).
+
+ctrl_interface=/var/run/wpa_supplicant
+update_config=1
+country=US
+
+# --- Home WiFi (dev) ---------------------------------------------------------
+network={
+    ssid="REPLACE_HOME_SSID"
+    psk="REPLACE_HOME_PASSWORD"
+    key_mgmt=WPA-PSK WPA-PSK-SHA256
+    priority=10
+}
+
+# --- Car hotspot / car WiFi (production) ------------------------------------
+# Uncomment and fill in when you know the car's AP credentials.
+#network={
+#    ssid="REPLACE_CAR_SSID"
+#    psk="REPLACE_CAR_PASSWORD"
+#    key_mgmt=WPA-PSK WPA-PSK-SHA256
+#    priority=20
+#}
+
+# --- Phone hotspot fallback --------------------------------------------------
+#network={
+#    ssid="REPLACE_PHONE_HOTSPOT_SSID"
+#    psk="REPLACE_PHONE_HOTSPOT_PASSWORD"
+#    key_mgmt=WPA-PSK
+#    priority=5
+#}
