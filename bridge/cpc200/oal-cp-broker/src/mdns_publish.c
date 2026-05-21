@@ -289,6 +289,41 @@ int mdns_publish_run(const mdns_publish_config_t *cfg, volatile int *stop_flag) 
                 BLOG_I("mdns: rx %dB from %s:%u q=%d qd=%u type=%d host=%d meta=%d",
                        rn, inet_ntoa(src.sin_addr), ntohs(src.sin_port),
                        is_query, (unsigned)qdcount, match_type, match_host, match_meta);
+                /* Decode and log each QNAME so we can see what the client wants. */
+                if (is_query) {
+                    int off = 12;
+                    for (unsigned q = 0; q < qdcount && off < rn; q++) {
+                        char qname[256]; int qpos = 0;
+                        int safety = 0;
+                        while (off < rn && safety++ < 32) {
+                            uint8_t len = rx[off];
+                            if (len == 0) { off++; break; }
+                            if ((len & 0xC0) == 0xC0) {
+                                /* compression pointer — just record marker, don't follow */
+                                if (qpos + 6 < (int)sizeof(qname)) {
+                                    qpos += snprintf(qname + qpos, sizeof(qname) - qpos, "[ptr]");
+                                }
+                                off += 2; break;
+                            }
+                            off++;
+                            if (off + len > rn) { off = rn; break; }
+                            if (qpos > 0 && qpos + 1 < (int)sizeof(qname)) qname[qpos++] = '.';
+                            for (int k = 0; k < len && qpos + 1 < (int)sizeof(qname); k++) {
+                                qname[qpos++] = (char)rx[off + k];
+                            }
+                            off += len;
+                        }
+                        qname[qpos < (int)sizeof(qname) ? qpos : (int)sizeof(qname) - 1] = 0;
+                        uint16_t qtype = 0, qclass = 0;
+                        if (off + 4 <= rn) {
+                            qtype  = (uint16_t)((rx[off]   << 8) | rx[off+1]);
+                            qclass = (uint16_t)((rx[off+2] << 8) | rx[off+3]);
+                            off += 4;
+                        }
+                        BLOG_I("mdns: q[%u] name='%s' qtype=%u qclass=0x%04x",
+                               q, qname, (unsigned)qtype, (unsigned)qclass);
+                    }
+                }
                 if (is_query && (match_type || match_host || match_meta)) {
                     sendto(s, pkt, pkt_len, 0, (struct sockaddr *)&dst, sizeof(dst));
                     BLOG_I("mdns: replied to %s:%u",
