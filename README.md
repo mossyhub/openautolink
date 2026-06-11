@@ -6,7 +6,7 @@
 
 > Wireless Android Auto for AAOS head units. No extra hardware.
 >
-> **⚠️ Under active development.** Core car connections and AA functionality are working. See [Known Issues](#known-issues) for current limitations.
+
 
 [![CI](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml/badge.svg)](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml)
 [![Release](https://github.com/mossyhub/openautolink/actions/workflows/release-apk.yml/badge.svg)](https://github.com/mossyhub/openautolink/releases/latest)
