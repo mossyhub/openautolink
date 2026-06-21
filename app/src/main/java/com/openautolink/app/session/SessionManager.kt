@@ -329,7 +329,11 @@ class SessionManager(
         stop()
     }
 
-    // Media session
+    // Media session. Holds a reference to the process-wide singleton (created
+    // in OalApplication, not here). SessionManager only pushes metadata /
+    // playback updates and resets the tile to idle on teardown — it never
+    // creates or releases the session, so the cluster's token binding survives
+    // across connects, sleep/wake, and phone switches.
     private var _mediaSessionManager: OalMediaSessionManager? = null
     /** Cache of the most recently observed [ControlMessage.MediaMetadata] so
      *  we can replay it to the cluster on reconnect. The phone sends metadata
@@ -602,32 +606,30 @@ class SessionManager(
             }
         }
 
-        // Create media session for AAOS system UI integration.
-        // Only construct once per SessionManager lifetime: recreating the
-        // MediaSession invalidates the cluster widget's MediaController
-        // binding (GM cluster doesn't rebind cleanly), which is why the
-        // user previously saw stale album art after a Save & Reconnect or
-        // post-wake reconnect cycle. The session lives until SessionManager
-        // is fully torn down in stop().
-        if (_mediaSessionManager == null) {
-            _mediaSessionManager = context?.let { OalMediaSessionManager(it) }
-            _mediaSessionManager?.initialize()
-            _mediaSessionManager?.getSessionToken()?.let { token ->
+        // Bind to the process-wide MediaSession (created in OalApplication).
+        // We never create or release it here — the GM cluster's MediaController
+        // binds to the token published once at process start, and recreating
+        // the session would orphan that binding (the "music cluster frozen
+        // after switching phones" bug). getInstance() is idempotent; the
+        // initialize()/token-publish below are defensive no-ops that also cover
+        // the rare path where a session starts before OalApplication finished.
+        _mediaSessionManager = context?.let { OalMediaSessionManager.getInstance(it) }
+        _mediaSessionManager?.let { media ->
+            media.initialize()
+            media.getSessionToken()?.let { token ->
                 OalMediaBrowserService.updateSessionToken(token)
             }
-        } else {
-            // Replay the most-recent metadata + playback state in case the
-            // cluster widget needs nudging after a reconnect. Cheap; setMetadata
-            // is a binder call but the data is identical to what's already set
-            // so the cluster either updates from this or no-ops.
+            // Replay the most-recent metadata + playback state so the cluster
+            // tile reflects the current (or freshly reconnected/switched) phone
+            // rather than the idle placeholder or a previous phone's track.
             lastMediaMetadata?.let { m ->
-                _mediaSessionManager?.updateMetadata(
+                media.updateMetadata(
                     title = m.title, artist = m.artist, album = m.album,
                     durationMs = m.durationMs, albumArtBase64 = m.albumArtBase64,
                 )
             }
             lastMediaPlaybackState?.let { p ->
-                _mediaSessionManager?.updatePlaybackState(p.playing, p.positionMs)
+                media.updatePlaybackState(p.playing, p.positionMs)
             }
         }
 
@@ -1112,8 +1114,11 @@ class SessionManager(
         _imuForwarder = null
         _navigationDisplay.clear()
         ClusterNavigationState.clear()
-        _mediaSessionManager?.release()
-        _mediaSessionManager = null
+        // Do NOT release the MediaSession — it's the process-wide singleton and
+        // the GM cluster is bound to its token. Just reset the now-playing tile
+        // to idle so we don't keep showing the disconnected phone's track. The
+        // reference is left intact; the next start() reuses the same singleton.
+        _mediaSessionManager?.resetToIdle()
         lastMediaMetadata = null
         lastMediaPlaybackState = null
         _clusterManager?.release()

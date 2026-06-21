@@ -42,6 +42,28 @@ class OalApplication : Application() {
         // auto-connect. Without this, the "ghost wake" AAOS dispatches during
         // shutdown burns a 45s timeout into a dead WiFi.
         com.openautolink.app.input.IgnitionMonitor.start(this)
+
+        // Create the process-wide MediaSession and publish its token to the
+        // MediaBrowserService exactly once, at process start. The GM AAOS
+        // cluster media widget binds a MediaController to this token, and
+        // MediaBrowserServiceCompat.setSessionToken only accepts a token once
+        // per service instance. Creating the session here (process scope) —
+        // rather than per-connection in SessionManager — guarantees the token
+        // is published once and stays valid across every connect/disconnect,
+        // sleep/wake, and phone-identity switch. This is the fix for the
+        // "music cluster frozen after switching phones" bug: a per-session
+        // MediaSession was being recreated on switch, and its new token could
+        // never reach the already-bound cluster.
+        try {
+            val media = com.openautolink.app.media.OalMediaSessionManager.getInstance(this)
+            media.initialize()
+            media.getSessionToken()?.let { token ->
+                com.openautolink.app.media.OalMediaBrowserService.updateSessionToken(token)
+            }
+            Log.i("OAL-App", "Process-wide MediaSession initialized and token published")
+        } catch (e: Throwable) {
+            Log.w("OAL-App", "Failed to initialize MediaSession: ${e.message}")
+        }
     }
 
     /**
