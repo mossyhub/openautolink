@@ -48,6 +48,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -1358,6 +1359,119 @@ private fun FileLoggingSection() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+
+    // ── Log Upload (maintainer) ────────────────────────────────────────
+    // OFF by default. Uploads recent logs to the maintainer's own server.
+    // Also available as an "Upload Logs" action in the foreground notification.
+    val prefs = remember { context.getSharedPreferences(CompanionPrefs.NAME, Context.MODE_PRIVATE) }
+    var uploadEnabled by remember {
+        mutableStateOf(prefs.getBoolean(CompanionPrefs.LOG_UPLOAD_ENABLED, CompanionPrefs.DEFAULT_LOG_UPLOAD_ENABLED))
+    }
+    var uploadUrl by remember { mutableStateOf(prefs.getString(CompanionPrefs.LOG_UPLOAD_URL, "") ?: "") }
+    var uploadToken by remember { mutableStateOf(prefs.getString(CompanionPrefs.LOG_UPLOAD_TOKEN, "") ?: "") }
+    var deviceLabel by remember { mutableStateOf(prefs.getString(CompanionPrefs.LOG_UPLOAD_DEVICE_LABEL, "") ?: "") }
+    val uploadState by CompanionService.uploadState.collectAsState()
+
+    Spacer(Modifier.height(20.dp))
+    Text(
+        text = "Log Upload (maintainer)",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(8.dp))
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Enable log upload",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Switch(
+                    checked = uploadEnabled,
+                    onCheckedChange = { v ->
+                        uploadEnabled = v
+                        prefs.edit().putBoolean(CompanionPrefs.LOG_UPLOAD_ENABLED, v).apply()
+                    },
+                )
+            }
+
+            if (uploadEnabled) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = uploadUrl,
+                    onValueChange = {
+                        uploadUrl = it
+                        prefs.edit().putString(CompanionPrefs.LOG_UPLOAD_URL, it.trim()).apply()
+                    },
+                    label = { Text("Upload URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = uploadToken,
+                    onValueChange = {
+                        uploadToken = it
+                        prefs.edit().putString(CompanionPrefs.LOG_UPLOAD_TOKEN, it.trim()).apply()
+                    },
+                    label = { Text("Upload token") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = deviceLabel,
+                    onValueChange = {
+                        deviceLabel = it
+                        prefs.edit().putString(CompanionPrefs.LOG_UPLOAD_DEVICE_LABEL, it.trim()).apply()
+                    },
+                    label = { Text("Device label (e.g. Pixel 7)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+
+                val (btnLabel, btnColor) = when (uploadState) {
+                    "uploading" -> "Uploading…" to OalOrange
+                    "success" -> "Uploaded ✓" to OalGreen
+                    "error" -> "Upload failed — retry" to OalRed
+                    else -> "Upload logs now" to MaterialTheme.colorScheme.primary
+                }
+                Button(
+                    onClick = {
+                        val intent = android.content.Intent(context, CompanionService::class.java).apply {
+                            action = CompanionService.ACTION_UPLOAD_LOGS
+                        }
+                        androidx.core.content.ContextCompat.startForegroundService(context, intent)
+                    },
+                    enabled = uploadState != "uploading" && uploadUrl.isNotBlank() && uploadToken.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = btnColor),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(btnLabel) }
+
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Off by default. Sends recent logs (companion + logcat) to your " +
+                        "own server for analysis. The same action is available from the " +
+                        "notification while the service runs.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

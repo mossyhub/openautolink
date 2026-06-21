@@ -44,6 +44,11 @@ data class SettingsUiState(
     val fileLoggingEnabled: Boolean = AppPreferences.DEFAULT_FILE_LOGGING_ENABLED,
     val fileLoggingAutoStartUsb: Boolean = AppPreferences.DEFAULT_FILE_LOGGING_AUTOSTART_USB,
     val logcatCaptureEnabled: Boolean = AppPreferences.DEFAULT_LOGCAT_CAPTURE_ENABLED,
+    // Maintainer log upload (off by default)
+    val logUploadEnabled: Boolean = AppPreferences.DEFAULT_LOG_UPLOAD_ENABLED,
+    val logUploadUrl: String = AppPreferences.DEFAULT_LOG_UPLOAD_URL,
+    val logUploadToken: String = AppPreferences.DEFAULT_LOG_UPLOAD_TOKEN,
+    val logUploadDeviceLabel: String = AppPreferences.DEFAULT_LOG_UPLOAD_DEVICE_LABEL,
     // UI customization
     val syncAaTheme: Boolean = AppPreferences.DEFAULT_SYNC_AA_THEME,
     val hideAaClock: Boolean = AppPreferences.DEFAULT_HIDE_AA_CLOCK,
@@ -118,6 +123,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         preferences.manualIpEnabled,
         preferences.manualIpAddress,
         preferences.btMacOverride,
+        preferences.logUploadEnabled,
+        preferences.logUploadUrl,
+        preferences.logUploadToken,
+        preferences.logUploadDeviceLabel,
     ) { values: Array<Any> ->
         SettingsUiState(
             videoAutoNegotiate = values[0] as Boolean,
@@ -161,6 +170,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             manualIpEnabled = values[38] as Boolean,
             manualIpAddress = values[39] as String,
             btMacOverride = values[40] as String,
+            logUploadEnabled = values[41] as Boolean,
+            logUploadUrl = values[42] as String,
+            logUploadToken = values[43] as String,
+            logUploadDeviceLabel = values[44] as String,
         )
     }.stateIn(
         viewModelScope,
@@ -383,6 +396,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateLogcatCaptureEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setLogcatCaptureEnabled(enabled) }
+    }
+
+    fun updateLogUploadEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferences.setLogUploadEnabled(enabled) }
+    }
+
+    fun updateLogUploadUrl(url: String) {
+        viewModelScope.launch { preferences.setLogUploadUrl(url) }
+    }
+
+    fun updateLogUploadToken(token: String) {
+        viewModelScope.launch { preferences.setLogUploadToken(token) }
+    }
+
+    fun updateLogUploadDeviceLabel(label: String) {
+        viewModelScope.launch { preferences.setLogUploadDeviceLabel(label) }
     }
 
     fun updateSyncAaTheme(enabled: Boolean) {

@@ -79,6 +79,7 @@
                 <action android:name="com.openautolink.companion.ACTION_START" />
                 <action android:name="com.openautolink.companion.ACTION_STOP" />
                 <action android:name="com.openautolink.companion.ACTION_PREWARM" />
+                <action android:name="com.openautolink.companion.ACTION_UPLOAD_LOGS" />
             </intent-filter>
         </service>
 
