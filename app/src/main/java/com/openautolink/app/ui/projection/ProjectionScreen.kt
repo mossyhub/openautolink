@@ -30,6 +30,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Settings
@@ -598,6 +601,43 @@ fun ProjectionScreen(
                     maxBoundsY = maxBoundsY,
                 )
                 } // end fileLoggingEnabled
+
+                // Upload Logs button — maintainer-only, shown when the feature
+                // is enabled in Settings. Color states: amber (uploading),
+                // green (success), red (error), default surface (idle). Appears
+                // whenever uploadEnabled so the user can fire it right after a
+                // drive while the just-written logs are still in the 6h window.
+                if (uiState.uploadEnabled) {
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val uploadContainer = when (uiState.uploadState) {
+                        LogUploadState.UPLOADING -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.85f)
+                        LogUploadState.SUCCESS -> Color(0xFF2E7D32).copy(alpha = 0.85f)
+                        LogUploadState.ERROR -> Color.Red.copy(alpha = 0.8f)
+                        LogUploadState.IDLE -> MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                    }
+                    val uploadTint = if (uiState.uploadState == LogUploadState.IDLE) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        Color.White
+                    }
+                    val uploadIcon = when (uiState.uploadState) {
+                        LogUploadState.SUCCESS -> Icons.Default.CloudDone
+                        LogUploadState.ERROR -> Icons.Default.CloudOff
+                        else -> Icons.Default.CloudUpload
+                    }
+                    DraggableOverlayButton(
+                        icon = uploadIcon,
+                        contentDescription = "Upload Logs",
+                        onClick = { viewModel.uploadLogsNow() },
+                        positionKey = "overlay_upload_logs",
+                        containerColor = uploadContainer,
+                        tint = uploadTint,
+                        modifier = Modifier.testTag("uploadLogsButton"),
+                        maxBoundsX = maxBoundsX,
+                        maxBoundsY = maxBoundsY,
+                    )
+                }
             }
         }
 

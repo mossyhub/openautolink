@@ -29,6 +29,8 @@ import com.openautolink.app.video.VideoStats
 import com.openautolink.app.diagnostics.OalLog
 import com.openautolink.app.diagnostics.DiagnosticLog
 import com.openautolink.app.diagnostics.FileLogWriter
+import com.openautolink.app.diagnostics.LogUploader
+import com.openautolink.app.diagnostics.UploadResult
 import com.openautolink.app.diagnostics.LogcatCapture
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -73,7 +75,12 @@ data class ProjectionUiState(
     val fileLoggingActive: Boolean = false,
     val fileLoggingPath: String? = null,
     val fileLoggingEnabled: Boolean = false,
+    val uploadEnabled: Boolean = false,
+    val uploadState: LogUploadState = LogUploadState.IDLE,
 )
+
+/** State of the maintainer log-upload action, drives the floating button color. */
+enum class LogUploadState { IDLE, UPLOADING, SUCCESS, ERROR }
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 class ProjectionViewModel(application: Application) : AndroidViewModel(application) {
@@ -147,6 +154,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private var fileLogWriter: FileLogWriter? = null
     private var logcatCapture: LogcatCapture? = null
 
+    // Maintainer log-upload action state (drives the floating Upload button color).
+    private val _uploadState = MutableStateFlow(LogUploadState.IDLE)
+
     // Pending surface — stored when surfaceCreated fires before decoder exists.
     // Attached to decoder on session start or when decoder becomes available.
     private var pendingSurface: Surface? = null
@@ -205,6 +215,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         _fileLoggingActive,
         _fileLoggingPath,
         preferences.fileLoggingEnabled,
+        preferences.logUploadEnabled,
+        _uploadState,
     ) { values ->
         ProjectionUiState(
             sessionState = values[0] as SessionState,
@@ -234,6 +246,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             fileLoggingActive = values[24] as Boolean,
             fileLoggingPath = values[25] as? String,
             fileLoggingEnabled = values[26] as Boolean,
+            uploadEnabled = values[27] as Boolean,
+            uploadState = values[28] as LogUploadState,
         )
     }.stateIn(
         viewModelScope,
@@ -1633,6 +1647,45 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      *  so the auto-start observer won't immediately restart it on the next USB
      *  mount event \u2014 they'll have to toggle the pref off/on or restart the app. */
     @Volatile private var autoUsbLoggingActive = false
+
+    /**
+     * Maintainer-only: zip recent logs and POST them to the configured
+     * endpoint. No-ops (with an ERROR flash) if the feature is unconfigured.
+     * Drives [ProjectionUiState.uploadState] so the floating button shows
+     * amber (uploading) -> green (success) / red (error), reverting after 3s.
+     */
+    fun uploadLogsNow() {
+        if (_uploadState.value == LogUploadState.UPLOADING) return
+        viewModelScope.launch {
+            val url = preferences.logUploadUrl.first()
+            val token = preferences.logUploadToken.first()
+            val label = preferences.logUploadDeviceLabel.first()
+            if (url.isBlank() || token.isBlank()) {
+                OalLog.w(TAG, "Upload tapped but URL/token not configured")
+                flashUpload(LogUploadState.ERROR)
+                return@launch
+            }
+            _uploadState.value = LogUploadState.UPLOADING
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                LogUploader(getApplication()).upload(url, token, label)
+            }
+            flashUpload(
+                if (result is UploadResult.Success) LogUploadState.SUCCESS
+                else LogUploadState.ERROR
+            )
+        }
+    }
+
+    /** Set the upload state; auto-revert SUCCESS/ERROR to IDLE after 3s. */
+    private fun flashUpload(state: LogUploadState) {
+        _uploadState.value = state
+        if (state == LogUploadState.SUCCESS || state == LogUploadState.ERROR) {
+            viewModelScope.launch {
+                kotlinx.coroutines.delay(3000)
+                if (_uploadState.value == state) _uploadState.value = LogUploadState.IDLE
+            }
+        }
+    }
 
     fun toggleFileLogging() {
         synchronized(fileLogToggleLock) {

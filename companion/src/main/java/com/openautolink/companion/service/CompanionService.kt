@@ -108,6 +108,12 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
                 tcpAdvertiser?.preWarmAaPipeline()
             }
 
+            ACTION_UPLOAD_LOGS -> {
+                CompanionLog.i(TAG, "Upload logs requested")
+                uploadLogs()
+                return START_STICKY
+            }
+
             else -> {
                 // System restart
                 if (_isRunning.value) {
@@ -233,14 +239,30 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
             this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("OpenAutoLink Companion")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setContentIntent(openPending)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPending)
-            .build()
+
+        // Maintainer-only: show an "Upload Logs" action straight from the
+        // notification, but ONLY when the feature is enabled — non-maintainer
+        // users never see it.
+        val uploadEnabled = getSharedPreferences(CompanionPrefs.NAME, MODE_PRIVATE)
+            .getBoolean(CompanionPrefs.LOG_UPLOAD_ENABLED, CompanionPrefs.DEFAULT_LOG_UPLOAD_ENABLED)
+        if (uploadEnabled) {
+            val upIntent = Intent(this, CompanionService::class.java).apply {
+                action = ACTION_UPLOAD_LOGS
+            }
+            val upPending = PendingIntent.getService(
+                this, 1, upIntent, PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(android.R.drawable.stat_sys_upload, "Upload Logs", upPending)
+        }
+
+        return builder.build()
     }
 
     private fun updateNotification(text: String) {
@@ -310,6 +332,46 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
         _fileLoggingPath.value = null
     }
 
+    // ── Log upload (maintainer) ────────────────────────────────────────
+
+    /**
+     * Zip recent logs and POST them to the configured endpoint. No-ops (with a
+     * log line) if the feature is disabled or unconfigured. Updates
+     * [uploadState] ("uploading" -> "success"/"error" -> "idle") and reflects
+     * progress in the notification text. Runs on the service IO scope.
+     */
+    private fun uploadLogs() {
+        if (_uploadState.value == "uploading") return
+        val prefs = getSharedPreferences(CompanionPrefs.NAME, MODE_PRIVATE)
+        if (!prefs.getBoolean(
+                CompanionPrefs.LOG_UPLOAD_ENABLED,
+                CompanionPrefs.DEFAULT_LOG_UPLOAD_ENABLED)) {
+            CompanionLog.w(TAG, "Upload requested but feature disabled")
+            return
+        }
+        val url = prefs.getString(CompanionPrefs.LOG_UPLOAD_URL, "") ?: ""
+        val token = prefs.getString(CompanionPrefs.LOG_UPLOAD_TOKEN, "") ?: ""
+        val label = prefs.getString(CompanionPrefs.LOG_UPLOAD_DEVICE_LABEL, "") ?: ""
+        if (url.isBlank() || token.isBlank()) {
+            CompanionLog.w(TAG, "Upload requested but URL/token not configured")
+            _uploadState.value = "error"
+            return
+        }
+        _uploadState.value = "uploading"
+        updateNotification("Uploading logs…")
+        serviceScope.launch {
+            val result = com.openautolink.companion.diagnostics.LogUploader(this@CompanionService)
+                .upload(url, token, label)
+            val ok = result is com.openautolink.companion.diagnostics.UploadResult.Success
+            _uploadState.value = if (ok) "success" else "error"
+            updateNotification(if (ok) "Logs uploaded ✓" else "Log upload failed")
+            delay(4000)
+            _uploadState.value = "idle"
+            updateNotification(
+                if (_isConnected.value) "Connected — AA active" else "Advertising…")
+        }
+    }
+
     companion object {
         private const val TAG = "OAL_Service"
         private const val CHANNEL_ID = "oal_companion_channel"
@@ -320,6 +382,8 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
         const val ACTION_START = "com.openautolink.companion.ACTION_START"
         const val ACTION_STOP = "com.openautolink.companion.ACTION_STOP"
         const val ACTION_PREWARM = "com.openautolink.companion.ACTION_PREWARM"
+        /** Upload recent logs to the maintainer endpoint (off-by-default feature). */
+        const val ACTION_UPLOAD_LOGS = "com.openautolink.companion.ACTION_UPLOAD_LOGS"
         /** Optional extra on ACTION_START: also start file logging once the service is up. */
         const val EXTRA_START_LOGGING = "com.openautolink.companion.EXTRA_START_LOGGING"
 
@@ -338,6 +402,10 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
 
         private val _fileLoggingPath = MutableStateFlow<String?>(null)
         val fileLoggingPath: kotlinx.coroutines.flow.StateFlow<String?> = _fileLoggingPath
+
+        // Maintainer log-upload state: "idle" | "uploading" | "success" | "error".
+        private val _uploadState = MutableStateFlow("idle")
+        val uploadState: kotlinx.coroutines.flow.StateFlow<String> = _uploadState
 
         @Volatile
         private var _instance: CompanionService? = null

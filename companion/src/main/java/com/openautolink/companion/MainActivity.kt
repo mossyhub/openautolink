@@ -147,6 +147,16 @@ object CompanionPrefs {
     const val PHONE_ID = "phone_id"             // stable UUID, generated on first launch
     const val PHONE_FRIENDLY_NAME = "phone_friendly_name"  // user-editable, defaults to Build.MODEL
 
+    // Maintainer-only diagnostic log upload. OFF by default. The user supplies
+    // their own endpoint URL + bearer token + device label; the in-app button
+    // and the notification action both zip recent logs and POST them. Never
+    // imposed on other users — everything is gated behind LOG_UPLOAD_ENABLED.
+    const val LOG_UPLOAD_ENABLED = "log_upload_enabled"
+    const val LOG_UPLOAD_URL = "log_upload_url"
+    const val LOG_UPLOAD_TOKEN = "log_upload_token"
+    const val LOG_UPLOAD_DEVICE_LABEL = "log_upload_device_label"
+    const val DEFAULT_LOG_UPLOAD_ENABLED = false
+
     /**
      * Returns the persistent phone UUID, generating one on first call.
      */

@@ -36,6 +36,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -2444,6 +2445,57 @@ private fun DiagnosticsSettingsTab(
                 checked = uiState.logcatCaptureEnabled,
                 onCheckedChange = { viewModel.updateLogcatCaptureEnabled(it) },
                 modifier = Modifier.testTag("logcatCaptureToggle"),
+            )
+        }
+
+        // ── Log Upload (maintainer) ────────────────────────────────────
+        // OFF by default. Uploads recent diagnostic logs to the maintainer's
+        // own server. Only meant for the maintainer's own car + phones.
+        Row(
+            modifier = Modifier.fillMaxWidth(0.7f).padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Upload Logs (maintainer)", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Off by default. When on, a floating Upload button appears on " +
+                        "the projection screen; tapping it zips recent logs and POSTs " +
+                        "them to your own server for analysis. Only enable on your own " +
+                        "devices — it never affects other users.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = uiState.logUploadEnabled,
+                onCheckedChange = { viewModel.updateLogUploadEnabled(it) },
+                modifier = Modifier.testTag("logUploadToggle"),
+            )
+        }
+
+        if (uiState.logUploadEnabled) {
+            OutlinedTextField(
+                value = uiState.logUploadUrl,
+                onValueChange = { viewModel.updateLogUploadUrl(it) },
+                label = { Text("Upload URL") },
+                placeholder = { Text("https://oal-logs.example.com/upload") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(0.7f).padding(vertical = 4.dp),
+            )
+            OutlinedTextField(
+                value = uiState.logUploadToken,
+                onValueChange = { viewModel.updateLogUploadToken(it) },
+                label = { Text("Upload token") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(0.7f).padding(vertical = 4.dp),
+            )
+            OutlinedTextField(
+                value = uiState.logUploadDeviceLabel,
+                onValueChange = { viewModel.updateLogUploadDeviceLabel(it) },
+                label = { Text("Device label") },
+                placeholder = { Text("Blazer Car") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(0.7f).padding(vertical = 4.dp),
             )
         }
     }

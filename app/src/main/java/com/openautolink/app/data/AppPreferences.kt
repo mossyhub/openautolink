@@ -86,6 +86,16 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val FILE_LOGGING_AUTOSTART_USB = booleanPreferencesKey("file_logging_autostart_usb")
         val LOGCAT_CAPTURE_ENABLED = booleanPreferencesKey("logcat_capture_enabled")
 
+        // Maintainer-only diagnostic log upload. OFF by default. When enabled,
+        // the user supplies their own endpoint URL + bearer token + a device
+        // label; the floating Upload button on the projection screen zips the
+        // recent log files and POSTs them. Never imposed on other users — the
+        // button and the feature are entirely gated behind LOG_UPLOAD_ENABLED.
+        val LOG_UPLOAD_ENABLED = booleanPreferencesKey("log_upload_enabled")
+        val LOG_UPLOAD_URL = stringPreferencesKey("log_upload_url")
+        val LOG_UPLOAD_TOKEN = stringPreferencesKey("log_upload_token")
+        val LOG_UPLOAD_DEVICE_LABEL = stringPreferencesKey("log_upload_device_label")
+
         // AA safe area (stable) insets — maps render, UI stays inside
         val SAFE_AREA_TOP = intPreferencesKey("safe_area_top")
         val SAFE_AREA_BOTTOM = intPreferencesKey("safe_area_bottom")
@@ -213,6 +223,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_FILE_LOGGING_ENABLED = false
         const val DEFAULT_FILE_LOGGING_AUTOSTART_USB = false
         const val DEFAULT_LOGCAT_CAPTURE_ENABLED = false
+        const val DEFAULT_LOG_UPLOAD_ENABLED = false
+        const val DEFAULT_LOG_UPLOAD_URL = ""
+        const val DEFAULT_LOG_UPLOAD_TOKEN = ""
+        const val DEFAULT_LOG_UPLOAD_DEVICE_LABEL = "" // empty -> Build.MODEL fallback at runtime
         const val DEFAULT_SAFE_AREA_TOP = 0
         const val DEFAULT_SAFE_AREA_BOTTOM = 0
         const val DEFAULT_SAFE_AREA_LEFT = 0
@@ -406,6 +420,22 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         prefs[LOGCAT_CAPTURE_ENABLED] ?: DEFAULT_LOGCAT_CAPTURE_ENABLED
     }
 
+    val logUploadEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[LOG_UPLOAD_ENABLED] ?: DEFAULT_LOG_UPLOAD_ENABLED
+    }
+
+    val logUploadUrl: Flow<String> = dataStore.data.map { prefs ->
+        prefs[LOG_UPLOAD_URL] ?: DEFAULT_LOG_UPLOAD_URL
+    }
+
+    val logUploadToken: Flow<String> = dataStore.data.map { prefs ->
+        prefs[LOG_UPLOAD_TOKEN] ?: DEFAULT_LOG_UPLOAD_TOKEN
+    }
+
+    val logUploadDeviceLabel: Flow<String> = dataStore.data.map { prefs ->
+        prefs[LOG_UPLOAD_DEVICE_LABEL] ?: DEFAULT_LOG_UPLOAD_DEVICE_LABEL
+    }
+
     val safeAreaTop: Flow<Int> = dataStore.data.map { prefs ->
         prefs[SAFE_AREA_TOP] ?: DEFAULT_SAFE_AREA_TOP
     }
@@ -496,6 +526,22 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setVideoAutoNegotiate(enabled: Boolean) {
         dataStore.edit { it[VIDEO_AUTO_NEGOTIATE] = enabled }
+    }
+
+    suspend fun setLogUploadEnabled(value: Boolean) {
+        dataStore.edit { it[LOG_UPLOAD_ENABLED] = value }
+    }
+
+    suspend fun setLogUploadUrl(value: String) {
+        dataStore.edit { it[LOG_UPLOAD_URL] = value.trim() }
+    }
+
+    suspend fun setLogUploadToken(value: String) {
+        dataStore.edit { it[LOG_UPLOAD_TOKEN] = value.trim() }
+    }
+
+    suspend fun setLogUploadDeviceLabel(value: String) {
+        dataStore.edit { it[LOG_UPLOAD_DEVICE_LABEL] = value.trim() }
     }
 
     suspend fun setVideoCodec(codec: String) {
