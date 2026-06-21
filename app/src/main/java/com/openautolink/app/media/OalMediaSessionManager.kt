@@ -15,15 +15,46 @@ import android.util.Log
  * Manages a MediaSession that publishes now-playing metadata from the bridge
  * to AAOS system UI, cluster widgets, and steering wheel controls.
  *
+ * **Process-scoped singleton.** The MediaSession is created exactly once per
+ * process and lives for the whole process lifetime — see [getInstance]. This
+ * is deliberate: GM's AAOS cluster media widget binds a `MediaController` to
+ * the token published via [OalMediaBrowserService], and that framework
+ * (`MediaBrowserServiceCompat.setSessionToken`) only accepts a token **once**
+ * per service instance (it throws `IllegalStateException` on any later call —
+ * verified in GM's decompiled `com.gm.rhmi`). If we destroyed and recreated
+ * the MediaSession on a session boundary (e.g. a phone-identity switch across
+ * a car sleep/wake), the new token could never be published, and the cluster
+ * would stay bound to the dead session — the "music cluster frozen after
+ * switching phones" bug. Keeping one session for the process lifetime means
+ * the token is published once and stays valid forever; session boundaries
+ * only push new metadata/playback state via [updateMetadata] /
+ * [updatePlaybackState], or clear the now-playing tile via [resetToIdle].
+ *
  * Thread safety: all public methods may be called from coroutine dispatchers.
  * MediaSession is guarded by [sessionLock].
  */
-class OalMediaSessionManager(private val context: Context) {
+class OalMediaSessionManager private constructor(private val context: Context) {
 
     companion object {
         private const val TAG = "OalMediaSession"
         /** Max album art dimension — keeps Binder IPC under transaction limit. */
         private const val MAX_ART_SIZE = 320
+
+        @Volatile
+        private var instance: OalMediaSessionManager? = null
+
+        /**
+         * Process-wide singleton. Always uses the application context so the
+         * long-lived MediaSession never holds an Activity reference. Safe to
+         * call from any thread; construction is double-checked-locked.
+         */
+        fun getInstance(context: Context): OalMediaSessionManager {
+            return instance ?: synchronized(this) {
+                instance ?: OalMediaSessionManager(context.applicationContext).also { instance = it }
+            }
+        }
+
+        fun instanceOrNull(): OalMediaSessionManager? = instance
     }
 
     private var mediaSession: MediaSessionCompat? = null
@@ -101,6 +132,32 @@ class OalMediaSessionManager(private val context: Context) {
             cachedBitmap = null
             lastPushedPlaying = null
             Log.i(TAG, "MediaSession released")
+        }
+        instance = null
+    }
+
+    /**
+     * Reset the now-playing tile to an idle "Not connected" state **without**
+     * destroying the MediaSession or invalidating its token. Called on session
+     * teardown (e.g. [com.openautolink.app.session.SessionManager.stop]) so the
+     * cluster doesn't keep showing the previous phone's track, while the token
+     * stays valid for the next session — see the class kdoc for why the session
+     * must outlive individual connections.
+     */
+    fun resetToIdle() {
+        synchronized(sessionLock) {
+            val session = mediaSession ?: return
+            cachedArtHash = 0
+            cachedBitmap = null
+            lastPushedPlaying = false
+            session.setMetadata(
+                MediaMetadataCompat.Builder()
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "OpenAutoLink")
+                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Not connected")
+                    .build()
+            )
+            session.setPlaybackState(buildPlaybackState(PlaybackStateCompat.STATE_NONE, 0))
+            Log.i(TAG, "MediaSession reset to idle")
         }
     }
 

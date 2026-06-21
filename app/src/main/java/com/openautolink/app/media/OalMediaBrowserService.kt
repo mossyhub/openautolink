@@ -23,18 +23,38 @@ class OalMediaBrowserService : MediaBrowserServiceCompat() {
         var mediaSessionToken: MediaSessionCompat.Token? = null
 
         /**
-         * Push session token to a running service instance.
-         * Called from SessionManager after MediaSession is initialized.
+         * Publish the process-wide MediaSession token to a running service
+         * instance. Called once from [com.openautolink.app.OalApplication] at
+         * process start, after the singleton MediaSession is initialized.
+         *
+         * The token is process-stable (the MediaSession is never recreated —
+         * see [OalMediaSessionManager]), so this is effectively a one-shot.
+         * `MediaBrowserServiceCompat.setSessionToken` throws
+         * `IllegalStateException` if a token was already set on this service
+         * instance; that is benign only when it's the *same* token (idempotent
+         * republish). A throw while attempting to set a *different* token would
+         * mean a second MediaSession leaked into the process — a real bug — so
+         * we log it at WARN rather than swallowing it silently.
          */
         fun updateSessionToken(token: MediaSessionCompat.Token) {
+            val previous = mediaSessionToken
             mediaSessionToken = token
             instance?.let { service ->
                 try {
                     service.setSessionToken(token)
-                    Log.d(TAG, "Session token pushed to running service")
+                    Log.d(TAG, "Session token published to running service")
                 } catch (e: IllegalStateException) {
-                    // Already set (reinit) — safe to ignore
-                    Log.d(TAG, "Session token already set, ignoring")
+                    if (previous == token) {
+                        // Same token re-published (e.g. service restarted and
+                        // re-read the static token in onCreate). Harmless.
+                        Log.d(TAG, "Session token already set (same token), ignoring")
+                    } else {
+                        // A different token can never reach the cluster on this
+                        // service instance — the MediaSession should be a
+                        // process singleton. Surface it instead of hiding it.
+                        Log.w(TAG, "setSessionToken rejected a NEW token; cluster will keep the old binding. " +
+                            "This indicates the MediaSession was recreated — it must be process-scoped.")
+                    }
                 }
             }
         }
