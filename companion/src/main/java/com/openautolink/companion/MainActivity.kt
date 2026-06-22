@@ -157,6 +157,16 @@ object CompanionPrefs {
     const val LOG_UPLOAD_DEVICE_LABEL = "log_upload_device_label"
     const val DEFAULT_LOG_UPLOAD_ENABLED = false
 
+    // Maintainer-only "always log" mode. When enabled, file logging is started
+    // automatically whenever the service comes up (boot, app open, auto-start,
+    // OS-restart) and the 10-minute no-connection idle timeout is skipped, so
+    // logging stays on continuously across drives/disconnects until the user
+    // turns it off. Unlike the transient fileLoggingActive switch (which is
+    // service-scoped, connection-gated, and not persisted), this flag IS
+    // persisted in SharedPreferences and survives restarts.
+    const val LOG_PERSIST_ENABLED = "log_persist_enabled"
+    const val DEFAULT_LOG_PERSIST_ENABLED = false
+
     /**
      * Returns the persistent phone UUID, generating one on first call.
      */
