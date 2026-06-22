@@ -44,7 +44,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -2473,7 +2472,7 @@ private fun DiagnosticsSettingsTab(
         }
 
         if (uiState.logUploadEnabled) {
-            OutlinedTextField(
+            LocalEchoTextField(
                 value = uiState.logUploadUrl,
                 onValueChange = { viewModel.updateLogUploadUrl(it) },
                 label = { Text("Upload URL") },
@@ -2481,7 +2480,7 @@ private fun DiagnosticsSettingsTab(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(0.7f).padding(vertical = 4.dp),
             )
-            OutlinedTextField(
+            LocalEchoTextField(
                 value = uiState.logUploadToken,
                 onValueChange = { viewModel.updateLogUploadToken(it) },
                 label = { Text("Upload token") },
@@ -2489,7 +2488,7 @@ private fun DiagnosticsSettingsTab(
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(0.7f).padding(vertical = 4.dp),
             )
-            OutlinedTextField(
+            LocalEchoTextField(
                 value = uiState.logUploadDeviceLabel,
                 onValueChange = { viewModel.updateLogUploadDeviceLabel(it) },
                 label = { Text("Device label") },
