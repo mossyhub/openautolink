@@ -1349,9 +1349,10 @@ private fun FileLoggingSection() {
 
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Logs persist as long as this toggle is on, regardless of " +
-                    "connection state. If no connection is ever made within 10 minutes " +
-                    "of enabling, logging auto-disables to prevent runaway files.\n\n" +
+                text = "Logs persist as long as this toggle is on, while the " +
+                    "service is running. If no connection is ever made within 10 minutes " +
+                    "of enabling, logging auto-disables to prevent runaway files " +
+                    "(unless \"Always log\" below is on).\n\n" +
                     "Recommended only for troubleshooting — turn this back off " +
                     "when you're done. Continuous file logging adds I/O overhead " +
                     "and can affect proxy throughput.\n\n" +
@@ -1359,6 +1360,72 @@ private fun FileLoggingSection() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            // ── Always log (maintainer) ────────────────────────────────
+            // Persisted opt-in: keep logging on continuously across drives,
+            // disconnects, service restarts, and reboots — no 10-min idle
+            // auto-off. The transient toggle above is service-scoped and not
+            // persisted; this flag is, and the service auto-starts logging
+            // whenever it comes up while this is set.
+            val logPrefs = remember {
+                context.getSharedPreferences(CompanionPrefs.NAME, Context.MODE_PRIVATE)
+            }
+            var alwaysLog by remember {
+                mutableStateOf(
+                    logPrefs.getBoolean(
+                        CompanionPrefs.LOG_PERSIST_ENABLED,
+                        CompanionPrefs.DEFAULT_LOG_PERSIST_ENABLED,
+                    )
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Always log (maintainer)",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Switch(
+                    checked = alwaysLog,
+                    onCheckedChange = { on ->
+                        alwaysLog = on
+                        logPrefs.edit().putBoolean(CompanionPrefs.LOG_PERSIST_ENABLED, on).apply()
+                        if (on) {
+                            // Start logging right now (covers the case where the
+                            // service is already running), and ensure the service
+                            // is up so logging persists. Reuses the same atomic
+                            // ACTION_START + EXTRA_START_LOGGING piggyback.
+                            val running = isServiceRunning
+                            val service = getCompanionService(context)
+                            if (running && service != null) {
+                                service.startFileLogging()
+                            } else {
+                                val intent = android.content.Intent(context, CompanionService::class.java).apply {
+                                    action = CompanionService.ACTION_START
+                                    putExtra(CompanionService.EXTRA_START_LOGGING, true)
+                                }
+                                androidx.core.content.ContextCompat.startForegroundService(context, intent)
+                            }
+                        }
+                        // Turning OFF does not stop the current session's logging
+                        // (use the toggle above for that) — it only stops auto-start
+                        // on future service starts and re-arms the idle timeout.
+                    },
+                )
+            }
+            if (alwaysLog) {
+                Text(
+                    text = "Logging stays on continuously across drives, disconnects, " +
+                        "and service restarts until you turn this off — no 10-minute " +
+                        "auto-off. After a phone reboot it resumes as soon as the " +
+                        "service next starts (you open the app, or BT/WiFi auto-start fires).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OalGreen,
+                )
+            }
         }
     }
 

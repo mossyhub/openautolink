@@ -59,6 +59,22 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
         } catch (e: Exception) {
             CompanionLog.w(TAG, "MulticastLock failed: ${e.message}")
         }
+        // "Always log" mode: if the maintainer persisted logging on, start it as
+        // soon as the service exists — independent of any connection. Resumes on
+        // every service start (app open, BT/WiFi auto-start, OS sticky-restart);
+        // a cold reboot resumes it once one of those triggers first starts the
+        // service (there is no standalone BOOT_COMPLETED launcher).
+        maybeStartPersistentLogging()
+    }
+
+    /** Start file logging if the persisted "always log" pref is enabled. */
+    private fun maybeStartPersistentLogging() {
+        val persist = getSharedPreferences(CompanionPrefs.NAME, MODE_PRIVATE)
+            .getBoolean(CompanionPrefs.LOG_PERSIST_ENABLED, CompanionPrefs.DEFAULT_LOG_PERSIST_ENABLED)
+        if (persist && fileLogger?.isActive?.value != true) {
+            CompanionLog.i(TAG, "Always-log mode on — starting file logging")
+            startFileLogging()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -87,6 +103,9 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
                 startTcp()
                 if (intent.getBooleanExtra(EXTRA_START_LOGGING, false)) {
                     startFileLogging()
+                } else {
+                    // Always-log mode: resume logging on any service start.
+                    maybeStartPersistentLogging()
                 }
             }
 
@@ -120,6 +139,10 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
                     CompanionLog.i(TAG, "Service restarted by system, resuming")
                     startTcp()
                 }
+                // Resume always-log mode after an OS-initiated restart, even if
+                // the service wasn't "running" before the kill — onCreate also
+                // covers the fresh-process case, this covers sticky redelivery.
+                maybeStartPersistentLogging()
             }
         }
         return START_STICKY
@@ -307,8 +330,12 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
             // 10-minute idle timeout: if the AA proxy never connects while
             // logging is active, auto-disable to avoid runaway log files when
             // the user forgets the toggle on. Cleared on first connection.
+            // SKIPPED entirely in "always log" mode — the maintainer wants
+            // continuous capture regardless of connection state.
             fileLogIdleTimeoutJob?.cancel()
-            if (!loggingSessionEverConnected) {
+            val persist = getSharedPreferences(CompanionPrefs.NAME, MODE_PRIVATE)
+                .getBoolean(CompanionPrefs.LOG_PERSIST_ENABLED, CompanionPrefs.DEFAULT_LOG_PERSIST_ENABLED)
+            if (!persist && !loggingSessionEverConnected) {
                 fileLogIdleTimeoutJob = serviceScope.launch {
                     delay(LOG_IDLE_TIMEOUT_MS)
                     if (_fileLoggingActive.value && !loggingSessionEverConnected) {
