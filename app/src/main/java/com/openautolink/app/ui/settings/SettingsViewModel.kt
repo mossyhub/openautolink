@@ -44,6 +44,7 @@ data class SettingsUiState(
     val fileLoggingEnabled: Boolean = AppPreferences.DEFAULT_FILE_LOGGING_ENABLED,
     val fileLoggingAutoStartUsb: Boolean = AppPreferences.DEFAULT_FILE_LOGGING_AUTOSTART_USB,
     val logcatCaptureEnabled: Boolean = AppPreferences.DEFAULT_LOGCAT_CAPTURE_ENABLED,
+    val logPersistEnabled: Boolean = AppPreferences.DEFAULT_LOG_PERSIST_ENABLED,
     // Maintainer log upload (off by default)
     val logUploadEnabled: Boolean = AppPreferences.DEFAULT_LOG_UPLOAD_ENABLED,
     val logUploadUrl: String = AppPreferences.DEFAULT_LOG_UPLOAD_URL,
@@ -127,6 +128,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         preferences.logUploadUrl,
         preferences.logUploadToken,
         preferences.logUploadDeviceLabel,
+        preferences.logPersistEnabled,
     ) { values: Array<Any> ->
         SettingsUiState(
             videoAutoNegotiate = values[0] as Boolean,
@@ -174,6 +176,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             logUploadUrl = values[42] as String,
             logUploadToken = values[43] as String,
             logUploadDeviceLabel = values[44] as String,
+            logPersistEnabled = values[45] as Boolean,
         )
     }.stateIn(
         viewModelScope,
@@ -396,6 +399,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateLogcatCaptureEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setLogcatCaptureEnabled(enabled) }
+    }
+
+    fun updateLogPersistEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferences.setLogPersistEnabled(enabled) }
     }
 
     fun updateLogUploadEnabled(enabled: Boolean) {

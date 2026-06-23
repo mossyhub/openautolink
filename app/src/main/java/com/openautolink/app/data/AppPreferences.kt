@@ -85,6 +85,13 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val FILE_LOGGING_ENABLED = booleanPreferencesKey("file_logging_enabled")
         val FILE_LOGGING_AUTOSTART_USB = booleanPreferencesKey("file_logging_autostart_usb")
         val LOGCAT_CAPTURE_ENABLED = booleanPreferencesKey("logcat_capture_enabled")
+        // Maintainer "always log" mode (car app). When enabled, file logging
+        // starts automatically whenever the projection screen comes up, so a
+        // drive is captured without the user remembering to toggle it on. The
+        // car app's logging is already connection-independent (it survives
+        // disconnects/reconnects; it's only torn down in onCleared at app exit),
+        // so this just removes the manual step. Persisted, default off.
+        val LOG_PERSIST_ENABLED = booleanPreferencesKey("log_persist_enabled")
 
         // Maintainer-only diagnostic log upload. OFF by default. When enabled,
         // the user supplies their own endpoint URL + bearer token + a device
@@ -223,6 +230,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_FILE_LOGGING_ENABLED = false
         const val DEFAULT_FILE_LOGGING_AUTOSTART_USB = false
         const val DEFAULT_LOGCAT_CAPTURE_ENABLED = false
+        const val DEFAULT_LOG_PERSIST_ENABLED = false
         const val DEFAULT_LOG_UPLOAD_ENABLED = false
         const val DEFAULT_LOG_UPLOAD_URL = ""
         const val DEFAULT_LOG_UPLOAD_TOKEN = ""
@@ -418,6 +426,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     val logcatCaptureEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[LOGCAT_CAPTURE_ENABLED] ?: DEFAULT_LOGCAT_CAPTURE_ENABLED
+    }
+
+    val logPersistEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[LOG_PERSIST_ENABLED] ?: DEFAULT_LOG_PERSIST_ENABLED
     }
 
     val logUploadEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
@@ -620,6 +632,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setLogcatCaptureEnabled(enabled: Boolean) {
         dataStore.edit { it[LOGCAT_CAPTURE_ENABLED] = enabled }
+    }
+
+    suspend fun setLogPersistEnabled(enabled: Boolean) {
+        dataStore.edit { it[LOG_PERSIST_ENABLED] = enabled }
     }
 
     suspend fun setSafeAreaTop(value: Int) {

@@ -2406,6 +2406,29 @@ private fun DiagnosticsSettingsTab(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                Text("Always Log (maintainer)", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Automatically start file logging whenever the projection " +
+                        "screen comes up, so a whole drive is captured without " +
+                        "remembering to toggle it on. Persisted — stays on across " +
+                        "drives and reconnects until turned off. Uses internal " +
+                        "storage (no USB required). Recommended only for the " +
+                        "maintainer capturing intermittent issues.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = uiState.logPersistEnabled,
+                onCheckedChange = { viewModel.updateLogPersistEnabled(it) },
+                modifier = Modifier.testTag("logPersistToggle"),
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(0.7f).padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text("Always Log to USB", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     "Automatically start file logging whenever the app is running, " +
