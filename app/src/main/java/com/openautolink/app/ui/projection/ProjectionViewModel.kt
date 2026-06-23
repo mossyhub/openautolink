@@ -1171,6 +1171,24 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 evaluateAutoUsbLogging(enabled, "pref-change")
             }
         }
+        // Maintainer "always log" mode: when the persisted pref is on, start
+        // file logging as soon as the projection screen comes up so the whole
+        // drive is captured without a manual toggle. Observe the pref so
+        // enabling it mid-session starts logging immediately too. Idempotent —
+        // startFileLoggingLocked no-ops when already active (e.g. USB-autostart
+        // or a manual toggle already started it).
+        viewModelScope.launch {
+            preferences.logPersistEnabled.collect { persist ->
+                if (persist) {
+                    synchronized(fileLogToggleLock) {
+                        if (!_fileLoggingActive.value) {
+                            OalLog.i(TAG, "Always-log mode on — starting file logging")
+                            startFileLoggingLocked(requireRemovable = false)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
