@@ -68,6 +68,17 @@ class AasdkSession(
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
+    /**
+     * Wall-clock ([SystemClock.elapsedRealtime]) of the most recent inbound
+     * video frame. The stall watchdog in SessionManager reads this to detect a
+     * wedged AA video channel — frames stop arriving while the TCP socket stays
+     * alive and other channels (nav) keep flowing, so the native layer never
+     * fires onSessionStopped and nothing recovers (issue #34). 0 = no frame yet.
+     */
+    @Volatile
+    var lastVideoFrameMs: Long = 0L
+        private set
+
     private val _videoFrames = MutableSharedFlow<VideoFrame>(extraBufferCapacity = 30)
     val videoFrames: SharedFlow<VideoFrame> = _videoFrames.asSharedFlow()
 
@@ -364,6 +375,7 @@ class AasdkSession(
     }
 
     override fun onVideoFrame(data: ByteArray, timestampUs: Long, width: Int, height: Int, flags: Int) {
+        lastVideoFrameMs = android.os.SystemClock.elapsedRealtime()
         val frame = VideoFrame(
             width = width,
             height = height,
