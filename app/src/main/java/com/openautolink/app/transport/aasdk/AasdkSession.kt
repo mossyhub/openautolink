@@ -303,6 +303,15 @@ class AasdkSession(
         AasdkNative.nativeRequestKeyframe()
     }
 
+    /**
+     * Force a fresh IDR via a real video-focus transition (issue #35). Use when a
+     * plain [requestKeyframe] may be ignored because the phone already believes we
+     * hold projected focus (e.g. after a phone-call / GM-UI takeover).
+     */
+    fun requestKeyframeForceFocus() {
+        AasdkNative.nativeRequestKeyframeForceFocus()
+    }
+
     // -- AasdkSessionCallback (called from native thread → dispatch to flows) --
 
     override fun onSessionStarted() {
