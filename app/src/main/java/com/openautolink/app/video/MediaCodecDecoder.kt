@@ -742,7 +742,7 @@ class MediaCodecDecoder(
      * - Stale P-frames (PTS not advancing) are dropped immediately
      */
     private fun queueFrame(frame: VideoFrame) {
-        val mc = codec ?: return
+        if (codec == null) return
 
         // Drop stale P-frames (PTS went backwards — reordered or duplicate)
         if (!frame.isKeyframe && lastQueuedPtsMs >= 0 && frame.ptsMs > 0 && frame.ptsMs < lastQueuedPtsMs) {
@@ -761,41 +761,50 @@ class MediaCodecDecoder(
             INPUT_TIMEOUT_US
         }
 
-        try {
-            val inputIndex = mc.dequeueInputBuffer(timeout)
-            if (inputIndex < 0) {
-                framesDropped.incrementAndGet()
-                consecutiveDrops++
-                if (consecutiveDrops == 5 || (consecutiveDrops > 5 && consecutiveDrops % 30 == 0)) {
-                    Log.w(TAG, "Decoder behind: $consecutiveDrops consecutive frame drops")
+        // Hold codecReleaseLock across the native input calls. queueFrame runs on
+        // the frame-input thread while releaseCodec() (surface detach / teardown)
+        // can release the same MediaCodec instance concurrently — a check-then-act
+        // race that threw IllegalStateException from native_dequeueInputBuffer and
+        // left the surface abandoned (~72s black until re-attach, issue #38).
+        // Re-read codec under the lock and bail if release won.
+        synchronized(codecReleaseLock) {
+            val mc = codec ?: return
+            try {
+                val inputIndex = mc.dequeueInputBuffer(timeout)
+                if (inputIndex < 0) {
+                    framesDropped.incrementAndGet()
+                    consecutiveDrops++
+                    if (consecutiveDrops == 5 || (consecutiveDrops > 5 && consecutiveDrops % 30 == 0)) {
+                        Log.w(TAG, "Decoder behind: $consecutiveDrops consecutive frame drops")
+                    }
+                    return
                 }
-                return
-            }
 
-            val inputBuffer = mc.getInputBuffer(inputIndex) ?: return
-            if (frame.data.size > inputBuffer.capacity()) {
-                Log.w(TAG, "Frame too large: ${frame.data.size} > ${inputBuffer.capacity()}")
-                mc.queueInputBuffer(inputIndex, 0, 0, 0, 0)
-                framesDropped.incrementAndGet()
-                return
-            }
+                val inputBuffer = mc.getInputBuffer(inputIndex) ?: return
+                if (frame.data.size > inputBuffer.capacity()) {
+                    Log.w(TAG, "Frame too large: ${frame.data.size} > ${inputBuffer.capacity()}")
+                    mc.queueInputBuffer(inputIndex, 0, 0, 0, 0)
+                    framesDropped.incrementAndGet()
+                    return
+                }
 
-            inputBuffer.clear()
-            inputBuffer.put(frame.data)
+                inputBuffer.clear()
+                inputBuffer.put(frame.data)
 
-            val flags = if (frame.isKeyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
-            mc.queueInputBuffer(inputIndex, 0, frame.data.size, frame.ptsMs * 1000, flags)
-            lastQueuedPtsMs = frame.ptsMs
-            consecutiveDrops = 0
-        } catch (e: MediaCodec.CodecException) {
-            Log.e(TAG, "Codec error queuing frame", e)
-            DiagnosticLog.e("video", "Codec error queuing frame: ${e.message}, recoverable=${e.isRecoverable}")
-            if (!e.isRecoverable) {
-                _decoderState.value = DecoderState.ERROR
-                _needsKeyframe = true
+                val flags = if (frame.isKeyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+                mc.queueInputBuffer(inputIndex, 0, frame.data.size, frame.ptsMs * 1000, flags)
+                lastQueuedPtsMs = frame.ptsMs
+                consecutiveDrops = 0
+            } catch (e: MediaCodec.CodecException) {
+                Log.e(TAG, "Codec error queuing frame", e)
+                DiagnosticLog.e("video", "Codec error queuing frame: ${e.message}, recoverable=${e.isRecoverable}")
+                if (!e.isRecoverable) {
+                    _decoderState.value = DecoderState.ERROR
+                    _needsKeyframe = true
+                }
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "Codec in bad state", e)
             }
-        } catch (e: IllegalStateException) {
-            Log.w(TAG, "Codec in bad state", e)
         }
     }
 

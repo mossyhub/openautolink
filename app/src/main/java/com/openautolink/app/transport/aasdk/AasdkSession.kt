@@ -46,6 +46,19 @@ class AasdkSession(
     companion object {
         private const val TAG = "AasdkSession"
 
+        /** Minimum dwell a native session must stay up to count as a genuine
+         *  connection (vs. an Error-30 flap). A session that dies sooner does
+         *  NOT reset consecutiveReconnectFailures, so backoff keeps escalating
+         *  (issue #30). 20s comfortably exceeds the few-seconds flap window seen
+         *  in the storm logs while staying well under any normal drive segment. */
+        private const val STABLE_DWELL_MS = 20_000L
+
+        /** Backoff floor for protocol/handshake errors (AASDK Error 30 — phone
+         *  still holds the old SSL session). Higher than the generic 3s base
+         *  because a 5s re-dial frequently beat the phone's own teardown and
+         *  re-provoked the rejection, sustaining the storm (issue #30). */
+        private const val PROTOCOL_ERROR_BASE_MS = 8_000L
+
         /** Process-wide native onError coalescer.
          *
          *  Lives in the companion object (not on instances) so it survives
@@ -123,6 +136,16 @@ class AasdkSession(
     /** True when the last failure was an AA protocol/handshake error (Error 30). */
     @Volatile
     private var lastFailureWasProtocolError = false
+
+    /** [SystemClock.elapsedRealtime] when the current native session last
+     *  started, or 0 when no session is up. Used to measure session dwell so a
+     *  *flapping* session (dies seconds after start) does NOT reset the
+     *  reconnect-failure counter — only a session that stayed up past
+     *  [STABLE_DWELL_MS] is treated as a genuine recovery (issue #30). Without
+     *  this gate every flap re-entered backoff as "retry #1" at the 5s floor and
+     *  the exponential ramp never engaged, re-provoking Error 30 in a storm. */
+    @Volatile
+    private var sessionStartedAtMs: Long = 0L
 
     private var transportPipe: AasdkTransportPipe? = null
 
@@ -327,8 +350,12 @@ class AasdkSession(
 
     override fun onSessionStarted() {
         OalLog.i(TAG, "AA session started (native)")
-        consecutiveReconnectFailures = 0
-        _reconnectAttempt.value = 0
+        // NOTE: do NOT reset consecutiveReconnectFailures here. A session that
+        // dies seconds after starting (Error-30 flap) would otherwise re-enter
+        // backoff as "retry #1" forever and never escalate (issue #30). The
+        // counter is reset in onSessionStopped() only if THIS session stayed up
+        // past STABLE_DWELL_MS, i.e. it was a genuine recovery, not a flap.
+        sessionStartedAtMs = android.os.SystemClock.elapsedRealtime()
         lastFailureWasProtocolError = false
         scope.launch {
             _connectionState.value = ConnectionState.CONNECTED
@@ -359,12 +386,28 @@ class AasdkSession(
             // phone disconnect). Restart the transport connector after a delay so it
             // retries connecting once WiFi comes back.
             if (!explicitStop) {
+                // Dwell gate (issue #30): if the session that just died had been up
+                // longer than STABLE_DWELL_MS it was a genuine connection, so this
+                // is a FRESH failure series — reset the counter. If it died fast
+                // (flap), keep accumulating so backoff escalates toward the 30s cap
+                // instead of pinning at "retry #1" and re-provoking Error 30.
+                val dwellMs = if (sessionStartedAtMs > 0L)
+                    android.os.SystemClock.elapsedRealtime() - sessionStartedAtMs
+                else
+                    Long.MAX_VALUE
+                if (dwellMs >= STABLE_DWELL_MS) {
+                    consecutiveReconnectFailures = 0
+                }
+                sessionStartedAtMs = 0L
+
                 consecutiveReconnectFailures++
                 _reconnectAttempt.value = consecutiveReconnectFailures
 
                 // Exponential backoff: 3s base, longer if protocol error (phone
-                // needs time to tear down old SSL session). Cap at 30s.
-                val baseDelayMs = if (lastFailureWasProtocolError) 5000L else 3000L
+                // needs time to tear down old SSL session). Cap at 30s. Error 30
+                // (stale SSL session) gets a higher floor — a 5s re-dial often
+                // beat the phone's own teardown and re-provoked the rejection.
+                val baseDelayMs = if (lastFailureWasProtocolError) PROTOCOL_ERROR_BASE_MS else 3000L
                 val backoffMs = (baseDelayMs * (1L shl (consecutiveReconnectFailures - 1).coerceAtMost(3)))
                     .coerceAtMost(30_000L)
                 OalLog.i(TAG, "Session died unexpectedly — retry #$consecutiveReconnectFailures in ${backoffMs}ms" +
