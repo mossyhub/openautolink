@@ -124,5 +124,8 @@ object AasdkNative {
     external fun nativeRequestKeyframe()
 
     @JvmStatic
+    external fun nativeRequestKeyframeForceFocus()
+
+    @JvmStatic
     external fun nativeIsStreaming(): Boolean
 }

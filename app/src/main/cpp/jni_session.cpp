@@ -1705,6 +1705,50 @@ void JniSession::requestKeyframe()
     });
 }
 
+// Force a fresh IDR by performing a real focus TRANSITION rather than
+// re-asserting the same PROJECTED state (issue #35). The plain requestKeyframe()
+// above re-sends VIDEO_FOCUS_PROJECTED, but if the head unit already holds
+// projected focus (e.g. after a phone-call / GM-UI takeover that backgrounded us
+// without ever dropping focus), the phone sees no state change and emits no
+// out-of-cycle IDR — leaving video frozen until the next natural GOP (~2 min).
+//
+// Bouncing NATIVE_TRANSIENT -> PROJECTED is a genuine yield-then-reacquire, which
+// is exactly what makes the phone send a fresh IDR (the same transition that
+// produces the IDR on initial projection). NATIVE_TRANSIENT (not plain NATIVE) is
+// deliberate: the phone treats it as a temporary handover, and our own
+// onVideoFocusRequest() only escalates plain NATIVE to a user-Exit teardown.
+// Both indications are posted on the strand in order so they serialize correctly.
+void JniSession::requestKeyframeForceFocus()
+{
+    if (!streaming_ || !videoChannel_) return;
+    ioService_->post([this]() {
+        LOGI("Requesting keyframe via focus bounce (NATIVE_TRANSIENT -> PROJECTED)");
+
+        // 1. Yield: announce transient native focus.
+        currentVideoFocus_.store(
+            aap_protobuf::service::media::video::message::VIDEO_FOCUS_NATIVE_TRANSIENT);
+        aap_protobuf::service::media::video::message::VideoFocusNotification yield;
+        yield.set_focus(
+            aap_protobuf::service::media::video::message::VIDEO_FOCUS_NATIVE_TRANSIENT);
+        yield.set_unsolicited(true);
+        auto yieldPromise = aasdk::channel::SendPromise::defer(*strand_);
+        yieldPromise->then([]() {}, [](const auto&) {});
+        videoChannel_->sendVideoFocusIndication(yield, std::move(yieldPromise));
+
+        // 2. Reacquire: announce projected focus again. The PROJECTED-after-yield
+        //    transition is what prompts the phone to emit a fresh IDR.
+        currentVideoFocus_.store(
+            aap_protobuf::service::media::video::message::VIDEO_FOCUS_PROJECTED);
+        aap_protobuf::service::media::video::message::VideoFocusNotification reacquire;
+        reacquire.set_focus(
+            aap_protobuf::service::media::video::message::VIDEO_FOCUS_PROJECTED);
+        reacquire.set_unsolicited(true);
+        auto reacquirePromise = aasdk::channel::SendPromise::defer(*strand_);
+        reacquirePromise->then([]() {}, [](const auto&) {});
+        videoChannel_->sendVideoFocusIndication(reacquire, std::move(reacquirePromise));
+    });
+}
+
 // ============================================================================
 // Typed vehicle sensor methods Ã¢â‚¬â€ each builds SensorBatch and sends
 // ============================================================================

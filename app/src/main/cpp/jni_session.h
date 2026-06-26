@@ -118,6 +118,14 @@ public:
     /** Request a video keyframe (IDR). */
     void requestKeyframe();
 
+    /**
+     * Force a fresh IDR via a real focus transition (NATIVE_TRANSIENT ->
+     * PROJECTED) instead of re-asserting PROJECTED. Use when the phone may
+     * already think we hold projected focus and would ignore a same-state
+     * keyframe request (issue #35).
+     */
+    void requestKeyframeForceFocus();
+
     // Typed vehicle sensor methods — each builds a SensorBatch and sends
     void sendSpeedSensor(int speedMmPerS);
     void sendGearSensor(int gear);

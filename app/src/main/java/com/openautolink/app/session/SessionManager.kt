@@ -1629,6 +1629,10 @@ class SessionManager(
         aasdkSession?.requestKeyframe()
     }
 
+    suspend fun requestKeyframeForceFocus() {
+        aasdkSession?.requestKeyframeForceFocus()
+    }
+
     private suspend fun syncLocalPreferences() {
         val ctx = context ?: return
         try {
@@ -1724,13 +1728,26 @@ class SessionManager(
                 var attempt = 0
                 while (decoder.needsKeyframe.value) {
                     attempt++
-                    requestKeyframe()
-                    if (attempt == 1) {
-                        OalLog.i(TAG, "Keyframe re-request #$attempt")
+                    // Issue #35: a plain keyframe re-request re-asserts PROJECTED
+                    // focus, which the phone ignores when it already thinks we hold
+                    // it (post phone-call / GM-UI takeover) — so it emits no IDR and
+                    // video stays frozen until the next natural GOP (~2 min). Use the
+                    // focus-bounce variant (NATIVE_TRANSIENT -> PROJECTED, a real
+                    // transition) on the first attempt and periodically thereafter to
+                    // actually pull a fresh IDR forward; plain re-requests in between.
+                    val useForceFocus = attempt == 1 || attempt % 4 == 0
+                    if (useForceFocus) {
+                        requestKeyframeForceFocus()
                     } else {
-                        OalLog.w(TAG, "Keyframe re-request #$attempt (still waiting)")
+                        requestKeyframe()
+                    }
+                    if (attempt == 1) {
+                        OalLog.i(TAG, "Keyframe re-request #$attempt (focus bounce)")
+                    } else {
+                        val mode = if (useForceFocus) " (focus bounce)" else ""
+                        OalLog.w(TAG, "Keyframe re-request #$attempt (still waiting)$mode")
                         _remoteDiagnostics?.log(DiagnosticLevel.WARN, "video",
-                            "Keyframe re-request #$attempt")
+                            "Keyframe re-request #$attempt$mode")
                     }
                     delay(2000)
                 }
