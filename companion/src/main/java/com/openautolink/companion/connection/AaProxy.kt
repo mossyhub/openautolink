@@ -124,6 +124,12 @@ class AaProxy(
                 val job1 = launch { pump(aaIn, carOut, "AA->Car") }
                 val job2 = launch { pump(carIn, aaOut, "Car->AA") }
                 joinAll(job1, job2)
+            } catch (e: CancellationException) {
+                // Intentional teardown (stop() -> scope.cancel()). Cancellation is
+                // normal control flow, not an application error — rethrow so
+                // structured concurrency propagates it and it stays out of the
+                // ERROR stream (which the triage pipeline treats as actionable).
+                throw e
             } catch (e: Exception) {
                 CompanionLog.e(TAG, "Bridge error: ${e.message}")
             } finally {
@@ -169,6 +175,8 @@ class AaProxy(
                     output.write(buffer, 0, read)
                     output.flush()
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 CompanionLog.d(TAG, "$name error: ${e.message}")
             }
