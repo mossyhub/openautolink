@@ -83,10 +83,15 @@ class AasdkSession(
 
     /**
      * Wall-clock ([SystemClock.elapsedRealtime]) of the most recent inbound
-     * video frame. The stall watchdog in SessionManager reads this to detect a
-     * wedged AA video channel — frames stop arriving while the TCP socket stays
-     * alive and other channels (nav) keep flowing, so the native layer never
-     * fires onSessionStopped and nothing recovers (issue #34). 0 = no frame yet.
+     * video frame, or 0 when no frame has arrived in the CURRENT session. The
+     * stall watchdog in SessionManager reads this to detect a wedged AA video
+     * channel — frames stop arriving while the TCP socket stays alive and other
+     * channels (nav) keep flowing, so the native layer never fires
+     * onSessionStopped and nothing recovers (issue #34). Reset to 0 in
+     * [onSessionStarted] so a freshly-(re)started session is never measured
+     * against the PREVIOUS session's last-frame time — that stale baseline made
+     * the watchdog false-fire ~instantly on resume and tear down a healthy
+     * session before its first frame (issue #43).
      */
     @Volatile
     var lastVideoFrameMs: Long = 0L
@@ -357,6 +362,11 @@ class AasdkSession(
         // past STABLE_DWELL_MS, i.e. it was a genuine recovery, not a flap.
         sessionStartedAtMs = android.os.SystemClock.elapsedRealtime()
         lastFailureWasProtocolError = false
+        // Re-baseline the video-stall watchdog for the new session (issue #43).
+        // AasdkSession persists across reconnects, so without this reset the
+        // watchdog would compare the fresh session against the PREVIOUS
+        // session's last-frame time and force-reconnect before frame #1.
+        lastVideoFrameMs = 0L
         scope.launch {
             _connectionState.value = ConnectionState.CONNECTED
             _controlMessages.emit(ControlMessage.PhoneConnected(phoneName = "", phoneType = "wireless"))
