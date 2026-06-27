@@ -255,6 +255,14 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         ProjectionUiState()
     )
 
+    // Guards file-logging start/stop. Declared HERE (before the init blocks) and
+    // eagerly initialized — NOT `by lazy` — because the always-log collector in
+    // init { } can touch it synchronously during construction (DataStore emits
+    // its cached value immediately), which raced the lazy delegate's own
+    // initialization and NPE'd in the ViewModel constructor on the main thread
+    // (launch-time crash). Eager + early declaration removes the race.
+    private val fileLogToggleLock = Any()
+
     init {
         registerTransportNetworkCallback()
 
@@ -1714,8 +1722,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     fun toggleStats() {
         _showStats.value = !_showStats.value
     }
-
-    private val fileLogToggleLock: Any by lazy { Any() }
 
     /** True while the auto-start-on-USB pref owns the current file-logger session.
      *  When the user manually stops via the overlay record button we clear this

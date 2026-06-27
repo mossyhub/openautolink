@@ -289,10 +289,32 @@ internal fun buildManeuver(maneuver: ManeuverState, carContext: CarContext): Man
     // Path 2: VectorDrawable fallback
     val type = mapManeuverTypeToCarApp(maneuver.type)
     val builder = Maneuver.Builder(type)
+    // Roundabout maneuver types REQUIRE an exit number — androidx
+    // Maneuver.Builder.build() throws IllegalArgumentException
+    // ("Maneuver missing roundaboutExitNumber") for any TYPE_ROUNDABOUT_*
+    // without one, which dropped the whole cluster Trip on every roundabout
+    // and stopped nav guidance updating (issue #42). The exit number is
+    // already carried on ManeuverState; default to 1 if the phone didn't
+    // supply it (better a slightly-wrong exit count than a dropped Trip).
+    if (isRoundaboutManeuverType(type)) {
+        builder.setRoundaboutExitNumber(
+            (maneuver.roundaboutExitNumber ?: 1).coerceAtLeast(1)
+        )
+    }
     val resId = ManeuverIconRenderer.drawableForManeuver(maneuver.type)
     builder.setIcon(CarIcon.Builder(IconCompat.createWithResource(carContext, resId)).build())
     return builder.build()
 }
+
+/** True for the androidx Maneuver.TYPE_ROUNDABOUT_* constants that mandate an
+ *  exit number on build(). Kept in sync with the roundabout cases in
+ *  [mapManeuverTypeToCarApp]. */
+internal fun isRoundaboutManeuverType(type: Int): Boolean = type == Maneuver.TYPE_ROUNDABOUT_ENTER_CCW ||
+    type == Maneuver.TYPE_ROUNDABOUT_EXIT_CCW ||
+    type == Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CW ||
+    type == Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CCW ||
+    type == Maneuver.TYPE_ROUNDABOUT_ENTER_CW ||
+    type == Maneuver.TYPE_ROUNDABOUT_EXIT_CW
 
 internal fun mapManeuverTypeToCarApp(type: ManeuverType): Int = when (type) {
     ManeuverType.DEPART -> Maneuver.TYPE_DEPART
