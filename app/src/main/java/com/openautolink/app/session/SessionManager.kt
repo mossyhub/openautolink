@@ -79,6 +79,22 @@ class SessionManager(
         private const val VIDEO_STALL_THRESHOLD_MS = 8_000L
         private const val VIDEO_STALL_POLL_MS = 1_000L
 
+        /**
+         * Grace period after a session reaches STREAMING before the video-stall
+         * watchdog is allowed to force a reconnect (issue #30/#34 interaction).
+         *
+         * On connect the phone sends a tiny "seed" IDR almost immediately, then
+         * a multi-second gap before the first REAL keyframe while its encoder
+         * warms up. `lastVideoFrameMs` is bumped by that seed IDR, so the
+         * watchdog would arm and — when the warmup gap exceeds the 8s threshold —
+         * force a reconnect that lands straight in an AASDK Error-30 flap,
+         * turning a normal warmup into ~25s of reconnect churn before the stream
+         * settles (observed 2026-06-30, build 0.1.355). Holding the watchdog off
+         * for this window lets the initial keyframe warmup complete; a genuine
+         * mid-drive wedge still trips it once the grace has elapsed.
+         */
+        private const val VIDEO_STALL_WARMUP_MS = 16_000L
+
         // Activity-sourced UI-mode snapshot that can be published before
         // SessionManager exists (ViewModel lazy creation path).
         @Volatile
@@ -376,6 +392,14 @@ class SessionManager(
     private var keyframeWatchJob: Job? = null
     private var callStateJob: Job? = null
     private var videoStallWatchJob: Job? = null
+
+    /**
+     * [SystemClock.elapsedRealtime] when the current session last transitioned
+     * to STREAMING, or 0 when not streaming. The video-stall watchdog uses this
+     * to skip the initial keyframe-warmup window (issue #30/#34): it won't force
+     * a reconnect until [VIDEO_STALL_WARMUP_MS] after streaming began.
+     */
+    @Volatile private var streamingSinceMs: Long = 0L
 
     /**
      * True while the app is intentionally idle (Activity paused / screen off /
@@ -1769,10 +1793,13 @@ class SessionManager(
      * restart. The phone is left advertising on a stalled link, so the restart
      * reconnects within ~1s.
      *
-     * Guards against false trips:
+     * Guards against false trips (see [VideoStallPolicy]):
      *  - only while sessionState == STREAMING (not during connect/handshake)
      *  - only when not intentionally idle (backgrounded / screen-off / paused),
      *    where video legitimately stops
+     *  - only after the initial keyframe-warmup window ([VIDEO_STALL_WARMUP_MS])
+     *    has elapsed since STREAMING began — the seed-IDR→first-real-keyframe gap
+     *    would otherwise force a reconnect that flaps into Error-30 (issue #30/#34)
      *  - only after at least one frame has been seen (lastVideoFrameMs != 0)
      *  - re-arms the baseline after each forced reconnect so we don't loop
      */
@@ -1782,12 +1809,24 @@ class SessionManager(
         val session = aasdkSession ?: return
         while (true) {
             delay(VIDEO_STALL_POLL_MS)
-            if (_sessionState.value != SessionState.STREAMING) continue
-            if (isGoingIdle) continue
             val last = session.lastVideoFrameMs
-            if (last == 0L) continue // no frame yet this session
-            val staleFor = SystemClock.elapsedRealtime() - last
-            if (staleFor >= VIDEO_STALL_THRESHOLD_MS) {
+            val now = SystemClock.elapsedRealtime()
+            // Decision (incl. the keyframe-warmup grace, issue #30/#34) lives in
+            // the pure VideoStallPolicy so it can be unit tested. The phone sends
+            // a tiny seed IDR right after connect, then a multi-second gap before
+            // the first real keyframe; without the warmup grace that gap trips the
+            // 8s threshold and forces a reconnect that flaps into Error-30.
+            val shouldReconnect = VideoStallPolicy.shouldForceReconnect(
+                streaming = _sessionState.value == SessionState.STREAMING,
+                goingIdle = isGoingIdle,
+                streamingSinceMs = streamingSinceMs,
+                lastVideoFrameMs = last,
+                nowMs = now,
+                warmupMs = VIDEO_STALL_WARMUP_MS,
+                thresholdMs = VIDEO_STALL_THRESHOLD_MS,
+            )
+            if (shouldReconnect) {
+                val staleFor = now - last
                 OalLog.w(TAG, "Video stall detected: no frame for ${staleFor}ms while STREAMING — forcing reconnect")
                 DiagnosticLog.w("video", "Video stall ${staleFor}ms — forcing reconnect")
                 _remoteDiagnostics?.log(DiagnosticLevel.WARN, "video",
@@ -1819,6 +1858,7 @@ class SessionManager(
                 resetLatchedVehicleSensorState("phone_connected")
                 seedCurrentUiNightMode("phone_connected")
                 _sessionState.value = SessionState.STREAMING
+                streamingSinceMs = SystemClock.elapsedRealtime()
                 _statusMessage.value = "Streaming"
                 aasdkSession?.let { startLocationForwarding(it) }
                 _vehicleDataForwarder?.start()
