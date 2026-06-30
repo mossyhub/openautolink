@@ -83,18 +83,32 @@ class TcpConnector(
                 manualHost = raw
                 manualPort = COMPANION_PORT
             }
-            OalLog.i(TAG, "Manual IP mode: $manualHost:$manualPort")
         } else {
             manualHost = null
             manualPort = COMPANION_PORT
             startNsdDiscovery()
         }
 
+        // Guard (issue #48): a manual host that is an IPv6 literal is unusable on
+        // OAL's IPv4-only local link. If one is somehow handed in, do NOT pin the
+        // direct-dial branch to it (which would skip the gateway/mDNS fallback and
+        // retry a dead address forever). Drop to discovery instead so the IPv4
+        // path can recover.
+        val effectiveManualHost: String? =
+            if (manualHost != null && com.openautolink.app.transport.HostUsability.isUnusable(manualHost)) {
+                OalLog.w(TAG, "Manual host $manualHost is IPv6/unusable — ignoring, falling back to discovery")
+                if (discoveryListener == null) startNsdDiscovery()
+                null
+            } else {
+                if (manualHost != null) OalLog.i(TAG, "Manual IP mode: $manualHost:$manualPort")
+                manualHost
+            }
+
         connectJob = scope.launch(Dispatchers.IO) {
             while (isActive && isRunning) {
                 // Manual IP — skip all discovery, connect directly
-                if (manualHost != null) {
-                    if (tryConnect(manualHost, manualPort, "manual")) return@launch
+                if (effectiveManualHost != null) {
+                    if (tryConnect(effectiveManualHost, manualPort, "manual")) return@launch
                     onConnectFailure?.invoke()
                     delay(RETRY_DELAY_MS)
                     continue
@@ -124,6 +138,14 @@ class TcpConnector(
     }
 
     private fun tryConnect(host: String, port: Int, source: String): Boolean {
+        // Issue #48: never attempt an IPv6 literal — the companion serves IPv4
+        // only on the local link, and on a hotspot a global IPv6 (2607:…) isn't
+        // bridged. Reject here so every caller (manual / mDNS / gateway) is
+        // covered by one guard and we move on to the next IPv4 candidate.
+        if (com.openautolink.app.transport.HostUsability.isUnusable(host)) {
+            OalLog.d(TAG, "Skipping unusable (IPv6) host from $source: $host")
+            return false
+        }
         OalLog.i(TAG, "Connecting to $host:$port ($source)")
         return try {
             val socket = Socket()
