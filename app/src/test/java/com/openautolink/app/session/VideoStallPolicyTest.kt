@@ -89,4 +89,50 @@ class VideoStallPolicyTest {
         // Past warmup but zero frames this session -> wait, don't reconnect-loop.
         assertFalse(decide(lastVideoFrameMs = 0L, nowMs = 160_000L))
     }
+
+    // ── Sustained-low-bitrate recovery (0.1.356 starved-link drive) ─────
+
+    private fun recover(
+        streaming: Boolean = true,
+        goingIdle: Boolean = false,
+        streamingSinceMs: Long = SINCE,
+        nowMs: Long = SINCE + 60_000L,           // well past warmup by default
+        consecutiveLowSeconds: Int,
+        requiredLowSeconds: Int = 12,
+    ) = VideoStallPolicy.shouldRecoverLowBitrate(
+        streaming, goingIdle, streamingSinceMs, nowMs, WARMUP, consecutiveLowSeconds, requiredLowSeconds,
+    )
+
+    @Test
+    fun `12s of starvation past warmup forces recovery`() {
+        assertTrue(recover(consecutiveLowSeconds = 12))
+    }
+
+    @Test
+    fun `brief low-bitrate dip does NOT force recovery`() {
+        // A static map dipping low for a few seconds must not trip it.
+        assertFalse(recover(consecutiveLowSeconds = 4))
+    }
+
+    @Test
+    fun `starvation during warmup is held off`() {
+        // 10s into streaming, already 10 low samples — still inside 16s warmup.
+        assertFalse(recover(nowMs = SINCE + 10_000L, consecutiveLowSeconds = 10))
+    }
+
+    @Test
+    fun `starvation while idle or not streaming never fires`() {
+        assertFalse(recover(goingIdle = true, consecutiveLowSeconds = 30))
+        assertFalse(recover(streaming = false, consecutiveLowSeconds = 30))
+    }
+
+    @Test
+    fun `isStarvedSample requires a rendered frame and sub-floor bitrate`() {
+        // The 0.1.356 capture: 13 kbps with frames rendered -> starved.
+        assertTrue(VideoStallPolicy.isStarvedSample(13f, hasRendered = true, floorKbps = 60f))
+        // 0 kbps before any keyframe is just "no video yet", not starvation.
+        assertFalse(VideoStallPolicy.isStarvedSample(0f, hasRendered = false, floorKbps = 60f))
+        // A healthy-but-quiet static map well above the floor -> not starved.
+        assertFalse(VideoStallPolicy.isStarvedSample(450f, hasRendered = true, floorKbps = 60f))
+    }
 }

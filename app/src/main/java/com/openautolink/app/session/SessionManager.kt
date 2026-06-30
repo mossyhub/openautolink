@@ -95,6 +95,21 @@ class SessionManager(
          */
         private const val VIDEO_STALL_WARMUP_MS = 16_000L
 
+        /**
+         * Sustained-low-bitrate recovery (issue: black/frozen map on a starved
+         * link, build 0.1.356 drive 2026-06-30). When video bitrate stays below
+         * [LOW_BITRATE_FLOOR_KBPS] for [LOW_BITRATE_RECOVER_SECONDS] consecutive
+         * 1s samples while STREAMING (past warmup), the link is starving video
+         * even though a frame trickles in often enough that the no-frame stall
+         * watchdog never trips. Force one recovery reconnect.
+         *
+         * The floor is set FAR below a static-but-healthy map (which still runs
+         * hundreds of kbps) so a legitimately quiet map never trips it; only a
+         * genuinely starved link (the capture sat at 12-13 kbps) sustains this.
+         */
+        private const val LOW_BITRATE_FLOOR_KBPS = 60f
+        private const val LOW_BITRATE_RECOVER_SECONDS = 12
+
         // Activity-sourced UI-mode snapshot that can be published before
         // SessionManager exists (ViewModel lazy creation path).
         @Volatile
@@ -1807,6 +1822,7 @@ class SessionManager(
         // Wait for a session to exist.
         while (aasdkSession == null) { delay(VIDEO_STALL_POLL_MS) }
         val session = aasdkSession ?: return
+        var consecutiveLowBitrateSec = 0
         while (true) {
             delay(VIDEO_STALL_POLL_MS)
             val last = session.lastVideoFrameMs
@@ -1832,8 +1848,41 @@ class SessionManager(
                 _remoteDiagnostics?.log(DiagnosticLevel.WARN, "video",
                     "Video stall ${staleFor}ms — forcing reconnect")
                 aasdkSession?.forceReconnect("video stall (${staleFor}ms no frame)")
+                consecutiveLowBitrateSec = 0
                 // Back off a full threshold so the freshly-restarted session has
                 // time to deliver its first frame before we evaluate again.
+                delay(VIDEO_STALL_THRESHOLD_MS)
+                continue
+            }
+
+            // Sustained-low-bitrate recovery: frames trickle in (so the no-frame
+            // stall never trips) but the link is starving video — a black/frozen
+            // map while audio still plays. Advance a consecutive-low counter and
+            // force one recovery reconnect if it persists past the warmup window.
+            val stats = _videoDecoder?.stats?.value
+            val starved = stats != null && VideoStallPolicy.isStarvedSample(
+                bitrateKbps = stats.bitrateKbps,
+                hasRendered = stats.framesDecoded > 0,
+                floorKbps = LOW_BITRATE_FLOOR_KBPS,
+            )
+            consecutiveLowBitrateSec = if (starved) consecutiveLowBitrateSec + 1 else 0
+            val recoverLowBitrate = VideoStallPolicy.shouldRecoverLowBitrate(
+                streaming = _sessionState.value == SessionState.STREAMING,
+                goingIdle = isGoingIdle,
+                streamingSinceMs = streamingSinceMs,
+                nowMs = now,
+                warmupMs = VIDEO_STALL_WARMUP_MS,
+                consecutiveLowSeconds = consecutiveLowBitrateSec,
+                requiredLowSeconds = LOW_BITRATE_RECOVER_SECONDS,
+            )
+            if (recoverLowBitrate) {
+                val kbps = stats?.bitrateKbps?.toInt() ?: 0
+                OalLog.w(TAG, "Video starved: ${kbps}kbps for ${consecutiveLowBitrateSec}s while STREAMING — forcing reconnect")
+                DiagnosticLog.w("video", "Video starved ${kbps}kbps ${consecutiveLowBitrateSec}s — forcing reconnect")
+                _remoteDiagnostics?.log(DiagnosticLevel.WARN, "video",
+                    "Video starved ${kbps}kbps ${consecutiveLowBitrateSec}s — forcing reconnect")
+                aasdkSession?.forceReconnect("video starved (${kbps}kbps ${consecutiveLowBitrateSec}s)")
+                consecutiveLowBitrateSec = 0
                 delay(VIDEO_STALL_THRESHOLD_MS)
             }
         }

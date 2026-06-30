@@ -41,4 +41,50 @@ object VideoStallPolicy {
         if (lastVideoFrameMs == 0L) return false
         return (nowMs - lastVideoFrameMs) >= thresholdMs
     }
+
+    /**
+     * Decide whether a SUSTAINED ultra-low video bitrate warrants a recovery
+     * reconnect, even though frames are technically still trickling in (so the
+     * no-frame [shouldForceReconnect] never trips).
+     *
+     * Motivating capture (build 0.1.356 drive, 2026-06-30): a flaky car-AP link
+     * starved the video stream to ~12-13 kbps for 2+ minutes — a black/frozen map
+     * — while audio (a separate, tiny channel) kept playing and a frame dribbled
+     * in often enough to keep [lastVideoFrameMs] fresh. The user sees a dead map
+     * with no automatic recovery.
+     *
+     * False-positive guards (a static map legitimately dips low but recovers):
+     *  - only past the streaming warmup window,
+     *  - the floor is set far below a static-but-healthy map (which still runs
+     *    hundreds of kbps); only a genuinely starved link sits this low,
+     *  - requires [requiredLowSeconds] CONSECUTIVE low-bitrate samples, so a
+     *    momentary dip never trips it — the caller tracks the run length.
+     *
+     * @param consecutiveLowSeconds how many consecutive ~1s samples have been
+     *        below [floorKbps] while streaming (caller-maintained counter)
+     */
+    fun shouldRecoverLowBitrate(
+        streaming: Boolean,
+        goingIdle: Boolean,
+        streamingSinceMs: Long,
+        nowMs: Long,
+        warmupMs: Long,
+        consecutiveLowSeconds: Int,
+        requiredLowSeconds: Int,
+    ): Boolean {
+        if (!streaming) return false
+        if (goingIdle) return false
+        if (streamingSinceMs == 0L) return false
+        if (nowMs - streamingSinceMs < warmupMs) return false
+        return consecutiveLowSeconds >= requiredLowSeconds
+    }
+
+    /**
+     * Whether a single bitrate sample counts as "ultra-low" (starved link), used
+     * by the caller to advance/reset its consecutive-low counter. A sample only
+     * counts once at least one keyframe has rendered ([hasRendered]) — before
+     * that, 0 kbps is just "no video yet", not starvation.
+     */
+    fun isStarvedSample(bitrateKbps: Float, hasRendered: Boolean, floorKbps: Float): Boolean =
+        hasRendered && bitrateKbps < floorKbps
 }
