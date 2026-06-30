@@ -130,6 +130,18 @@ class AasdkSession(
     @Volatile
     private var explicitStop = false
 
+    /**
+     * True from the moment [forceReconnect] begins tearing down the native
+     * session until the replacement session starts. nativeStopSession() aborts
+     * whatever native read/operation was in flight, which surfaces ASYNCHRONOUSLY
+     * as `onError("AASDK Error: 30")` — that 30 is `OPERATION_ABORTED` (we caused
+     * it), NOT a protocol/handshake rejection. [explicitStop] is cleared
+     * synchronously inside forceReconnect() (before that async onError lands), so
+     * it can't be used to recognise the self-abort. This longer-lived flag can.
+     */
+    @Volatile
+    private var forcedStopInFlight = false
+
     /** Consecutive reconnect failures — drives exponential backoff. Also
      *  exposed as a StateFlow so the UI controller can escalate (e.g., open
      *  the phone picker) after a threshold of repeated failures. */
@@ -270,6 +282,11 @@ class AasdkSession(
         // later — we're doing the restart ourselves immediately. Without this
         // both reconnects race and one fails with "Native session start failed".
         explicitStop = true
+        // Mark the self-abort window: nativeStopSession() will abort the in-flight
+        // native read, surfacing async as onError(Error 30 = OPERATION_ABORTED).
+        // Stays set until the new session starts so onError can tell our own abort
+        // apart from a real protocol failure (issue: self-inflicted Error-30 storm).
+        forcedStopInFlight = true
         _tcpConnector?.stop()
         _tcpConnector = null
         _usbConnectionManager?.stop()
@@ -362,6 +379,9 @@ class AasdkSession(
         // past STABLE_DWELL_MS, i.e. it was a genuine recovery, not a flap.
         sessionStartedAtMs = android.os.SystemClock.elapsedRealtime()
         lastFailureWasProtocolError = false
+        // The replacement session is up — any self-abort window from a forced
+        // reconnect is over. Subsequent Error-30s are real, not our own teardown.
+        forcedStopInFlight = false
         // Re-baseline the video-stall watchdog for the new session (issue #43).
         // AasdkSession persists across reconnects, so without this reset the
         // watchdog would compare the fresh session against the PREVIOUS
@@ -634,9 +654,14 @@ class AasdkSession(
             else OalLog.e(TAG, "Native error: $message")
             shouldEmit = true
         }
-        // Flag protocol/handshake errors so reconnect uses extended backoff.
-        // AASDK Error 30 = SSL handshake rejected (phone still holds old session).
-        if ("AASDK Error: 30" in message) {
+        // AASDK Error 30 = OPERATION_ABORTED. It means an in-flight native
+        // operation was cancelled — which is EXACTLY what our own forceReconnect()
+        // -> nativeStopSession() does. Only treat it as a real protocol failure
+        // (extended backoff + chooser escalation) when it did NOT come from our
+        // own forced teardown; otherwise it's self-inflicted and recovers on the
+        // restart we already kicked off. Misclassifying the self-abort turned a
+        // single watchdog reconnect into an Error-30 "storm" + chooser pop.
+        if ("AASDK Error: 30" in message && !forcedStopInFlight) {
             lastFailureWasProtocolError = true
         }
         // Only emit at most once per second (matches the log coalescing). Auto-reconnect
