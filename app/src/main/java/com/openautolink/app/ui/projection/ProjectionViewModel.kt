@@ -1557,6 +1557,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                         val floor = discoveryFreshnessFloorMs
                         list.firstOrNull {
                             it.isResolved && it.phoneId == defaultId &&
+                                !isUnusableHost(it.host.orEmpty()) &&
                                 (floor == 0L || it.lastSeenMs >= floor)
                         }
                     }
@@ -1619,9 +1620,14 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun isUnusableHost(host: String): Boolean {
-        // Cheap textual check — `fe80:` prefix covers IPv6 link-local. Avoids
-        // creating an InetAddress just for filtering.
-        return host.startsWith("fe80:", ignoreCase = true)
+        // Delegates to the shared pure predicate so every selection site applies
+        // the same rule. Rejects all IPv6 literals (link-local AND global): the
+        // companion only ever serves IPv4 on the local link, and on a phone
+        // hotspot a global IPv6 (e.g. cellular 2607:…) is advertised over mDNS
+        // but not routable over the SoftAP bridge — dialing it pins the
+        // connector to a dead address and never falls back to the IPv4 the
+        // sweep already knows (issue #48).
+        return com.openautolink.app.transport.HostUsability.isUnusable(host)
     }
 
     /**
