@@ -232,20 +232,6 @@ Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeRequestKeyframe(
     }
 }
 
-/*
- * Class:     com_openautolink_app_transport_aasdk_AasdkNative
- * Method:    nativeRequestKeyframeForceFocus
- */
-JNIEXPORT void JNICALL
-Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeRequestKeyframeForceFocus(
-    JNIEnv* /*env*/, jclass /*clazz*/)
-{
-    std::lock_guard<std::mutex> lock(gSessionMutex);
-    if (gSession) {
-        gSession->requestKeyframeForceFocus();
-    }
-}
-
 // Typed vehicle sensor JNI methods — each calls the corresponding C++ method
 // that builds the correct SensorBatch protobuf and sends via sensorChannel_.
 

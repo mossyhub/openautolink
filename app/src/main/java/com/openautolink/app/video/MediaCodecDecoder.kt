@@ -43,15 +43,6 @@ class MediaCodecDecoder(
         // rendering. Gives the decoder time to accumulate picture content from P-frames
         // so the first visible frame is mostly complete rather than green.
         private const val SEED_WARMUP_MS = 2500L
-        // Freeze cap (issue #35): after a cached-IDR replay we set awaitingFreshIdr
-        // and drop P-frames until a FRESH real IDR arrives. If the keyframe
-        // re-request doesn't pull one forward (e.g. the phone ignores a same-state
-        // VideoFocusIndication after a phone-call/GM-UI takeover), that wait can be
-        // up to the phone's natural GOP (~2 min) — a 2-minute frozen screen. Cap it:
-        // once awaitingFreshIdr has held this long, stop dropping and feed P-frames
-        // anyway. The P-chain references content we missed, so expect a few hundred
-        // ms of blockiness as it rebuilds — far better than a multi-minute freeze.
-        private const val AWAITING_FRESH_IDR_CAP_MS = 3000L
     }
 
     private val _decoderState = MutableStateFlow(DecoderState.IDLE)
@@ -152,9 +143,6 @@ class MediaCodecDecoder(
     // Instead, drop all P-frames until a fresh real IDR arrives from the
     // phone, showing a frozen-but-clean cached frame in the meantime.
     @Volatile private var awaitingFreshIdr = false
-    // Wall-clock (elapsedRealtime) when awaitingFreshIdr was last raised, so
-    // handleRegularFrame can cap the P-frame-drop window (issue #35). 0 = not set.
-    @Volatile private var awaitingFreshIdrSinceMs = 0L
     // Skip first few frames after codec init to avoid green hue from resolution
     // transition. When codec is configured at 1920x1080 but video is 2560x1440,
     // the first frames decode with wrong color plane alignment until the codec
@@ -190,7 +178,6 @@ class MediaCodecDecoder(
                     // arrives — shows a frozen-but-clean cached frame
                     // instead of progressively-corrupting blocky garbage.
                     awaitingFreshIdr = true
-                    awaitingFreshIdrSinceMs = System.currentTimeMillis()
                     _needsKeyframe = false
                     _needsKeyframeFlow.value = true
                 } else {
@@ -274,7 +261,6 @@ class MediaCodecDecoder(
         _decoderState.value = DecoderState.IDLE
         receivedIdr = false
         awaitingFreshIdr = false
-        awaitingFreshIdrSinceMs = 0L
         _needsKeyframe = true
         _needsKeyframeFlow.value = true
         codecConfigData?.let { config ->
@@ -327,7 +313,6 @@ class MediaCodecDecoder(
         codecConfigData = frame.data.copyOf()
         receivedIdr = false
         awaitingFreshIdr = false
-        awaitingFreshIdrSinceMs = 0L
         _needsKeyframe = true  // Request IDR after codec reconfigure
         _needsKeyframeFlow.value = true
 
@@ -421,7 +406,6 @@ class MediaCodecDecoder(
             Log.i(TAG, "Fresh IDR arrived — clearing awaitingFreshIdr, P-frames will flow")
             DiagnosticLog.i("video", "Fresh IDR cleared awaitingFreshIdr")
             awaitingFreshIdr = false
-            awaitingFreshIdrSinceMs = 0L
         }
         // Always keep the latest IDR cached — if the surface is destroyed (user
         // navigates away), we can replay it instantly when the surface returns
@@ -451,27 +435,9 @@ class MediaCodecDecoder(
             // we never decoded (missed during backgrounding). Feeding them
             // would produce progressively-worse blockiness. Drop until a
             // fresh real IDR from the phone re-anchors the reference chain.
-            //
-            // BUT cap the wait (issue #35): if the fresh IDR never comes (e.g.
-            // the phone ignores our same-state keyframe re-request after a
-            // phone-call / GM-UI takeover), dropping forever leaves the screen
-            // frozen until the phone's next natural GOP IDR (~2 min). Once the
-            // gate has held longer than AWAITING_FRESH_IDR_CAP_MS, give up
-            // waiting and feed P-frames anyway — accept a few hundred ms of
-            // blockiness as the reference chain rebuilds over a multi-minute freeze.
-            val heldMs = if (awaitingFreshIdrSinceMs > 0)
-                System.currentTimeMillis() - awaitingFreshIdrSinceMs else 0L
-            if (heldMs >= AWAITING_FRESH_IDR_CAP_MS) {
-                Log.w(TAG, "awaitingFreshIdr held ${heldMs}ms (cap ${AWAITING_FRESH_IDR_CAP_MS}ms) — no fresh IDR arrived, feeding P-frames anyway")
-                DiagnosticLog.w("video", "Fresh-IDR wait capped at ${heldMs}ms — resuming P-frames (expect brief blockiness)")
-                awaitingFreshIdr = false
-                awaitingFreshIdrSinceMs = 0L
-                // fall through to normal P-frame handling below
-            } else {
-                framesDropped.incrementAndGet()
-                updateDropStats()
-                return
-            }
+            framesDropped.incrementAndGet()
+            updateDropStats()
+            return
         }
         if (codec == null) {
             framesDropped.incrementAndGet()
@@ -742,7 +708,7 @@ class MediaCodecDecoder(
      * - Stale P-frames (PTS not advancing) are dropped immediately
      */
     private fun queueFrame(frame: VideoFrame) {
-        if (codec == null) return
+        val mc = codec ?: return
 
         // Drop stale P-frames (PTS went backwards — reordered or duplicate)
         if (!frame.isKeyframe && lastQueuedPtsMs >= 0 && frame.ptsMs > 0 && frame.ptsMs < lastQueuedPtsMs) {
@@ -761,50 +727,41 @@ class MediaCodecDecoder(
             INPUT_TIMEOUT_US
         }
 
-        // Hold codecReleaseLock across the native input calls. queueFrame runs on
-        // the frame-input thread while releaseCodec() (surface detach / teardown)
-        // can release the same MediaCodec instance concurrently — a check-then-act
-        // race that threw IllegalStateException from native_dequeueInputBuffer and
-        // left the surface abandoned (~72s black until re-attach, issue #38).
-        // Re-read codec under the lock and bail if release won.
-        synchronized(codecReleaseLock) {
-            val mc = codec ?: return
-            try {
-                val inputIndex = mc.dequeueInputBuffer(timeout)
-                if (inputIndex < 0) {
-                    framesDropped.incrementAndGet()
-                    consecutiveDrops++
-                    if (consecutiveDrops == 5 || (consecutiveDrops > 5 && consecutiveDrops % 30 == 0)) {
-                        Log.w(TAG, "Decoder behind: $consecutiveDrops consecutive frame drops")
-                    }
-                    return
+        try {
+            val inputIndex = mc.dequeueInputBuffer(timeout)
+            if (inputIndex < 0) {
+                framesDropped.incrementAndGet()
+                consecutiveDrops++
+                if (consecutiveDrops == 5 || (consecutiveDrops > 5 && consecutiveDrops % 30 == 0)) {
+                    Log.w(TAG, "Decoder behind: $consecutiveDrops consecutive frame drops")
                 }
-
-                val inputBuffer = mc.getInputBuffer(inputIndex) ?: return
-                if (frame.data.size > inputBuffer.capacity()) {
-                    Log.w(TAG, "Frame too large: ${frame.data.size} > ${inputBuffer.capacity()}")
-                    mc.queueInputBuffer(inputIndex, 0, 0, 0, 0)
-                    framesDropped.incrementAndGet()
-                    return
-                }
-
-                inputBuffer.clear()
-                inputBuffer.put(frame.data)
-
-                val flags = if (frame.isKeyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
-                mc.queueInputBuffer(inputIndex, 0, frame.data.size, frame.ptsMs * 1000, flags)
-                lastQueuedPtsMs = frame.ptsMs
-                consecutiveDrops = 0
-            } catch (e: MediaCodec.CodecException) {
-                Log.e(TAG, "Codec error queuing frame", e)
-                DiagnosticLog.e("video", "Codec error queuing frame: ${e.message}, recoverable=${e.isRecoverable}")
-                if (!e.isRecoverable) {
-                    _decoderState.value = DecoderState.ERROR
-                    _needsKeyframe = true
-                }
-            } catch (e: IllegalStateException) {
-                Log.w(TAG, "Codec in bad state", e)
+                return
             }
+
+            val inputBuffer = mc.getInputBuffer(inputIndex) ?: return
+            if (frame.data.size > inputBuffer.capacity()) {
+                Log.w(TAG, "Frame too large: ${frame.data.size} > ${inputBuffer.capacity()}")
+                mc.queueInputBuffer(inputIndex, 0, 0, 0, 0)
+                framesDropped.incrementAndGet()
+                return
+            }
+
+            inputBuffer.clear()
+            inputBuffer.put(frame.data)
+
+            val flags = if (frame.isKeyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+            mc.queueInputBuffer(inputIndex, 0, frame.data.size, frame.ptsMs * 1000, flags)
+            lastQueuedPtsMs = frame.ptsMs
+            consecutiveDrops = 0
+        } catch (e: MediaCodec.CodecException) {
+            Log.e(TAG, "Codec error queuing frame", e)
+            DiagnosticLog.e("video", "Codec error queuing frame: ${e.message}, recoverable=${e.isRecoverable}")
+            if (!e.isRecoverable) {
+                _decoderState.value = DecoderState.ERROR
+                _needsKeyframe = true
+            }
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Codec in bad state", e)
         }
     }
 
@@ -900,7 +857,6 @@ class MediaCodecDecoder(
             receivedIdr = false
             renderingEnabled = false
             awaitingFreshIdr = false
-            awaitingFreshIdrSinceMs = 0L
             seedIdrTimeMs = 0
             lastQueuedPtsMs = -1
             consecutiveDrops = 0

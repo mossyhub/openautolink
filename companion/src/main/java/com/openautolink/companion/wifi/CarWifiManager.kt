@@ -56,7 +56,6 @@ class CarWifiManager(private val context: Context) {
     private var attempt = 0
     private var running = false
     private var retryRunnable: Runnable? = null
-    private var rearmRunnable: Runnable? = null
     private var activeSuggestions: List<WifiNetworkSuggestion> = emptyList()
 
     fun start(carWifiEntries: List<CarWifiEntry>) {
@@ -75,7 +74,6 @@ class CarWifiManager(private val context: Context) {
     fun stop() {
         running = false
         cancelRetry()
-        cancelRearm()
         releaseCallback()
         removeSuggestions()
         _state.value = State.Idle
@@ -126,13 +124,6 @@ class CarWifiManager(private val context: Context) {
             val msg = "Gave up after $MAX_ATTEMPTS attempts"
             CompanionLog.w(TAG, msg)
             _state.value = State.Failed(msg)
-            // Don't stop dead — the car AP may simply be out of range for now
-            // (hill, parking structure, AP reboot, RF null). Schedule a slow
-            // background re-arm that resets the counter and resumes the fast
-            // burst, so any outage is bounded by REARM_DELAY_MS instead of
-            // lasting the whole session (issue #31). The re-arm is a no-op once
-            // we're connected (onAvailable cancels it).
-            scheduleRearm()
             return
         }
 
@@ -160,7 +151,6 @@ class CarWifiManager(private val context: Context) {
                 CompanionLog.i(TAG, "Connected to \"${entry.ssid}\" on attempt $attempt")
                 _state.value = State.Connected(entry.ssid)
                 attempt = 0
-                cancelRearm()
                 // Keep the callback registered — unregistering here would tear down
                 // the secondary WiFi network, removing the phone's IP on the car's
                 // subnet and making the car unable to reach our server ports.
@@ -176,11 +166,6 @@ class CarWifiManager(private val context: Context) {
             override fun onLost(network: Network) {
                 if (!running) return
                 CompanionLog.w(TAG, "Car WiFi \"${entry.ssid}\" lost")
-                // A *lost* link is a fresh recovery, not a continuation of the
-                // initial scan budget — reset so we get a full burst again
-                // rather than counting the loss against a possibly-depleted
-                // attempt counter (issue #31).
-                attempt = 0
                 _state.value = State.Scanning(attempt, MAX_ATTEMPTS)
                 scheduleRetry(LOST_RETRY_DELAY_MS)
             }
@@ -202,33 +187,6 @@ class CarWifiManager(private val context: Context) {
         retryRunnable = null
     }
 
-    /**
-     * After the fast burst gives up, periodically reset the counter and resume
-     * scanning so a longer car-AP outage recovers on its own. Bounds the dead
-     * window to [REARM_DELAY_MS] instead of lasting the whole session (#31).
-     */
-    private fun scheduleRearm() {
-        cancelRearm()
-        val r = Runnable {
-            if (!running) return@Runnable
-            // Only resume if we're not already connected. onAvailable cancels
-            // the re-arm, but guard against a race where it fired just before.
-            if (_state.value is State.Connected) return@Runnable
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                CompanionLog.i(TAG, "Re-arming car WiFi scan after give-up")
-                attempt = 0
-                tryConnect()
-            }
-        }
-        rearmRunnable = r
-        handler.postDelayed(r, REARM_DELAY_MS)
-    }
-
-    private fun cancelRearm() {
-        rearmRunnable?.let { handler.removeCallbacks(it) }
-        rearmRunnable = null
-    }
-
     private fun releaseCallback() {
         currentCallback?.let {
             try { connectivityManager.unregisterNetworkCallback(it) } catch (_: Exception) {}
@@ -241,9 +199,6 @@ class CarWifiManager(private val context: Context) {
         private const val MAX_ATTEMPTS = 12
         private const val RETRY_DELAY_MS = 5_000L
         private const val LOST_RETRY_DELAY_MS = 2_000L
-        // After the fast 12x burst gives up, re-arm a fresh burst this often so
-        // a longer car-AP outage still recovers without a user restart (#31).
-        private const val REARM_DELAY_MS = 30_000L
     }
 }
 
