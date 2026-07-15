@@ -260,7 +260,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     // init { } can touch it synchronously during construction (DataStore emits
     // its cached value immediately), which raced the lazy delegate's own
     // initialization and NPE'd in the ViewModel constructor on the main thread
-    // (launch-time crash). Eager + early declaration removes the race.
+    // (launch-time crash, issue #44). Eager + early declaration removes the race.
     private val fileLogToggleLock = Any()
 
     init {
@@ -304,17 +304,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     @Volatile private var connectInFlight = false
     /** Throttle for the auto-reconnect collector (Car Hotspot mode). */
     @Volatile private var lastAutoReconnectAttemptMs: Long = 0L
-
-    // Discovery freshness floor (wall-clock ms). Set on a long-gap wake so the
-    // mDNS grace in [resolveCarHotspotPhone] REJECTS phone entries last seen
-    // before the wake — those carry the phone's pre-sleep IP, which the car's
-    // hotspot DHCP often re-leases to a new address across a sleep. Without
-    // this, the grace returns the stale cached IP and the connector dials a
-    // dead address for ~60s until the periodic sweep re-resolves (issue #27).
-    // 0 = no floor (accept any resolved entry). Cleared once a fresh resolve
-    // lands or a connect succeeds, so a phone that legitimately keeps its IP
-    // isn't rejected forever.
-    @Volatile private var discoveryFreshnessFloorMs: Long = 0L
     private val AUTO_RECONNECT_MIN_GAP_MS = 10_000L
     /**
      * mDNS-only grace window inside [resolveCarHotspotPhone]. mDNS is
@@ -322,15 +311,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      * before kicking the active /24 sweep.
      */
     private val MDNS_GRACE_MS = 3_000L
-    /**
-     * Margin subtracted when setting [discoveryFreshnessFloorMs] on wake.
-     * Tolerates small clock jitter and accepts discovery entries that were
-     * (re)seen in the instant around the wake event, while still rejecting
-     * entries that were last seen before the sleep (which carry the stale
-     * pre-sleep IP). 2s is comfortably below a realistic sleep gap and above
-     * any plausible same-tick re-announce skew.
-     */
-    private val DISCOVERY_FRESHNESS_MARGIN_MS = 2_000L
     /**
      * "Head-start" grace given to the default phone when it isn't the
      * first one to surface in discovery. If a non-default known phone
@@ -920,22 +900,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     )
                     _activePhoneId.value = null
                 }
-                // On any reconnect-worthy wake, raise the discovery freshness
-                // floor so the mDNS grace can't return a phone entry resolved
-                // BEFORE the sleep — that entry holds the pre-sleep IP, which
-                // the car hotspot often re-leases to a new address across a
-                // sleep. Forcing a re-resolve avoids dialing the stale IP for
-                // ~60s until the sweep catches up (issue #27). A small margin
-                // tolerates clock jitter and entries seen mid-wake.
-                if (event.gapMs >= WAKE_AUTO_RECONNECT_MIN_GAP_MS) {
-                    discoveryFreshnessFloorMs =
-                        System.currentTimeMillis() - DISCOVERY_FRESHNESS_MARGIN_MS
-                    OalLog.i(
-                        TAG,
-                        "Wake (gap=${event.gapMs}ms) — discovery freshness floor set; " +
-                            "stale pre-wake phone IPs will be re-resolved",
-                    )
-                }
                 // Force-kick auto-reconnect on wake. `phoneDiscovery.phones`
                 // edge-triggered collector only fires when isResolved flips
                 // false→true; after a short sleep the phone often stays
@@ -1481,46 +1445,35 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             preferences.defaultPhoneId.first().takeIf { it.isNotBlank() }
         } catch (_: Exception) { null }
 
-        // The discovery freshness floor (set on wake) governs exactly this one
-        // resolve pass: it makes the phases below reject stale pre-wake entries
-        // and wait for a re-resolve. Clear it on the way out (any path) so a
-        // phone that legitimately keeps the same IP — and thus won't re-announce
-        // with a newer lastSeenMs — isn't rejected on subsequent resolves.
-        try {
-            // Phase 1: mDNS-only grace. Cheapest, fastest, no socket pressure.
-            OalLog.i(TAG, "Resolving phone — mDNS grace ${MDNS_GRACE_MS}ms")
-            val mdnsHit = kotlinx.coroutines.withTimeoutOrNull(MDNS_GRACE_MS) {
-                collectWithDefaultHeadStart(defaultId)
-            }
-            if (mdnsHit != null) {
-                OalLog.i(TAG, "Resolved via mDNS within ${MDNS_GRACE_MS}ms")
-                return mdnsHit
-            }
+        // Phase 1: mDNS-only grace. Cheapest, fastest, no socket pressure.
+        OalLog.i(TAG, "Resolving phone — mDNS grace ${MDNS_GRACE_MS}ms")
+        val mdnsHit = kotlinx.coroutines.withTimeoutOrNull(MDNS_GRACE_MS) {
+            collectWithDefaultHeadStart(defaultId)
+        }
+        if (mdnsHit != null) {
+            OalLog.i(TAG, "Resolved via mDNS within ${MDNS_GRACE_MS}ms")
+            return mdnsHit
+        }
 
-            // Phase 2: UDP broadcast. ~50ms when the AP allows it. Sits
-            // between mDNS (often broken on AAOS 12/13) and the full /24
-            // sweep (always works, ~400ms wall time).
-            OalLog.i(TAG, "mDNS grace expired — trying UDP broadcast")
-            val broadcastHits = phoneDiscovery.udpBroadcastAllInterfaces(listenWindowMs = 600L)
-            if (broadcastHits > 0) {
-                val picked = pickBestPhone(phoneDiscovery.phones.value, defaultId)
-                if (picked != null) {
-                    OalLog.i(TAG, "Resolved via UDP broadcast ($broadcastHits hit(s))")
-                    return picked
-                }
+        // Phase 2: UDP broadcast. ~50ms when the AP allows it. Sits
+        // between mDNS (often broken on AAOS 12/13) and the full /24
+        // sweep (always works, ~400ms wall time).
+        OalLog.i(TAG, "mDNS grace expired — trying UDP broadcast")
+        val broadcastHits = phoneDiscovery.udpBroadcastAllInterfaces(listenWindowMs = 600L)
+        if (broadcastHits > 0) {
+            val picked = pickBestPhone(phoneDiscovery.phones.value, defaultId)
+            if (picked != null) {
+                OalLog.i(TAG, "Resolved via UDP broadcast ($broadcastHits hit(s))")
+                return picked
             }
+        }
 
-            // Phase 3: full /24 TCP sweep. Always works on cooperative APs.
-            OalLog.i(TAG, "UDP broadcast empty — kicking /24 sweep")
-            kickSweep()
-            val remaining = (timeoutMs - MDNS_GRACE_MS - 600L).coerceAtLeast(2_000L)
-            return kotlinx.coroutines.withTimeoutOrNull(remaining) {
-                collectWithDefaultHeadStart(defaultId)
-            }
-        } finally {
-            if (discoveryFreshnessFloorMs != 0L) {
-                discoveryFreshnessFloorMs = 0L
-            }
+        // Phase 3: full /24 TCP sweep. Always works on cooperative APs.
+        OalLog.i(TAG, "UDP broadcast empty — kicking /24 sweep")
+        kickSweep()
+        val remaining = (timeoutMs - MDNS_GRACE_MS - 600L).coerceAtLeast(2_000L)
+        return kotlinx.coroutines.withTimeoutOrNull(remaining) {
+            collectWithDefaultHeadStart(defaultId)
         }
     }
 
@@ -1553,14 +1506,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             // for first.
             val defaultJob = async {
                 phoneDiscovery.phones
-                    .map { list ->
-                        val floor = discoveryFreshnessFloorMs
-                        list.firstOrNull {
-                            it.isResolved && it.phoneId == defaultId &&
-                                !isUnusableHost(it.host.orEmpty()) &&
-                                (floor == 0L || it.lastSeenMs >= floor)
-                        }
-                    }
+                    .map { list -> list.firstOrNull { it.isResolved && it.phoneId == defaultId } }
                     .first { it != null }!!
             }
             val anyJob = async {
@@ -1605,12 +1551,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     ): com.openautolink.app.transport.PhoneDiscovery.DiscoveredPhone? {
         // Defensive: drop IPv6 link-local hosts that slipped through. They
         // aren't usable for TCP without a scope ID (e.g. %wlan0).
-        // Also drop entries last seen before the discovery freshness floor
-        // (set on wake) — those carry the phone's stale pre-sleep IP (issue #27).
-        val floor = discoveryFreshnessFloorMs
         val resolved = list.filter {
-            it.isResolved && !it.host.isNullOrBlank() && !isUnusableHost(it.host) &&
-                (floor == 0L || it.lastSeenMs >= floor)
+            it.isResolved && !it.host.isNullOrBlank() && !isUnusableHost(it.host)
         }
         if (resolved.isEmpty()) return null
         if (defaultId != null) {
@@ -1620,14 +1562,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun isUnusableHost(host: String): Boolean {
-        // Delegates to the shared pure predicate so every selection site applies
-        // the same rule. Rejects all IPv6 literals (link-local AND global): the
-        // companion only ever serves IPv4 on the local link, and on a phone
-        // hotspot a global IPv6 (e.g. cellular 2607:…) is advertised over mDNS
-        // but not routable over the SoftAP bridge — dialing it pins the
-        // connector to a dead address and never falls back to the IPv4 the
-        // sweep already knows (issue #48).
-        return com.openautolink.app.transport.HostUsability.isUnusable(host)
+        // Cheap textual check — `fe80:` prefix covers IPv6 link-local. Avoids
+        // creating an InetAddress just for filtering.
+        return host.startsWith("fe80:", ignoreCase = true)
     }
 
     /**

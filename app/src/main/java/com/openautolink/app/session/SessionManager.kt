@@ -67,18 +67,6 @@ class SessionManager(
     companion object {
         private const val TAG = "SessionManager"
 
-        /**
-         * Video-stall watchdog (issue #34). If no inbound AA video frame arrives
-         * for this long while we're STREAMING and foreground, the AA video
-         * channel has wedged (native layer blocked on a dead flow, never fires
-         * onSessionStopped) — force a reconnect. Generous enough not to trip on
-         * brief network hiccups or the phone's periodic-IDR gap (~2-2.5 min
-         * between keyframes, but P-frames flow continuously in between, so a
-         * healthy stream never goes this long without ANY frame).
-         */
-        private const val VIDEO_STALL_THRESHOLD_MS = 8_000L
-        private const val VIDEO_STALL_POLL_MS = 1_000L
-
         // Activity-sourced UI-mode snapshot that can be published before
         // SessionManager exists (ViewModel lazy creation path).
         @Volatile
@@ -375,15 +363,6 @@ class SessionManager(
     private var decoderWatchJob: Job? = null
     private var keyframeWatchJob: Job? = null
     private var callStateJob: Job? = null
-    private var videoStallWatchJob: Job? = null
-
-    /**
-     * True while the app is intentionally idle (Activity paused / screen off /
-     * backgrounded to AAOS home). The video-stall watchdog must NOT fire a
-     * reconnect during these windows — video legitimately stops when we're not
-     * foreground. Set in [markGoingIdle], cleared on the next wake/start.
-     */
-    @Volatile private var isGoingIdle = false
 
     // Track last known active time for sleep/wake detection.
     // Single source of truth, updated on:
@@ -708,10 +687,6 @@ class SessionManager(
             // Watch call state for mic purpose routing
             callStateJob?.cancel()
             callStateJob = launch { watchCallState() }
-
-            // Watch for a wedged AA video channel (issue #34)
-            videoStallWatchJob?.cancel()
-            videoStallWatchJob = launch { watchVideoStall() }
 
             // Start direct mode session
             startSession(directTransport, hotspotSsid, hotspotPassword,
@@ -1120,8 +1095,6 @@ class SessionManager(
         keyframeWatchJob = null
         callStateJob?.cancel()
         callStateJob = null
-        videoStallWatchJob?.cancel()
-        videoStallWatchJob = null
         aasdkSession?.stop()
         aasdkSession = null
         stopDirectLocationForwarding()
@@ -1247,7 +1220,6 @@ class SessionManager(
                     decoderWatchJob?.cancelAndJoin()
                     keyframeWatchJob?.cancelAndJoin()
                     callStateJob?.cancelAndJoin()
-                    videoStallWatchJob?.cancelAndJoin()
                 } catch (_: Exception) {}
                 doReconnectAfterCancel(
                     codecPreference, micSourcePreference, scalingMode, directTransport,
@@ -1324,7 +1296,6 @@ class SessionManager(
             decoderWatchJob = launch { watchDecoderState() }
             keyframeWatchJob = launch { watchKeyframeNeeds() }
             callStateJob = launch { watchCallState() }
-            videoStallWatchJob = launch { watchVideoStall() }
 
             startSession(directTransport, hotspotSsid, hotspotPassword,
                 videoAutoNegotiate, codecPreference, aaResolution, aaDpi, aaAutoDpi,
@@ -1408,7 +1379,6 @@ class SessionManager(
             OalLog.d(TAG, "Wake dedup (reason=$reason within ${WAKE_DEDUPE_MS}ms)")
             return
         }
-        isGoingIdle = false
         val gap = now - lastActiveTimestamp
         lastWakeHandledAtMs = now
         lastActiveTimestamp = now
@@ -1445,7 +1415,6 @@ class SessionManager(
      * during steady streaming).
      */
     fun markGoingIdle(reason: String) {
-        isGoingIdle = true
         lastActiveTimestamp = SystemClock.elapsedRealtime()
         OalLog.i(TAG, "Going idle: $reason")
         DiagnosticLog.i("transport", "Going idle: $reason")
@@ -1629,10 +1598,6 @@ class SessionManager(
         aasdkSession?.requestKeyframe()
     }
 
-    suspend fun requestKeyframeForceFocus() {
-        aasdkSession?.requestKeyframeForceFocus()
-    }
-
     private suspend fun syncLocalPreferences() {
         val ctx = context ?: return
         try {
@@ -1728,74 +1693,16 @@ class SessionManager(
                 var attempt = 0
                 while (decoder.needsKeyframe.value) {
                     attempt++
-                    // Issue #35: a plain keyframe re-request re-asserts PROJECTED
-                    // focus, which the phone ignores when it already thinks we hold
-                    // it (post phone-call / GM-UI takeover) — so it emits no IDR and
-                    // video stays frozen until the next natural GOP (~2 min). Use the
-                    // focus-bounce variant (NATIVE_TRANSIENT -> PROJECTED, a real
-                    // transition) on the first attempt and periodically thereafter to
-                    // actually pull a fresh IDR forward; plain re-requests in between.
-                    val useForceFocus = attempt == 1 || attempt % 4 == 0
-                    if (useForceFocus) {
-                        requestKeyframeForceFocus()
-                    } else {
-                        requestKeyframe()
-                    }
+                    requestKeyframe()
                     if (attempt == 1) {
-                        OalLog.i(TAG, "Keyframe re-request #$attempt (focus bounce)")
+                        OalLog.i(TAG, "Keyframe re-request #$attempt")
                     } else {
-                        val mode = if (useForceFocus) " (focus bounce)" else ""
-                        OalLog.w(TAG, "Keyframe re-request #$attempt (still waiting)$mode")
+                        OalLog.w(TAG, "Keyframe re-request #$attempt (still waiting)")
                         _remoteDiagnostics?.log(DiagnosticLevel.WARN, "video",
-                            "Keyframe re-request #$attempt$mode")
+                            "Keyframe re-request #$attempt")
                     }
                     delay(2000)
                 }
-            }
-        }
-    }
-
-    /**
-     * Video-stall watchdog (issue #34). The AA video channel can wedge mid-drive
-     * — frames stop arriving while the TCP socket stays alive and other channels
-     * (nav) keep flowing. The native aasdk layer stays blocked on the dead flow
-     * and never calls onSessionStopped, so the existing auto-reconnect (which is
-     * wired only to onSessionStopped) never triggers and the screen stays frozen
-     * indefinitely while the app UI remains responsive.
-     *
-     * This polls the last-video-frame timestamp and, if it goes stale while we're
-     * actively STREAMING and foreground, forces a reconnect via
-     * AasdkSession.forceReconnect() — which routes through the normal teardown +
-     * restart. The phone is left advertising on a stalled link, so the restart
-     * reconnects within ~1s.
-     *
-     * Guards against false trips:
-     *  - only while sessionState == STREAMING (not during connect/handshake)
-     *  - only when not intentionally idle (backgrounded / screen-off / paused),
-     *    where video legitimately stops
-     *  - only after at least one frame has been seen (lastVideoFrameMs != 0)
-     *  - re-arms the baseline after each forced reconnect so we don't loop
-     */
-    private suspend fun watchVideoStall() {
-        // Wait for a session to exist.
-        while (aasdkSession == null) { delay(VIDEO_STALL_POLL_MS) }
-        val session = aasdkSession ?: return
-        while (true) {
-            delay(VIDEO_STALL_POLL_MS)
-            if (_sessionState.value != SessionState.STREAMING) continue
-            if (isGoingIdle) continue
-            val last = session.lastVideoFrameMs
-            if (last == 0L) continue // no frame yet this session
-            val staleFor = SystemClock.elapsedRealtime() - last
-            if (staleFor >= VIDEO_STALL_THRESHOLD_MS) {
-                OalLog.w(TAG, "Video stall detected: no frame for ${staleFor}ms while STREAMING — forcing reconnect")
-                DiagnosticLog.w("video", "Video stall ${staleFor}ms — forcing reconnect")
-                _remoteDiagnostics?.log(DiagnosticLevel.WARN, "video",
-                    "Video stall ${staleFor}ms — forcing reconnect")
-                aasdkSession?.forceReconnect("video stall (${staleFor}ms no frame)")
-                // Back off a full threshold so the freshly-restarted session has
-                // time to deliver its first frame before we evaluate again.
-                delay(VIDEO_STALL_THRESHOLD_MS)
             }
         }
     }
