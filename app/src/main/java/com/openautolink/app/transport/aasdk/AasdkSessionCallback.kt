@@ -109,4 +109,13 @@ interface AasdkSessionCallback {
 
     /** Error from the native session. */
     fun onError(message: String)
+
+    /**
+     * Diagnostic log line emitted by the native session, routed into the
+     * triaged DiagnosticLog (uploaded via the maintainer log-upload feature).
+     * @param level 0=debug 1=info 2=warn 3=error
+     * @param tag DiagnosticLog tag (e.g. "vfocus", "video", "session")
+     * @param message the log message
+     */
+    fun onNativeLog(level: Int, tag: String, message: String)
 }

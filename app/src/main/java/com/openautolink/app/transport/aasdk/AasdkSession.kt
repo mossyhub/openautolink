@@ -88,6 +88,18 @@ class AasdkSession(
     // TCP connector — used in "hotspot" transport mode (Car Hotspot / Phone Hotspot)
     private var _tcpConnector: TcpConnector? = null
 
+    // -- (A) Video frame-flow diagnostic counters --
+    // Periodically summarize inbound frame flow into the triaged DiagnosticLog
+    // so a black-video gap definitively shows whether bytes are still arriving
+    // (P-frames flowing but no IDR to anchor) vs the encoder being silent.
+    // All touched only from onVideoFrame (native io thread) + reset on start.
+    private var vfWindowStartMs: Long = 0L
+    private var vfFrameCount: Int = 0
+    private var vfKeyframeCount: Int = 0
+    private var vfByteCount: Long = 0L
+    private var vfLastFrameMs: Long = 0L
+    private val vfLogIntervalMs = 2000L
+
     // USB connection manager — only used in "usb" transport mode
     private var _usbConnectionManager: UsbConnectionManager? = null
 
@@ -310,6 +322,12 @@ class AasdkSession(
         consecutiveReconnectFailures = 0
         _reconnectAttempt.value = 0
         lastFailureWasProtocolError = false
+        // (A) Reset frame-flow counters so each session's video trace is clean.
+        vfWindowStartMs = 0L
+        vfFrameCount = 0
+        vfKeyframeCount = 0
+        vfByteCount = 0L
+        vfLastFrameMs = 0L
         scope.launch {
             _connectionState.value = ConnectionState.CONNECTED
             _controlMessages.emit(ControlMessage.PhoneConnected(phoneName = "", phoneType = "wireless"))
@@ -364,6 +382,7 @@ class AasdkSession(
     }
 
     override fun onVideoFrame(data: ByteArray, timestampUs: Long, width: Int, height: Int, flags: Int) {
+        recordVideoFrameFlow(data.size, flags)
         val frame = VideoFrame(
             width = width,
             height = height,
@@ -372,6 +391,39 @@ class AasdkSession(
             data = data
         )
         _videoFrames.tryEmit(frame)
+    }
+
+    /**
+     * (A) Frame-flow diagnostic. Accumulates inbound frames and emits a
+     * DiagnosticLog summary at most every [vfLogIntervalMs]. The gap-since-last
+     * frame is the key signal: during a black-video gap this shows whether the
+     * phone's encoder is still sending bytes (P-frames, no IDR) or is silent.
+     * Called on the native io thread; cheap and lock-free (single producer).
+     */
+    private fun recordVideoFrameFlow(size: Int, flags: Int) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val isKeyframe = (flags and 0x0001) != 0
+        val gap = if (vfLastFrameMs == 0L) 0L else now - vfLastFrameMs
+        vfLastFrameMs = now
+        if (vfWindowStartMs == 0L) vfWindowStartMs = now
+        vfFrameCount++
+        if (isKeyframe) vfKeyframeCount++
+        vfByteCount += size
+        val elapsed = now - vfWindowStartMs
+        // Flush a summary every interval, or immediately after a >1s starvation
+        // gap between frames (so a stall is captured even at low frame rates).
+        if (elapsed >= vfLogIntervalMs || gap > 1000L) {
+            val kbps = if (elapsed > 0) (vfByteCount * 8 / elapsed) else 0
+            com.openautolink.app.diagnostics.DiagnosticLog.i(
+                "vflow",
+                "frames=$vfFrameCount idr=$vfKeyframeCount bytes=$vfByteCount " +
+                    "~${kbps}kbps window=${elapsed}ms maxGap=${gap}ms"
+            )
+            vfWindowStartMs = now
+            vfFrameCount = 0
+            vfKeyframeCount = 0
+            vfByteCount = 0L
+        }
     }
 
     override fun onVideoCodecConfigured(codecType: Int) {
@@ -572,6 +624,15 @@ class AasdkSession(
             scope.launch {
                 _controlMessages.emit(ControlMessage.Error(code = -1, message = message))
             }
+        }
+    }
+
+    override fun onNativeLog(level: Int, tag: String, message: String) {
+        when (level) {
+            0 -> com.openautolink.app.diagnostics.DiagnosticLog.d(tag, message)
+            2 -> com.openautolink.app.diagnostics.DiagnosticLog.w(tag, message)
+            3 -> com.openautolink.app.diagnostics.DiagnosticLog.e(tag, message)
+            else -> com.openautolink.app.diagnostics.DiagnosticLog.i(tag, message)
         }
     }
 }
