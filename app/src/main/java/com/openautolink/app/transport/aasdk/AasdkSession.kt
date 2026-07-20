@@ -88,6 +88,18 @@ class AasdkSession(
     // TCP connector — used in "hotspot" transport mode (Car Hotspot / Phone Hotspot)
     private var _tcpConnector: TcpConnector? = null
 
+    // -- (A) Video frame-flow diagnostic counters --
+    // Periodically summarize inbound frame flow into the triaged DiagnosticLog
+    // so a black-video gap definitively shows whether bytes are still arriving
+    // (P-frames flowing but no IDR to anchor) vs the encoder being silent.
+    // All touched only from onVideoFrame (native io thread) + reset on start.
+    private var vfWindowStartMs: Long = 0L
+    private var vfFrameCount: Int = 0
+    private var vfKeyframeCount: Int = 0
+    private var vfByteCount: Long = 0L
+    private var vfLastFrameMs: Long = 0L
+    private val vfLogIntervalMs = 2000L
+
     // USB connection manager — only used in "usb" transport mode
     private var _usbConnectionManager: UsbConnectionManager? = null
 
@@ -115,7 +127,35 @@ class AasdkSession(
 
     private var transportPipe: AasdkTransportPipe? = null
 
-    // -- Lifecycle --
+    /**
+     * Handle to the single pending auto-reconnect coroutine (the backoff delay +
+     * transport restart scheduled from [onSessionStopped]). Tracked so that (a)
+     * a new teardown cancels an already-pending retry instead of stacking a
+     * second timer, and (b) a successful [onSessionStarted] cancels any pending
+     * retry so a STALE timer can't tear down the healthy session it raced with.
+     *
+     * Root cause of the deep-sleep reconnect storm (0.1.363 log 2026-07-19):
+     * several rapid teardowns during the wake window each armed their own
+     * fire-and-forget `scope.launch { delay(); startTcp() }` with no handle, so
+     * a leftover timer restarted the transport on top of an already-connected
+     * session — killing it and scheduling yet another retry (self-perpetuating).
+     * Guarded by [reconnectLock]; assignments and cancels are serialized.
+     */
+    @Volatile
+    private var reconnectJob: kotlinx.coroutines.Job? = null
+    private val reconnectLock = Any()
+
+    private fun cancelPendingReconnect(why: String) {
+        synchronized(reconnectLock) {
+            reconnectJob?.let {
+                if (it.isActive) {
+                    it.cancel()
+                    OalLog.i(TAG, "Cancelled pending reconnect ($why)")
+                }
+            }
+            reconnectJob = null
+        }
+    }
 
     fun start() {
         explicitStop = false
@@ -208,6 +248,7 @@ class AasdkSession(
     fun stop() {
         explicitStop = true
         OalLog.i(TAG, "Stopping aasdk session")
+        cancelPendingReconnect("explicit stop")
         _tcpConnector?.stop()
         _tcpConnector = null
         _usbConnectionManager?.stop()
@@ -231,6 +272,7 @@ class AasdkSession(
         // later — we're doing the restart ourselves immediately. Without this
         // both reconnects race and one fails with "Native session start failed".
         explicitStop = true
+        cancelPendingReconnect("force reconnect")
         _tcpConnector?.stop()
         _tcpConnector = null
         _usbConnectionManager?.stop()
@@ -307,9 +349,19 @@ class AasdkSession(
 
     override fun onSessionStarted() {
         OalLog.i(TAG, "AA session started (native)")
+        // Cancel any pending auto-reconnect timer: this session is now healthy,
+        // so a leftover retry from an earlier teardown must NOT fire and restart
+        // the transport underneath us (the deep-sleep reconnect-storm root cause).
+        cancelPendingReconnect("session started")
         consecutiveReconnectFailures = 0
         _reconnectAttempt.value = 0
         lastFailureWasProtocolError = false
+        // (A) Reset frame-flow counters so each session's video trace is clean.
+        vfWindowStartMs = 0L
+        vfFrameCount = 0
+        vfKeyframeCount = 0
+        vfByteCount = 0L
+        vfLastFrameMs = 0L
         scope.launch {
             _connectionState.value = ConnectionState.CONNECTED
             _controlMessages.emit(ControlMessage.PhoneConnected(phoneName = "", phoneType = "wireless"))
@@ -331,28 +383,43 @@ class AasdkSession(
             explicitStop = true
         }
 
-        scope.launch {
-            _connectionState.value = ConnectionState.DISCONNECTED
-            _controlMessages.emit(ControlMessage.PhoneDisconnected(reason = reason))
+        // Auto-reconnect if this wasn't an explicit stop (e.g., car sleep/wake,
+        // phone disconnect). Restart the transport connector after a delay so it
+        // retries connecting once WiFi comes back.
+        //
+        // Single-flight: cancel any already-pending retry before arming a new
+        // one, and track this coroutine in [reconnectJob] so a later
+        // onSessionStarted() can cancel it. Without this, several rapid
+        // teardowns during a deep-sleep wake each armed an independent timer;
+        // leftover timers then restarted the transport on top of a healthy
+        // session → reconnect storm (0.1.363 log 2026-07-19).
+        if (!explicitStop) {
+            consecutiveReconnectFailures++
+            _reconnectAttempt.value = consecutiveReconnectFailures
 
-            // Auto-reconnect if this wasn't an explicit stop (e.g., car sleep/wake,
-            // phone disconnect). Restart the transport connector after a delay so it
-            // retries connecting once WiFi comes back.
-            if (!explicitStop) {
-                consecutiveReconnectFailures++
-                _reconnectAttempt.value = consecutiveReconnectFailures
+            // Exponential backoff: 3s base, longer if protocol error (phone
+            // needs time to tear down old SSL session). Cap at 30s.
+            val baseDelayMs = if (lastFailureWasProtocolError) 5000L else 3000L
+            val backoffMs = (baseDelayMs * (1L shl (consecutiveReconnectFailures - 1).coerceAtMost(3)))
+                .coerceAtMost(30_000L)
+            OalLog.i(TAG, "Session died unexpectedly — retry #$consecutiveReconnectFailures in ${backoffMs}ms" +
+                if (lastFailureWasProtocolError) " (protocol error, extended backoff)" else "")
+            lastFailureWasProtocolError = false
 
-                // Exponential backoff: 3s base, longer if protocol error (phone
-                // needs time to tear down old SSL session). Cap at 30s.
-                val baseDelayMs = if (lastFailureWasProtocolError) 5000L else 3000L
-                val backoffMs = (baseDelayMs * (1L shl (consecutiveReconnectFailures - 1).coerceAtMost(3)))
-                    .coerceAtMost(30_000L)
-                OalLog.i(TAG, "Session died unexpectedly — retry #$consecutiveReconnectFailures in ${backoffMs}ms" +
-                    if (lastFailureWasProtocolError) " (protocol error, extended backoff)" else "")
-                lastFailureWasProtocolError = false
+            cancelPendingReconnect("superseded by newer teardown")
+            val job = scope.launch {
+                _connectionState.value = ConnectionState.DISCONNECTED
+                _controlMessages.emit(ControlMessage.PhoneDisconnected(reason = reason))
 
                 kotlinx.coroutines.delay(backoffMs)
-                if (!explicitStop) {
+                // Guard: if a session already reconnected while we waited (the
+                // CONNECTED guard) or an explicit stop landed, do NOT restart —
+                // restarting would tear down a working session.
+                if (explicitStop) {
+                    OalLog.i(TAG, "Pending reconnect aborted (explicit stop)")
+                } else if (_connectionState.value == ConnectionState.CONNECTED) {
+                    OalLog.i(TAG, "Pending reconnect skipped (already CONNECTED)")
+                } else {
                     OalLog.i(TAG, "Restarting transport connector")
                     when (transportMode) {
                         "usb" -> startUsb()
@@ -360,10 +427,17 @@ class AasdkSession(
                     }
                 }
             }
+            synchronized(reconnectLock) { reconnectJob = job }
+        } else {
+            scope.launch {
+                _connectionState.value = ConnectionState.DISCONNECTED
+                _controlMessages.emit(ControlMessage.PhoneDisconnected(reason = reason))
+            }
         }
     }
 
     override fun onVideoFrame(data: ByteArray, timestampUs: Long, width: Int, height: Int, flags: Int) {
+        recordVideoFrameFlow(data.size, flags)
         val frame = VideoFrame(
             width = width,
             height = height,
@@ -372,6 +446,39 @@ class AasdkSession(
             data = data
         )
         _videoFrames.tryEmit(frame)
+    }
+
+    /**
+     * (A) Frame-flow diagnostic. Accumulates inbound frames and emits a
+     * DiagnosticLog summary at most every [vfLogIntervalMs]. The gap-since-last
+     * frame is the key signal: during a black-video gap this shows whether the
+     * phone's encoder is still sending bytes (P-frames, no IDR) or is silent.
+     * Called on the native io thread; cheap and lock-free (single producer).
+     */
+    private fun recordVideoFrameFlow(size: Int, flags: Int) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val isKeyframe = (flags and 0x0001) != 0
+        val gap = if (vfLastFrameMs == 0L) 0L else now - vfLastFrameMs
+        vfLastFrameMs = now
+        if (vfWindowStartMs == 0L) vfWindowStartMs = now
+        vfFrameCount++
+        if (isKeyframe) vfKeyframeCount++
+        vfByteCount += size
+        val elapsed = now - vfWindowStartMs
+        // Flush a summary every interval, or immediately after a >1s starvation
+        // gap between frames (so a stall is captured even at low frame rates).
+        if (elapsed >= vfLogIntervalMs || gap > 1000L) {
+            val kbps = if (elapsed > 0) (vfByteCount * 8 / elapsed) else 0
+            com.openautolink.app.diagnostics.DiagnosticLog.i(
+                "vflow",
+                "frames=$vfFrameCount idr=$vfKeyframeCount bytes=$vfByteCount " +
+                    "~${kbps}kbps window=${elapsed}ms maxGap=${gap}ms"
+            )
+            vfWindowStartMs = now
+            vfFrameCount = 0
+            vfKeyframeCount = 0
+            vfByteCount = 0L
+        }
     }
 
     override fun onVideoCodecConfigured(codecType: Int) {
@@ -572,6 +679,15 @@ class AasdkSession(
             scope.launch {
                 _controlMessages.emit(ControlMessage.Error(code = -1, message = message))
             }
+        }
+    }
+
+    override fun onNativeLog(level: Int, tag: String, message: String) {
+        when (level) {
+            0 -> com.openautolink.app.diagnostics.DiagnosticLog.d(tag, message)
+            2 -> com.openautolink.app.diagnostics.DiagnosticLog.w(tag, message)
+            3 -> com.openautolink.app.diagnostics.DiagnosticLog.e(tag, message)
+            else -> com.openautolink.app.diagnostics.DiagnosticLog.i(tag, message)
         }
     }
 }

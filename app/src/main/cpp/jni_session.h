@@ -213,6 +213,11 @@ private:
     void releaseEnv(bool attached);
     void callVoidCallback(jmethodID method);
 
+    // Route a native diagnostic line into the Kotlin DiagnosticLog (the triaged
+    // log that gets uploaded). level: 0=d 1=i 2=w 3=e. Safe to call from the io
+    // thread; no-op if the callback isn't wired yet.
+    void nativeDiag(int level, const char* tag, const std::string& msg);
+
     JavaVM* jvm_;
     jobject callbackRef_ = nullptr;
 
@@ -366,6 +371,7 @@ private:
         jmethodID onVoiceSession = nullptr;
         jmethodID onAudioFocusRequest = nullptr;
         jmethodID onError = nullptr;
+        jmethodID onNativeLog = nullptr;
     };
     CallbackMethods cbMethods_;
 };

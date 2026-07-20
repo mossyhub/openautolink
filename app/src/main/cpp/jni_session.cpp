@@ -215,6 +215,7 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
     cbMethods_.onVoiceSession = env->GetMethodID(cbClass, "onVoiceSession", "(Z)V");
     cbMethods_.onAudioFocusRequest = env->GetMethodID(cbClass, "onAudioFocusRequest", "(I)V");
     cbMethods_.onError = env->GetMethodID(cbClass, "onError", "(Ljava/lang/String;)V");
+    cbMethods_.onNativeLog = env->GetMethodID(cbClass, "onNativeLog", "(ILjava/lang/String;Ljava/lang/String;)V");
     env->DeleteLocalRef(cbClass);
 
     // Read SDR config from Kotlin
@@ -416,6 +417,11 @@ void JniSession::stop()
 {
     if (stopped_.exchange(true)) return;
     LOGI("Stopping session");
+    // (D) Deep-sleep black-video investigation: we tear down by closing the
+    // TCP socket WITHOUT sending a ByeBye to the phone (despite the header
+    // comment). The phone only discovers the drop as an I/O error. Log it so
+    // the diagnostic trace marks the exact teardown moment and its reason.
+    nativeDiag(2, "session", "stop() closing transport WITHOUT ByeBye reason=" + stopReason_);
     streaming_ = false;
 
     if (transport_) transport_->stop();
@@ -443,8 +449,24 @@ void JniSession::stop()
     transport_.reset();
 }
 
+void JniSession::nativeDiag(int level, const char* tag, const std::string& msg)
+{
+    if (!cbMethods_.onNativeLog || !callbackRef_) return;
+    bool attached;
+    JNIEnv* env = getEnv(attached);
+    if (env) {
+        jstring jtag = env->NewStringUTF(tag);
+        jstring jmsg = env->NewStringUTF(msg.c_str());
+        env->CallVoidMethod(callbackRef_, cbMethods_.onNativeLog,
+                            static_cast<jint>(level), jtag, jmsg);
+        env->DeleteLocalRef(jtag);
+        env->DeleteLocalRef(jmsg);
+    }
+    releaseEnv(attached);
+}
+
 // ============================================================================
-// IControlServiceChannelEventHandler Ã¢â‚¬â€ AA handshake + session control
+// IControlServiceChannelEventHandler Ã¢â‚¬â€ AA handshake + session control
 // ============================================================================
 
 void JniSession::onVersionResponse(uint16_t majorCode, uint16_t minorCode,
@@ -864,6 +886,7 @@ void JniSession::onMediaChannelSetupRequest(
     currentVideoFocus_.store(
         aap_protobuf::service::media::video::message::VIDEO_FOCUS_PROJECTED);
     LOGI("Sending VIDEO_FOCUS_PROJECTED after setup (unsolicited)");
+    nativeDiag(1, "vfocus", "us->phone VideoFocusIndication PROJECTED unsolicited=true (post-setup)");
     aap_protobuf::service::media::video::message::VideoFocusNotification focus;
     focus.set_focus(aap_protobuf::service::media::video::message::VIDEO_FOCUS_PROJECTED);
     focus.set_unsolicited(true);
@@ -880,6 +903,10 @@ void JniSession::onMediaChannelStartIndication(
     LOGI("Video stream starting: session=%d config_idx=%d",
          indication.session_id(), indication.configuration_index());
     logProtoRaw("VideoStart", indication);
+    nativeDiag(1, "video", "phone->us VideoStart session=" +
+               std::to_string(indication.session_id()) + " config_idx=" +
+               std::to_string(indication.configuration_index()) +
+               " -> replying VideoFocusIndication PROJECTED");
 
     currentVideoFocus_.store(
         aap_protobuf::service::media::video::message::VIDEO_FOCUS_PROJECTED);
@@ -897,6 +924,7 @@ void JniSession::onMediaChannelStopIndication(
     const aap_protobuf::service::media::shared::message::Stop& /*indication*/)
 {
     LOGI("Video stream stopping");
+    nativeDiag(2, "video", "phone->us VideoStop (stream stopping)");
     videoChannel_->receive(shared_from_this());
 }
 
@@ -1002,6 +1030,9 @@ void JniSession::onVideoFocusRequest(
     LOGI("Video focus request from phone: mode=%d reason=%d "
          "(focus 1=PROJECTED 2=NATIVE 3=NATIVE_TRANSIENT; "
          "reason 1=PHONE_SCREEN_OFF 2=LAUNCH_NATIVE)", mode, reason);
+    nativeDiag(2, "vfocus", "phone->us VideoFocusRequest mode=" + std::to_string(mode) +
+               " reason=" + std::to_string(reason) +
+               " (mode 1=PROJECTED 2=NATIVE 3=NATIVE_TRANSIENT; reason 1=PHONE_SCREEN_OFF 2=LAUNCH_NATIVE)");
 
     // VIDEO_FOCUS_NATIVE = user tapped "Exit" in the AA app launcher on the
     // phone (the phone never sends ByeBye for this; it just asks us to show
@@ -1040,6 +1071,8 @@ void JniSession::onVideoFocusRequest(
     // screen off) — keep projecting. Reply with our current focus state.
     int reply = currentVideoFocus_.load();
     LOGI("Replying with current focus=%d", reply);
+    nativeDiag(1, "vfocus", "us->phone VideoFocusIndication (reply) focus=" +
+               std::to_string(reply) + " unsolicited=false");
     aap_protobuf::service::media::video::message::VideoFocusNotification focus;
     focus.set_focus(
         static_cast<aap_protobuf::service::media::video::message::VideoFocusMode>(reply));
@@ -1696,6 +1729,13 @@ void JniSession::requestKeyframe()
     if (!streaming_ || !videoChannel_) return;
     ioService_->post([this]() {
         LOGI("Requesting keyframe (VideoFocusIndication)");
+        // NOTE: there is no keyframe-request message in the AA protocol. This
+        // only re-asserts PROJECTED focus (unsolicited=false); if the phone
+        // already holds PROJECTED this is a NO-OP and will NOT force a fresh
+        // IDR. Logged so the diagnostic trace shows exactly how many of these
+        // went out during a black-video gap (they are effectively inert).
+        nativeDiag(2, "vfocus", "us->phone requestKeyframe = re-assert VideoFocusIndication(PROJECTED) "
+                   "[protocol no-op; does NOT force IDR]");
         aap_protobuf::service::media::video::message::VideoFocusNotification focus;
         focus.set_focus(aap_protobuf::service::media::video::message::VIDEO_FOCUS_PROJECTED);
         focus.set_unsolicited(false);
