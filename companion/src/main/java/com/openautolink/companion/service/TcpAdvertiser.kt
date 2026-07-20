@@ -176,8 +176,8 @@ class TcpAdvertiser(
                             aaLaunchAttempts = 0
                             stateListener.onProxyConnected()
                         }
-                        override fun onDisconnected() {
-                            CompanionLog.i(TAG, "Warm proxy disconnected")
+                        override fun onDisconnected(unexpected: Boolean) {
+                            CompanionLog.i(TAG, "Warm proxy disconnected (unexpected=$unexpected)")
                             stateListener.onProxyDisconnected()
                             isLaunching = false
                         }
@@ -378,11 +378,29 @@ class TcpAdvertiser(
                             stateListener.onProxyConnected()
                         }
 
-                        override fun onDisconnected() {
-                            CompanionLog.i(TAG, "AA TCP proxy disconnected")
+                        override fun onDisconnected(unexpected: Boolean) {
+                            CompanionLog.i(TAG, "AA TCP proxy disconnected (unexpected=$unexpected)")
                             stateListener.onProxyDisconnected()
                             // Re-accept next connection
                             isLaunching = false
+                            // Root-cause recovery for the mid-drive freeze: when
+                            // gearhead drops its localhost socket mid-session the
+                            // car TCP socket is left half-open and the car sits
+                            // frozen until its ~9s ping-timeout. Proactively (a)
+                            // close the car socket so the car gets a clean reset
+                            // and its single-flight reconnect fires immediately,
+                            // and (b) re-fire the AA launch so the phone rebuilds
+                            // the bridge as soon as the car reconnects. Only on an
+                            // UNEXPECTED break (not an intentional stop / user exit
+                            // / car-driven reconnect, which manage the socket
+                            // themselves).
+                            if (unexpected && isRunning) {
+                                CompanionLog.i(TAG,
+                                    "Unexpected bridge break — resetting car socket + relaunching AA")
+                                activeCarSocket?.let { runCatching { it.close() } }
+                                activeCarSocket = null
+                                activeProxy?.localPort?.takeIf { it > 0 }?.let { fireAaLaunchIntent(it) }
+                            }
                         }
                     },
                 )

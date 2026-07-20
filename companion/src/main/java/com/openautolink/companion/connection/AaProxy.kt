@@ -29,7 +29,17 @@ class AaProxy(
 ) {
     interface Listener {
         fun onConnected()
-        fun onDisconnected()
+        /**
+         * The bridge ended. [unexpected] is true when a live AA<->Car bridge
+         * broke on its own (gearhead closed its localhost socket, or a
+         * read/write failed) while the proxy was still running — i.e. NOT an
+         * intentional [stop]. The car TCP socket is then left half-open (no
+         * FIN/RST reaches the car because the WiFi L2 link is still up), so the
+         * car sits frozen until its ~9s ping-timeout. The handler should treat
+         * an unexpected break as a recovery trigger (close the car socket so the
+         * car gets a clean reset + reconnects, and relaunch AA).
+         */
+        fun onDisconnected(unexpected: Boolean)
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -127,12 +137,18 @@ class AaProxy(
             } catch (e: Exception) {
                 CompanionLog.e(TAG, "Bridge error: ${e.message}")
             } finally {
-                CompanionLog.i(TAG, "Bridge closed")
+                // "Unexpected" = the bridge ended while we were still running
+                // (gearhead dropped its socket / a pump read or write failed),
+                // as opposed to an intentional stop() which flips isRunning
+                // false first. Only an unexpected break should trigger the
+                // car-socket-reset + AA relaunch recovery on the handler side.
+                val unexpected = isRunning
+                CompanionLog.i(TAG, "Bridge closed (unexpected=$unexpected)")
                 activeCarSocket = null
                 runCatching { aaSocket.close() }
                 // Don't close carSocket here — let the TcpAdvertiser manage it via cleanup()
                 if (activeBridges.decrementAndGet() <= 0) {
-                    listener?.onDisconnected()
+                    listener?.onDisconnected(unexpected)
                 }
             }
         }
