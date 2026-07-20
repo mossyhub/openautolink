@@ -1426,6 +1426,54 @@ private fun FileLoggingSection() {
                     color = OalGreen,
                 )
             }
+
+            // ── Verbose logcat capture (maintainer) ─────────────────────
+            // Default capture is filtered to OAL/WiFi tags, which can't show
+            // WHY Google's AA app (gearhead) drops a session. This opt-in
+            // captures ALL logcat so gearhead's own teardown reason is
+            // recorded. Takes effect on the NEXT logging session (toggle
+            // file logging off/on, or reconnect, to apply).
+            var verboseCapture by remember {
+                mutableStateOf(
+                    logPrefs.getBoolean(
+                        CompanionPrefs.LOG_VERBOSE_CAPTURE,
+                        CompanionPrefs.DEFAULT_LOG_VERBOSE_CAPTURE,
+                    )
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Verbose logcat (maintainer)",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Switch(
+                    checked = verboseCapture,
+                    onCheckedChange = { on ->
+                        verboseCapture = on
+                        logPrefs.edit().putBoolean(CompanionPrefs.LOG_VERBOSE_CAPTURE, on).apply()
+                    },
+                )
+            }
+            if (verboseCapture) {
+                Text(
+                    text = "Captures ALL device logcat (including Google's Android Auto " +
+                        "app) so we can see why it drops mid-session. Larger logs. " +
+                        "Applies to the next logging session — toggle file logging " +
+                        "off then on, or reconnect, to start a fresh verbose capture.\n\n" +
+                        "One-time setup (to see OTHER apps' logs, not just ours): grant " +
+                        "READ_LOGS via ADB —\n" +
+                        "adb shell pm grant com.openautolink.companion android.permission.READ_LOGS\n" +
+                        "then reboot the phone. Without it, capture still runs but only " +
+                        "records this app's own process.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OalGreen,
+                )
+            }
         }
     }
 

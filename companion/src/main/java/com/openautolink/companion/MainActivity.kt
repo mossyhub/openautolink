@@ -167,6 +167,15 @@ object CompanionPrefs {
     const val LOG_PERSIST_ENABLED = "log_persist_enabled"
     const val DEFAULT_LOG_PERSIST_ENABLED = false
 
+    // Maintainer-only "verbose logcat capture" mode. OFF by default. When OFF,
+    // logcat capture is filtered to OAL/WiFi tags (`*:S`), which is compact but
+    // CANNOT see why Google's AA app (gearhead) drops a session. When ON, the
+    // capture is UNFILTERED (all tags, all processes) so gearhead's own teardown
+    // reason is recorded — used to diagnose the mid-drive freeze root cause. The
+    // log is larger, so this is a deliberate maintainer opt-in, not a default.
+    const val LOG_VERBOSE_CAPTURE = "log_verbose_capture"
+    const val DEFAULT_LOG_VERBOSE_CAPTURE = false
+
     /**
      * Returns the persistent phone UUID, generating one on first call.
      */

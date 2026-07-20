@@ -152,21 +152,43 @@ class CompanionFileLogger(private val context: Context) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         logcatScope = scope
 
+        // Maintainer verbose-capture toggle: when ON, capture ALL logcat
+        // (every tag, every process) so Google's AA app (gearhead) teardown
+        // reason is recorded — needed to diagnose why it drops mid-session.
+        // When OFF (default), filter to OAL/WiFi tags for a compact log.
+        val verbose = try {
+            context.getSharedPreferences(
+                com.openautolink.companion.CompanionPrefs.NAME, Context.MODE_PRIVATE
+            ).getBoolean(
+                com.openautolink.companion.CompanionPrefs.LOG_VERBOSE_CAPTURE,
+                com.openautolink.companion.CompanionPrefs.DEFAULT_LOG_VERBOSE_CAPTURE
+            )
+        } catch (_: Exception) { false }
+
+        val logcatCmd = if (verbose) {
+            // Unfiltered: all tags at debug+ across the whole device. Larger,
+            // but the only way to see gearhead's own logs.
+            arrayOf("logcat", "-v", "threadtime", "*:D")
+        } else {
+            arrayOf(
+                "logcat", "-v", "threadtime",
+                // Filter to our tags + system WiFi/connectivity
+                "OAL_Service:V", "OAL_TcpAdv:V",
+                "OAL_Proxy:V", "OAL_BtAutoStart:V", "OAL_WifiJob:V",
+                "OAL_WifiRx:V", "OAL_Trigger:V", "OAL_FileLog:V",
+                "WifiStateMachine:I", "ConnectivityService:I",
+                "NetworkAgent:I", "WifiManager:I",
+                "*:S" // silence everything else
+            )
+        }
+
         scope.launch {
             try {
                 // Clear logcat buffer first, then stream new lines
                 Runtime.getRuntime().exec(arrayOf("logcat", "-c")).waitFor()
+                Log.i(TAG, "Logcat capture starting (verbose=$verbose)")
 
-                val process = Runtime.getRuntime().exec(arrayOf(
-                    "logcat", "-v", "threadtime",
-                    // Filter to our tags + system WiFi/connectivity
-                    "OAL_Service:V", "OAL_TcpAdv:V",
-                    "OAL_Proxy:V", "OAL_BtAutoStart:V", "OAL_WifiJob:V",
-                    "OAL_WifiRx:V", "OAL_Trigger:V", "OAL_FileLog:V",
-                    "WifiStateMachine:I", "ConnectivityService:I",
-                    "NetworkAgent:I", "WifiManager:I",
-                    "*:S" // silence everything else
-                ))
+                val process = Runtime.getRuntime().exec(logcatCmd)
                 logcatProcess = process
 
                 val lcWriter = BufferedWriter(
