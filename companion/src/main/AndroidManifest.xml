@@ -30,6 +30,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Maintainer verbose logcat capture: READ_LOGS is a signature/privileged
+         permission a normal app cannot be granted at runtime. Declared here so a
+         maintainer can grant it once via ADB
+         (`adb shell pm grant com.openautolink.companion android.permission.READ_LOGS`)
+         to let the "Verbose logcat" toggle capture other apps' logs (gearhead).
+         Without the grant, capture still works but only sees our own process. -->
+    <uses-permission android:name="android.permission.READ_LOGS"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:allowBackup="true"
