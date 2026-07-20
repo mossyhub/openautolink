@@ -363,6 +363,23 @@ class SessionManager(
     private var decoderWatchJob: Job? = null
     private var keyframeWatchJob: Job? = null
     private var callStateJob: Job? = null
+    private var videoStallWatchJob: Job? = null
+
+    // -- Video-stall watchdog state --
+    // Wall-clock (elapsedRealtime) of the last video frame that ARRIVED from the
+    // phone (bumped in the videoFrames collector). Distinct from decode success:
+    // catches the "frames simply stop arriving" freeze (half-open TCP / phone
+    // AA video-flow wedge) that watchKeyframeNeeds cannot — that only fires on a
+    // decode FAILURE. See report 2026-06-23_1700 + 0.1.364 log 2026-07-20
+    // (great drive → froze, phone showed disconnected while still on car WiFi,
+    // caught only by the native 9s ping timeout with no recovery).
+    @Volatile private var lastVideoFrameArrivedMs = 0L
+    // Set true while the user has navigated away / screen is off, so the
+    // watchdog does not false-fire on a legitimate pause (cf. #43).
+    @Volatile private var isGoingIdle = false
+    private val VIDEO_STALL_KEYFRAME_MS = 4_000L    // no frame this long → nudge keyframe
+    private val VIDEO_STALL_RECONNECT_MS = 7_000L   // still no frame → force reconnect
+    private val VIDEO_STALL_WARMUP_MS = 6_000L      // grace after STREAMING before arming
 
     // Track last known active time for sleep/wake detection.
     // Single source of truth, updated on:
@@ -683,6 +700,10 @@ class SessionManager(
             // Watch for IDR starvation
             keyframeWatchJob?.cancel()
             keyframeWatchJob = launch { watchKeyframeNeeds() }
+
+            // Watch for video-arrival stall (frames stop coming entirely)
+            videoStallWatchJob?.cancel()
+            videoStallWatchJob = launch { watchVideoStall() }
 
             // Watch call state for mic purpose routing
             callStateJob?.cancel()
@@ -1011,6 +1032,7 @@ class SessionManager(
         // Collect video frames
         scope.launch(videoDispatcher) {
             session.videoFrames.collect { frame ->
+                lastVideoFrameArrivedMs = SystemClock.elapsedRealtime()
                 _videoDecoder?.onFrame(frame)
             }
         }
@@ -1093,6 +1115,8 @@ class SessionManager(
         decoderWatchJob = null
         keyframeWatchJob?.cancel()
         keyframeWatchJob = null
+        videoStallWatchJob?.cancel()
+        videoStallWatchJob = null
         callStateJob?.cancel()
         callStateJob = null
         aasdkSession?.stop()
@@ -1219,6 +1243,7 @@ class SessionManager(
                     observeJob?.cancelAndJoin()
                     decoderWatchJob?.cancelAndJoin()
                     keyframeWatchJob?.cancelAndJoin()
+                    videoStallWatchJob?.cancelAndJoin()
                     callStateJob?.cancelAndJoin()
                 } catch (_: Exception) {}
                 doReconnectAfterCancel(
@@ -1257,6 +1282,7 @@ class SessionManager(
         observeJob = null
         decoderWatchJob = null
         keyframeWatchJob = null
+        videoStallWatchJob = null
         callStateJob = null
 
         // 2. Stop old AA session + location forwarding
@@ -1295,6 +1321,7 @@ class SessionManager(
         observeJob = scope.launch {
             decoderWatchJob = launch { watchDecoderState() }
             keyframeWatchJob = launch { watchKeyframeNeeds() }
+            videoStallWatchJob = launch { watchVideoStall() }
             callStateJob = launch { watchCallState() }
 
             startSession(directTransport, hotspotSsid, hotspotPassword,
@@ -1382,6 +1409,7 @@ class SessionManager(
         val gap = now - lastActiveTimestamp
         lastWakeHandledAtMs = now
         lastActiveTimestamp = now
+        isGoingIdle = false
 
         val gapStr = formatGap(gap)
         OalLog.i(TAG, "Wake: reason=$reason gap=$gapStr")
@@ -1416,6 +1444,7 @@ class SessionManager(
      */
     fun markGoingIdle(reason: String) {
         lastActiveTimestamp = SystemClock.elapsedRealtime()
+        isGoingIdle = true
         OalLog.i(TAG, "Going idle: $reason")
         DiagnosticLog.i("transport", "Going idle: $reason")
     }
@@ -1707,6 +1736,56 @@ class SessionManager(
         }
     }
 
+    /**
+     * Video-stall watchdog. Fires when video frames STOP ARRIVING from the
+     * phone while we believe we're actively streaming — the freeze class that
+     * [watchKeyframeNeeds] cannot catch (that only reacts to decode FAILURES,
+     * but here the decoder is simply starved because nothing arrives).
+     *
+     * Two-stage recovery, both guarded against legitimate pauses:
+     *   1. after [VIDEO_STALL_KEYFRAME_MS] with no frame → requestKeyframe()
+     *      (cheap nudge; may un-wedge a video-only flow stall).
+     *   2. after [VIDEO_STALL_RECONNECT_MS] with no frame → forceReconnect()
+     *      (the half-open-TCP hammer; a keyframe can't cross a dead pipe).
+     * A [VIDEO_STALL_WARMUP_MS] grace from entering STREAMING avoids racing the
+     * first-frame warmup, and we skip entirely while going idle / not STREAMING.
+     */
+    private suspend fun watchVideoStall() {
+        var reconnectRequested = false
+        while (true) {
+            delay(1000)
+            if (_sessionState.value != SessionState.STREAMING || isGoingIdle) {
+                reconnectRequested = false
+                continue
+            }
+            val last = lastVideoFrameArrivedMs
+            if (last == 0L) continue  // no frame yet this session — warmup
+            val now = SystemClock.elapsedRealtime()
+            val stallMs = now - last
+            // Warmup grace: don't act until at least one frame is well past the
+            // STREAMING transition (last is only set once frames actually flow).
+            if (stallMs < VIDEO_STALL_KEYFRAME_MS) {
+                reconnectRequested = false
+                continue
+            }
+            if (stallMs >= VIDEO_STALL_RECONNECT_MS) {
+                if (!reconnectRequested) {
+                    reconnectRequested = true
+                    OalLog.w(TAG, "Video stall ${stallMs}ms — forcing reconnect")
+                    DiagnosticLog.w("video", "Video stall ${stallMs}ms (no frames) — forceReconnect")
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        aasdkSession?.forceReconnect("video stall ${stallMs}ms")
+                    }
+                }
+            } else {
+                // 4s..7s window: cheap keyframe nudge, once per stall episode.
+                OalLog.w(TAG, "Video stall ${stallMs}ms — requesting keyframe")
+                DiagnosticLog.w("video", "Video stall ${stallMs}ms (no frames) — requestKeyframe")
+                requestKeyframe()
+            }
+        }
+    }
+
     private suspend fun watchCallState() {
         val player = _audioPlayer ?: return
         player.callState.collect { state ->
@@ -1727,6 +1806,10 @@ class SessionManager(
                 seedCurrentUiNightMode("phone_connected")
                 _sessionState.value = SessionState.STREAMING
                 _statusMessage.value = "Streaming"
+                // Reset the stall watchdog baseline: give the fresh session a
+                // full warmup window before it can fire (avoids a stale
+                // timestamp from a prior session tripping it immediately).
+                lastVideoFrameArrivedMs = SystemClock.elapsedRealtime() + VIDEO_STALL_WARMUP_MS
                 aasdkSession?.let { startLocationForwarding(it) }
                 _vehicleDataForwarder?.start()
                 _imuForwarder?.start()
