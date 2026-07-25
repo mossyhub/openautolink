@@ -339,12 +339,24 @@ class TcpAdvertiser(
         // point for the pre-warm path: a proxy created by preWarmAaPipeline()
         // has no car socket yet, and lands here when the car finally arrives.
         if (proxy != null && !proxy.hasActiveBridge()) {
-            CompanionLog.i(TAG, "Car connection landing on warm proxy on port ${proxy.localPort}")
+            // hasActiveBridge() is false both when AA hasn't connected yet AND
+            // when a pre-warm bridge is parked waiting for exactly this socket.
+            // Distinguish them in the log so the pre-warm race is visible.
+            if (proxy.hasPendingBridge()) {
+                CompanionLog.i(TAG, "Car connection handed to pre-warmed AA bridge on port ${proxy.localPort}")
+            } else {
+                CompanionLog.i(TAG, "Car connection landing on warm proxy on port ${proxy.localPort}")
+            }
             activeCarSocket?.let { runCatching { it.close() } }
             activeCarSocket = carSocket
             proxy.updateCarSocket(carSocket)
-            // Re-fire the trigger in case AA missed the previous one
-            fireAaLaunchIntent(proxy.localPort)
+            // Re-fire the trigger only if AA has NOT already attached. Re-firing
+            // at a bridge that is mid-handshake makes gearhead obsolete its own
+            // session (SESSION_OBSOLETE_DUE_TO_NEW_CONNECTION) and starts the
+            // relaunch storm.
+            if (!proxy.hasPendingBridge()) {
+                fireAaLaunchIntent(proxy.localPort)
+            }
             // Reset the watchdog with the full budget
             startAaConnectWatchdog(carSocket)
             return

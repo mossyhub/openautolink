@@ -48,19 +48,49 @@ class AaProxy(
     private val activeBridges = AtomicInteger(0)
     private var bridgeUsed = false
 
-    /** Returns true if at least one AA bridge is active (AA connected and streaming). */
-    fun hasActiveBridge(): Boolean = activeBridges.get() > 0
+    /**
+     * Bridges that are actually PUMPING (car socket acquired, both pipes wired up).
+     *
+     * Distinct from [activeBridges] on purpose. `activeBridges` is incremented the
+     * instant the bridge coroutine starts — which, on the pre-warm path, happens
+     * while we are still *waiting* for the car to show up (see
+     * [awaitPendingCarSocket]). Treating that window as "active" made
+     * [hasActiveBridge] return true before any data could possibly flow, which sent
+     * TcpAdvertiser.handleCarConnection() down its destructive branch: stop() the
+     * proxy and re-listen on a NEW port, tearing the socket out from under the AA
+     * reader that was already attached. gearhead then logged
+     * `ReaderThread: end of stream received, dataReceived=false` ->
+     * FRAMER_READ_END_OF_STREAM_NO_DATA -> PROTOCOL_IO_ERROR(3)/READER_CLOSE(52),
+     * and OAL relaunched AA on the new port, producing the reconnect storm
+     * (confirmed by live adb capture 2026-07-25 13:56).
+     */
+    private val pumpingBridges = AtomicInteger(0)
+
+    /**
+     * True only when a bridge is genuinely pumping bytes.
+     *
+     * Callers use this to decide whether a newly-arrived car socket can be swapped
+     * into the existing (still-warm) proxy instead of destroying it. During the
+     * pre-warm wait this MUST report false so the car socket is handed to the
+     * waiting bridge via [updateCarSocket] rather than triggering a rebind.
+     */
+    fun hasActiveBridge(): Boolean = pumpingBridges.get() > 0
+
+    /** True if a bridge coroutine exists at all, including one still awaiting a car socket. */
+    fun hasPendingBridge(): Boolean = activeBridges.get() > 0
 
     @Volatile private var pendingCarSocket: Socket? = null
 
     /**
      * Replace the car-side socket used for the next bridge session.
-     * Safe to call while waiting for AA to connect (no active bridge).
-     * If a bridge is already active this is a no-op — the active session
-     * owns its socket until it completes.
+     * Safe to call while waiting for AA to connect (no active bridge), and also
+     * while a pre-warm bridge is parked in [awaitPendingCarSocket] — that is
+     * exactly how the car socket reaches a bridge that AA attached to first.
+     * If a bridge is already PUMPING this is a no-op — the live session owns its
+     * socket until it completes.
      */
     fun updateCarSocket(newCarSocket: Socket) {
-        if (activeBridges.get() > 0) return  // active bridge owns its socket
+        if (pumpingBridges.get() > 0) return  // live bridge owns its socket
         pendingCarSocket = newCarSocket
         CompanionLog.d(TAG, "Car socket updated (pending AA connect)")
     }
@@ -95,6 +125,7 @@ class AaProxy(
     private fun launchBridge(aaSocket: Socket) {
         scope.launch {
             var carSocket: Socket? = null
+            var counted = false
             try {
                 activeBridges.incrementAndGet()
                 listener?.onConnected()
@@ -106,6 +137,13 @@ class AaProxy(
                 // came up before the car ignition's WiFi finished), no socket
                 // exists yet — wait briefly for one to arrive via
                 // updateCarSocket() rather than failing immediately.
+                //
+                // NOTE: pumpingBridges is deliberately NOT incremented until the
+                // car socket is in hand. While parked in awaitPendingCarSocket()
+                // this proxy must still look "not active" so an arriving car
+                // socket is swapped in here instead of causing TcpAdvertiser to
+                // stop() us and rebind on a fresh port (which would EOF the AA
+                // reader already attached above).
                 carSocket = pendingCarSocket?.also { pendingCarSocket = null }
                     ?: preConnectedSocket
                     ?: awaitPendingCarSocket(PREWARM_CAR_WAIT_MS)
@@ -113,6 +151,8 @@ class AaProxy(
                         "No car socket within ${PREWARM_CAR_WAIT_MS}ms — AA connected but no car ready"
                     )
                 activeCarSocket = carSocket
+                pumpingBridges.incrementAndGet()
+                counted = true
 
                 CompanionLog.i(TAG, "Bridge established: AA <-> Car")
 
@@ -129,6 +169,7 @@ class AaProxy(
             } finally {
                 CompanionLog.i(TAG, "Bridge closed")
                 activeCarSocket = null
+                if (counted) pumpingBridges.decrementAndGet()
                 runCatching { aaSocket.close() }
                 // Don't close carSocket here — let the TcpAdvertiser manage it via cleanup()
                 if (activeBridges.decrementAndGet() <= 0) {
