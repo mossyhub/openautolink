@@ -67,6 +67,17 @@ class TcpAdvertiser(
         private const val BIND_RETRY_MAX = 10
         /** Delay between bind retries (ms). 10 retries × 300ms = 3s max wait. */
         private const val BIND_RETRY_DELAY_MS = 300L
+
+        /**
+         * Consecutive unexpected bridge breaks before we stop re-inviting AA and just
+         * wait for the car to re-dial. Prevents the ~100ms hot loop observed when the
+         * car leaves the network mid-session.
+         */
+        private const val MAX_BRIDGE_RELAUNCHES = 5
+        /** First backoff step; doubles each attempt (250/500/1000/2000/4000ms). */
+        private const val BRIDGE_RELAUNCH_BASE_MS = 250L
+        /** Ceiling for the bridge-relaunch backoff. */
+        private const val BRIDGE_RELAUNCH_MAX_MS = 4_000L
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -78,6 +89,12 @@ class TcpAdvertiser(
     private var nsdManager: NsdManager? = null
     private var nsdRegistrationListener: NsdManager.RegistrationListener? = null
     private var aaConnectWatchdog: Job? = null
+
+    /** Debounce job for re-inviting AA after an unexpected bridge break. */
+    private var bridgeRelaunchJob: Job? = null
+
+    /** Consecutive unexpected bridge breaks; drives the relaunch backoff + cap. */
+    private var bridgeRelaunchAttempts = 0
 
     @Volatile
     private var isRunning = false
@@ -171,6 +188,7 @@ class TcpAdvertiser(
                     listener = object : AaProxy.Listener {
                         override fun onConnected() {
                             CompanionLog.i(TAG, "AA flowing through warm proxy")
+                            bridgeRelaunchAttempts = 0
                             aaConnectWatchdog?.cancel()
                             aaConnectWatchdog = null
                             aaLaunchAttempts = 0
@@ -331,6 +349,13 @@ class TcpAdvertiser(
 
     private fun handleCarConnection(carSocket: Socket) {
         val proxy = activeProxy
+        // A real car socket just arrived: any pending bridge-break backoff is stale
+        // (it exists only to avoid hot-looping while the car is ABSENT) and the
+        // consecutive-break counter must reset, otherwise a burst of breaks before
+        // the car left would permanently latch the cap for this session.
+        bridgeRelaunchJob?.cancel()
+        bridgeRelaunchJob = null
+        bridgeRelaunchAttempts = 0
         // If a proxy is already listening and AA hasn't connected yet, reuse it:
         // swap in the new car socket so the next AA connection bridges to the
         // freshest car TCP session. This avoids throwing away a proxy whose port
@@ -372,6 +397,10 @@ class TcpAdvertiser(
                         override fun onConnected() {
                             CompanionLog.i(TAG, "AA flowing through TCP proxy")
                             // AA is alive — cancel the watchdog and reset retry counter.
+                            // Also clear the bridge-break backoff: a working bridge means
+                            // the previous breaks are history and the next unrelated break
+                            // deserves a fresh, fast first retry.
+                            bridgeRelaunchAttempts = 0
                             aaConnectWatchdog?.cancel()
                             aaConnectWatchdog = null
                             aaLaunchAttempts = 0
@@ -395,11 +424,39 @@ class TcpAdvertiser(
                             // / car-driven reconnect, which manage the socket
                             // themselves).
                             if (unexpected && isRunning) {
-                                CompanionLog.i(TAG,
-                                    "Unexpected bridge break — resetting car socket + relaunching AA")
+                                // A half-open socket (gearhead dropped its localhost end
+                                // mid-session, car still on the network) still reports
+                                // isConnected=true / isClosed=false, so the mid-drive
+                                // freeze recovery below still fires for that case. A car
+                                // that actually LEFT the network shows up here with
+                                // activeCarSocket already closed or null.
+                                val hadLiveCar = activeCarSocket?.let { !it.isClosed && it.isConnected } == true
                                 activeCarSocket?.let { runCatching { it.close() } }
                                 activeCarSocket = null
-                                activeProxy?.localPort?.takeIf { it > 0 }?.let { fireAaLaunchIntent(it) }
+                                // Only re-invite AA if the car was actually still
+                                // present. If the car has left the network (hotspot
+                                // dropped, drove out of range, ignition off) there is
+                                // nothing to bridge TO: AA reconnects to the proxy in
+                                // ~100ms, the bridge is built onto the already-dead
+                                // car socket, fails instantly with "Socket is closed",
+                                // and we relaunch again — a hot loop that burns phone
+                                // battery and spams gearhead with dead sessions.
+                                // Measured 2026-07-25 (21s hotspot-off test): 622 AA
+                                // connects / 617 "Socket is closed" from only 4 real
+                                // car sockets, peaking at 339 in a single minute.
+                                // When the car is gone we simply stop and wait — the
+                                // car re-dials on its own and handleCarConnection()
+                                // restarts the pipeline from a clean state.
+                                if (!hadLiveCar) {
+                                    CompanionLog.i(TAG,
+                                        "Unexpected bridge break — car socket already dead, " +
+                                            "NOT relaunching AA; waiting for the car to reconnect")
+                                    scheduleBridgeRelaunch(null)
+                                } else {
+                                    CompanionLog.i(TAG,
+                                        "Unexpected bridge break — resetting car socket + relaunching AA")
+                                    scheduleBridgeRelaunch(activeProxy?.localPort?.takeIf { it > 0 })
+                                }
                             }
                         }
                     },
@@ -414,6 +471,61 @@ class TcpAdvertiser(
                 isLaunching = false
                 stateListener.onProxyDisconnected()
             }
+        }
+    }
+
+    /**
+     * Debounced, capped re-invite of Android Auto after an unexpected bridge break.
+     *
+     * Replaces the previous unconditional `fireAaLaunchIntent()` call, which had no
+     * liveness check and no delay. When the car left the network mid-session, AA would
+     * reconnect to the proxy within ~100ms, bridge onto the already-closed car socket,
+     * fail with "Socket is closed", and trigger another relaunch — a hot loop measured
+     * at 622 AA connects / 617 failures from only 4 real car sockets during a 21s
+     * hotspot-off test (peak 339 in one minute).
+     *
+     * @param localPort proxy port to re-invite AA on, or null when the car is gone and
+     *   we should simply stand down and wait for it to re-dial.
+     */
+    private fun scheduleBridgeRelaunch(localPort: Int?) {
+        bridgeRelaunchJob?.cancel()
+
+        if (localPort == null) {
+            // Car is gone — stand down. handleCarConnection() restarts the pipeline
+            // cleanly when the car re-dials, so there is nothing to retry here.
+            bridgeRelaunchAttempts = 0
+            bridgeRelaunchJob = null
+            return
+        }
+
+        bridgeRelaunchAttempts++
+        if (bridgeRelaunchAttempts > MAX_BRIDGE_RELAUNCHES) {
+            CompanionLog.w(TAG,
+                "Bridge broke $MAX_BRIDGE_RELAUNCHES times in a row — standing down; " +
+                    "waiting for the car to reconnect")
+            bridgeRelaunchAttempts = 0
+            bridgeRelaunchJob = null
+            return
+        }
+
+        // Exponential backoff: 250ms, 500ms, 1s, 2s, 4s (capped).
+        val delayMs = (BRIDGE_RELAUNCH_BASE_MS shl (bridgeRelaunchAttempts - 1))
+            .coerceAtMost(BRIDGE_RELAUNCH_MAX_MS)
+
+        bridgeRelaunchJob = scope.launch {
+            delay(delayMs)
+            if (!isRunning) return@launch
+            // Re-check: the car may have re-dialled during the backoff, in which case
+            // handleCarConnection() has already rebuilt the pipeline and this stale
+            // relaunch would only cause churn.
+            if (activeCarSocket != null) {
+                CompanionLog.i(TAG, "Car reconnected during backoff — skipping stale AA relaunch")
+                bridgeRelaunchAttempts = 0
+                return@launch
+            }
+            CompanionLog.i(TAG,
+                "Re-inviting AA after bridge break (attempt $bridgeRelaunchAttempts, ${delayMs}ms backoff)")
+            fireAaLaunchIntent(localPort)
         }
     }
 
@@ -512,6 +624,9 @@ class TcpAdvertiser(
         isRunning = false
         aaConnectWatchdog?.cancel()
         aaConnectWatchdog = null
+        bridgeRelaunchJob?.cancel()
+        bridgeRelaunchJob = null
+        bridgeRelaunchAttempts = 0
         unregisterNsd()
         activeProxy?.stop()
         activeProxy = null
