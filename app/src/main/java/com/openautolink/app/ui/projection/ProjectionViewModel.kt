@@ -440,7 +440,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 var settle = false
                 try {
                     val mode = preferences.connectionMode.first()
-                    if (mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
+                    val usbMode = preferences.directTransport.first() ==
+                        AppPreferences.DIRECT_TRANSPORT_USB
+                    if (!usbMode && mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
                         val defaultId = preferences.defaultPhoneId.first()
                         val askMode = preferences.alwaysAskPhone.first()
                         val noDefault = defaultId.isBlank()
@@ -569,7 +571,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             //      briefly before giving up.
             //   3. Fall back to the persistent manual-IP setting.
             val mode = preferences.connectionMode.first()
-            val carHotspotPhone = if (overrideIp == null && mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
+            // USB transport short-circuits wireless resolution entirely: no
+            // mDNS grace, no UDP broadcast, no /24 sweep. The phone is on the
+            // cable and UsbConnectionManager owns the connection.
+            val carHotspotPhone = if (directTransport != AppPreferences.DIRECT_TRANSPORT_USB &&
+                overrideIp == null && mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
                 // Long budget: with directed probing (no /24 sweep) this is
                 // cheap — just one TCP probe per known IP every
                 // [WARM_CACHE_RETRY_GAP_MS]. The user's guidance is to set a
@@ -737,6 +743,38 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         AppPreferences.DEFAULT_CONNECTION_MODE,
     )
 
+    /**
+     * True when the user has selected the USB (AOAv2) transport.
+     *
+     * `directTransport` and `connectionMode` are independent preferences, and
+     * historically only `AasdkSession` branched on the former — every wireless
+     * behaviour in this ViewModel gated on `connectionMode`, which stays
+     * `car_hotspot` while USB is selected. The result (car app 0.1.371,
+     * 2026-07-27): in USB mode the app still ran mDNS discovery, the UDP
+     * broadcast, the /24 sweep, the "no default phone" chooser gate (20s of
+     * dead time before the USB session even started) and, worst of all, fired
+     * `src=SWEEP` wireless auto-connects on top of a live USB session.
+     *
+     * The Settings help text already promises the correct behaviour — "The
+     * Wi-Fi connection mode below is ignored" — so every wireless trigger now
+     * consults this flow first.
+     */
+    val usbTransportActive: StateFlow<Boolean> = preferences.directTransport
+        .map { it == AppPreferences.DIRECT_TRANSPORT_USB }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            AppPreferences.DEFAULT_DIRECT_TRANSPORT == AppPreferences.DIRECT_TRANSPORT_USB,
+        )
+
+    /**
+     * True when wireless phone discovery / auto-connect should run at all.
+     * Car Hotspot mode drives the multi-phone UX, but USB overrides it.
+     */
+    private val wirelessDiscoveryEnabled: Boolean
+        get() = !usbTransportActive.value &&
+            connectionMode.value == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT
+
     /** Persistent known-phones list, surfaced for the chooser + settings. */
     val knownPhones: StateFlow<List<KnownPhone>> = knownPhonesStore.phones.stateIn(
         viewModelScope,
@@ -829,13 +867,19 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         // keeps `knownPhones` "online" status fresh and lets the floating
         // switcher button surface phones the moment they appear on the AP.
         viewModelScope.launch {
-            connectionMode.collect { mode ->
-                if (mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
-                    phoneDiscovery.start()
-                } else {
-                    phoneDiscovery.stop()
+            kotlinx.coroutines.flow.combine(
+                connectionMode,
+                usbTransportActive,
+            ) { mode, usb -> mode to usb }
+                .collect { (mode, usb) ->
+                    if (!usb && mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
+                        phoneDiscovery.start()
+                    } else {
+                        // USB transport: the phone is on the cable, there is
+                        // nothing to discover. Keep mDNS/sweep off entirely.
+                        phoneDiscovery.stop()
+                    }
                 }
-            }
         }
         // Debug aid for emulator testing: when manualIpEnabled is on, inject
         // a synthetic resolved phone into PhoneDiscovery so the picker /
@@ -873,8 +917,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 .distinctUntilChanged()
                 .collect { tuples ->
-                    val mode = connectionMode.value
-                    if (mode != AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) return@collect
+                    if (!wirelessDiscoveryEnabled) return@collect
                     tuples.forEach { (id, name) ->
                         knownPhonesStore.touch(
                             phoneId = id,
@@ -907,7 +950,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 // sit idle. The wake event is a level signal — use it to
                 // resync. Gate on the same conditions as the edge collector.
                 if (event.gapMs >= WAKE_AUTO_RECONNECT_MIN_GAP_MS &&
-                    connectionMode.value == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT &&
+                    wirelessDiscoveryEnabled &&
                     !alwaysAskPhone.value &&
                     defaultPhoneId.value.isNotBlank() &&
                     !connectInFlight &&
@@ -937,7 +980,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 .collect { state ->
                     val on = state == 4 || state == 5
                     if (!on) return@collect
-                    if (connectionMode.value != AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) return@collect
+                    if (!wirelessDiscoveryEnabled) return@collect
                     if (alwaysAskPhone.value) return@collect
                     if (defaultPhoneId.value.isBlank()) return@collect
                     if (connectInFlight) return@collect
@@ -979,8 +1022,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     // message.
                     if (_showPhoneChooser.value) return@collect
                     if (alwaysAskPhone.value) return@collect
-                    val mode = connectionMode.value
-                    if (mode != AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) return@collect
+                    // USB has no phone picker — escalating there would pop a
+                    // wireless chooser over a working cable session.
+                    if (!wirelessDiscoveryEnabled) return@collect
 
                     val activeId = _activePhoneId.value
                     val defaultId = defaultPhoneId.value
@@ -1045,6 +1089,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     val haveDefault = defaultPhoneId.value.isNotBlank()
                     val idleAndCarHotspot = mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT &&
                         state == SessionState.IDLE
+                    if (usbTransportActive.value) continue  // USB: nothing to sweep for
                     if (!idleAndCarHotspot) continue
                     if (askMode) continue          // user wants to pick manually
                     if (!haveDefault) continue     // no default → chooser path handles it
@@ -1073,8 +1118,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 .build()
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    val mode = connectionMode.value
-                    if (mode != AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) return
+                    if (!wirelessDiscoveryEnabled) return
                     if (sessionManager.sessionState.value != SessionState.IDLE) return
                     if (!defaultPhoneId.value.isNotBlank()) return
                     if (alwaysAskPhone.value) return
@@ -1100,8 +1144,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 .map { list -> list.any { it.isResolved } }
                 .distinctUntilChanged()
                 .collect { anyResolved ->
-                    val mode = connectionMode.value
-                    if (mode != AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) return@collect
+                    if (!wirelessDiscoveryEnabled) return@collect
                     if (alwaysAskPhone.value) return@collect
                     if (!anyResolved) return@collect
                     // First-run / data-wipe path: no default yet. Promote the
@@ -1438,7 +1481,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     ): com.openautolink.app.transport.PhoneDiscovery.DiscoveredPhone? {
         // Make sure discovery is actually running. The init-block flow starts
         // it on connectionMode change, but the user might call connect()
-        // before that emit lands.
+        // before that emit lands. Never start it in USB mode — doConnect()
+        // already short-circuits, but guard here too so no future caller
+        // resurrects the sweep on a cable session.
+        if (usbTransportActive.value) {
+            OalLog.i(TAG, "USB transport — skipping wireless phone resolution")
+            return null
+        }
         phoneDiscovery.start()
 
         val defaultId = try {

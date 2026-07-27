@@ -201,6 +201,8 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_VIDEO_SCALING_MODE = "crop" // "letterbox" or "crop"
         const val DEFAULT_HOTSPOT_SSID = ""
         const val DEFAULT_HOTSPOT_PASSWORD = ""
+        const val DIRECT_TRANSPORT_HOTSPOT = "hotspot"
+        const val DIRECT_TRANSPORT_USB = "usb"
         const val DEFAULT_DIRECT_TRANSPORT = "hotspot" // "hotspot" (TCP over shared WiFi), "usb" (AOAv2)
         const val DEFAULT_MANUAL_IP_ENABLED = false
         const val DEFAULT_MANUAL_IP_ADDRESS = ""

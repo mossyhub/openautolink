@@ -95,6 +95,28 @@ class UsbConnectionManager(
     @Volatile
     private var currentPipe: UsbTransportPipe? = null
 
+    /**
+     * Guards the connect path against being entered twice for the same
+     * accessory. Two independent callers race here on every USB session:
+     *
+     *  1. the [ACTION_USB_PERMISSION] broadcast → [onPermissionGranted], and
+     *  2. the [performAoaSwitch] re-enumeration poll loop, which rescans for
+     *     the switched accessory and calls [requestPermissionOrConnect] again.
+     *
+     * Before this guard both paths reached [connectToAccessory] and each one
+     * invoked [onTransportReady], so `AasdkSession` ran `nativeCreateSession`
+     * + `nativeStartSession` a second time on a live session. The duplicate
+     * start forced a `nativeStopSession` from the wrong thread and tripped the
+     * `JniSession::stop()` io_service join — an ANR (observed 2026-07-27 on
+     * car app 0.1.371: two tombstoned dumps in three minutes, every session
+     * showing a duplicate "USB endpoints opened" / "Starting native aasdk
+     * session (USB)" pair ~5ms apart).
+     *
+     * Claiming is atomic via [connectClaimed] so whichever path arrives first
+     * wins and the loser becomes a no-op.
+     */
+    private val connectClaimed = java.util.concurrent.atomic.AtomicBoolean(false)
+
     @Volatile
     private var currentConnection: UsbDeviceConnection? = null
 
@@ -267,6 +289,14 @@ class UsbConnectionManager(
     }
 
     private fun requestPermissionOrConnect(device: UsbDevice) {
+        // Idempotency gate — see [connectClaimed]. A session is already
+        // established or being established; a second caller must not start
+        // another native session on top of it.
+        if (currentPipe != null || connectClaimed.get()) {
+            OalLog.i(TAG, "Ignoring duplicate connect for ${device.deviceName} — " +
+                    "a USB session is already claimed (state=${_connectionState.value})")
+            return
+        }
         if (usbManager.hasPermission(device)) {
             onPermissionGranted(device)
         } else {
@@ -310,9 +340,16 @@ class UsbConnectionManager(
         _status.value = "Waiting for accessory re-enumeration..."
         delay(AOA_SWITCH_SETTLE_MS)
 
-        // Poll for the accessory device
+        // Poll for the accessory device. Bail out early if another path (the
+        // ACTION_USB_PERMISSION broadcast, which commonly lands first once the
+        // accessory re-enumerates) has already claimed the connect slot —
+        // otherwise this loop races it into a duplicate native session start.
         var attempts = 0
         while (isRunning && attempts < ACCESSORY_SCAN_MAX_ATTEMPTS) {
+            if (currentPipe != null || connectClaimed.get()) {
+                OalLog.i(TAG, "AOA re-enumeration poll stopping — connect already claimed")
+                return
+            }
             val devices = usbManager.deviceList
             for ((_, d) in devices) {
                 if (UsbConstants.isAccessoryDevice(d.vendorId, d.productId)) {
@@ -331,6 +368,14 @@ class UsbConnectionManager(
     }
 
     private fun connectToAccessory(device: UsbDevice) {
+        // Atomically claim the connect slot. If another path (permission
+        // broadcast vs. AOA re-enumeration poll) beat us here, abort — a
+        // duplicate onTransportReady() starts a second native aasdk session
+        // on a live transport and deadlocks JniSession::stop().
+        if (!connectClaimed.compareAndSet(false, true)) {
+            OalLog.i(TAG, "connectToAccessory skipped — slot already claimed by another path")
+            return
+        }
         _connectionState.value = UsbConnectionState.CONNECTING
         _status.value = "Opening USB endpoints..."
 
@@ -339,6 +384,7 @@ class UsbConnectionManager(
             OalLog.e(TAG, "Failed to open accessory device")
             _status.value = "Failed to open device"
             _connectionState.value = UsbConnectionState.IDLE
+            connectClaimed.set(false)
             return
         }
 
@@ -349,6 +395,7 @@ class UsbConnectionManager(
             connection.close()
             _status.value = "No bulk endpoints"
             _connectionState.value = UsbConnectionState.IDLE
+            connectClaimed.set(false)
             return
         }
 
@@ -357,6 +404,7 @@ class UsbConnectionManager(
             connection.close()
             _status.value = "Failed to claim interface"
             _connectionState.value = UsbConnectionState.IDLE
+            connectClaimed.set(false)
             return
         }
 
@@ -407,6 +455,9 @@ class UsbConnectionManager(
         currentPipe?.close()
         currentPipe = null
         currentConnection = null
+        // Release the connect slot so a genuine re-attach (cable replug,
+        // detach broadcast, session restart) can establish a new session.
+        connectClaimed.set(false)
     }
 
     private fun isHubOrSystemDevice(device: UsbDevice): Boolean {
