@@ -411,6 +411,83 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
 }
 
 // ============================================================================
+// shutdownGracefully()
+//
+// Sends the protocol ByeBye (ShutdownRequest) before tearing down, so the phone
+// is TOLD the head unit is going away instead of discovering it when its ~9s
+// ping watchdog fires. That silent disappearance is what makes the reconnect
+// after ignition-off slow and messy on the phone side.
+//
+// Threading mirrors onByeByeRequest()/onVideoFocusRequest(): stop() joins
+// ioThread_, so it must never run on that thread. The send promise resolves on
+// the io thread, hence the detached workers below.
+// ============================================================================
+
+void JniSession::shutdownGracefully(const std::string& reason, int timeoutMs)
+{
+    // Only meaningful while a session is actually up; otherwise just tear down.
+    if (!controlChannel_ || !strand_ || !messenger_) {
+        nativeDiag(2, "session", "shutdownGracefully: no live session, plain stop reason=" + reason);
+        stopReason_ = reason;
+        stop();
+        return;
+    }
+
+    // Guard against a second caller racing in (e.g. ignition-off and user exit
+    // arriving together) and double-sending / double-stopping.
+    bool expected = false;
+    if (!byeByeSent_.compare_exchange_strong(expected, true)) {
+        nativeDiag(2, "session", "shutdownGracefully: ByeBye already in flight, ignoring " + reason);
+        return;
+    }
+
+    stopReason_ = reason;
+    nativeDiag(1, "session", "shutdownGracefully: sending ByeBye reason=" + reason +
+                             " timeout=" + std::to_string(timeoutMs) + "ms");
+
+    auto self = shared_from_this();
+    auto done = std::make_shared<std::atomic<bool>>(false);
+
+    // Watchdog: if the phone never acknowledges (or the write stalls on a link
+    // that is already half-dead), tear down anyway. The head unit may be only
+    // seconds from losing power, so this must be bounded and must never block.
+    std::thread([self, done, timeoutMs]() {
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (done->load()) return;  // promise path already handled it
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (!done->exchange(true)) {
+            LOGW("ByeBye not acknowledged within %dms - stopping anyway", timeoutMs);
+            self->stop();
+        }
+    }).detach();
+
+    aap_protobuf::service::control::message::ByeByeRequest request;
+    // ByeByeReason has no VEHICLE_SHUTDOWN member (USER_SELECTION, DEVICE_SWITCH,
+    // NOT_SUPPORTED, NOT_CURRENTLY_SUPPORTED, PROBE_SUPPORTED). USER_SELECTION is
+    // the closest honest fit for "this head unit is going away deliberately" and
+    // is already handled by gearhead as a clean teardown.
+    request.set_reason(aap_protobuf::service::control::message::USER_SELECTION);
+
+    auto promise = aasdk::channel::SendPromise::defer(*strand_);
+    promise->then(
+        [self, done]() {
+            if (!done->exchange(true)) {
+                LOGI("ByeBye sent - tearing down");
+                std::thread([self] { self->stop(); }).detach();
+            }
+        },
+        [self, done](const aasdk::error::Error& e) {
+            if (!done->exchange(true)) {
+                LOGW("ByeBye send failed (%s) - tearing down anyway", e.what());
+                std::thread([self] { self->stop(); }).detach();
+            }
+        });
+    controlChannel_->sendShutdownRequest(request, std::move(promise));
+}
+
+// ============================================================================
 // stop()
 // ============================================================================
 

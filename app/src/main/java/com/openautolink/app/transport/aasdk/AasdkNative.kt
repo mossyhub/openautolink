@@ -43,6 +43,17 @@ object AasdkNative {
     @JvmStatic
     external fun nativeStopSession()
 
+    /**
+     * Send a ByeBye to the phone, then tear the session down.
+     *
+     * Use whenever the disconnect is EXPECTED (ignition off, user exit) so the
+     * phone is told the head unit is leaving instead of discovering it when its
+     * ~9s ping watchdog fires. Returns immediately; teardown completes on a
+     * native worker once the ByeBye resolves or [timeoutMs] elapses.
+     */
+    @JvmStatic
+    external fun nativeShutdownGracefully(reason: String, timeoutMs: Int)
+
     // -- Input (app → phone) --
 
     @JvmStatic

@@ -245,6 +245,21 @@ class AasdkSession(
         }
     }
 
+    /**
+     * Queue a ByeBye to the phone. Returns immediately; the native side sends the
+     * frame and then tears the transport down on its own worker once the phone
+     * acknowledges or [timeoutMs] elapses.
+     *
+     * Marks the stop as explicit so the reconnect logic treats the resulting
+     * disconnect as intentional rather than a dropout to be recovered from.
+     */
+    fun shutdownGracefully(reason: String, timeoutMs: Int) {
+        explicitStop = true
+        OalLog.i(TAG, "Graceful shutdown requested (reason=$reason, timeout=${timeoutMs}ms)")
+        cancelPendingReconnect("graceful shutdown")
+        AasdkNative.nativeShutdownGracefully(reason, timeoutMs)
+    }
+
     fun stop() {
         explicitStop = true
         OalLog.i(TAG, "Stopping aasdk session")

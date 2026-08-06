@@ -92,8 +92,24 @@ public:
      */
     void start(JNIEnv* env, jobject transportPipe, jobject callback, jobject sdrConfig);
 
-    /** Stop the session gracefully (sends ByeBye). */
+    /**
+     * Stop the session. NOTE: this does NOT send a ByeBye — it closes the
+     * transport abruptly. Use [shutdownGracefully] when the disconnect is
+     * expected (ignition off, user exit) so the phone is told rather than left
+     * to discover it via its ping timeout.
+     */
     void stop();
+
+    /**
+     * Graceful disconnect: send the protocol's ByeBye (ShutdownRequest) so the
+     * phone learns the head unit is going away, then tear down.
+     *
+     * Without this, stop() closes the socket abruptly and the phone only
+     * notices when its ~9s ping watchdog fires — which is what makes a
+     * post-ignition-off reconnect slow and messy. Falls back to a plain stop()
+     * if the ByeBye cannot be sent or is not acknowledged within timeoutMs.
+     */
+    void shutdownGracefully(const std::string& reason, int timeoutMs);
 
     /** Send touch event to phone. */
     void sendTouchEvent(int action, int pointerId, float x, float y, int pointerCount);
@@ -270,6 +286,8 @@ private:
     // the user taps the Exit button in the AA app launcher) so Kotlin can decide
     // whether to suppress auto-reconnect.
     std::string stopReason_{"stopped"};
+    /** Set once a ByeBye has been dispatched, so two callers cannot double-send. */
+    std::atomic<bool> byeByeSent_{false};
     std::atomic<int> negotiatedCodecType_{0};
     // Current video focus state for the main display.
     // 1 = VIDEO_FOCUS_PROJECTED (default — we always project on AAOS).

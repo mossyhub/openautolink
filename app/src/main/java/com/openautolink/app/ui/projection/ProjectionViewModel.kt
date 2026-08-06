@@ -993,6 +993,34 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     connect()
                 }
         }
+        // Ignition OFF edge: tell the phone we're going away.
+        //
+        // Previously the head unit just stopped — the socket died with the
+        // process and the phone only noticed when its ~9s ping watchdog fired.
+        // From the phone's point of view that is indistinguishable from driving
+        // out of range, so it burns the full timeout and then flails through a
+        // reconnect storm. Sending the protocol ByeBye turns an ambiguous
+        // disappearance into a clean, expected teardown.
+        //
+        // Deliberately narrow: only fires on a real ON -> OFF/LOCK transition
+        // while a session is actually up. The initial null -> OFF read on a cold
+        // start must not count, or we would ByeBye a session we never had.
+        viewModelScope.launch {
+            var wasOn = false
+            com.openautolink.app.input.IgnitionMonitor.ignitionState
+                .collect { state ->
+                    if (state == null) return@collect
+                    val on = state == 4 || state == 5
+                    if (on) { wasOn = true; return@collect }
+                    // OFF (2) or LOCK (1), and we previously saw ON.
+                    if (!wasOn) return@collect
+                    if (state != 1 && state != 2) return@collect
+                    wasOn = false
+                    if (sessionManager.sessionState.value == SessionState.IDLE) return@collect
+                    OalLog.i(TAG, "Ignition OFF — sending ByeBye before teardown")
+                    sessionManager.shutdownGracefully("ignition_off")
+                }
+        }
         // Auto-close the phone chooser once we successfully reach STREAMING.
         // Without this the picker stays up after a successful tap-reconnect
         // and the user has to dismiss it manually.

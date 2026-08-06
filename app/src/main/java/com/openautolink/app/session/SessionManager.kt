@@ -67,6 +67,16 @@ class SessionManager(
     companion object {
         private const val TAG = "SessionManager"
 
+        /**
+         * How long to let a ByeBye flush before tearing the session down anyway.
+         *
+         * A single encrypted control frame on an already-open socket needs only
+         * milliseconds, so this is generous. It must stay short: on ignition-off
+         * the head unit may be seconds away from losing power, and a graceful
+         * goodbye is never worth delaying shutdown for.
+         */
+        private const val BYEBYE_TIMEOUT_MS = 400
+
         // aasdk SensorType ordinals (app/src/main/proto/oal/sensors.proto).
         // Used to answer the phone's SensorStartRequest with current state.
         private const val SENSOR_TYPE_SPEED = 3
@@ -1191,6 +1201,39 @@ class SessionManager(
             lm?.removeUpdates(listener)
         }
         _directLocationListener = null
+    }
+
+    /**
+     * Tell the phone we are going away, then stop.
+     *
+     * Sends the Android Auto protocol ByeBye so the phone treats this as a clean,
+     * expected teardown instead of waiting out its ~9s ping timeout and then
+     * assuming it drove out of range. Use for EXPECTED disconnects — ignition
+     * off, user exit — never for error paths, where the link is already gone.
+     *
+     * The native call returns immediately and completes the transport teardown on
+     * its own worker once the ByeBye is acknowledged (or [timeoutMs] elapses), so
+     * we must NOT call [stop] synchronously here — that would close the socket out
+     * from under the frame we just queued and defeat the whole point. Instead we
+     * let the ByeBye settle, then run the Kotlin-side cleanup (decoders, audio,
+     * forwarders), which is safe to do after the native session has gone.
+     */
+    fun shutdownGracefully(reason: String, timeoutMs: Int = BYEBYE_TIMEOUT_MS) {
+        val dispatched = runCatching {
+            aasdkSession?.shutdownGracefully(reason, timeoutMs) ?: error("no active session")
+        }.onFailure {
+            OalLog.w(TAG, "ByeBye dispatch failed (${it.message}) — stopping immediately")
+        }.isSuccess
+
+        if (!dispatched) { stop(); return }
+
+        scope.launch {
+            // Give the ByeBye its bounded window to flush and be acknowledged.
+            // The native watchdog uses the same budget, so by the time this
+            // returns the native session has already torn itself down.
+            delay(timeoutMs.toLong())
+            stop()
+        }
     }
 
     fun stop() {

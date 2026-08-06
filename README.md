@@ -19,7 +19,7 @@
 >
 > **There is no wireless workaround.** Android Auto has no launcher icon — its only launcher activity (`VnLaunchPadActivity`) also ships `android:enabled="false"` — so you cannot start it by hand, and nothing else can tell it which IP and port to connect to. If the receiver is disabled, wireless projection cannot be started at all.
 >
-> This affects **every** third-party wireless implementation, not just OpenAutoLink — [Open Headunit](https://github.com/andreknieriem/open-headunit) carries the same notice and reached the same conclusion.
+> This affects **every** third-party wireless implementation, not just OpenAutoLink.
 >
 > **Symptom:** the car connects and shows "connected" but projection never starts. The companion logs `AA broadcast sent`, then `AA didn't connect to proxy in 8000ms` on repeat.
 >

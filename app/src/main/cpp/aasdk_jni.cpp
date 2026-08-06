@@ -112,6 +112,35 @@ Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeStopSession(
 
 /*
  * Class:     com_openautolink_app_transport_aasdk_AasdkNative
+ * Method:    nativeShutdownGracefully
+ *
+ * Sends a ByeBye to the phone, then tears the session down. Use when the
+ * disconnect is EXPECTED (ignition off, user exit) so the phone is told rather
+ * than left to discover the drop via its ~9s ping timeout. Bounded by
+ * timeoutMs — the head unit may be seconds from losing power.
+ */
+JNIEXPORT void JNICALL
+Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeShutdownGracefully(
+    JNIEnv* env, jclass /*clazz*/, jstring reason, jint timeoutMs)
+{
+    std::string reasonStr = "shutdown";
+    if (reason) {
+        const char* c = env->GetStringUTFChars(reason, nullptr);
+        if (c) { reasonStr = c; env->ReleaseStringUTFChars(reason, c); }
+    }
+    // Deliberately NOT holding gSessionMutex across the call: shutdownGracefully
+    // returns immediately (the teardown happens on a detached worker once the
+    // ByeBye resolves), and nativeStopSession may run concurrently.
+    auto session = std::atomic_load(&gSession);
+    if (session) {
+        session->shutdownGracefully(reasonStr, timeoutMs);
+    } else {
+        LOGI("nativeShutdownGracefully: no active session");
+    }
+}
+
+/*
+ * Class:     com_openautolink_app_transport_aasdk_AasdkNative
  * Method:    nativeSendTouchEvent
  */
 JNIEXPORT void JNICALL
