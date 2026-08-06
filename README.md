@@ -14,6 +14,21 @@
 
 OpenAutoLink runs the full Android Auto protocol stack natively on an AAOS head unit using the [aasdk](https://github.com/opencardev/aasdk) C++ library via JNI. No SBC, no USB adapter, no extra hardware — the car and phone talk directly over WiFi.
 
+> ## ⚠️ Android Auto 17.4 breaks wireless startup
+>
+> **Google disabled the entry point that lets a companion app start wireless projection.** In Android Auto 17.4 the `WirelessStartupReceiver` ships `android:enabled="false"`, and the `WirelessStartupActivity` it forwards to is `android:exported="false"` — so the broadcast is silently swallowed (`result=0`, no log, no error) and the activity cannot be launched by any other app. Verified against the 17.4 manifest and confirmed on-device: `cmd package query-receivers` reports **"No receivers found"**, and even `adb pm enable` is refused with a `SecurityException`.
+>
+> This affects **every** third-party wireless implementation, not just OpenAutoLink — see the same notice on [Open Headunit](https://github.com/andreknieriem/open-headunit).
+>
+> **What still works:**
+> - **An already-running Android Auto session.** The break is in *cold start* — if Android Auto is already running, the bridge connects normally.
+> - **USB mode.** USB raises a system-level accessory event that Google's own handler always services, so it is unaffected.
+>
+> **Symptom:** the car connects and shows "connected" but projection never starts. The companion logs `AA broadcast sent`, then `AA didn't connect to proxy in 8000ms` on repeat.
+>
+> We're investigating supported alternatives. Until then, if wireless cold-start fails, use USB to begin the session.
+
+
 <p align="center">
   <img src="docs/screenshots/AA-Streaming-Screenshot.jpg" alt="Android Auto streaming on a 2024 Blazer EV via OpenAutoLink" width="720">
   <br>
@@ -300,6 +315,7 @@ The original architecture used an SBC (single-board computer) running a C++ brid
 
 ## Known Issues
 
+- **Android Auto 17.4 breaks wireless cold-start** — Google shipped `WirelessStartupReceiver` disabled and `WirelessStartupActivity` unexported, so no companion app can start projection from cold. Affects all third-party wireless implementations. See the [notice above](#-android-auto-174-breaks-wireless-startup). Workaround: start the session over USB, or keep an existing Android Auto session running.
 - **H.265 video may appear green-tinted** on first connection for 30–45 seconds. May be Qualcomm-specific — not yet confirmed on other SoCs
 
 If you encounter other problems, please [open an issue](https://github.com/mossyhub/openautolink/issues).
