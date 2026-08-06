@@ -203,6 +203,17 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_HOTSPOT_PASSWORD = ""
         const val DIRECT_TRANSPORT_HOTSPOT = "hotspot"
         const val DIRECT_TRANSPORT_USB = "usb"
+
+        /**
+         * Google WiFi Projection Protocol — the phone connects TO the head unit
+         * after a Bluetooth handshake, rather than the head unit dialling out.
+         *
+         * This is the transport real OEM head units use, and the only one that
+         * still works on Android Auto 17.4, which disabled the broadcast/intent
+         * route every third-party app relied on. Requires the AA Wireless BT
+         * advertiser to be running so the phone learns our {ip, port}.
+         */
+        const val DIRECT_TRANSPORT_WPP = "wpp"
         const val DEFAULT_DIRECT_TRANSPORT = "hotspot" // "hotspot" (TCP over shared WiFi), "usb" (AOAv2)
         const val DEFAULT_MANUAL_IP_ENABLED = false
         const val DEFAULT_MANUAL_IP_ADDRESS = ""

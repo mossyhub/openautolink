@@ -440,8 +440,12 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 var settle = false
                 try {
                     val mode = preferences.connectionMode.first()
-                    val usbMode = preferences.directTransport.first() ==
-                        AppPreferences.DIRECT_TRANSPORT_USB
+                    // Both USB and WPP own their own connection path — neither
+                    // needs the phone chooser, because there is no discovery step
+                    // to disambiguate.
+                    val transport = preferences.directTransport.first()
+                    val usbMode = transport == AppPreferences.DIRECT_TRANSPORT_USB ||
+                        transport == AppPreferences.DIRECT_TRANSPORT_WPP
                     if (!usbMode && mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
                         val defaultId = preferences.defaultPhoneId.first()
                         val askMode = preferences.alwaysAskPhone.first()
@@ -571,10 +575,16 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             //      briefly before giving up.
             //   3. Fall back to the persistent manual-IP setting.
             val mode = preferences.connectionMode.first()
-            // USB transport short-circuits wireless resolution entirely: no
-            // mDNS grace, no UDP broadcast, no /24 sweep. The phone is on the
-            // cable and UsbConnectionManager owns the connection.
-            val carHotspotPhone = if (directTransport != AppPreferences.DIRECT_TRANSPORT_USB &&
+            // USB and WPP both short-circuit wireless resolution entirely: no
+            // mDNS grace, no UDP broadcast, no /24 sweep.
+            //   USB — the phone is on the cable and UsbConnectionManager owns it.
+            //   WPP — the phone connects INBOUND to our advertised {ip, port}
+            //         after the Bluetooth handshake, so there is nothing to
+            //         discover and sweeping would just burn 20s before the
+            //         listener is even bound.
+            val skipWirelessResolve = directTransport == AppPreferences.DIRECT_TRANSPORT_USB ||
+                directTransport == AppPreferences.DIRECT_TRANSPORT_WPP
+            val carHotspotPhone = if (!skipWirelessResolve &&
                 overrideIp == null && mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
                 // Long budget: with directed probing (no /24 sweep) this is
                 // cheap — just one TCP probe per known IP every
@@ -604,7 +614,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
             val manualIp = overrideIp ?: carHotspotIp ?: manualIpFromPrefs
-            if (mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
+            // WPP never has an IP to dial — the phone connects to US — so the
+            // Car-Hotspot "couldn't resolve a phone, give up" branch below must
+            // not run, or the session returns before startWpp() can bind the
+            // listener and the advertised port stays dead.
+            if (mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT && !skipWirelessResolve) {
                 OalLog.i(
                     TAG,
                     "Car Hotspot connect: overrideIp=$overrideIp resolved=$carHotspotIp final=$manualIp",
@@ -759,8 +773,19 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      * Wi-Fi connection mode below is ignored" — so every wireless trigger now
      * consults this flow first.
      */
+    /**
+     * True when the active transport owns its own connection path and needs no
+     * wireless discovery — USB (cable) or WPP (phone dials in to us).
+     *
+     * Named for its original USB-only meaning; it now gates every "should we go
+     * looking for a phone" code path, so WPP must be included or the app burns
+     * UDP broadcasts and /24 sweeps while waiting for an inbound connection.
+     */
     val usbTransportActive: StateFlow<Boolean> = preferences.directTransport
-        .map { it == AppPreferences.DIRECT_TRANSPORT_USB }
+        .map {
+            it == AppPreferences.DIRECT_TRANSPORT_USB ||
+                it == AppPreferences.DIRECT_TRANSPORT_WPP
+        }
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
@@ -879,6 +904,30 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                         // nothing to discover. Keep mDNS/sweep off entirely.
                         phoneDiscovery.stop()
                     }
+                }
+        }
+        // WPP: bind the inbound listener as soon as the transport is selected.
+        //
+        // Every other transport has an event that starts the session — discovery
+        // resolving a phone (hotspot) or a cable attach (USB). WPP has neither:
+        // the phone connects INBOUND to the {ip, port} we advertised over
+        // Bluetooth, so the socket must already be listening before there is
+        // anything to react to. Waiting for a trigger here is circular, and is
+        // why an earlier revision advertised a port with nothing bound to it.
+        //
+        // So treat "transport == wpp" itself as the trigger: start the session,
+        // which binds the listener and then idles until the phone arrives.
+        viewModelScope.launch {
+            preferences.directTransport
+                .map { it == AppPreferences.DIRECT_TRANSPORT_WPP }
+                .distinctUntilChanged()
+                .collect { isWpp ->
+                    if (!isWpp) return@collect
+                    if (sessionManager.sessionState.value != SessionState.IDLE) return@collect
+                    if (connectInFlight) return@collect
+                    OalLog.i(TAG, "WPP transport selected — binding inbound listener")
+                    hasConnected = false
+                    connect()
                 }
         }
         // Debug aid for emulator testing: when manualIpEnabled is on, inject

@@ -88,6 +88,12 @@ class AasdkSession(
     // TCP connector — used in "hotspot" transport mode (Car Hotspot / Phone Hotspot)
     private var _tcpConnector: TcpConnector? = null
 
+    /**
+     * WPP inbound listener. Only non-null in "wpp" transport mode, where the phone
+     * connects to us rather than the other way round.
+     */
+    private var _wppServer: com.openautolink.app.transport.hotspot.WppTcpServer? = null
+
     // -- (A) Video frame-flow diagnostic counters --
     // Periodically summarize inbound frame flow into the triaged DiagnosticLog
     // so a black-video gap definitively shows whether bytes are still arriving
@@ -166,8 +172,35 @@ class AasdkSession(
 
         when (transportMode) {
             "usb" -> startUsb()
+            "wpp" -> startWpp()
             else -> startTcp()
         }
+    }
+
+    /**
+     * Google WiFi Projection Protocol: the phone connects to US.
+     *
+     * The opposite direction to [startTcp]. In WPP the head unit advertises its
+     * `{ip, port}` over Bluetooth RFCOMM (see `AaWirelessBtServer`) and the phone
+     * then opens the TCP connection inbound. Proven against AA 17.4 on 2026-08-06:
+     * full BT handshake, WiFi association, then an inbound connection from the phone.
+     *
+     * The native session neither knows nor cares which side dialled — it needs a
+     * connected socket — so this reuses [handleConnection] unchanged.
+     */
+    private fun startWpp() {
+        OalLog.i(TAG, "Starting aasdk session (WPP transport — phone connects to us)")
+        _wppServer?.stop()
+        _wppServer = com.openautolink.app.transport.hotspot.WppTcpServer(
+            scope = scope,
+            onSocketReady = { wppSocket ->
+                scope.launch(Dispatchers.IO) {
+                    OalLog.i(TAG, "WPP socket accepted — starting aasdk native session")
+                    handleConnection(wppSocket)
+                }
+            },
+        )
+        _wppServer?.start()
     }
 
     private fun startTcp() {
@@ -266,6 +299,8 @@ class AasdkSession(
         cancelPendingReconnect("explicit stop")
         _tcpConnector?.stop()
         _tcpConnector = null
+        _wppServer?.stop()
+        _wppServer = null
         _usbConnectionManager?.stop()
         _usbConnectionManager = null
         AasdkNative.nativeStopSession()
@@ -290,6 +325,8 @@ class AasdkSession(
         cancelPendingReconnect("force reconnect")
         _tcpConnector?.stop()
         _tcpConnector = null
+        _wppServer?.stop()
+        _wppServer = null
         _usbConnectionManager?.stop()
         _usbConnectionManager = null
         AasdkNative.nativeStopSession()

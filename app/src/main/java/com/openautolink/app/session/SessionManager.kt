@@ -212,6 +212,7 @@ class SessionManager(
     // [com.openautolink.app.transport.bluetooth.HfpPresenceServer].
     private var _hfpPresence: com.openautolink.app.transport.bluetooth.HfpPresenceServer? = null
 
+
     val callState: StateFlow<CallState>? get() = _audioPlayer?.callState
 
     // GNSS forwarder

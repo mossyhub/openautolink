@@ -43,6 +43,20 @@ class OalApplication : Application() {
         // shutdown burns a 45s timeout into a dead WiFi.
         com.openautolink.app.input.IgnitionMonitor.start(this)
 
+        // Android Auto Wireless BT advertiser.
+        //
+        // Must run at PROCESS scope, not session scope: its whole job is to make
+        // the phone start a session, so gating it behind an existing session is
+        // circular. Publishing the SDP record is cheap (one RFCOMM listener) and
+        // idempotent, and the handshake is only answered once credentials have
+        // been supplied.
+        //
+        // Currently opt-in while we validate that gearhead reacts to our record —
+        // enable with:
+        //   adb shell am broadcast -a com.openautolink.app.DEBUG_AAW_BT \
+        //     --es ssid <SSID> --es psk <KEY> --es ip <CAR_IP> --ei port 5277
+        com.openautolink.app.transport.bluetooth.AaWirelessBtControl.init(this)
+
         // Create the process-wide MediaSession and publish its token to the
         // MediaBrowserService exactly once, at process start. The GM AAOS
         // cluster media widget binds a MediaController to this token, and
