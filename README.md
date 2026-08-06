@@ -9,21 +9,23 @@
 
 <a id="aa174"></a>
 
-> # ⚠️ Android Auto 17.4 breaks wireless — USB only for now
+> # ⚠️ Android Auto 17.4 broke wireless startup — a fix is coming
 >
-> **If you are on Android Auto 17.4, wireless projection will not start. Use USB mode: Settings → Direct transport → USB.** That is the only option today.
+> **If you are on Android Auto 17.4, wireless projection will not start with the current release. Use USB mode for now: Settings → Direct transport → USB.**
 >
-> Google disabled the entry point that lets any companion app start wireless projection. In Android Auto 17.4 the `WirelessStartupReceiver` ships `android:enabled="false"`, and the `WirelessStartupActivity` it forwards to is `android:exported="false"` — so the broadcast is silently swallowed (`result=0`, no log, no error) and the activity cannot be launched by another app.
->
-> Verified against the 17.4 manifest and confirmed on-device: `cmd package query-receivers` reports **"No receivers found"**, and even `adb pm enable` is refused with a `SecurityException`.
->
-> **There is no wireless workaround.** Android Auto has no launcher icon — its only launcher activity (`VnLaunchPadActivity`) also ships `android:enabled="false"` — so you cannot start it by hand, and nothing else can tell it which IP and port to connect to. If the receiver is disabled, wireless projection cannot be started at all.
+> Google disabled the entry point every companion app used to start wireless projection. In 17.4 the `WirelessStartupReceiver` ships `android:enabled="false"`, and the `WirelessStartupActivity` it forwards to is `android:exported="false"` — so the broadcast is silently swallowed (`result=0`, no log, no error) and the activity cannot be launched by another app. Confirmed on-device: `cmd package query-receivers` reports **"No receivers found"**, and even `adb pm enable` is refused with a `SecurityException`.
 >
 > This affects **every** third-party wireless implementation, not just OpenAutoLink.
 >
-> **Symptom:** the car connects and shows "connected" but projection never starts. The companion logs `AA broadcast sent`, then `AA didn't connect to proxy in 8000ms` on repeat.
+> **Symptom:** the car connects and shows "connected", but projection never starts. The companion logs `AA broadcast sent`, then `AA didn't connect to proxy in 8000ms` on repeat.
 >
-> It is USB or nothing until we find something more creative, or Google reverses this. Tracking: [#66](https://github.com/mossyhub/openautolink/issues/66)
+> ### The good news
+>
+> That disabled receiver was never the only way in. Android Auto still fully supports the path real factory head units use — a Bluetooth service advertisement followed by Google's own WiFi Projection Protocol — and that path is completely untouched in 17.4.
+>
+> OpenAutoLink now speaks it. **Wireless projection has been restored on 17.4, with sustained video — and it is better than what it replaces: the head unit talks to the phone directly, so the companion app is no longer needed at all.** No proxy, no discovery sweeps, no second app to install and keep running — just Android Auto, the way a factory unit does it.
+>
+> This is working in testing and not yet in a release. It needs validation in a real vehicle before it ships. Progress: [#70](https://github.com/mossyhub/openautolink/pull/70) · Tracking: [#66](https://github.com/mossyhub/openautolink/issues/66)
 >
 > *(On GM head units USB re-prompts for permission on every connect — a separate, known GM AAOS bug.)*
 
@@ -322,7 +324,7 @@ The original architecture used an SBC (single-board computer) running a C++ brid
 
 ## Known Issues
 
-- **Android Auto 17.4 breaks wireless entirely — USB only** — Google shipped `WirelessStartupReceiver` disabled and `WirelessStartupActivity` unexported, so no companion app can start wireless projection. There is no workaround: Android Auto has no launcher icon to start by hand, and nothing else can hand it the IP/port. Affects all third-party wireless implementations. Use USB mode. See the [notice at the top](#aa174).
+- **Android Auto 17.4 broke wireless startup — use USB for now** — Google shipped `WirelessStartupReceiver` disabled and `WirelessStartupActivity` unexported, so the broadcast-based startup every companion app used no longer works. Affects all third-party wireless implementations. A fix using the Bluetooth + WiFi Projection Protocol path (the one factory head units use, untouched in 17.4) is working in testing and drops the companion app entirely — see the [notice at the top](#aa174). Until it ships, use USB mode.
 - **H.265 video may appear green-tinted** on first connection for 30–45 seconds. May be Qualcomm-specific — not yet confirmed on other SoCs
 
 If you encounter other problems, please [open an issue](https://github.com/mossyhub/openautolink/issues).
