@@ -8,6 +8,7 @@ import com.openautolink.app.diagnostics.OalLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -46,6 +47,11 @@ object AaWirelessBtControl {
      * session starting at all. Same circular-dependency trap the advertiser hit.
      */
     private const val ACTION_SET_TRANSPORT = "com.openautolink.app.DEBUG_SET_TRANSPORT"
+
+    /** Reserved MACs gearhead rejects outright — see pev.smali validation. */
+    private const val ZERO_MAC = "00:00:00:00:00:00"
+    private const val BROADCAST_MAC = "ff:ff:ff:ff:ff:ff"
+    private val BSSID_RE = Regex("^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -100,20 +106,79 @@ object AaWirelessBtControl {
         OalLog.i(TAG, "AA wireless BT control ready (send $ACTION_START to begin advertising)")
     }
 
+    /**
+     * Start advertising using the credentials stored in Settings.
+     *
+     * Intent extras are honoured when present, but are only a bring-up
+     * convenience — the normal path is Settings → Wireless (WPP), because in a
+     * real vehicle nobody can run `adb` mid-drive.
+     *
+     * ### Why the credentials must be typed in
+     *
+     * These describe the network the phone should join to reach the head unit.
+     * On AAOS that is usually the car's own hotspot, and an unprivileged app
+     * cannot read a running SoftAP's SSID or passphrase:
+     * `WifiManager.getWifiApConfiguration()` needs a system signature, and
+     * `LocalOnlyHotspot` only reports credentials for an AP the app itself
+     * started — not the vehicle's. So the values come from the user.
+     *
+     * Missing or malformed credentials are a hard failure on the phone side, so
+     * they are validated before anything is advertised:
+     *   - empty SSID              → nothing to join
+     *   - empty/zero/broadcast BSSID → `WIFI_INVALID_BSSID`
+     *   - empty PSK on a secured network → `WIFI_SECURITY_NOT_SUPPORTED`
+     *     (we send `securityMode=OPEN`, which gearhead rejects for a WPA2 AP)
+     */
     private fun handleStart(context: Context, intent: Intent) {
-        val ssid = intent.getStringExtra("ssid").orEmpty()
-        if (ssid.isBlank()) {
-            OalLog.w(TAG, "$ACTION_START missing required 'ssid' extra")
-            return
-        }
-        val creds = AaWirelessBtServer.WifiCredentials(
-            ssid = ssid,
-            psk = intent.getStringExtra("psk").orEmpty(),
-            bssid = intent.getStringExtra("bssid").orEmpty(),
-            ip = intent.getStringExtra("ip").orEmpty(),
-            port = intent.getIntExtra("port", 5277),
-        )
+        scope.launch {
+            val prefs = com.openautolink.app.data.AppPreferences.getInstance(context)
 
+            val ssid = intent.getStringExtra("ssid")?.takeIf { it.isNotBlank() }
+                ?: prefs.hotspotSsid.first()
+            val psk = intent.getStringExtra("psk")
+                ?: prefs.hotspotPassword.first()
+            val bssid = intent.getStringExtra("bssid")?.takeIf { it.isNotBlank() }
+                ?: prefs.wppBssid.first()
+            val port = intent.getIntExtra("port", 5277)
+            // The address the phone is told to dial. Detected from the live
+            // interface rather than stored, because it changes with the network.
+            val ip = intent.getStringExtra("ip")?.takeIf { it.isNotBlank() }
+                ?: localIpv4Address()
+                ?: ""
+
+            val problems = buildList {
+                if (ssid.isBlank()) add("SSID is empty")
+                if (bssid.isBlank()) add("BSSID is empty")
+                else if (!BSSID_RE.matches(bssid)) add("BSSID '$bssid' is not a MAC address")
+                else if (bssid.equals(ZERO_MAC, true) || bssid.equals(BROADCAST_MAC, true)) {
+                    add("BSSID $bssid is reserved (zero/broadcast)")
+                }
+                if (ip.isBlank()) add("could not determine this device's IPv4 address")
+            }
+            if (problems.isNotEmpty()) {
+                OalLog.w(TAG, "Not advertising — ${problems.joinToString("; ")}. " +
+                        "Set these in Settings → Wireless (WPP).")
+                return@launch
+            }
+
+            val creds = AaWirelessBtServer.WifiCredentials(
+                ssid = ssid, psk = psk, bssid = bssid, ip = ip, port = port,
+            )
+            startAdvertising(context, creds)
+        }
+    }
+
+    /** Best-effort local IPv4, skipping loopback and virtual interfaces. */
+    private fun localIpv4Address(): String? = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces().toList()
+            .filter { it.isUp && !it.isLoopback && !it.isVirtual }
+            .flatMap { it.inetAddresses.toList() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+            ?.hostAddress
+    }.getOrNull()
+
+    private fun startAdvertising(context: Context, creds: AaWirelessBtServer.WifiCredentials) {
         // Switching the session into WPP mode is what binds the listener — see
         // AasdkSession.startWpp(). Doing it here rather than starting our own
         // server avoids two components racing for the same port.

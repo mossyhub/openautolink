@@ -54,6 +54,15 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val VIDEO_SCALING_MODE = stringPreferencesKey("video_scaling_mode")
         val HOTSPOT_SSID = stringPreferencesKey("hotspot_ssid")
         val HOTSPOT_PASSWORD = stringPreferencesKey("hotspot_password")
+
+        /**
+         * BSSID of the access point the phone should join for WPP.
+         *
+         * Must be typed in: an unprivileged app cannot read a running SoftAP's
+         * BSSID, and gearhead hard-rejects empty, zero and broadcast MACs
+         * (WIFI_INVALID_BSSID) before it will attempt projection.
+         */
+        val WPP_BSSID = stringPreferencesKey("wpp_bssid")
         val DIRECT_TRANSPORT = stringPreferencesKey("direct_transport")
         val MANUAL_IP_ENABLED = booleanPreferencesKey("manual_ip_enabled")
         val MANUAL_IP_ADDRESS = stringPreferencesKey("manual_ip_address")
@@ -364,6 +373,11 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         prefs[HOTSPOT_PASSWORD] ?: DEFAULT_HOTSPOT_PASSWORD
     }
 
+    /** AP BSSID advertised to the phone during the WPP handshake. */
+    val wppBssid: Flow<String> = dataStore.data.map { prefs ->
+        prefs[WPP_BSSID] ?: ""
+    }
+
     val directTransport: Flow<String> = dataStore.data.map { prefs ->
         // Migrate any saved "nearby" preference to "hotspot" — Nearby Connections
         // is no longer used; the companion app speaks TCP over the shared WiFi.
@@ -501,6 +515,10 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setHotspotSsid(ssid: String) {
         dataStore.edit { it[HOTSPOT_SSID] = ssid }
+    }
+
+    suspend fun setWppBssid(bssid: String) {
+        dataStore.edit { it[WPP_BSSID] = bssid.trim() }
     }
 
     suspend fun setHotspotPassword(password: String) {

@@ -19,6 +19,8 @@ data class SettingsUiState(
     val directTransport: String = AppPreferences.DEFAULT_DIRECT_TRANSPORT,
     val hotspotSsid: String = AppPreferences.DEFAULT_HOTSPOT_SSID,
     val hotspotPassword: String = AppPreferences.DEFAULT_HOTSPOT_PASSWORD,
+    /** AP BSSID advertised to the phone in WPP mode. Must be entered by hand. */
+    val wppBssid: String = "",
     val videoAutoNegotiate: Boolean = AppPreferences.DEFAULT_VIDEO_AUTO_NEGOTIATE,
     val videoCodec: String = AppPreferences.DEFAULT_VIDEO_CODEC,
     val videoFps: Int = AppPreferences.DEFAULT_VIDEO_FPS,
@@ -189,6 +191,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _hotspotSsidOverride = MutableStateFlow(AppPreferences.DEFAULT_HOTSPOT_SSID)
     private val _hotspotPasswordOverride = MutableStateFlow(AppPreferences.DEFAULT_HOTSPOT_PASSWORD)
+    private val _wppBssidOverride = MutableStateFlow("")
     private val _directTransportOverride = MutableStateFlow(AppPreferences.DEFAULT_DIRECT_TRANSPORT)
 
     init {
@@ -197,6 +200,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
         viewModelScope.launch {
             preferences.hotspotPassword.collect { _hotspotPasswordOverride.value = it }
+        }
+        viewModelScope.launch {
+            preferences.wppBssid.collect { _wppBssidOverride.value = it }
         }
         viewModelScope.launch {
             preferences.directTransport.collect { _directTransportOverride.value = it }
@@ -208,8 +214,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _hotspotSsidOverride,
         _hotspotPasswordOverride,
         _directTransportOverride,
-    ) { state, ssid, psk, transport ->
-        state.copy(hotspotSsid = ssid, hotspotPassword = psk, directTransport = transport)
+        _wppBssidOverride,
+    ) { state, ssid, psk, transport, bssid ->
+        state.copy(
+            hotspotSsid = ssid, hotspotPassword = psk,
+            directTransport = transport, wppBssid = bssid,
+        )
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
@@ -295,6 +305,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         return com.openautolink.app.transport.PhoneDiscovery
             .getInstance(getApplication())
             .listRealInterfaces()
+    }
+
+    fun updateWppBssid(bssid: String) {
+        _wppBssidOverride.value = bssid
+        viewModelScope.launch { preferences.setWppBssid(bssid) }
     }
 
     fun updateDirectTransport(transport: String) {

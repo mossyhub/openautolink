@@ -76,6 +76,10 @@ import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.ui.components.LocalEchoTextField
 import androidx.compose.material3.FilterChip
 
+// Standard MAC form aa:bb:cc:dd:ee:ff. gearhead rejects anything else
+// (WIFI_INVALID_BSSID) before it will attempt projection.
+private val BSSID_PATTERN = Regex("^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+
 private enum class SettingsTab(
     val title: String,
     val icon: ImageVector,
@@ -297,6 +301,7 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
             listOf(
                 "hotspot" to "Wi-Fi",
                 "usb" to "USB",
+                AppPreferences.DIRECT_TRANSPORT_WPP to "Wireless (WPP)",
             ).forEach { (mode, label) ->
                 FilterChip(
                     selected = uiState.directTransport == mode,
@@ -308,12 +313,71 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
         Text(
             text = when (uiState.directTransport) {
                 "usb" -> "Phone connects to the car over a USB cable using AOA v2. The Wi-Fi connection mode below is ignored. A device picker is shown on the projection screen so the OS only prompts for the phone you select."
+                AppPreferences.DIRECT_TRANSPORT_WPP ->
+                    "The phone connects to the car directly, the way a factory head unit works — no companion app needed. " +
+                        "The car advertises itself over Bluetooth, then hands the phone the Wi-Fi details below. " +
+                        "Pair the phone to this head unit over Bluetooth first, and make sure \"Phone calls\" is enabled for it."
                 else -> "Phone and car talk over the shared Wi-Fi network configured below."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
+
+        if (uiState.directTransport == AppPreferences.DIRECT_TRANSPORT_WPP) {
+            Spacer(modifier = Modifier.height(8.dp))
+            // These must be entered by hand. An unprivileged app cannot read a
+            // running access point's SSID/passphrase/BSSID on AAOS —
+            // getWifiApConfiguration() is signature-gated — so there is nothing
+            // to auto-fill from. The phone hard-rejects wrong or missing values
+            // (WIFI_INVALID_BSSID / WIFI_SECURITY_NOT_SUPPORTED) before it will
+            // start projection, so the hints below matter.
+            Text(
+                text = "Wi-Fi details sent to the phone",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Text(
+                text = "Enter the network the phone should join to reach this head unit — normally the car's own hotspot. " +
+                    "These can't be detected automatically.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            LocalEchoTextField(
+                value = uiState.hotspotSsid,
+                onValueChange = { viewModel.updateHotspotSsid(it) },
+                label = { Text("Network name (SSID)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            LocalEchoTextField(
+                value = uiState.hotspotPassword,
+                onValueChange = { viewModel.updateHotspotPassword(it) },
+                label = { Text("Password") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                supportingText = { Text("Leave empty only if the network is genuinely open") },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            LocalEchoTextField(
+                value = uiState.wppBssid,
+                onValueChange = { viewModel.updateWppBssid(it) },
+                label = { Text("Access point BSSID") },
+                singleLine = true,
+                isError = uiState.wppBssid.isNotBlank() && !BSSID_PATTERN.matches(uiState.wppBssid),
+                supportingText = {
+                    Text(
+                        if (uiState.wppBssid.isNotBlank() && !BSSID_PATTERN.matches(uiState.wppBssid)) {
+                            "Must look like aa:bb:cc:dd:ee:ff"
+                        } else {
+                            "The AP's MAC address. Required — the phone rejects the connection without it."
+                        }
+                    )
+                },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         Spacer(modifier = Modifier.height(12.dp))
 
         SectionHeader("Connection Mode")
