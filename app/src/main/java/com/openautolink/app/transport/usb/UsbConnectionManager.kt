@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
+import android.hardware.usb.UsbConstants as AndroidUsbConstants
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
@@ -45,6 +46,7 @@ data class UsbDeviceCandidate(
     val productId: Int,
     val friendlyName: String,      // manufacturer + product, falling back to VID:PID
     val isAccessoryMode: Boolean,  // true if already in Google Accessory mode
+    val isLikelyPhone: Boolean = false, // heuristic: exposes ADB/MTP/PTP/vendor interfaces
 )
 
 /**
@@ -65,9 +67,22 @@ class UsbConnectionManager(
     companion object {
         private const val TAG = "UsbConnectionManager"
         private const val ACTION_USB_PERMISSION = "com.openautolink.app.USB_PERMISSION"
-        private const val AOA_SWITCH_SETTLE_MS = 2000L
-        private const val ACCESSORY_SCAN_INTERVAL_MS = 500L
-        private const val ACCESSORY_SCAN_MAX_ATTEMPTS = 20
+        /**
+         * Poll cadence while waiting for the phone to re-enumerate in accessory
+         * mode. 100ms (was 500ms) so we notice within ~a tenth of a second of the
+         * device appearing — on a head unit this delay is on the critical path of
+         * every connect and reconnect, and the poll itself is just a HashMap read.
+         */
+        private const val ACCESSORY_SCAN_INTERVAL_MS = 100L
+        /** 100ms x 100 = 10s budget, unchanged in wall-clock terms from 500ms x 20. */
+        private const val ACCESSORY_SCAN_MAX_ATTEMPTS = 100
+
+        /**
+         * Device/interface classes that can never be an Android phone acting as
+         * an AOA source: 0x01 audio, 0x03 HID, 0x07 printer, 0x08 mass storage,
+         * 0x09 hub, 0x0B smart card, 0x0E video (webcams).
+         */
+        private val EXCLUDED_USB_CLASSES = setOf(0x01, 0x03, 0x07, 0x08, 0x09, 0x0B, 0x0E)
 
         private val _status = MutableStateFlow("Idle")
         val status: StateFlow<String> = _status.asStateFlow()
@@ -117,6 +132,15 @@ class UsbConnectionManager(
      */
     private val connectClaimed = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /**
+     * deviceName of the device we currently have a permission dialog in flight for,
+     * or null. Prevents a second dialog being stacked for the same device when both
+     * the existing-device scan and the ATTACHED broadcast fire for one plug-in.
+     * Cleared as soon as the request resolves (granted, denied, or device detached).
+     */
+    private val pendingPermissionDevice =
+        java.util.concurrent.atomic.AtomicReference<String?>(null)
+
     @Volatile
     private var currentConnection: UsbDeviceConnection? = null
 
@@ -143,6 +167,10 @@ class UsbConnectionManager(
                     val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
                     @Suppress("DEPRECATION")
                     val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+                    // The dialog has resolved either way — release the guard so a
+                    // later, legitimate request (e.g. user retries, or the phone is
+                    // re-plugged) is not suppressed.
+                    pendingPermissionDevice.set(null)
                     if (granted && device != null) {
                         OalLog.i(TAG, "USB permission granted for: ${device.deviceName}")
                         onPermissionGranted(device)
@@ -185,6 +213,7 @@ class UsbConnectionManager(
             context.unregisterReceiver(usbReceiver)
         } catch (_: IllegalArgumentException) { }
         closePipe()
+        pendingPermissionDevice.set(null)
         _availableDevices.value = emptyList()
         _connectionState.value = UsbConnectionState.IDLE
         _status.value = "Stopped"
@@ -208,6 +237,51 @@ class UsbConnectionManager(
         }
 
         publishCandidates()
+        autoSelectIfUnambiguous()
+    }
+
+    /**
+     * OEM head units never show a device picker: you plug the phone in and
+     * projection starts. Match that behaviour whenever the choice is unambiguous.
+     *
+     * In USB mode there is only ever one phone attached to the head unit, so:
+     *  - exactly one candidate  -> take it, whatever it looks like. This is the
+     *    important case: a phone in "charging only" mode exposes no data
+     *    interfaces and fails [looksLikePhone], but is still perfectly AOA-capable
+     *    (the handshake is endpoint-0 only), so requiring a phone-like signature
+     *    here would strand the user's actual phone behind a needless tap.
+     *  - several candidates, exactly one phone-like -> take that one; the rest are
+     *    head-unit internals that slipped past [isHubOrSystemDevice].
+     *  - anything genuinely ambiguous -> fall back to the picker.
+     *
+     * The picker UI is retained as the fallback and as an escape hatch; it simply
+     * should not be needed in the normal case.
+     */
+    private fun autoSelectIfUnambiguous() {
+        if (!isRunning) return
+        if (currentPipe != null || connectClaimed.get()) return
+        if (_connectionState.value == UsbConnectionState.PERMISSION_REQUESTED) return
+
+        val candidates = _availableDevices.value
+        val phones = candidates.filter { it.isLikelyPhone }
+        val target = when {
+            candidates.size == 1 -> candidates.first()
+            phones.size == 1 -> phones.first()
+            else -> null
+        } ?: run {
+            if (candidates.size > 1) {
+                OalLog.i(TAG, "Not auto-selecting: ${candidates.size} candidates, " +
+                        "${phones.size} phone-like — falling back to picker")
+            }
+            return
+        }
+
+        val device = usbManager.deviceList[target.deviceName] ?: return
+        OalLog.i(TAG, "Auto-selecting USB device: ${target.friendlyName} " +
+                "(${"%04X:%04X".format(target.vendorId, target.productId)}, " +
+                "phoneLike=${target.isLikelyPhone}) — no picker needed")
+        _status.value = "Connecting to ${target.friendlyName}..."
+        requestPermissionOrConnect(device)
     }
 
     private fun handleDeviceAttached(device: UsbDevice) {
@@ -217,15 +291,20 @@ class UsbConnectionManager(
             _status.value = "Accessory device detected"
             requestPermissionOrConnect(device)
         } else {
-            // Newly-attached non-accessory device: refresh the picker list.
-            // Do NOT auto-request permission — we only ever prompt for the
-            // device the user explicitly selects.
+            // Newly-attached non-accessory device: refresh the picker list, then
+            // auto-connect if it is unambiguously the phone. This is the plug-in
+            // path an OEM head unit handles with no user interaction at all.
             publishCandidates()
+            autoSelectIfUnambiguous()
         }
     }
 
     private fun handleDeviceDetached() {
         closePipe()
+        // The device is gone, so any dialog we raised for it is moot. Clearing this
+        // matters for the car-sleeps-mid-session case: the head unit cuts USB power,
+        // the device detaches, and on wake we must be able to prompt again.
+        pendingPermissionDevice.set(null)
         _connectionState.value = UsbConnectionState.IDLE
         _status.value = "USB device disconnected"
         publishCandidates()
@@ -236,6 +315,12 @@ class UsbConnectionManager(
      * candidate list. Hubs and mass-storage devices are filtered out.
      */
     private fun publishCandidates() {
+        // Deliberately NOT filtered by looksLikePhone(): a phone sitting in
+        // "charging only" USB mode exposes no data interfaces, so a strict phone
+        // filter would hide it and make it unreachable. Hiding the user's actual
+        // phone is far worse than showing one extra entry. Instead we hide only
+        // devices that are POSITIVELY not phones (hubs, storage, HID, audio...)
+        // and sort the likely phones to the top.
         val list = usbManager.deviceList.values
             .filterNot { isHubOrSystemDevice(it) }
             .map { d ->
@@ -245,9 +330,12 @@ class UsbConnectionManager(
                     productId = d.productId,
                     friendlyName = friendlyNameFor(d),
                     isAccessoryMode = UsbConstants.isAccessoryDevice(d.vendorId, d.productId),
+                    isLikelyPhone = looksLikePhone(d),
                 )
             }
-            .sortedBy { it.friendlyName.lowercase() }
+            .sortedWith(compareByDescending<UsbDeviceCandidate> { it.isAccessoryMode }
+                .thenByDescending { it.isLikelyPhone }
+                .thenBy { it.friendlyName.lowercase() })
         _availableDevices.value = list
         if (_connectionState.value == UsbConnectionState.IDLE && list.isNotEmpty()) {
             _connectionState.value = UsbConnectionState.AWAITING_USER_SELECTION
@@ -299,16 +387,33 @@ class UsbConnectionManager(
         }
         if (usbManager.hasPermission(device)) {
             onPermissionGranted(device)
-        } else {
-            _connectionState.value = UsbConnectionState.PERMISSION_REQUESTED
-            _status.value = "Requesting USB permission..."
-            val permissionIntent = PendingIntent.getBroadcast(
-                context, 0,
-                Intent(ACTION_USB_PERMISSION),
-                PendingIntent.FLAG_MUTABLE
-            )
-            usbManager.requestPermission(device, permissionIntent)
+            return
         }
+        // DOUBLE-PROMPT GUARD (GM AAOS).
+        //
+        // One physical plug-in can reach this method twice for the SAME device:
+        // scanExistingDevices() spots the accessory, and the ACTION_USB_DEVICE_ATTACHED
+        // broadcast fires for the same re-enumeration. Separately, the manifest
+        // intent-filter (usb_device_filter.xml) makes the OS raise its own dialog —
+        // the one carrying the "use by default" checkbox.
+        //
+        // On GM head units that checkbox never persists (known GM AAOS bug), so every
+        // redundant request is a dialog the user must physically dismiss. Collapse
+        // repeat requests for the same device to a single in-flight prompt.
+        val key = device.deviceName
+        if (!pendingPermissionDevice.compareAndSet(null, key)) {
+            OalLog.i(TAG, "Permission prompt already in flight for " +
+                    "${pendingPermissionDevice.get()} — not raising a second dialog for $key")
+            return
+        }
+        _connectionState.value = UsbConnectionState.PERMISSION_REQUESTED
+        _status.value = "Requesting USB permission..."
+        val permissionIntent = PendingIntent.getBroadcast(
+            context, 0,
+            Intent(ACTION_USB_PERMISSION),
+            PendingIntent.FLAG_MUTABLE
+        )
+        usbManager.requestPermission(device, permissionIntent)
     }
 
     private fun onPermissionGranted(device: UsbDevice) {
@@ -336,9 +441,15 @@ class UsbConnectionManager(
             return
         }
 
-        // Wait for the device to re-enumerate as a Google Accessory
+        // Wait for the device to re-enumerate as a Google Accessory.
+        //
+        // Previously this slept AOA_SWITCH_SETTLE_MS (2s) unconditionally before
+        // even looking. Measured on a real head unit the accessory appears ~2.0s
+        // after "AOA switch initiated", so a blind 2s sleep plus a 500ms poll
+        // interval meant we routinely noticed it up to half a second late, on
+        // every single connect. Poll fast from the start instead: the settle
+        // delay becomes a *budget*, not a floor.
         _status.value = "Waiting for accessory re-enumeration..."
-        delay(AOA_SWITCH_SETTLE_MS)
 
         // Poll for the accessory device. Bail out early if another path (the
         // ACTION_USB_PERMISSION broadcast, which commonly lands first once the
@@ -353,7 +464,8 @@ class UsbConnectionManager(
             val devices = usbManager.deviceList
             for ((_, d) in devices) {
                 if (UsbConstants.isAccessoryDevice(d.vendorId, d.productId)) {
-                    OalLog.i(TAG, "Accessory device found after AOA switch: ${d.deviceName}")
+                    OalLog.i(TAG, "Accessory device found after AOA switch: ${d.deviceName} " +
+                            "(${attempts * ACCESSORY_SCAN_INTERVAL_MS}ms after switch)")
                     _connectionState.value = UsbConnectionState.ACCESSORY_DETECTED
                     requestPermissionOrConnect(d)
                     return
@@ -460,8 +572,57 @@ class UsbConnectionManager(
         connectClaimed.set(false)
     }
 
+    /**
+     * True when a device can never be an Android phone we could drive into AOA.
+     *
+     * Checking only [UsbDevice.deviceClass] is not enough: phones, hubs, card
+     * readers and head-unit internals alike report class 0 (per-interface,
+     * "see interface descriptors"), so the old `deviceClass == 8 || == 9` test
+     * matched almost nothing. Observed on a real head unit: the picker listed
+     * **9** devices and the user selected `0424:4911` (a Microchip USB2517 hub)
+     * before finding the phone.
+     *
+     * A device is excluded when the device descriptor is a known non-phone class,
+     * or when every interface it exposes is a known non-phone class.
+     *
+     * NOTE: a phone in "charging only" USB mode is deliberately NOT excluded. The
+     * AOA v2 handshake ([UsbAccessoryMode]) is entirely endpoint-0 control
+     * transfers — GET_PROTOCOL / SEND_STRING / START — and needs no interface at
+     * all; the accessory interface is *created by* the switch. Charge-only is the
+     * default USB state on modern Android, and is exactly the state an OEM head
+     * unit drives into accessory mode every day. Excluding it would hide the one
+     * device the user needs.
+     */
     private fun isHubOrSystemDevice(device: UsbDevice): Boolean {
-        // Skip USB hubs (class 9) and mass storage (class 8)
-        return device.deviceClass == 9 || device.deviceClass == 8
+        if (device.deviceClass in EXCLUDED_USB_CLASSES) return true
+        val ifaceCount = device.interfaceCount
+        // No interfaces at all: cannot rule it out — a charge-only phone looks
+        // like this and is still AOA-capable over endpoint 0.
+        if (ifaceCount == 0) return false
+        for (i in 0 until ifaceCount) {
+            if (device.getInterface(i).interfaceClass !in EXCLUDED_USB_CLASSES) return false
+        }
+        return true
+    }
+
+    /**
+     * True when a device is plausibly an Android phone we can drive into AOA.
+     *
+     * A phone in normal (non-accessory) mode exposes MTP/PTP, ADB, or a vendor
+     * -specific interface. We deliberately keep this permissive — an unknown
+     * phone that fails the heuristic would be unreachable, which is worse than
+     * showing one extra entry — but it is enough to drop hubs, storage, HID and
+     * audio peripherals from the picker.
+     */
+    private fun looksLikePhone(device: UsbDevice): Boolean {
+        if (UsbConstants.isAccessoryDevice(device.vendorId, device.productId)) return true
+        for (i in 0 until device.interfaceCount) {
+            val cls = device.getInterface(i).interfaceClass
+            // Vendor-specific (0xFF) covers ADB, MTP-over-vendor and most OEM modes.
+            if (cls == AndroidUsbConstants.USB_CLASS_VENDOR_SPEC) return true
+            // Still image / PTP — the classic phone-as-camera interface.
+            if (cls == AndroidUsbConstants.USB_CLASS_STILL_IMAGE) return true
+        }
+        return false
     }
 }
