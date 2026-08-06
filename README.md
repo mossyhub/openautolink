@@ -7,26 +7,31 @@
 > Wireless Android Auto for AAOS head units. No extra hardware.
 >
 
+<a id="aa174"></a>
+
+> # ⚠️ Android Auto 17.4 breaks wireless — USB only for now
+>
+> **If you are on Android Auto 17.4, wireless projection will not start. Use USB mode: Settings → Direct transport → USB.** That is the only option today.
+>
+> Google disabled the entry point that lets any companion app start wireless projection. In Android Auto 17.4 the `WirelessStartupReceiver` ships `android:enabled="false"`, and the `WirelessStartupActivity` it forwards to is `android:exported="false"` — so the broadcast is silently swallowed (`result=0`, no log, no error) and the activity cannot be launched by another app.
+>
+> Verified against the 17.4 manifest and confirmed on-device: `cmd package query-receivers` reports **"No receivers found"**, and even `adb pm enable` is refused with a `SecurityException`.
+>
+> **There is no wireless workaround.** Android Auto has no launcher icon — its only launcher activity (`VnLaunchPadActivity`) also ships `android:enabled="false"` — so you cannot start it by hand, and nothing else can tell it which IP and port to connect to. If the receiver is disabled, wireless projection cannot be started at all.
+>
+> This affects **every** third-party wireless implementation, not just OpenAutoLink — [Open Headunit](https://github.com/andreknieriem/open-headunit) carries the same notice and reached the same conclusion.
+>
+> **Symptom:** the car connects and shows "connected" but projection never starts. The companion logs `AA broadcast sent`, then `AA didn't connect to proxy in 8000ms` on repeat.
+>
+> It is USB or nothing until we find something more creative, or Google reverses this. Tracking: [#66](https://github.com/mossyhub/openautolink/issues/66)
+>
+> *(On GM head units USB re-prompts for permission on every connect — a separate, known GM AAOS bug.)*
 
 [![CI](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml/badge.svg)](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml)
 [![Release](https://github.com/mossyhub/openautolink/actions/workflows/release-apk.yml/badge.svg)](https://github.com/mossyhub/openautolink/releases/latest)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?logo=buymeacoffee&logoColor=white)](https://buymeacoffee.com/mossyhub)
 
 OpenAutoLink runs the full Android Auto protocol stack natively on an AAOS head unit using the [aasdk](https://github.com/opencardev/aasdk) C++ library via JNI. No SBC, no USB adapter, no extra hardware — the car and phone talk directly over WiFi.
-
-> ## ⚠️ Android Auto 17.4 breaks wireless startup
->
-> **Google disabled the entry point that lets a companion app start wireless projection.** In Android Auto 17.4 the `WirelessStartupReceiver` ships `android:enabled="false"`, and the `WirelessStartupActivity` it forwards to is `android:exported="false"` — so the broadcast is silently swallowed (`result=0`, no log, no error) and the activity cannot be launched by any other app. Verified against the 17.4 manifest and confirmed on-device: `cmd package query-receivers` reports **"No receivers found"**, and even `adb pm enable` is refused with a `SecurityException`.
->
-> This affects **every** third-party wireless implementation, not just OpenAutoLink — see the same notice on [Open Headunit](https://github.com/andreknieriem/open-headunit).
->
-> **What still works:**
-> - **An already-running Android Auto session.** The break is in *cold start* — if Android Auto is already running, the bridge connects normally.
-> - **USB mode.** USB raises a system-level accessory event that Google's own handler always services, so it is unaffected.
->
-> **Symptom:** the car connects and shows "connected" but projection never starts. The companion logs `AA broadcast sent`, then `AA didn't connect to proxy in 8000ms` on repeat.
->
-> We're investigating supported alternatives. Until then, if wireless cold-start fails, use USB to begin the session.
 
 
 <p align="center">
@@ -270,7 +275,9 @@ If your car doesn't have a built-in WiFi hotspot:
 2. OpenAutoLink detects the device and performs the AOA v2 handshake.
 3. Android Auto projection starts over the USB connection.
 
-> **GM AAOS USB permission note:** GM head units ask for USB connection permission every time, even with "Always allow" checked. Known GM AAOS bug — there is no workaround.
+> **GM AAOS USB permission note:** GM head units re-ask for USB permission on every connect, even with **"Always allow" / "Use by default" checked.** This is a bug in GM's AAOS build — the grant is never persisted — and there is no workaround from the app side.
+>
+> Two dialogs can appear for a single plug-in: one raised by the system (the one with the checkbox, triggered when the phone re-enumerates into accessory mode) and one raised by OpenAutoLink. As of v0.1.372 the app collapses its own duplicate requests so you should see at most one OpenAutoLink prompt per connect. The system dialog is outside our control.
 
 ### 4. Recommended Settings
 
@@ -315,7 +322,7 @@ The original architecture used an SBC (single-board computer) running a C++ brid
 
 ## Known Issues
 
-- **Android Auto 17.4 breaks wireless cold-start** — Google shipped `WirelessStartupReceiver` disabled and `WirelessStartupActivity` unexported, so no companion app can start projection from cold. Affects all third-party wireless implementations. See the [notice above](#-android-auto-174-breaks-wireless-startup). Workaround: start the session over USB, or keep an existing Android Auto session running.
+- **Android Auto 17.4 breaks wireless entirely — USB only** — Google shipped `WirelessStartupReceiver` disabled and `WirelessStartupActivity` unexported, so no companion app can start wireless projection. There is no workaround: Android Auto has no launcher icon to start by hand, and nothing else can hand it the IP/port. Affects all third-party wireless implementations. Use USB mode. See the [notice at the top](#aa174).
 - **H.265 video may appear green-tinted** on first connection for 30–45 seconds. May be Qualcomm-specific — not yet confirmed on other SoCs
 
 If you encounter other problems, please [open an issue](https://github.com/mossyhub/openautolink/issues).
