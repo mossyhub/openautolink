@@ -88,6 +88,7 @@ import java.util.UUID
 class AaWirelessBtServer(
     private val context: Context,
     parentScope: CoroutineScope,
+    private val onUnexpectedAcceptLoopExit: () -> Unit = {},
 ) {
     // Deliberately does NOT inherit parentScope.coroutineContext.
     //
@@ -112,8 +113,19 @@ class AaWirelessBtServer(
     @Volatile
     private var running = false
 
-    /** True while the SDP record is published and the accept loop is alive. */
-    val isRunning: Boolean get() = running
+    /**
+     * True only while the advertiser was started AND its accept loop is alive.
+     *
+     * Bluetooth going down leaves the server object in memory. The accept loop
+     * exits after ten failures, but [running] historically stayed true, so the
+     * next ignition's ensureAdvertising() silently treated a dead SDP record as
+     * healthy and never told the phone which Wi-Fi to join.
+     */
+    val isRunning: Boolean
+        get() = AdvertiserLiveness.isLive(
+            startRequested = running,
+            acceptLoopActive = acceptJob?.isActive == true,
+        )
 
     @Volatile
     private var credentials: WifiCredentials? = null
@@ -186,7 +198,26 @@ class AaWirelessBtServer(
             return
         }
         running = true
-        acceptJob = scope.launch(CoroutineName("AaWirelessBt-Accept")) { acceptLoop() }
+        acceptJob = scope.launch(CoroutineName("AaWirelessBt-Accept")) {
+            var socketDied = false
+            try {
+                socketDied = acceptLoop()
+            } finally {
+                // This finally belongs to the exact accept Job that stopped. Do
+                // not poll AaWirelessBtControl.btServer: ignition recovery can
+                // replace that global reference while this older Job unwinds.
+                val startWasStillRequested = running
+                running = false
+                if (AdvertiserLiveness.shouldRecoverAfterExit(
+                        startRequested = startWasStillRequested,
+                        socketDied = socketDied,
+                    )
+                ) {
+                    OalLog.i(TAG, "Dead Bluetooth accept loop fully exited — requesting advertiser recovery")
+                    onUnexpectedAcceptLoopExit()
+                }
+            }
+        }
         hfpJob = scope.launch(CoroutineName("AaWirelessBt-Hfp")) { hfpPresenceLoop() }
     }
 
@@ -258,13 +289,13 @@ class AaWirelessBtServer(
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun acceptLoop() {
+    private suspend fun acceptLoop(): Boolean {
         @Suppress("DEPRECATION")
         val adapter = BluetoothAdapter.getDefaultAdapter()
         if (adapter == null || !adapter.isEnabled) {
             OalLog.w(TAG, "No BT adapter or adapter disabled — AA wireless BT not started")
             running = false
-            return
+            return false
         }
 
         try {
@@ -274,7 +305,7 @@ class AaWirelessBtServer(
         } catch (e: Exception) {
             OalLog.w(TAG, "Failed to publish AA Wireless SDP record: ${e.message}")
             running = false
-            return
+            return false
         }
 
         var consecutiveAcceptFailures = 0
@@ -343,14 +374,17 @@ class AaWirelessBtServer(
                     // car silently stopped advertising for the rest of the
                     // session: no SDP record, so the phone had nothing to dial
                     // back to and was never told which WiFi to join.
-                    AaWirelessBtControl.republishAfterSocketDeath()
-                    break
+                    // Report socket death only after this exact accept Job exits;
+                    // the server-owned finally decides whether recovery is still
+                    // wanted and invokes the callback once.
+                    return true
                 }
                 try { delay(1000) } catch (_: Throwable) { break }
             } else {
                 consecutiveAcceptFailures = 0
             }
         }
+        return false
     }
 
     /**
@@ -654,7 +688,10 @@ class AaWirelessBtServer(
                 PackageManager.PERMISSION_GRANTED
 
     fun stop() {
-        if (!running) return
+        // Cleanup is deliberately idempotent. A dead accept loop clears
+        // `running` before recovery replaces this server; returning early here
+        // would leak its sockets/jobs and let the old HFP listener conflict with
+        // the replacement instance.
         running = false
         runCatching { aaServerSocket?.close() }
         aaServerSocket = null

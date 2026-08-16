@@ -264,7 +264,10 @@ object AaWirelessBtControl {
 
     fun ensureAdvertising() {
         val ctx = appContext ?: return
-        if (btServer?.isRunning == true) return
+        if (btServer?.isRunning == true) {
+            OalLog.i(TAG, "Bluetooth advertiser already live — ignition re-arm not needed")
+            return
+        }
         // Single-flight: ignition ON arrives as 4 -> 5 -> 4 within ~350ms, which
         // fired this three times in one cycle. Each one raced the others into a
         // Bluetooth stack that was still down.
@@ -323,37 +326,6 @@ object AaWirelessBtControl {
      * 180s, plus room for the publish itself. Anything past this is a corpse.
      */
     private const val ENSURE_MAX_MS = 240_000L
-
-    fun republishAfterSocketDeath() {
-        val ctx = appContext ?: return
-        scope.launch {
-            // Wait for the adapter to actually come back rather than guessing.
-            //
-            // The previous revision waited a flat 5s and then republished; the
-            // adapter was still disabled 67 SECONDS after the socket died, so
-            // every attempt logged "No BT adapter or adapter disabled" and the
-            // car never advertised again. The head unit's Bluetooth goes down
-            // with the ignition and returns on its own schedule.
-            if (!awaitBluetoothEnabled()) {
-                OalLog.w(TAG, "Bluetooth did not come back — cannot republish the SDP record")
-                return@launch
-            }
-            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-              runCatching {
-                btServer?.stop()
-                btServer = null
-                startFromPreferences(ctx)
-                // Deliberately does NOT touch lastReadvertiseAtMs. This republish
-                // is recovery from a dead Bluetooth socket, not a response to a
-                // newly-learned address, and letting it start that cooldown
-                // blocked the discovery-driven re-advertise that follows it.
-                OalLog.i(TAG, "Republished the SDP record after the Bluetooth socket died")
-              }.onFailure {
-                OalLog.w(TAG, "Republish after socket death failed: ${it.message}")
-              }
-            }
-        }
-    }
 
     /**
      * Polls until the Bluetooth adapter is enabled, or the budget runs out.
@@ -1264,7 +1236,16 @@ object AaWirelessBtControl {
                 "transport mode for that port to be bound")
 
         btServer?.stop()
-        val bt = AaWirelessBtServer(context, scope)
+        val bt = AaWirelessBtServer(
+            context = context,
+            parentScope = scope,
+            onUnexpectedAcceptLoopExit = {
+                // Socket-death and ignition recovery share ensureAdvertising's
+                // single-flight guard, so they cannot replace each other's new
+                // SDP listener when Bluetooth returns.
+                ensureAdvertising()
+            },
+        )
         btServer = bt
         // Probe first: if the BT stack refuses to publish the record we want that
         // stated plainly in the log, not inferred later from the phone's silence.
