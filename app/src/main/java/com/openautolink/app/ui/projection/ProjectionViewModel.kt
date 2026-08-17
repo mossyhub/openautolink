@@ -603,18 +603,22 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
             // Load key remap from preferences
             val keyRemapJson = preferences.keyRemap.first()
-            if (keyRemapJson.isNotBlank()) {
+            val map: Map<Int, Int> = if (keyRemapJson.isBlank()) {
+                emptyMap()
+            } else {
                 try {
-                    val map = mutableMapOf<Int, Int>()
+                    val parsed = mutableMapOf<Int, Int>()
                     val json = org.json.JSONObject(keyRemapJson)
                     for (key in json.keys()) {
-                        map[key.toInt()] = json.getInt(key)
+                        parsed[key.toInt()] = json.getInt(key)
                     }
-                    steeringWheelController.customKeyMap = map
+                    parsed
                 } catch (_: Exception) {
-                    steeringWheelController.customKeyMap = emptyMap()
+                    emptyMap()
                 }
             }
+            steeringWheelController.customKeyMap = map
+            OalLog.i("input", "Loaded custom key map: count=${map.size}")
 
             // Load volume offsets
             val volMedia = preferences.volumeOffsetMedia.first()

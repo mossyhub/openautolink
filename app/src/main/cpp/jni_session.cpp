@@ -1750,8 +1750,15 @@ void JniSession::sendMultiTouchEvent(int action, int actionIndex,
 
 void JniSession::sendKeyEvent(int keyCode, bool isDown)
 {
-    if (!streaming_ || !inputChannel_) return;
-    ioService_->post([this, keyCode, isDown]() {
+    if (!streaming_ || !inputChannel_) {
+        nativeDiag(2, "input", "KeyEvent skipped: keycode=" + std::to_string(keyCode) +
+                   " down=" + (isDown ? "true" : "false") +
+                   " streaming=" + (streaming_ ? "true" : "false") +
+                   " inputChannel=" + (inputChannel_ ? "ready" : "null"));
+        return;
+    }
+    auto self = shared_from_this();
+    ioService_->post([self, keyCode, isDown]() {
         aap_protobuf::service::inputsource::message::InputReport report;
 
         auto now = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -1765,9 +1772,19 @@ void JniSession::sendKeyEvent(int keyCode, bool isDown)
         key->set_metastate(0);
         key->set_longpress(false);
 
-        auto promise = aasdk::channel::SendPromise::defer(*strand_);
-        promise->then([]() {}, [](const auto&) {});
-        inputChannel_->sendInputReport(report, std::move(promise));
+        auto promise = aasdk::channel::SendPromise::defer(*self->strand_);
+        promise->then(
+            [self, keyCode, isDown]() {
+                self->nativeDiag(1, "input", "KeyEvent send complete: keycode=" +
+                                 std::to_string(keyCode) + " down=" +
+                                 (isDown ? "true" : "false"));
+            },
+            [self, keyCode, isDown](const aasdk::error::Error& e) {
+                self->nativeDiag(3, "input", "KeyEvent send failed: keycode=" +
+                                 std::to_string(keyCode) + " down=" +
+                                 (isDown ? "true" : "false") + " error=" + e.what());
+            });
+        self->inputChannel_->sendInputReport(report, std::move(promise));
     });
 }
 

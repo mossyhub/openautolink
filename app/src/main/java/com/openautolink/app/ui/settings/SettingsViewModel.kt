@@ -549,7 +549,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateKeyRemap(json: String) {
-        viewModelScope.launch { preferences.setKeyRemap(json) }
+        viewModelScope.launch {
+            preferences.setKeyRemap(json)
+            val count = if (json.isBlank()) {
+                0
+            } else {
+                runCatching { org.json.JSONObject(json).length() }.getOrDefault(0)
+            }
+            com.openautolink.app.diagnostics.OalLog.i(
+                "input",
+                "Key remap persisted: count=$count mappings=$json",
+            )
+        }
     }
 
     fun updateVolumeOffsetMedia(offset: Int) {

@@ -2031,6 +2031,46 @@ private val mappableActions = listOf(
 )
 
 @Composable
+private fun DialogKeyCaptureWindowHook() {
+    val dialogView = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(dialogView) {
+        val provider = com.openautolink.app.input.findDialogWindowProvider(dialogView)
+        val window = provider?.window
+        val original = window?.callback
+        val callback = if (original != null) {
+            object : android.view.Window.Callback by original {
+                override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+                    com.openautolink.app.diagnostics.OalLog.i(
+                        "KeyRemapDialog",
+                        "Dialog window dispatchKeyEvent: keycode=${event.keyCode} " +
+                            "(${android.view.KeyEvent.keyCodeToString(event.keyCode)}) " +
+                            "action=${event.action} source=0x${Integer.toHexString(event.source)}",
+                    )
+                    if (com.openautolink.app.input.KeyCaptureBus.handle(event)) return true
+                    return original.dispatchKeyEvent(event)
+                }
+            }
+        } else {
+            null
+        }
+        com.openautolink.app.diagnostics.OalLog.i(
+            "KeyRemapDialog",
+            "Window hook setup: providerFound=${provider != null} " +
+                "windowFound=${window != null} originalCallbackPresent=${original != null} " +
+                "installed=${callback != null}",
+        )
+        if (window != null && callback != null) {
+            window.callback = callback
+        }
+        onDispose {
+            if (window != null && callback != null && window.callback === callback) {
+                window.callback = original
+            }
+        }
+    }
+}
+
+@Composable
 private fun InputTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
     // Parse current key map from JSON
     val currentMap = remember(uiState.keyRemap) {
@@ -2174,50 +2214,12 @@ private fun InputTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             }
         }
 
-        // Hook the dialog's own Window so steering-wheel keys delivered to
-        // the dialog window get routed into KeyCaptureBus.
-        val dialogView = androidx.compose.ui.platform.LocalView.current
-        DisposableEffect(target, dialogView) {
-            var node: android.view.ViewParent? = dialogView.parent
-            var provider: androidx.compose.ui.window.DialogWindowProvider? = null
-            while (node != null) {
-                if (node is androidx.compose.ui.window.DialogWindowProvider) {
-                    provider = node
-                    break
-                }
-                node = (node as? android.view.View)?.parent
-            }
-            val window = provider?.window
-            val original = window?.callback
-            com.openautolink.app.diagnostics.OalLog.i(
-                "KeyRemapDialog",
-                "Window hook setup: providerFound=${provider != null} " +
-                    "windowFound=${window != null} originalCallbackPresent=${original != null}",
-            )
-            if (window != null && original != null) {
-                window.callback = object : android.view.Window.Callback by original {
-                    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-                        com.openautolink.app.diagnostics.OalLog.i(
-                            "KeyRemapDialog",
-                            "Dialog window dispatchKeyEvent: keycode=${event.keyCode} " +
-                                "(${android.view.KeyEvent.keyCodeToString(event.keyCode)}) " +
-                                "action=${event.action} source=0x${Integer.toHexString(event.source)}",
-                        )
-                        if (com.openautolink.app.input.KeyCaptureBus.handle(event)) return true
-                        return original.dispatchKeyEvent(event)
-                    }
-                }
-            }
-            onDispose {
-                if (window != null && original != null) window.callback = original
-            }
-        }
-
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { captureTarget = null; lastDetectedKey = null },
             title = { Text("Assign key to: ${target.label}") },
             text = {
                 Column {
+                    DialogKeyCaptureWindowHook()
                     Text("Press any physical button (steering wheel, remote, keyboard) now.")
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -2254,7 +2256,7 @@ private fun InputTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
                 }
             },
             dismissButton = {
-                Button(onClick = { captureTarget = null }) {
+                Button(onClick = { captureTarget = null; lastDetectedKey = null }) {
                     Text("Cancel")
                 }
             },
