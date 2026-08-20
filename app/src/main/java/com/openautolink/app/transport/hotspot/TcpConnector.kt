@@ -196,6 +196,14 @@ class TcpConnector(
         return try {
             val socket = Socket()
             socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            // Socket.connect() is blocking and is not cancelled with connectJob.
+            // A different Bluetooth phone can replace this connector while the
+            // old dial is still inside connect(); never publish that late socket.
+            if (!isRunning) {
+                OalLog.i(TAG, "Connector stopped while dialling $host — closing late socket")
+                runCatching { socket.close() }
+                return false
+            }
             socket.tcpNoDelay = true
             // Detect dead phone within ~10s (kernel sends keepalive after idle, then
             // 3 probes 2s apart). Critical for sleep/wake and ungraceful disconnects.

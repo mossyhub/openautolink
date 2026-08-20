@@ -6,7 +6,9 @@ package com.openautolink.app.transport.aasdk
  * The target must be recorded at the shared [AasdkSession.startTcp] boundary,
  * not only in [AasdkSession.dialCompanion]. WPP restart can call startTcp
  * directly; if that path is not recorded, the next Bluetooth handshake looks
- * like a new phone and replaces the live session it just established.
+ * like a new phone and replaces the live session it just established. Conversely,
+ * an active retry may belong to a phone that has left the car, so only a request
+ * for the same recorded target is single-flight; a different phone must replace it.
  */
 internal class CompanionDialState {
     @Volatile
@@ -18,4 +20,7 @@ internal class CompanionDialState {
 
     fun shouldIgnoreRedial(requestedIp: String, hasLiveTransport: Boolean): Boolean =
         hasLiveTransport && requestedIp == startTcpTarget
+
+    fun shouldIgnoreActiveDial(requestedIp: String, connectorIsActive: Boolean): Boolean =
+        connectorIsActive && requestedIp == startTcpTarget
 }

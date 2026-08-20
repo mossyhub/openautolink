@@ -88,7 +88,9 @@ class AasdkSession(
     var sdrConfig = AasdkSdrConfig()
 
     // TCP connector — used in "hotspot" transport mode (Car Hotspot / Phone Hotspot)
-    private var _tcpConnector: TcpConnector? = null
+    @Volatile private var _tcpConnector: TcpConnector? = null
+    /** Serializes connector ownership, socket handoff, and synchronous teardown. */
+    private val connectionStartLock = Any()
 
     /**
      * WPP inbound listener. Only non-null in "wpp" transport mode, where the phone
@@ -295,13 +297,16 @@ class AasdkSession(
             OalLog.i(TAG, "Ignition simulation is in its off window — not dialling $ip")
             return
         }
-        // Only refuse when a dial is genuinely in flight or connected. Refusing
-        // whenever a connector merely EXISTS makes a dead one permanent: after a
-        // disconnect the stale connector blocked every retry, so the session could
-        // never recover and the phone picker appeared to do nothing.
+        // Refuse only a same-target dial that is genuinely in flight. An active
+        // connector can also be an endless retry to a phone that has left the car;
+        // when Bluetooth resolves a different phone, that retry must be replaced.
+        // Refusing whenever a connector merely EXISTS makes stale ownership
+        // permanent and is why Liz's reachable companion was ignored all day.
         val existing = _tcpConnector
-        if (existing != null && existing.isActive) {
-            OalLog.d(TAG, "Already dialling/connected — ignoring dial request for $ip")
+        val existingIsActive = existing?.isActive == true
+        if (companionDialState.shouldIgnoreActiveDial(ip, existingIsActive)) {
+            OalLog.i(TAG, "Already dialling $ip — ignoring the same-target request while " +
+                    "that connector is still active")
             return
         }
         // A live native session outranks a fresh handshake asking us to dial.
@@ -325,9 +330,12 @@ class AasdkSession(
             return
         }
         if (existing != null) {
-            OalLog.i(TAG, "Replacing a dead connector to dial $ip")
-            existing.stop()
-            _tcpConnector = null
+            if (existingIsActive) {
+                OalLog.i(TAG, "Replacing active connector target " +
+                        "${existing.manualIp ?: "discovery"} with different phone $ip")
+            } else {
+                OalLog.i(TAG, "Replacing a dead connector to dial $ip")
+            }
         }
         OalLog.i(TAG, "Companion at $ip — dialling its proxy now (companion is the server)")
         _wppServer?.stop()
@@ -336,35 +344,52 @@ class AasdkSession(
     }
 
     private fun startTcp(manualIp: String? = null) {
-        // Record at the common boundary. WPP restart calls startTcp() directly,
-        // bypassing dialCompanion(); without this, the next handshake destroys
-        // the live session because the same-phone guard has no address to match.
-        companionDialState.recordStartTcpTarget(manualIp)
-        if (!manualIp.isNullOrBlank()) {
-            OalLog.i(TAG, "Recorded TCP target $manualIp for the live-session re-dial guard")
-        }
         OalLog.i(TAG, "Starting aasdk session (TCP/hotspot transport)")
-        _tcpConnector?.stop()
-        _tcpConnector = TcpConnector(
-            context,
-            scope,
-            onSocketReady = { tcpSocket ->
-                scope.launch(Dispatchers.IO) {
-                    OalLog.i(TAG, "TCP socket ready — starting aasdk native session")
-                    handleConnection(tcpSocket)
-                }
-            },
-            onConnectFailure = {
-                // Drive the same reconnectAttempt counter the session-stopped
-                // path uses, so picker escalation works even when we never
-                // got to handshake (companion not listening, phone off-net).
-                consecutiveReconnectFailures++
-                _reconnectAttempt.value = consecutiveReconnectFailures
-            },
-        )
-        // An explicit dial target wins over the configured manual IP.
-        _tcpConnector?.manualIp = manualIp ?: manualIpAddress
-        _tcpConnector?.start()
+        synchronized(connectionStartLock) {
+            // Record at the common ownership boundary. WPP restart calls startTcp()
+            // directly, so recording only in dialCompanion() leaves the guard stale.
+            companionDialState.recordStartTcpTarget(manualIp)
+            if (!manualIp.isNullOrBlank()) {
+                OalLog.i(TAG, "Recorded TCP target $manualIp for the live-session re-dial guard")
+            }
+
+            _tcpConnector?.stop()
+            _tcpConnector = null
+            lateinit var connector: TcpConnector
+            connector = TcpConnector(
+                context,
+                scope,
+                onSocketReady = { tcpSocket ->
+                    scope.launch(Dispatchers.IO) {
+                        synchronized(connectionStartLock) {
+                            if (_tcpConnector !== connector) {
+                                OalLog.i(TAG, "Superseded connector delivered a late socket — closing it")
+                                runCatching { tcpSocket.close() }
+                            } else {
+                                OalLog.i(TAG, "TCP socket ready — starting aasdk native session")
+                                handleConnection(tcpSocket)
+                            }
+                        }
+                    }
+                },
+                onConnectFailure = {
+                    synchronized(connectionStartLock) {
+                        if (_tcpConnector === connector) {
+                            // Drive the same reconnectAttempt counter the session-stopped
+                            // path uses, even when TCP never reaches native aasdk.
+                            consecutiveReconnectFailures++
+                            _reconnectAttempt.value = consecutiveReconnectFailures
+                        } else {
+                            OalLog.i(TAG, "Ignoring connect failure from a superseded connector")
+                        }
+                    }
+                },
+            )
+            // An explicit dial target wins over the configured manual IP.
+            connector.manualIp = manualIp ?: manualIpAddress
+            _tcpConnector = connector
+            connector.start()
+        }
     }
 
     private fun startUsb() {
@@ -474,16 +499,18 @@ class AasdkSession(
         explicitStop = true
         OalLog.i(TAG, "Stopping aasdk session")
         cancelPendingReconnect("explicit stop")
-        _tcpConnector?.stop()
-        _tcpConnector = null
-        _wppServer?.stop()
-        _wppServer = null
-        _usbConnectionManager?.stop()
-        _usbConnectionManager = null
-        transportPipe = NativeTransportTeardown.closePipeBeforeNativeStop(transportPipe) {
-            OalLog.i(TAG, "Transport pipe closed — stopping native session")
-            AasdkNative.nativeStopSession()
-            OalLog.i(TAG, "Native session stop completed after transport close")
+        synchronized(connectionStartLock) {
+            _tcpConnector?.stop()
+            _tcpConnector = null
+            _wppServer?.stop()
+            _wppServer = null
+            _usbConnectionManager?.stop()
+            _usbConnectionManager = null
+            transportPipe = NativeTransportTeardown.closePipeBeforeNativeStop(transportPipe) {
+                OalLog.i(TAG, "Transport pipe closed — stopping native session")
+                AasdkNative.nativeStopSession()
+                OalLog.i(TAG, "Native session stop completed after transport close")
+            }
         }
         _connectionState.value = ConnectionState.DISCONNECTED
     }
@@ -507,16 +534,18 @@ class AasdkSession(
             // both reconnects race and one fails with "Native session start failed".
             explicitStop = true
             cancelPendingReconnect("force reconnect")
-            _tcpConnector?.stop()
-            _tcpConnector = null
-            _wppServer?.stop()
-            _wppServer = null
-            _usbConnectionManager?.stop()
-            _usbConnectionManager = null
-            transportPipe = NativeTransportTeardown.closePipeBeforeNativeStop(transportPipe) {
-                OalLog.i(TAG, "Transport pipe closed — stopping native session")
-                AasdkNative.nativeStopSession()
-                OalLog.i(TAG, "Native session stop completed after transport close")
+            synchronized(connectionStartLock) {
+                _tcpConnector?.stop()
+                _tcpConnector = null
+                _wppServer?.stop()
+                _wppServer = null
+                _usbConnectionManager?.stop()
+                _usbConnectionManager = null
+                transportPipe = NativeTransportTeardown.closePipeBeforeNativeStop(transportPipe) {
+                    OalLog.i(TAG, "Transport pipe closed — stopping native session")
+                    AasdkNative.nativeStopSession()
+                    OalLog.i(TAG, "Native session stop completed after transport close")
+                }
             }
             _connectionState.value = ConnectionState.DISCONNECTED
             // Now clear the explicitStop flag so the freshly-started session can
