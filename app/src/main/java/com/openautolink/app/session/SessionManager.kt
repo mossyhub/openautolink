@@ -84,6 +84,7 @@ class SessionManager(
         private const val SENSOR_TYPE_GEAR = 8
         private const val SENSOR_TYPE_NIGHT_MODE = 10
         private const val SENSOR_TYPE_DRIVING_STATUS = 13
+        private const val SENSOR_TYPE_VEHICLE_ENERGY_MODEL = 23
 
         // Activity-sourced UI-mode snapshot that can be published before
         // SessionManager exists (ViewModel lazy creation path).
@@ -768,6 +769,72 @@ class SessionManager(
         }
     }
 
+    @Synchronized
+    private fun ensureVehicleDataForwarder(): VehicleDataForwarder? {
+        _vehicleDataForwarder?.let { return it }
+        val ctx = context ?: return null
+        return VehicleDataForwarderImpl(
+            ctx,
+            sendMessage = ::forwardVehicleData,
+            onIgnitionOn = { /* aasdk mode doesn't need ignition-based reconnect */ },
+        ).also { _vehicleDataForwarder = it }
+    }
+
+    private fun forwardVehicleData(vd: ControlMessage.VehicleData) {
+        val session = aasdkSession ?: return
+        vd.speedKmh?.let { session.sendSpeed((it / 3.6f * 1000).toInt()) }
+        // Edge-trigger low-cadence properties so each transition fires once.
+        vd.gearRaw?.let {
+            if (lastSentGearRaw != it) { lastSentGearRaw = it; session.sendGear(it) }
+        }
+        vd.parkingBrake?.let {
+            if (lastSentParkingBrake != it) { lastSentParkingBrake = it; session.sendParkingBrake(it) }
+        }
+        vd.nightMode?.let {
+            if (lastSentNightMode != it) { lastSentNightMode = it; session.sendNightMode(it) }
+        }
+        vd.driving?.let {
+            val driving = if (alwaysInPark) false else it
+            if (lastSentDriving != driving) {
+                lastSentDriving = driving
+                session.sendDrivingStatus(driving)
+            }
+        }
+        if (vd.fuelLevelPct != null || vd.rangeKm != null) {
+            session.sendFuel(
+                vd.fuelLevelPct ?: 0,
+                ((vd.rangeKm ?: 0f) * 1000).toInt(),
+                vd.lowFuel ?: false,
+            )
+        }
+        vd.rpmE3?.let { session.sendRpm(it) }
+        if (vd.evBatteryLevelWh != null || vd.evBatteryCapacityWh != null) {
+            val batteryWh = vd.evBatteryLevelWh?.toInt() ?: 0
+            val capacityWh = vd.evBatteryCapacityWh?.toInt() ?: 0
+            val rangeM = ((vd.rangeKm ?: 0f) * 1000).toInt()
+            val chargeW = vd.evChargeRateW?.toInt() ?: 0
+            val now = SystemClock.elapsedRealtime()
+            evLearnedEstimator?.onVehicleTick(vd, now)
+            refreshEvProfileLookup(vd)
+            val movedBattery = kotlin.math.abs(batteryWh - lastVemBatteryWh) >= 100
+            val movedRange = kotlin.math.abs(rangeM - lastVemRangeM) >= 500
+            val movedCharge = kotlin.math.abs(chargeW - lastVemChargeW) >= 100
+            val firstEmit = lastVemLogMs == 0L
+            val staleEnough = (now - lastVemLogMs) >= VEM_LOG_MIN_GAP_MS
+            if (firstEmit || movedBattery || movedRange || movedCharge || staleEnough) {
+                DiagnosticLog.i(
+                    "vem",
+                    "sendEnergyModel: level=${batteryWh}Wh cap=${capacityWh}Wh range=${rangeM}m charge=${chargeW}W${evTuningSummary(batteryWh, rangeM)}",
+                )
+                lastVemLogMs = now
+                lastVemBatteryWh = batteryWh
+                lastVemRangeM = rangeM
+                lastVemChargeW = chargeW
+            }
+            sendEnergyModelWithTuning(session, batteryWh, capacityWh, rangeM, chargeW)
+        }
+    }
+
     /**
      * The phone subscribed to a sensor type. Push current vehicle state now.
      *
@@ -780,6 +847,10 @@ class SessionManager(
      * recorded as sent, which would otherwise suppress this re-push. Issue #61.
      */
     private fun onPhoneSubscribedSensor(sensorType: Int) {
+        if (sensorType == SENSOR_TYPE_VEHICLE_ENERGY_MODEL) {
+            sendCurrentEnergyModel("sensor-subscribe")
+            return
+        }
         val session = aasdkSession ?: return
         val vd = _vehicleDataForwarder?.latestVehicleData?.value
         resetLatchedVehicleSensorState("sensor_subscribe_$sensorType")
@@ -943,81 +1014,13 @@ class SessionManager(
 
         // Create vehicle data forwarder -- sends via AasdkSession
         _vehicleDataForwarder?.stop()
+        _vehicleDataForwarder = null
         // Reset edge-trigger memory so the first tick of the new session
         // unconditionally publishes nightMode / parking / driving / gear to
         // the phone — the phone has no prior state from us.
         resetLatchedVehicleSensorState("start_session")
         observeAlwaysInPark()
-        _vehicleDataForwarder = context?.let { ctx ->
-            VehicleDataForwarderImpl(
-                ctx,
-                sendMessage = { vd ->
-                    val session = aasdkSession ?: return@VehicleDataForwarderImpl
-                    vd.speedKmh?.let { session.sendSpeed((it / 3.6f * 1000).toInt()) }
-                    // Edge-trigger the low-cadence properties so each
-                    // transition fires the phone exactly once. Spamming
-                    // nightMode 10×/s while it's steady-state may have
-                    // contributed to issue #6 (day/night theme transition →
-                    // black video). Same defense for the others — cheap and
-                    // strictly correct.
-                    vd.gearRaw?.let {
-                        if (lastSentGearRaw != it) { lastSentGearRaw = it; session.sendGear(it) }
-                    }
-                    vd.parkingBrake?.let {
-                        if (lastSentParkingBrake != it) { lastSentParkingBrake = it; session.sendParkingBrake(it) }
-                    }
-                    vd.nightMode?.let {
-                        if (lastSentNightMode != it) { lastSentNightMode = it; session.sendNightMode(it) }
-                    }
-                    vd.driving?.let {
-                        val drv = if (alwaysInPark) false else it
-                        if (lastSentDriving != drv) { lastSentDriving = drv; session.sendDrivingStatus(drv) }
-                    }
-                    if (vd.fuelLevelPct != null || vd.rangeKm != null) {
-                        session.sendFuel(
-                            vd.fuelLevelPct ?: 0,
-                            ((vd.rangeKm ?: 0f) * 1000).toInt(),
-                            vd.lowFuel ?: false
-                        )
-                    }
-                    vd.rpmE3?.let { session.sendRpm(it) }
-                    if (vd.evBatteryLevelWh != null || vd.evBatteryCapacityWh != null) {
-                        val batteryWh = vd.evBatteryLevelWh?.toInt() ?: 0
-                        val capacityWh = vd.evBatteryCapacityWh?.toInt() ?: 0
-                        val rangeM = ((vd.rangeKm ?: 0f) * 1000).toInt()
-                        val chargeW = vd.evChargeRateW?.toInt() ?: 0
-                        val now = SystemClock.elapsedRealtime()
-                        // Feed the learned-rate estimator before VEM send so
-                        // the override (if learned mode is selected) reflects
-                        // the latest tick.
-                        evLearnedEstimator?.onVehicleTick(vd, now)
-                        // Refresh the EPA / curated profile match. Cheap —
-                        // early-outs when carMake/Model/Year haven't changed.
-                        refreshEvProfileLookup(vd)
-                        // Suppress identical / near-identical emits — log only
-                        // when a value moved meaningfully or [VEM_LOG_MIN_GAP_MS]
-                        // elapsed. First emit always logs.
-                        val movedBattery = kotlin.math.abs(batteryWh - lastVemBatteryWh) >= 100
-                        val movedRange = kotlin.math.abs(rangeM - lastVemRangeM) >= 500
-                        val movedCharge = kotlin.math.abs(chargeW - lastVemChargeW) >= 100
-                        val firstEmit = lastVemLogMs == 0L
-                        val staleEnough = (now - lastVemLogMs) >= VEM_LOG_MIN_GAP_MS
-                        if (firstEmit || movedBattery || movedRange || movedCharge || staleEnough) {
-                            DiagnosticLog.i(
-                                "vem",
-                                "sendEnergyModel: level=${batteryWh}Wh cap=${capacityWh}Wh range=${rangeM}m charge=${chargeW}W${evTuningSummary(batteryWh, rangeM)}",
-                            )
-                            lastVemLogMs = now
-                            lastVemBatteryWh = batteryWh
-                            lastVemRangeM = rangeM
-                            lastVemChargeW = chargeW
-                        }
-                        sendEnergyModelWithTuning(session, batteryWh, capacityWh, rangeM, chargeW)
-                    }
-                },
-                onIgnitionOn = { /* aasdk mode doesn't need ignition-based reconnect */ }
-            )
-        }
+        ensureVehicleDataForwarder()
 
         // Create IMU forwarder -- sends via AasdkSession
         _imuForwarder?.stop()
@@ -1440,25 +1443,18 @@ class SessionManager(
         session.onNativeSessionStarting = {
             ensureVideoDecoder()
             ensureAudioPlayer()
+            // Re-adopt before restarting any producer: its first refreshed
+            // snapshot must target this replacement session, never a null/stale one.
+            if (aasdkSession !== session) {
+                OalLog.i(TAG, "Re-adopting the session after a transport restart — " +
+                        "without this, touch input and sensor data are silently dropped")
+                aasdkSession = session
+            }
             // Re-subscribe to this session's flows. A transport restart makes a
             // new native session; without this the collectors stay bound to the
             // previous one and its frames go nowhere — silent audio with every
             // upstream signal reporting healthy.
             bindSessionCollectors(session)
-            // Re-adopt the session on every native start.
-            //
-            // stop() nulls aasdkSession, and the recovery path reaches the
-            // transport through dialCompanion() -> startTcp() without re-running
-            // this setup — so after an ignition cycle the field stayed null while
-            // a perfectly good native session ran. Video was fine (frames go
-            // straight from the native callback to the decoder) but every touch
-            // was dropped by `aasdkSession ?: return` in sendControlMessage.
-            // Measured: five native session starts, two full setups.
-            if (aasdkSession !== session) {
-                OalLog.i(TAG, "Re-adopting the session after a transport restart — " +
-                        "without this, touch input is silently dropped")
-                aasdkSession = session
-            }
         }
         com.openautolink.app.transport.bluetooth.AaWirelessBtControl.sessionIsStreaming = {
             sessionState.value == SessionState.STREAMING
@@ -2795,21 +2791,31 @@ class SessionManager(
             " res=${evReservePct}% chg=${evMaxChargeKw}kW]"
     }
 
-    fun forceSendEnergyModel(): Boolean {
-        val session = aasdkSession ?: return false
-        val vd = _vehicleDataForwarder?.latestVehicleData?.value ?: return false
-        if (vd.evBatteryLevelWh == null && vd.evBatteryCapacityWh == null) return false
+    private fun rejectCurrentEnergyModel(reason: String, detail: String): Boolean {
+        DiagnosticLog.w("vem", "sendCurrentEnergyModel[$reason] rejected: $detail")
+        return false
+    }
+
+    private fun sendCurrentEnergyModel(reason: String): Boolean {
+        val session = aasdkSession ?: return rejectCurrentEnergyModel(reason, "no-session")
+        val vd = _vehicleDataForwarder?.latestVehicleData?.value
+            ?: return rejectCurrentEnergyModel(reason, "no-forwarder")
         val batteryWh = vd.evBatteryLevelWh?.toInt() ?: 0
         val capacityWh = vd.evBatteryCapacityWh?.toInt() ?: 0
         val rangeM = ((vd.rangeKm ?: 0f) * 1000).toInt()
+        if (batteryWh <= 0 || capacityWh <= 0 || rangeM <= 0) {
+            return rejectCurrentEnergyModel(reason, "no-ev-snapshot")
+        }
         val chargeW = vd.evChargeRateW?.toInt() ?: 0
         DiagnosticLog.i(
             "vem",
-            "forceSendEnergyModel: level=${batteryWh}Wh cap=${capacityWh}Wh range=${rangeM}m charge=${chargeW}W${evTuningSummary(batteryWh, rangeM)}",
+            "sendCurrentEnergyModel[$reason]: level=${batteryWh}Wh cap=${capacityWh}Wh range=${rangeM}m charge=${chargeW}W${evTuningSummary(batteryWh, rangeM)}",
         )
         sendEnergyModelWithTuning(session, batteryWh, capacityWh, rangeM, chargeW)
         return true
     }
+
+    fun forceSendEnergyModel(): Boolean = sendCurrentEnergyModel("manual")
 
     /** Snapshot of the currently matched EV profile, for the tuning UI. */
     data class EvProfileMatch(

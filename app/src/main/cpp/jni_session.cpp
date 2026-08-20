@@ -195,6 +195,7 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
         LOGW("Session already streaming, ignoring start()");
         return;
     }
+    energyModelDiagMask_ = 0;
 
     // Create global refs
     callbackRef_ = env->NewGlobalRef(callback);
@@ -583,6 +584,17 @@ void JniSession::nativeDiag(int level, const char* tag, const std::string& msg)
         env->DeleteLocalRef(jmsg);
     }
     releaseEnv(attached);
+}
+
+void JniSession::logEnergyModelDiagOnce(
+    uint32_t outcomeBit, int level, const std::string& msg)
+{
+    // Called only from the io_service strand. stop() joins that thread before
+    // deleting callbackRef_, so checking/using the JNI callback is safe here.
+    if (!cbMethods_.onNativeLog || !callbackRef_) return;
+    const uint32_t previous = energyModelDiagMask_.fetch_or(
+        outcomeBit, std::memory_order_relaxed);
+    if ((previous & outcomeBit) == 0) nativeDiag(level, "vem", msg);
 }
 
 void JniSession::reportGal6StartEnvelope(
@@ -2098,7 +2110,7 @@ void JniSession::sendEnergyModelSensor(int batteryLevelWh, int batteryCapacityWh
     float reservePctOverride, int maxChargeWOverride, int maxDischargeWOverride)
 {
     if (!streaming_ || !sensorChannel_) return;
-    // Guard: skip if values are invalid (matches bridge-mode logic)
+    // Guard: skip if values are invalid (matches bridge-mode logic).
     if (batteryCapacityWh <= 0 || batteryLevelWh <= 0 || rangeM <= 0) return;
 
     ioService_->post([this, batteryLevelWh, batteryCapacityWh, rangeM, chargeRateW,
@@ -2152,6 +2164,12 @@ void JniSession::sendEnergyModelSensor(int batteryLevelWh, int batteryCapacityWh
         auto promise = aasdk::channel::SendPromise::defer(*strand_);
         promise->then([]() {}, [](const auto&) {});
         sensorChannel_->sendSensorEventIndication(batch, std::move(promise));
+        logEnergyModelDiagOnce(1u << 0, 1,
+            "sendEnergyModel queued: level=" +
+            std::to_string(batteryLevelWh) + " cap=" +
+            std::to_string(batteryCapacityWh) + " range=" +
+            std::to_string(rangeM) + " charge=" +
+            std::to_string(chargeRateW));
     });
 }
 

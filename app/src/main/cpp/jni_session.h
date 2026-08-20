@@ -235,6 +235,7 @@ private:
     // log that gets uploaded). level: 0=d 1=i 2=w 3=e. Safe to call from the io
     // thread; no-op if the callback isn't wired yet.
     void nativeDiag(int level, const char* tag, const std::string& msg);
+    void logEnergyModelDiagOnce(uint32_t outcomeBit, int level, const std::string& msg);
 
     JavaVM* jvm_;
     jobject callbackRef_ = nullptr;
@@ -295,6 +296,7 @@ private:
     std::atomic<int> requestedGalMajor_{1};
     std::atomic<int> requestedGalMinor_{7};
     std::atomic<uint64_t> gal6EnvelopeSequence_{0};
+    std::atomic<uint32_t> energyModelDiagMask_{0};
 
     // Current video focus state for the main display.
     // 1 = VIDEO_FOCUS_PROJECTED (default — we always project on AAOS).
