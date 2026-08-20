@@ -346,15 +346,24 @@ object AaWirelessBtControl {
             while (System.currentTimeMillis() < deadline) {
                 // A newer Bluetooth dial-back owns a different attempt. Let this
                 // scanner die without consuming or dialling on its behalf.
-                if (bootstrapAttempt.get() !== attempt || sessionIsStreaming?.invoke() == true) {
+                if (bootstrapAttempt.get() !== attempt ||
+                    !phoneClaimStillOwned(attempt.phoneBtAddress, attempt.claimGeneration) ||
+                    sessionIsStreaming?.invoke() == true
+                ) {
                     return@launch
                 }
                 scanAttempt++
-                var found: Pair<String, Int>? = null
+                var found: ResolvedCompanion? = null
                 for (ip in candidates.take(MAX_PRESCAN_PROBES)) {
-                    val proxyPort = askCompanion(ip, connectTimeoutMs = 800)
-                    if (proxyPort != null) {
-                        found = ip to proxyPort
+                    val probe = askCompanion(ip, connectTimeoutMs = 800)
+                    if (probe != null && probeMatchesBluetoothOwner(
+                            attempt.phoneBtAddress,
+                            attempt.phoneBtName,
+                            ip,
+                            probe,
+                            attempt.expectedPhoneId,
+                        )) {
+                        found = ResolvedCompanion(ip, probe)
                         break
                     }
                 }
@@ -362,13 +371,26 @@ object AaWirelessBtControl {
                     val remainingMs = (deadline - System.currentTimeMillis())
                         .coerceIn(1L, 5_000L)
                         .toInt()
-                    found = findCompanionOnAnySubnet(manualIp, remainingMs)
+                    found = findCompanionOnAnySubnet(
+                        manualIp = manualIp,
+                        phoneBtAddress = attempt.phoneBtAddress,
+                        phoneBtName = attempt.phoneBtName,
+                        overallTimeoutMs = remainingMs,
+                    )
                 }
                 if (found != null) {
-                    val (ip, proxyPort) = found
-                    OalLog.i(TAG, "Bootstrap discovery found companion at $ip " +
-                            "on attempt $scanAttempt (proxy port $proxyPort)")
-                    readvertiseForNewCompanionAddress(ip, proxyPort, attempt)
+                    val ip = found.host
+                    val probe = found.probe
+                    OalLog.i(TAG, "Bootstrap discovery identity-matched companion at $ip " +
+                            "id=${probe.phoneId} on attempt $scanAttempt " +
+                            "(proxy port ${probe.proxyPort})")
+                    readvertiseForNewCompanionAddress(
+                        host = ip,
+                        reportedProxyPort = probe.proxyPort,
+                        expectedAttempt = attempt,
+                        reportedPhoneId = probe.phoneId,
+                        reportedFriendlyName = probe.friendlyName,
+                    )
                     return@launch
                 }
                 kotlinx.coroutines.delay(750)
@@ -383,11 +405,15 @@ object AaWirelessBtControl {
         val (pending, admissionToken) = synchronized(handshakeStateLock) {
             if (activeHandshakeCount.get() > 0 || handshakeAdmissionBlocked) return
             val candidate = pendingLegacyReadvertise.get() ?: return
-            if (bootstrapAttempt.get() !== candidate.attempt) {
+            val consumed = synchronized(phoneClaimLock) {
+                activePhoneBt.equals(candidate.attempt.phoneBtAddress, ignoreCase = true) &&
+                    phoneClaimGeneration == candidate.attempt.claimGeneration &&
+                    bootstrapAttempt.compareAndSet(candidate.attempt, null)
+            }
+            if (!consumed) {
                 pendingLegacyReadvertise.compareAndSet(candidate, null)
                 return
             }
-            if (!bootstrapAttempt.compareAndSet(candidate.attempt, null)) return
             pendingLegacyReadvertise.compareAndSet(candidate, null)
             val token = handshakeAdmissionSequence.incrementAndGet()
             handshakeAdmissionBlocked = true
@@ -401,18 +427,51 @@ object AaWirelessBtControl {
         readvertise(admissionToken)
     }
 
-    fun readvertiseForNewCompanionAddress(host: String, reportedProxyPort: Int? = null) {
-        readvertiseForNewCompanionAddress(host, reportedProxyPort, null)
+    fun readvertiseForNewCompanionAddress(
+        host: String,
+        reportedProxyPort: Int? = null,
+        reportedPhoneId: String? = null,
+        reportedFriendlyName: String? = null,
+    ) {
+        readvertiseForNewCompanionAddress(
+            host = host,
+            reportedProxyPort = reportedProxyPort,
+            expectedAttempt = null,
+            reportedPhoneId = reportedPhoneId,
+            reportedFriendlyName = reportedFriendlyName,
+        )
     }
 
     private fun readvertiseForNewCompanionAddress(
         host: String,
         reportedProxyPort: Int? = null,
         expectedAttempt: BootstrapAttempt? = null,
+        reportedPhoneId: String? = null,
+        reportedFriendlyName: String? = null,
     ) {
-        val proxyPort = reportedProxyPort ?: askCompanion(host, connectTimeoutMs = 800) ?: return
+        val liveProbe = askCompanion(host, connectTimeoutMs = 800)
+        val probe = liveProbe ?: reportedProxyPort?.let { port ->
+            CompanionProbe(reportedPhoneId, reportedFriendlyName, port)
+        } ?: return
         val attempt = expectedAttempt ?: bootstrapAttempt.get()
         if (expectedAttempt != null && bootstrapAttempt.get() !== expectedAttempt) return
+        if (attempt != null &&
+            !phoneClaimStillOwned(attempt.phoneBtAddress, attempt.claimGeneration)
+        ) {
+            OalLog.i(TAG, "Ignoring late companion for superseded claim ${attempt.phoneBtAddress}")
+            return
+        }
+        if (attempt != null && !probeMatchesBluetoothOwner(
+                attempt.phoneBtAddress,
+                attempt.phoneBtName,
+                host,
+                probe,
+                attempt.expectedPhoneId,
+            )) {
+            OalLog.i(TAG, "Ignoring late companion at $host — identity belongs to another phone")
+            return
+        }
+        val proxyPort = probe.proxyPort
         when (WppBootstrapPolicy.onCompanionReachable(
             bootstrapLoopbackPending = attempt != null,
             usesReservedProxyPort = proxyPort == OalProtocol.WPP_PROXY_PORT,
@@ -420,16 +479,29 @@ object AaWirelessBtControl {
             sessionStreaming = sessionIsStreaming?.invoke() == true,
         )) {
             LateCompanionAction.DIAL_COMPANION -> {
-                // Atomic consumption makes concurrent TCP-scan and cached-address
-                // results one event. Only the Bluetooth phone that opened this
-                // attempt owns the right to complete it.
-                if (attempt == null || !bootstrapAttempt.compareAndSet(attempt, null)) return
-                lastKnownPhoneIp = host
-                lastAddressByPhone[attempt.phoneBtAddress] = host
-                activePhoneCompanionIp = host
-                OalLog.i(TAG, "Companion became reachable at $host after AP association — " +
-                        "dialling it into reserved loopback port $proxyPort; no second WPP exchange")
-                onCompanionSelected?.invoke(host)
+                // Consume and dial under the same claim lock. A newer Bluetooth
+                // claimant cannot overtake this completion between the generation
+                // check and the connector replacement.
+                if (attempt == null) return
+                val dialled = synchronized(phoneClaimLock) {
+                    if (!activePhoneBt.equals(attempt.phoneBtAddress, ignoreCase = true) ||
+                        phoneClaimGeneration != attempt.claimGeneration ||
+                        !bootstrapAttempt.compareAndSet(attempt, null)
+                    ) {
+                        false
+                    } else {
+                        lastKnownPhoneIp = host
+                        lastAddressByPhone[attempt.phoneBtAddress] = host
+                        activePhoneCompanionIp = host
+                        OalLog.i(TAG, "Companion became reachable at $host after AP association — " +
+                                "dialling it into reserved loopback port $proxyPort; no second WPP exchange")
+                        onCompanionSelected?.invoke(host)
+                        true
+                    }
+                }
+                if (!dialled) {
+                    OalLog.i(TAG, "Ignoring late dial from superseded phone claim ${attempt.phoneBtAddress}")
+                }
             }
             LateCompanionAction.QUEUE_READVERTISE -> {
                 OalLog.i(TAG, "Older companion at $host uses dynamic proxy port $proxyPort; " +
@@ -456,13 +528,18 @@ object AaWirelessBtControl {
                 flushPendingReadvertise()
             }
             LateCompanionAction.IGNORE -> {
-                if (sessionIsStreaming?.invoke() == true) bootstrapAttempt.set(null)
+                if (sessionIsStreaming?.invoke() == true && attempt != null) {
+                    bootstrapAttempt.compareAndSet(attempt, null)
+                }
             }
         }
     }
 
     private data class BootstrapAttempt(
         val phoneBtAddress: String,
+        val phoneBtName: String?,
+        val expectedPhoneId: String?,
+        val claimGeneration: Long,
         val generation: Long,
     )
 
@@ -534,6 +611,14 @@ object AaWirelessBtControl {
 
     /** The address each phone's companion last answered on, keyed by BT MAC. */
     private val lastAddressByPhone = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Stable companion phone_id learned after a Bluetooth-name identity match. */
+    private val phoneIdByBtAddress = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private data class ResolvedCompanion(
+        val host: String,
+        val probe: CompanionProbe,
+    )
 
     /**
      * The phone currently holding the projection session, by BT address.
@@ -615,9 +700,62 @@ object AaWirelessBtControl {
     @Volatile
     var activePhoneBt: String? = null
 
+    private val phoneClaimLock = Any()
+    private var phoneClaimGeneration = 0L
+
     /** When [activePhoneBt] took the session, for ageing out a stale claim. */
     @Volatile
     private var activePhoneClaimedAt: Long = 0L
+
+    private fun claimPhoneForHandshake(
+        phoneBtAddress: String,
+        holderIsStreaming: Boolean,
+    ): Long? = synchronized(phoneClaimLock) {
+        val claimed = activePhoneBt
+        val claimAgeMs = System.currentTimeMillis() - activePhoneClaimedAt
+        if (claimed != null &&
+            !claimed.equals(phoneBtAddress, ignoreCase = true) &&
+            claimAgeMs < CLAIM_TIMEOUT_MS &&
+            holderIsStreaming
+        ) {
+            OalLog.i(TAG, "Not switching to $phoneBtAddress — $claimed is " +
+                    "streaming (claimed ${claimAgeMs / 1000}s ago). Switch phones " +
+                    "in the car's Bluetooth settings; disconnecting $claimed " +
+                    "releases the session immediately.")
+            return null
+        }
+        if (claimed != null && !claimed.equals(phoneBtAddress, ignoreCase = true)) {
+            OalLog.i(TAG, "Handing the session from $claimed to $phoneBtAddress, " +
+                    "which is dialling now (previous claim ${claimAgeMs / 1000}s old, " +
+                    "streaming=$holderIsStreaming)")
+        }
+        activePhoneBt = phoneBtAddress
+        activePhoneClaimedAt = System.currentTimeMillis()
+        phoneClaimGeneration++
+        phoneClaimGeneration
+    }
+
+    private fun phoneClaimStillOwned(phoneBtAddress: String, generation: Long): Boolean =
+        synchronized(phoneClaimLock) {
+            activePhoneBt.equals(phoneBtAddress, ignoreCase = true) &&
+                phoneClaimGeneration == generation
+        }
+
+    /**
+     * Returns only the companion address proven to belong to the Bluetooth phone
+     * currently holding the WPP claim.
+     *
+     * Discovery's global address history is intentionally excluded: it can contain
+     * every nearby phone and was the source of cross-phone speculative dials.
+     */
+    fun withIdentityValidatedCompanion(action: (String) -> Unit): String? =
+        synchronized(phoneClaimLock) {
+            val btAddress = activePhoneBt ?: return null
+            if (phoneIdByBtAddress[btAddress].isNullOrBlank()) return null
+            val address = lastAddressByPhone[btAddress] ?: return null
+            action(address)
+            address
+        }
 
     /**
      * Reset attempt ownership on ignition off while retaining address hints.
@@ -727,11 +865,14 @@ object AaWirelessBtControl {
         }
     }
 
-    fun releaseActivePhone() {
+    fun releaseActivePhone() = synchronized(phoneClaimLock) {
         activePhoneBt?.let { OalLog.i(TAG, "Released the session claim held by $it") }
         activePhoneBt = null
         activePhoneClaimedAt = 0L
         activePhoneCompanionIp = null
+        bootstrapAttempt.set(null)
+        pendingLegacyReadvertise.set(null)
+        phoneClaimGeneration++
     }
 
     /**
@@ -1007,8 +1148,10 @@ object AaWirelessBtControl {
      */
     private fun findCompanionOnAnySubnet(
         manualIp: String?,
+        phoneBtAddress: String,
+        phoneBtName: String?,
         overallTimeoutMs: Int = 20_000,
-    ): Pair<String, Int>? {
+    ): ResolvedCompanion? {
         val localIps = buildList {
             manualIp?.takeIf { it.isNotBlank() }?.let { add(it) }
             addAll(allLocalIpv4())
@@ -1021,7 +1164,13 @@ object AaWirelessBtControl {
             if (prefix.isEmpty()) continue
             val remainingMs = (deadline - System.currentTimeMillis()).coerceAtLeast(1L).toInt()
             OalLog.i(TAG, "Scanning $prefix.0/24 for the companion")
-            scanSubnet(prefix, ip, remainingMs)?.let { return it }
+            scanSubnet(
+                prefix = prefix,
+                ourIp = ip,
+                phoneBtAddress = phoneBtAddress,
+                phoneBtName = phoneBtName,
+                overallTimeoutMs = remainingMs,
+            )?.let { return it }
             if (System.currentTimeMillis() >= deadline) break
         }
         OalLog.w(TAG, "No companion on any local subnet (${localIps.joinToString()})")
@@ -1061,8 +1210,10 @@ object AaWirelessBtControl {
     private fun scanSubnet(
         prefix: String,
         ourIp: String,
+        phoneBtAddress: String,
+        phoneBtName: String?,
         overallTimeoutMs: Int = 20_000,
-    ): Pair<String, Int>? {
+    ): ResolvedCompanion? {
         val pool = java.util.concurrent.Executors.newFixedThreadPool(128)
         return try {
             val tasks = (1..254)
@@ -1070,7 +1221,11 @@ object AaWirelessBtControl {
                 .filter { it != ourIp }
                 .map { ip ->
                     java.util.concurrent.Callable {
-                        askCompanion(ip, connectTimeoutMs = 1200)?.let { ip to it }
+                        val probe = askCompanion(ip, connectTimeoutMs = 1200)
+                        if (probe != null && probeMatchesBluetoothOwner(
+                                phoneBtAddress, phoneBtName, ip, probe)) {
+                            ResolvedCompanion(ip, probe)
+                        } else null
                     }
                 }
             // Budget must cover the whole /24 at the chosen timeout, or the scan
@@ -1092,7 +1247,8 @@ object AaWirelessBtControl {
                 .asSequence()
                 .mapNotNull { runCatching { it.get() }.getOrNull() }
                 .firstOrNull()
-                ?.also { OalLog.i(TAG, "Companion found at ${it.first} with proxy port ${it.second}") }
+                ?.also { OalLog.i(TAG, "Identity-matched companion found at ${it.host} " +
+                        "id=${it.probe.phoneId} with proxy port ${it.probe.proxyPort}") }
         } catch (e: Exception) {
             OalLog.w(TAG, "Scan of $prefix.0/24 failed: ${e.message}")
             null
@@ -1102,33 +1258,50 @@ object AaWirelessBtControl {
     }
 
     /**
-     * Asks the companion at [phoneIp] for its Android Auto proxy port.
+     * Asks the companion at [phoneIp] for its complete identity and live proxy.
      *
-     * Returns null if nothing answers, the reply is not ours, or it reports no
-     * proxy (wpp=0). A zero must not be treated as a port: advertising a dead
-     * port sends Android Auto to a closed socket and fails silently on both ends.
-     *
-     * The default timeout is generous because the telematics bridge is slow — a
-     * probe that would succeed at 1200ms returned nothing at 250ms.
+     * Identity is mandatory: accepting only `wpp=<port>` allowed whichever phone
+     * answered first to impersonate the Bluetooth owner of the current attempt.
      */
-    private fun askCompanion(phoneIp: String, connectTimeoutMs: Int = 1200): Int? = runCatching {
+    private fun askCompanion(
+        phoneIp: String,
+        connectTimeoutMs: Int = 1200,
+    ): CompanionProbe? = runCatching {
         java.net.Socket().use { sock ->
             sock.connect(java.net.InetSocketAddress(phoneIp, IDENTITY_PORT), connectTimeoutMs)
             sock.soTimeout = connectTimeoutMs
             sock.getOutputStream().apply { write("OAL?\n".toByteArray()); flush() }
             val reply = sock.getInputStream().bufferedReader().readLine().orEmpty()
-            if (!reply.startsWith("OAL!")) return@runCatching null
-            reply.removePrefix("OAL!").split('\t')
-                .firstOrNull { it.startsWith("wpp=") }
-                ?.removePrefix("wpp=")?.trim()?.toIntOrNull()
-                ?.takeIf { it in 1..65535 }
+            CompanionIdentityPolicy.parseProbe(reply)
         }
     }.getOrNull()
 
-    private fun companionProxyPort(phoneIp: String): Int? =
-        askCompanion(phoneIp)?.also {
-            OalLog.i(TAG, "Companion at $phoneIp reports AA proxy on port $it")
+    private fun probeMatchesBluetoothOwner(
+        phoneBtAddress: String,
+        phoneBtName: String?,
+        phoneIp: String,
+        probe: CompanionProbe,
+        expectedPhoneIdOverride: String? = null,
+    ): Boolean {
+        val expectedPhoneId = expectedPhoneIdOverride ?: phoneIdByBtAddress[phoneBtAddress]
+        val matches = CompanionIdentityPolicy.matches(
+            expectedPhoneId = expectedPhoneId,
+            bluetoothDeviceName = phoneBtName,
+            probe = probe,
+        )
+        if (!matches) {
+            OalLog.i(
+                TAG,
+                "Rejected companion at $phoneIp id=${probe.phoneId ?: "unknown"} " +
+                    "name=${probe.friendlyName ?: "unknown"} — Bluetooth owner is " +
+                    "$phoneBtAddress name=${phoneBtName ?: "unknown"} " +
+                    "expectedId=${expectedPhoneId ?: "unlearned"}",
+            )
+            return false
         }
+        probe.phoneId?.let { phoneIdByBtAddress[phoneBtAddress] = it }
+        return true
+    }
 
     /**
      * Frequencies (MHz) advertised as supported by the head unit's access point.
@@ -1263,7 +1436,7 @@ object AaWirelessBtControl {
         // the car's access point is never asked to accept an inbound connection —
         // which it refuses. Falling back to the car's own address preserves the
         // shared-network case (proven working on a tablet) and costs nothing.
-        bt.setEndpointResolver { phoneBtAddress ->
+        bt.setEndpointResolver { phoneBtAddress, phoneBtName ->
             // Only serve the phone the head unit is actually paired-and-connected
             // to for projection. Two phones can dial the SDP record concurrently,
             // and the endpoint is per-phone: 127.0.0.1:<port> only means anything
@@ -1280,36 +1453,11 @@ object AaWirelessBtControl {
             //
             // A phone that dials the SDP record IS present and IS trying to
             // connect, so an old claim should lose to a live handshake.
-            val claimed = activePhoneBt
-            val claimAgeMs = System.currentTimeMillis() - activePhoneClaimedAt
-            // A claim only outranks a live handshake while projection is actually
-            // running. Otherwise the phone dialling now has the better evidence of
-            // being present: the claim describes a session that may have ended,
-            // while the handshake is happening in front of us.
-            //
-            // This matters for the only way a phone can be switched — the car's
-            // own Bluetooth settings, since the APIs to do it ourselves are
-            // privileged. Refusing the new phone for up to two minutes made a
-            // deliberate user action look broken.
             val holderIsStreaming = sessionIsStreaming?.invoke() == true
-            if (claimed != null &&
-                !claimed.equals(phoneBtAddress, ignoreCase = true) &&
-                claimAgeMs < CLAIM_TIMEOUT_MS &&
-                holderIsStreaming
-            ) {
-                OalLog.i(TAG, "Not switching to $phoneBtAddress — $claimed is " +
-                        "streaming (claimed ${claimAgeMs / 1000}s ago). Switch phones " +
-                        "in the car's Bluetooth settings; disconnecting $claimed " +
-                        "releases the session immediately.")
-                return@setEndpointResolver null
-            }
-            if (claimed != null && !claimed.equals(phoneBtAddress, ignoreCase = true)) {
-                OalLog.i(TAG, "Handing the session from $claimed to $phoneBtAddress, " +
-                        "which is dialling now (previous claim ${claimAgeMs / 1000}s old, " +
-                        "streaming=$holderIsStreaming)")
-            }
-            activePhoneBt = phoneBtAddress
-            activePhoneClaimedAt = System.currentTimeMillis()
+            val claimGeneration = claimPhoneForHandshake(
+                phoneBtAddress = phoneBtAddress,
+                holderIsStreaming = holderIsStreaming,
+            ) ?: return@setEndpointResolver null
 
             // Resolve the companion's address, preferring one discovery already
             // found. The sweep is the fallback, not the primary: it runs on the
@@ -1405,10 +1553,16 @@ object AaWirelessBtControl {
             // One or two probes is a cheap bet on the address being unchanged.
             // More than that is a tax on everyone whose address did change.
             for (ip in candidates.take(MAX_PRESCAN_PROBES)) {
-                val p = askCompanion(ip, connectTimeoutMs = 2500)
-                if (p != null) {
-                    OalLog.i(TAG, "Companion at $ip reports AA proxy on port $p")
-                    proxyPort = p
+                val probe = askCompanion(ip, connectTimeoutMs = 2500)
+                if (probe != null && probeMatchesBluetoothOwner(
+                        phoneBtAddress, phoneBtName, ip, probe)) {
+                    if (!phoneClaimStillOwned(phoneBtAddress, claimGeneration)) {
+                        OalLog.i(TAG, "Ignoring identity result from superseded phone claim $phoneBtAddress")
+                        return@setEndpointResolver null
+                    }
+                    OalLog.i(TAG, "Identity-matched companion at $ip " +
+                            "id=${probe.phoneId} reports AA proxy on port ${probe.proxyPort}")
+                    proxyPort = probe.proxyPort
                     companionIp = ip
                     lastKnownPhoneIp = ip
                     lastAddressByPhone[phoneBtAddress] = ip
@@ -1425,17 +1579,30 @@ object AaWirelessBtControl {
                 }
                 // The scan returns the port too — asking again would cost another
                 // slow round trip over the telematics bridge.
-                findCompanionOnAnySubnet(manualIp)?.let { (ip, port) ->
+                findCompanionOnAnySubnet(
+                    manualIp = manualIp,
+                    phoneBtAddress = phoneBtAddress,
+                    phoneBtName = phoneBtName,
+                )?.let { resolved ->
+                    if (!phoneClaimStillOwned(phoneBtAddress, claimGeneration)) {
+                        OalLog.i(TAG, "Ignoring scan result from superseded phone claim $phoneBtAddress")
+                        return@setEndpointResolver null
+                    }
+                    val ip = resolved.host
+                    val probe = resolved.probe
                     lastKnownPhoneIp = ip
-                    // Record it against this phone too, or the next handshake
-                    // from it starts from the shared list again.
+                    // Cache only after identity has matched the Bluetooth owner.
                     lastAddressByPhone[phoneBtAddress] = ip
-                    proxyPort = port
+                    proxyPort = probe.proxyPort
                     companionIp = ip
                 }
             }
             when {
                 proxyPort != null -> {
+                    if (!phoneClaimStillOwned(phoneBtAddress, claimGeneration)) {
+                        OalLog.i(TAG, "Not dialing endpoint from superseded phone claim $phoneBtAddress")
+                        return@setEndpointResolver null
+                    }
                     // Open the car->companion socket BEFORE the handshake tells
                     // Android Auto where to connect. AA reaches the proxy within
                     // ~2s of the Bluetooth handshake; the car used to still be
@@ -1448,30 +1615,64 @@ object AaWirelessBtControl {
                     // listened forever while the phone waited for a car socket.
                     // Remember which companion belongs to the Bluetooth-connected
                     // phone so the UI can mark it in the discovery list.
-                    activePhoneCompanionIp = companionIp
-                    bootstrapAttempt.set(null)
-                    OalLog.i(TAG, "CONNECT SUMMARY: endpoint=loopback proxy " +
-                            "127.0.0.1:$proxyPort via companion at $companionIp " +
-                            "phone=$phoneBtAddress — this is the working path")
                     val dialTarget = companionIp
-                    if (dialTarget.isNullOrBlank()) {
-                        OalLog.e(TAG, "Have proxy port $proxyPort but no companion address — " +
-                                "cannot dial; the session will not connect")
-                    } else {
-                        onCompanionSelected?.invoke(dialTarget)
+                    val accepted = synchronized(phoneClaimLock) {
+                        if (!activePhoneBt.equals(phoneBtAddress, ignoreCase = true) ||
+                            phoneClaimGeneration != claimGeneration
+                        ) {
+                            false
+                        } else {
+                            activePhoneCompanionIp = dialTarget
+                            bootstrapAttempt.set(null)
+                            OalLog.i(TAG, "CONNECT SUMMARY: endpoint=loopback proxy " +
+                                    "127.0.0.1:$proxyPort via companion at $dialTarget " +
+                                    "phone=$phoneBtAddress — this is the working path")
+                            if (dialTarget.isNullOrBlank()) {
+                                OalLog.e(TAG, "Have proxy port $proxyPort but no companion address — " +
+                                        "cannot dial; the session will not connect")
+                            } else {
+                                onCompanionSelected?.invoke(dialTarget)
+                            }
+                            true
+                        }
+                    }
+                    if (!accepted) {
+                        OalLog.i(TAG, "Not dialing endpoint from superseded phone claim $phoneBtAddress")
+                        return@setEndpointResolver null
                     }
                     AaWirelessBtServer.Endpoint.PhoneLoopback(proxyPort)
                 }
                 else -> {
+                    if (!phoneClaimStillOwned(phoneBtAddress, claimGeneration)) {
+                        OalLog.i(TAG, "Not starting bootstrap for superseded phone claim $phoneBtAddress")
+                        return@setEndpointResolver null
+                    }
                     // The phone is not on the car AP yet, so the companion cannot
                     // answer. Use the port both new apps reserve in advance. WPP
                     // moves the phone onto the AP, Android Auto can attach to its
                     // local proxy immediately, and discovery then supplies the
                     // car-side socket to that same waiting bridge.
-                    val attempt = BootstrapAttempt(phoneBtAddress,
-                        bootstrapAttemptSequence.incrementAndGet(),
+                    val attempt = BootstrapAttempt(
+                        phoneBtAddress = phoneBtAddress,
+                        phoneBtName = phoneBtName,
+                        expectedPhoneId = phoneIdByBtAddress[phoneBtAddress],
+                        claimGeneration = claimGeneration,
+                        generation = bootstrapAttemptSequence.incrementAndGet(),
                     )
-                    bootstrapAttempt.set(attempt)
+                    val published = synchronized(phoneClaimLock) {
+                        if (!activePhoneBt.equals(phoneBtAddress, ignoreCase = true) ||
+                            phoneClaimGeneration != claimGeneration
+                        ) {
+                            false
+                        } else {
+                            bootstrapAttempt.set(attempt)
+                            true
+                        }
+                    }
+                    if (!published) {
+                        OalLog.i(TAG, "Not publishing bootstrap for superseded phone claim $phoneBtAddress")
+                        return@setEndpointResolver null
+                    }
                     OalLog.i(TAG, "CONNECT SUMMARY: endpoint=bootstrap-loopback " +
                             "127.0.0.1:${OalProtocol.WPP_PROXY_PORT} phone=$phoneBtAddress " +
                             "knownAddrs=${allKnown.joinToString().ifEmpty { "none" }} " +

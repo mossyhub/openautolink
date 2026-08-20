@@ -216,11 +216,12 @@ class AasdkSession(
         // "connected". Discovery even found the phone; nothing acted on it,
         // because in WPP mode only the handshake triggers a dial.
         val known = com.openautolink.app.transport.bluetooth.AaWirelessBtControl
-            .lastKnownPhoneIp
+            .withIdentityValidatedCompanion { address ->
+                OalLog.i(TAG, "WPP restart with a known companion at $address — dialling " +
+                        "rather than waiting for a handshake that is not coming")
+                startTcp(manualIp = address)
+            }
         if (known != null) {
-            OalLog.i(TAG, "WPP restart with a known companion at $known — dialling " +
-                    "rather than waiting for a handshake that is not coming")
-            startTcp(manualIp = known)
             // Dialling the companion is only half the connection. Android Auto's
             // previous localhost socket belonged to the bridge that just ended;
             // reconnecting the car socket does not by itself make AA open a new
@@ -560,8 +561,10 @@ class AasdkSession(
                     // falls through to the gateway heuristic and dials the house
                     // router.
                     val known = com.openautolink.app.transport.bluetooth
-                        .AaWirelessBtControl.lastKnownPhoneIp
-                    startTcp(manualIp = known)
+                        .AaWirelessBtControl.withIdentityValidatedCompanion { address ->
+                            startTcp(manualIp = address)
+                        }
+                    if (known == null) startTcp(manualIp = null)
                 }
             }
         } finally {
@@ -742,6 +745,7 @@ class AasdkSession(
                     OalLog.i(TAG, "Restarting transport connector")
                     when (transportMode) {
                         "usb" -> startUsb()
+                        "wpp" -> startWpp()
                         else -> {
                             // Keep the companion's address on a retry.
                             //
@@ -751,8 +755,10 @@ class AasdkSession(
                             //     Connecting to 192.168.0.1:5277 (gateway)  x10
                             // The companion is never at the gateway in WPP mode.
                             val known = com.openautolink.app.transport.bluetooth
-                                .AaWirelessBtControl.lastKnownPhoneIp
-                            startTcp(manualIp = known)
+                                .AaWirelessBtControl.withIdentityValidatedCompanion { address ->
+                                    startTcp(manualIp = address)
+                                }
+                            if (known == null) startTcp(manualIp = null)
                         }
                     }
                 }

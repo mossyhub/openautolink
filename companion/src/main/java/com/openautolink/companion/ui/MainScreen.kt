@@ -399,7 +399,15 @@ fun MainScreen(
                 text = "ID: $phoneIdShort  (auto-generated, used by the car app to remember this phone)",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 4.dp),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(
+                text = "Multiple phones: give every phone a unique Bluetooth device name, " +
+                    "then set this Friendly name to exactly match that Bluetooth name. " +
+                    "The car uses the match only to learn this phone's stable ID.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
             )
 
             Spacer(Modifier.height(20.dp))

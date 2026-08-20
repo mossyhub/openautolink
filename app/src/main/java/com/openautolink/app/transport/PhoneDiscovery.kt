@@ -168,14 +168,22 @@ class PhoneDiscovery private constructor(private val context: Context) {
      * mid-session; publishing on every discovery keeps it current rather than
      * pinning a value that was right a minute ago.
      */
-    private fun publishPhoneAddress(host: String, reportedProxyPort: Int? = null) {
+    private fun publishPhoneAddress(
+        host: String,
+        reportedProxyPort: Int? = null,
+        phoneId: String? = null,
+        friendlyName: String? = null,
+    ) {
         val bt = com.openautolink.app.transport.bluetooth.AaWirelessBtControl
-        bt.lastKnownPhoneIp = host
-        // During an attempt-owned WPP bootstrap, pass through the proxy port the
-        // identity response actually reported. Port 5280 completes the current
-        // exchange; an older companion's dynamic port triggers one compatibility
-        // re-advertise after the current handshake exits.
-        bt.readvertiseForNewCompanionAddress(host, reportedProxyPort)
+        // Do not publish this host into the global dial cache before ownership is
+        // proven. Nearby phones share discovery, but only the Bluetooth-owned
+        // attempt may accept/cache this identity.
+        bt.readvertiseForNewCompanionAddress(
+            host = host,
+            reportedProxyPort = reportedProxyPort,
+            reportedPhoneId = phoneId,
+            reportedFriendlyName = friendlyName,
+        )
     }
 
     private val _isDiscovering = MutableStateFlow(false)
@@ -555,7 +563,12 @@ class PhoneDiscovery private constructor(private val context: Context) {
                         if (ident != null) {
                             // Remember where the companion lives so the Bluetooth
                             // advertiser can ask it for its AA proxy port.
-                            publishPhoneAddress(ip, ident.wppProxyPort)
+                            publishPhoneAddress(
+                                host = ip,
+                                reportedProxyPort = ident.wppProxyPort,
+                                phoneId = ident.phoneId,
+                                friendlyName = ident.friendlyName,
+                            )
                             addOrUpdate(
                                 phoneId = ident.phoneId,
                                 friendlyName = ident.friendlyName,
@@ -865,7 +878,13 @@ class PhoneDiscovery private constructor(private val context: Context) {
     ) {
         // Every discovery source funnels through here, so this is the one place
         // that always has the freshest address for the Bluetooth advertiser.
-        host?.takeIf { it.isNotBlank() }?.let { publishPhoneAddress(it) }
+        host?.takeIf { it.isNotBlank() }?.let {
+            publishPhoneAddress(
+                host = it,
+                phoneId = phoneId,
+                friendlyName = friendlyName,
+            )
+        }
 
         synchronized(lock) {
             val canonicalKey = keyFor(phoneId, mdnsServiceName, host)

@@ -83,7 +83,9 @@ class WppBootstrapPolicyTest {
             "app/src/main/java/com/openautolink/app/transport/bluetooth/AaWirelessBtControl.kt",
         ).readText()
 
-        assertTrue(source.contains("val attempt = BootstrapAttempt(phoneBtAddress"))
+        assertTrue(source.contains("val attempt = BootstrapAttempt("))
+        assertTrue(source.contains("phoneBtAddress = phoneBtAddress"))
+        assertTrue(source.contains("phoneBtName = phoneBtName"))
         assertTrue(
             source.contains(
                 "AaWirelessBtServer.Endpoint.PhoneLoopback(OalProtocol.WPP_PROXY_PORT)",
@@ -101,9 +103,11 @@ class WppBootstrapPolicyTest {
 
         assertTrue(scanner.contains("bootstrapAttempt.get() !== attempt"))
         assertTrue(scanner.contains("val remainingMs = (deadline - System.currentTimeMillis())"))
-        assertTrue(scanner.contains("findCompanionOnAnySubnet(manualIp, remainingMs)"))
+        assertTrue(scanner.contains("findCompanionOnAnySubnet("))
+        assertTrue(scanner.contains("phoneBtAddress = attempt.phoneBtAddress"))
+        assertTrue(scanner.contains("phoneBtName = attempt.phoneBtName"))
         assertTrue(scanner.contains("WppBootstrapPolicy.DISCOVERY_DEADLINE_MS"))
-        assertTrue(scanner.contains("readvertiseForNewCompanionAddress(ip, proxyPort, attempt)"))
+        assertTrue(scanner.contains("reportedPhoneId = probe.phoneId"))
     }
 
     @Test
@@ -170,8 +174,9 @@ class WppBootstrapPolicyTest {
             "app/src/main/java/com/openautolink/app/transport/PhoneDiscovery.kt",
         ).readText()
 
-        assertTrue(source.contains("publishPhoneAddress(ip, ident.wppProxyPort)"))
-        assertTrue(source.contains("readvertiseForNewCompanionAddress(host, reportedProxyPort)"))
+        assertTrue(source.contains("reportedProxyPort = ident.wppProxyPort"))
+        assertTrue(source.contains("phoneId = ident.phoneId"))
+        assertTrue(source.contains("reportedPhoneId = phoneId"))
     }
 
     private fun projectFile(path: String): File {

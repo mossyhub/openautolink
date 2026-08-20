@@ -339,8 +339,11 @@ class AaWirelessBtServer(
 
             if (client != null) {
                 outcomeObserver.phoneDialbackAt(SystemClock.elapsedRealtime())
-                val remote = runCatching { client.remoteDevice?.address ?: "?" }.getOrDefault("?")
-                OalLog.i(TAG, "Phone dialled back on the AA Wireless UUID from $remote")
+                val remoteDevice = runCatching { client.remoteDevice }.getOrNull()
+                val remote = runCatching { remoteDevice?.address ?: "?" }.getOrDefault("?")
+                val remoteName = runCatching { remoteDevice?.name }.getOrNull()
+                OalLog.i(TAG, "Phone dialled back on the AA Wireless UUID from $remote" +
+                        (remoteName?.let { " name=$it" } ?: " name=unknown"))
                 // Flag it here rather than inside handleHandshake: the window that
                 // matters starts the instant the phone dials, and the coroutine
                 // may not be scheduled for several milliseconds.
@@ -351,7 +354,7 @@ class AaWirelessBtServer(
                     continue
                 }
                 val handshakeJob = scope.launch(CoroutineName("AaWirelessBt-Handshake")) {
-                    handleHandshake(client, remote, handshakeLease)
+                    handleHandshake(client, remote, remoteName, handshakeLease)
                 }
                 handshakeJob.invokeOnCompletion {
                     // This also runs when the coroutine is cancelled before its
@@ -458,8 +461,11 @@ class AaWirelessBtServer(
          *   The port is meaningful only on the phone that owns it — 127.0.0.1
          *   resolves on whichever device connects — so a mixed-up port sends a
          *   phone's Android Auto to a closed socket on its own loopback.
+         * @param phoneBtName the remote Bluetooth device name from the same socket.
+         *   Companion identity must agree with this owner (or a previously learned
+         *   phone_id binding) before an endpoint is accepted.
          */
-        fun currentEndpoint(phoneBtAddress: String): Endpoint?
+        fun currentEndpoint(phoneBtAddress: String, phoneBtName: String?): Endpoint?
     }
 
     @Volatile
@@ -480,6 +486,7 @@ class AaWirelessBtServer(
     private suspend fun handleHandshake(
         socket: BluetoothSocket,
         phoneBtAddress: String,
+        phoneBtName: String?,
         handshakeLease: AaWirelessBtControl.HandshakeLease,
     ) {
         val stored = credentials
@@ -496,7 +503,7 @@ class AaWirelessBtServer(
         // Prefer the companion's loopback proxy when one is available: it is the
         // only endpoint the car's access point cannot block, because the phone
         // connects to itself.
-        val endpoint = endpointResolver?.currentEndpoint(phoneBtAddress)
+        val endpoint = endpointResolver?.currentEndpoint(phoneBtAddress, phoneBtName)
         val creds = when (endpoint) {
             is Endpoint.PhoneLoopback -> {
                 OalLog.i(TAG, "Advertising the companion's loopback proxy " +
