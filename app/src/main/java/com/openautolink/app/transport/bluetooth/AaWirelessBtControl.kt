@@ -1376,20 +1376,30 @@ object AaWirelessBtControl {
         expectedPhoneIdOverride: String? = null,
     ): Boolean {
         val expectedPhoneId = expectedPhoneIdOverride ?: phoneIdByBtAddress[phoneBtAddress]
-        val matches = CompanionIdentityPolicy.matches(
+        val matchBasis = CompanionIdentityPolicy.matchBasis(
             expectedPhoneId = expectedPhoneId,
             bluetoothDeviceName = phoneBtName,
             probe = probe,
         )
-        if (!matches) {
+        if (matchBasis == CompanionIdentityMatch.NONE) {
             OalLog.i(
                 TAG,
                 "Rejected companion at $phoneIp id=${probe.phoneId ?: "unknown"} " +
-                    "name=${probe.friendlyName ?: "unknown"} — Bluetooth owner is " +
-                    "$phoneBtAddress name=${phoneBtName ?: "unknown"} " +
+                    "name=${probe.friendlyName ?: "unknown"} " +
+                    "reportedBluetoothName=${probe.bluetoothName ?: "unknown"} — " +
+                    "Bluetooth owner is $phoneBtAddress name=${phoneBtName ?: "unknown"} " +
                     "expectedId=${expectedPhoneId ?: "unlearned"}",
             )
             return false
+        }
+        if (matchBasis == CompanionIdentityMatch.BLUETOOTH_NAME) {
+            OalLog.i(
+                TAG,
+                "Bluetooth-name matched companion at $phoneIp " +
+                    "reportedBluetoothName=${probe.bluetoothName ?: "unknown"} " +
+                    "to owner=$phoneBtAddress name=${phoneBtName ?: "unknown"}; " +
+                    "learning stableId=${probe.phoneId ?: "unknown"}",
+            )
         }
         probe.phoneId?.let { phoneIdByBtAddress[phoneBtAddress] = it }
         return true

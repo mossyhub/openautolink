@@ -402,9 +402,9 @@ fun MainScreen(
                 modifier = Modifier.padding(top = 4.dp),
             )
             Text(
-                text = "Multiple phones: give every phone a unique Bluetooth device name, " +
-                    "then set this Friendly name to exactly match that Bluetooth name. " +
-                    "The car uses the match only to learn this phone's stable ID.",
+                text = "Multiple phones: give every phone a unique Bluetooth device name. " +
+                    "That name is reported automatically when the car learns this phone's stable ID; " +
+                    "Friendly name is only the label shown in OAL.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),

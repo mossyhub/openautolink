@@ -414,9 +414,9 @@ class TcpAdvertiser(
     /**
      * Run a tiny dedicated server on [IDENTITY_PORT] that answers identity
      * probes. Each connection: peer sends `OAL?\n`, we reply with
-     * `OAL!{phone_id}\t{friendly_name}\n` and close. Single-purpose — never
-     * carries AA traffic. Used by the car-side subnet sweep + last-known-IP
-     * verification when mDNS is unavailable.
+     * `OAL!{phone_id}\t{friendly_name}\twpp={port}\tbt_name={adapter_name}\n`
+     * and close. Single-purpose — never carries AA traffic. Used by the car-side
+     * subnet sweep + last-known-IP verification when mDNS is unavailable.
      */
     private fun startIdentityServer(
         ticket: ListenerBindingTicket<Network>,
@@ -449,6 +449,12 @@ class TcpAdvertiser(
             }
         }
     }
+
+    private fun localBluetoothName(): String? = runCatching {
+        val manager = context.applicationContext
+            .getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+        manager?.adapter?.name?.trim()?.takeIf { it.isNotEmpty() }
+    }.getOrNull()
 
     private fun respondIdentityProbe(socket: Socket, remoteIp: String) {
         try {
@@ -522,12 +528,22 @@ class TcpAdvertiser(
                 proxy?.isAccepting == true -> proxy.localPort
                 else -> ensureProxyForWpp()
             }
-            val response = "OAL!$phoneId\t$friendlyName\twpp=$wppPort\n".toByteArray(Charsets.UTF_8)
+            val bluetoothName = localBluetoothName()
+            val response = CompanionIdentityPayload.encode(
+                phoneId = phoneId,
+                friendlyName = friendlyName,
+                bluetoothName = bluetoothName,
+                proxyPort = wppPort,
+            ).toByteArray(Charsets.UTF_8)
             socket.getOutputStream().apply {
                 write(response)
                 flush()
             }
-            CompanionLog.d(TAG, "Identity probe answered for $remoteIp")
+            CompanionLog.i(
+                TAG,
+                "Identity probe answered for $remoteIp phoneId=${phoneId.take(8)} " +
+                    "bluetoothName=${bluetoothName ?: "unavailable"}",
+            )
         } catch (e: Exception) {
             CompanionLog.d(TAG, "Identity probe failed for $remoteIp: ${e.message}")
         } finally {

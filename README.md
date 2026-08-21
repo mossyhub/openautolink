@@ -305,7 +305,7 @@ its automatic MAC policy.
 
 **Multiple drivers?** On 17.4+ the car projects to whichever phone it is currently connected to over Bluetooth, so switching phones means switching the connection in the **car's own Bluetooth settings** — the APIs an app would need to do that are privileged and closed to us. The phone list on the projection screen still shows every phone it can see, and tapping one retries the connection to it.
 
-> **Multi-phone identity:** Give every phone a unique Bluetooth device name. In each phone's OAL companion, set **Phone identity → Friendly name** to exactly match that phone's Bluetooth name. The car uses this first match to bind the Bluetooth phone to the companion's stable `phone_id`, preventing one reachable companion from being selected for another phone's WPP handshake.
+> **Multi-phone identity:** Give every phone a unique Bluetooth device name. The companion reports that Bluetooth name automatically and keeps **Phone identity → Friendly name** as the display label only. The car uses the Bluetooth-name match once to bind the active Bluetooth phone to the companion's stable `phone_id`, preventing one reachable companion from being selected for another phone's WPP handshake.
 
 On Android Auto 17.3 and older, both phones can be on the car's WiFi at once and the floating phone icon switches between them directly. Settings → Connection → Known Phones → "Set Default" changes the preferred phone permanently.
 
