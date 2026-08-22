@@ -830,27 +830,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                         "manual DPI; scaling may be wrong until reconnect")
             }
 
-            // SessionManager invokes this once before destructive setup and again
-            // inside its serialized start coroutine immediately before creating
-            // the protocol owner. Keeping the check attached to the attempt closes
-            // the caller/callee suspension window without making SessionManager
-            // depend on UI-layer policy.
-            val wppRearmFinalAdmission: (suspend () -> String?)? =
-                wppRearmSource?.let {
-                    {
-                        val currentTransport = preferences.directTransport.first()
-                        WppWakeReconnectPolicy.preStartRejection(
-                            wppSelectedNow = currentTransport ==
-                                AppPreferences.DIRECT_TRANSPORT_WPP,
-                            ignitionOff = com.openautolink.app.input.IgnitionMonitor
-                                .isOffOrLocked(),
-                            sessionIdle = sessionManager.sessionState.value ==
-                                SessionState.IDLE,
-                            currentWppOwnerPresent = sessionManager.hasCurrentWppOwner(),
-                        )
-                    }
-                }
-
             sessionManager.start(
                 codecPreference = codec,
                 micSourcePreference = micSrc,
@@ -885,7 +864,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 gpsForwarding = gpsForwarding,
                 galVersion = galVersion,
                 wppRearmSource = wppRearmSource,
-                wppRearmFinalAdmission = wppRearmFinalAdmission,
             )
     }
 

@@ -21,6 +21,7 @@ import com.openautolink.app.diagnostics.RemoteDiagnosticsImpl
 import com.openautolink.app.diagnostics.TelemetryCollector
 import com.openautolink.app.input.GnssForwarder
 import com.openautolink.app.input.GnssForwarderImpl
+import com.openautolink.app.input.IgnitionMonitor
 import com.openautolink.app.input.ImuForwarder
 import com.openautolink.app.input.VehicleDataForwarder
 import com.openautolink.app.input.VehicleDataForwarderImpl
@@ -683,6 +684,37 @@ class SessionManager(
     /** True while an exact WPP session token owns the process-scoped advertiser. */
     fun hasCurrentWppOwner(): Boolean = AaWirelessBtControl.hasCurrentWppOwner()
 
+    /**
+     * Re-check wake admission inside the lifecycle owner instead of transporting
+     * a suspend callback across coroutine/default-argument state machines. The
+     * 0.1.465 carried source=ignition into this owner while the compiled
+     * callback argument was null, so no WPP owner was created.
+     */
+    private suspend fun currentWppRearmRejection(
+        wppRearmSource: String?,
+        stage: String,
+    ): String? {
+        if (wppRearmSource == null) return null
+        val ctx = context
+        val rejection = if (ctx == null) {
+            "context-missing"
+        } else {
+            val currentTransport = AppPreferences.getInstance(ctx).directTransport.first()
+            when {
+                currentTransport != AppPreferences.DIRECT_TRANSPORT_WPP -> "transport-changed"
+                IgnitionMonitor.isOffOrLocked() -> "ignition-off"
+                sessionState.value != SessionState.IDLE -> "session-not-idle"
+                AaWirelessBtControl.hasCurrentWppOwner() -> "session-owner-active"
+                else -> null
+            }
+        }
+        OalLog.i(
+            TAG,
+            "WPP rearm admission checked locally: source=$wppRearmSource stage=$stage result=${rejection ?: "accepted"}",
+        )
+        return rejection
+    }
+
     /** Clear the default phone — next connection will pick any phone. */
     fun clearDefaultPhone() {
         _defaultPhoneName = ""
@@ -1035,7 +1067,6 @@ class SessionManager(
         gpsForwarding: Boolean = true,
         galVersion: String = AppPreferences.DEFAULT_GAL_VERSION,
         wppRearmSource: String? = null,
-        wppRearmFinalAdmission: (suspend () -> String?)? = null,
     ) {
         val requestGeneration = lifecycleGeneration
         startMutex.lock()
@@ -1045,9 +1076,7 @@ class SessionManager(
             OalLog.i(TAG, "Start request rejected — lifecycle stop completed while waiting")
             return@withContext
         }
-        val initialWppRejection = if (wppRearmSource != null) {
-            wppRearmFinalAdmission?.invoke() ?: "admission-check-missing"
-        } else null
+        val initialWppRejection = currentWppRearmRejection(wppRearmSource, stage = "initial")
         if (initialWppRejection != null) {
             OalLog.i(TAG, "WPP rearm rejected: source=$wppRearmSource " +
                 "reason=$initialWppRejection")
@@ -1268,9 +1297,7 @@ class SessionManager(
                 // owns both registration and unregistration.
                 registerScreenReceiver()
                 if (isDebuggableBuild()) registerDebugReceiver()
-                val finalWppRejection = if (wppRearmSource != null) {
-                wppRearmFinalAdmission?.invoke() ?: "admission-check-missing"
-            } else null
+                val finalWppRejection = currentWppRearmRejection(wppRearmSource, stage = "final")
             if (finalWppRejection != null) {
                 OalLog.i(TAG, "WPP rearm rejected: source=$wppRearmSource " +
                     "reason=$finalWppRejection")

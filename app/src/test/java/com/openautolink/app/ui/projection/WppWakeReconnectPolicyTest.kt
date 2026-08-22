@@ -219,16 +219,26 @@ class WppWakeReconnectPolicyTest {
         assertTrue(source.contains("connectForWppRearm(source = \"wake\")"))
         assertTrue(source.contains("connectForWppRearm(source = \"ignition\")"))
         assertTrue(source.contains("wppRearmSource = wppRearmSource"))
-        assertTrue(source.contains("wppRearmFinalAdmission ="))
+        assertFalse(source.contains("wppRearmFinalAdmission"))
+        assertFalse(manager.contains("wppRearmFinalAdmission"))
+        assertFalse(manager.contains("admission-check-missing"))
+        assertTrue(manager.contains("private suspend fun currentWppRearmRejection("))
+        assertTrue(manager.contains("currentWppRearmRejection(wppRearmSource, stage = \"initial\")"))
+        assertTrue(manager.contains("currentWppRearmRejection(wppRearmSource, stage = \"final\")"))
+        assertTrue(manager.contains("WPP rearm admission checked locally: source=${'$'}wppRearmSource stage=${'$'}stage result=${'$'}{rejection ?: \"accepted\"}"))
+        assertTrue(manager.contains("AppPreferences.getInstance(ctx).directTransport.first()"))
+        assertTrue(manager.contains("IgnitionMonitor.isOffOrLocked()"))
         assertTrue(source.windowed("currentWppOwnerPresent = sessionManager.hasCurrentWppOwner()".length)
-            .count { it == "currentWppOwnerPresent = sessionManager.hasCurrentWppOwner()" } >= 4)
+            .count { it == "currentWppOwnerPresent = sessionManager.hasCurrentWppOwner()" } >= 2)
         assertTrue(manager.contains("fun hasCurrentWppOwner(): Boolean = AaWirelessBtControl.hasCurrentWppOwner()"))
         assertFalse(source.contains("AaWirelessBtControl.hasCurrentWppOwner()"))
 
         val observeBlock = manager
             .substringAfter("val newObserveJob = scope.launch")
             .substringBefore("newObserveJob.invokeOnCompletion")
-        val finalAdmission = observeBlock.indexOf("wppRearmFinalAdmission?.invoke()")
+        val finalAdmission = observeBlock.indexOf(
+            "currentWppRearmRejection(wppRearmSource, stage = \"final\")",
+        )
         val sessionStart = observeBlock.indexOf("startSession(", startIndex = finalAdmission)
         val finalRejectionBranch = observeBlock.indexOf("if (finalWppRejection != null)")
         val rollback = observeBlock.indexOf(
