@@ -1,5 +1,6 @@
 package com.openautolink.companion.service
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -17,6 +18,7 @@ import com.openautolink.companion.diagnostics.CompanionFileLogger
 import com.openautolink.companion.diagnostics.CompanionLog
 import com.openautolink.companion.diagnostics.PhoneWppDiagnostics
 import com.openautolink.companion.diagnostics.PhoneWppStage
+import com.openautolink.companion.diagnostics.ProcessExitSummary
 import com.openautolink.companion.diagnostics.WppAssociationOwner
 import com.openautolink.companion.diagnostics.WppIntegrationTrigger
 import com.openautolink.companion.diagnostics.WppNetworkObserver
@@ -74,6 +76,9 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
         // a cold reboot resumes it once one of those triggers first starts the
         // service (there is no standalone BOOT_COMPLETED launcher).
         maybeStartPersistentLogging()
+        // Do this after persistent logging starts: CompanionFileLogger clears the
+        // logcat ring when it begins, so logging first would erase the evidence.
+        logPreviousProcessExit()
     }
 
     /** Start file logging if the persisted "always log" pref is enabled. */
@@ -90,6 +95,7 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
         when (intent?.action) {
             ACTION_STOP -> {
                 CompanionLog.i(TAG, "Stop requested")
+                setTransportDesired(false)
                 _isRunning.value = false
                 _isConnected.value = false
                 _statusText.value = "Stopped"
@@ -98,6 +104,7 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
 
             ACTION_START -> {
                 joinWppAttempt(WppIntegrationTrigger.START, intent)
+                setTransportDesired(true)
                 // If already connected (AA bridge active), ignore duplicate starts
                 // (e.g. BT auto-start firing a few hundred ms after the car already
                 // TCP-connected and we fired the AA trigger). Restarting here would
@@ -121,6 +128,7 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
 
             ACTION_PREWARM -> {
                 joinWppAttempt(WppIntegrationTrigger.PREWARM, intent)
+                setTransportDesired(true)
                 // Pre-warm path: car-presence signal (BT, scripted, etc.) tells
                 // us a car connection is imminent. Start the AA pipeline now so
                 // by the time the car's TCP arrives ~3–10s later, AA is warm
@@ -145,10 +153,17 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
             }
 
             else -> {
-                // System restart
-                if (_isRunning.value) {
-                    CompanionLog.i(TAG, "Service restarted by system, resuming")
+                if (CompanionRestartPolicy.shouldRestoreTransport(intent == null, transportDesired())) {
+                    // START_STICKY recreates the process with a null intent. All
+                    // in-memory state is new, so _isRunning cannot tell us whether
+                    // the killed instance owned a listener. Rebuild it explicitly.
+                    CompanionLog.i(TAG, "System sticky restart — restoring TCP transport")
+                    _isRunning.value = true
+                    _isConnected.value = false
+                    _statusText.value = "Advertising..."
                     startTcp()
+                } else {
+                    CompanionLog.w(TAG, "Ignoring unknown service action: ${intent?.action}")
                 }
                 // Resume always-log mode after an OS-initiated restart, even if
                 // the service wasn't "running" before the kill — onCreate also
@@ -158,6 +173,49 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
         }
         return START_STICKY
     }
+
+    private fun logPreviousProcessExit() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            CompanionLog.i(TAG, "Previous companion process exit unavailable: API ${Build.VERSION.SDK_INT}")
+            return
+        }
+        try {
+            val activityManager = getSystemService(ActivityManager::class.java)
+            val previous = activityManager.getHistoricalProcessExitReasons(packageName, 0, 1)
+                .firstOrNull()
+            if (previous == null) {
+                CompanionLog.i(TAG, "Previous companion process exit: none recorded")
+                return
+            }
+            val summary = ProcessExitSummary.format(
+                reason = previous.reason,
+                status = previous.status,
+                importance = previous.importance,
+                pssKb = previous.pss,
+                rssKb = previous.rss,
+                timestampMs = previous.timestamp,
+                nowMs = System.currentTimeMillis(),
+                description = previous.description,
+            )
+            CompanionLog.w(TAG, "Previous companion process exit: $summary")
+        } catch (e: Exception) {
+            CompanionLog.w(
+                TAG,
+                "Previous companion process exit unavailable: ${e.javaClass.simpleName}",
+            )
+        }
+    }
+
+    private fun setTransportDesired(desired: Boolean) {
+        getSharedPreferences(CompanionPrefs.NAME, MODE_PRIVATE)
+            .edit()
+            .putBoolean(PREF_TRANSPORT_DESIRED, desired)
+            .apply()
+    }
+
+    private fun transportDesired(): Boolean =
+        getSharedPreferences(CompanionPrefs.NAME, MODE_PRIVATE)
+            .getBoolean(PREF_TRANSPORT_DESIRED, false)
 
     private fun startTcp() {
         PhoneWppDiagnostics.record(PhoneWppStage.TCP_START_INTENT)
@@ -460,6 +518,7 @@ class CompanionService : Service(), TcpAdvertiser.StateListener {
         private const val TAG = "OAL_Service"
         private const val CHANNEL_ID = "oal_companion_channel"
         private const val NOTIFICATION_ID = 1
+        private const val PREF_TRANSPORT_DESIRED = "transport_desired"
         /** Idle timeout for file logging when no AA connection is ever made. */
         private const val LOG_IDLE_TIMEOUT_MS = 10L * 60L * 1000L
 
