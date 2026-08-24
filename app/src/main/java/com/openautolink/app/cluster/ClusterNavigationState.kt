@@ -40,14 +40,3 @@ object ClusterNavigationState {
         vehicleEnergyForecast.value = null
     }
 }
-
-/**
- * Tracks whether a live ClusterMainSession exists.
- *
- * Used by the activity to know whether it needs to re-launch CarAppActivity
- * to re-establish the Templates Host binding chain after teardown.
- */
-object ClusterBindingState {
-    @Volatile
-    var sessionAlive = false
-}

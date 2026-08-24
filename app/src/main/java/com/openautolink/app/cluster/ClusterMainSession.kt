@@ -58,8 +58,7 @@ class ClusterMainSession : Session() {
 
         private const val ARRIVAL_TIMEOUT_MS = 10_000L
 
-        @Volatile
-        private var primarySession: ClusterMainSession? = null
+        private val primarySessions = GenerationOwnedSlot<ClusterMainSession>()
 
         /**
          * Proactively end any active cluster navigation. Called from
@@ -69,7 +68,7 @@ class ClusterMainSession : Session() {
          * because our process going away doesn't synchronously notify it.
          */
         fun endActiveNavigation() {
-            val session = primarySession ?: return
+            val session = primarySessions.currentOwner() ?: return
             try {
                 session.navigationManager?.navigationEnded()
                 session.isNavigating = false
@@ -79,23 +78,76 @@ class ClusterMainSession : Session() {
                 Log.w(TAG, "endActiveNavigation() failed: ${e.message}")
             }
         }
+
+        /** Retire only the primary owned by [generation]. A late callback from
+         * that session cannot clear a replacement generation's owner. */
+        fun invalidateBindingGeneration(generation: Long, reason: String) {
+            primarySessions.invalidate(generation)?.retirePrimary(reason, endNavigation = true)
+        }
     }
 
     private var navigationManager: NavigationManager? = null
     private var scope: CoroutineScope? = null
     private var isNavigating = false
-    private var isPrimary = false
     private var hasSeenActiveNav = false
     private var arrivalTimeoutJob: Job? = null
+    private var bindingLease: ClusterBindingRegistry.SessionLease? = null
+    private var tripOutcomeLogged = false
 
-    override fun onCreateScreen(intent: Intent): Screen {
-        ClusterBindingState.sessionAlive = true
+    override fun onCreateScreen(intent: Intent): Screen =
+        synchronized(ClusterBindingLifecycle.lock) { createScreen(intent) }
 
-        isPrimary = primarySession == null
-        if (isPrimary) {
-            primarySession = this
-            Log.i(TAG, "Primary session created — owns NavigationManager")
-            DiagnosticLog.i("cluster", "ClusterMainSession created (primary)")
+    private fun createScreen(intent: Intent): Screen {
+        val expectedGeneration = if (intent.hasExtra(CLUSTER_BINDING_GENERATION_EXTRA)) {
+            intent.getLongExtra(CLUSTER_BINDING_GENERATION_EXTRA, Long.MIN_VALUE)
+        } else {
+            null
+        }
+        val lease = ClusterBindingState.registerSession(expectedGeneration)
+        if (lease == null) {
+            Log.w(TAG, "Session rejected for stale or missing cluster manager generation")
+            DiagnosticLog.w(
+                "cluster",
+                "Cluster session rejected: expectedGeneration=$expectedGeneration",
+            )
+            return RelayScreen(carContext)
+        }
+        bindingLease = lease
+
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onDestroy(owner: LifecycleOwner) {
+                val ownedLease = bindingLease
+                if (ownedLease != null) {
+                    if (primarySessions.release(ownedLease.generation, this@ClusterMainSession)) {
+                        retirePrimary("session destroy", endNavigation = true)
+                        DiagnosticLog.i(
+                            "cluster",
+                            "ClusterMainSession destroyed generation=${ownedLease.generation}",
+                        )
+                    }
+                    ClusterBindingState.unregisterSession(ownedLease)
+                }
+                bindingLease = null
+            }
+        })
+
+        val claim = primarySessions.claim(lease.generation, this)
+        val primaryAccepted = claim.accepted && ClusterBindingState.markPrimary(lease)
+        claim.displaced?.retirePrimary(
+            "superseded by generation ${lease.generation}",
+            endNavigation = true,
+        )
+        if (claim.accepted && !primaryAccepted) {
+            primarySessions.release(lease.generation, this)
+            Log.w(TAG, "Primary claim lost because generation ${lease.generation} retired")
+            return RelayScreen(carContext)
+        }
+        if (primaryAccepted) {
+            Log.i(TAG, "Primary session created — owns NavigationManager (generation=${lease.generation})")
+            DiagnosticLog.i(
+                "cluster",
+                "ClusterMainSession created (primary) generation=${lease.generation}",
+            )
         } else {
             Log.i(TAG, "Secondary session created — passive")
             return RelayScreen(carContext)
@@ -110,6 +162,7 @@ class ClusterMainSession : Session() {
 
         navigationManager?.setNavigationManagerCallback(object : NavigationManagerCallback {
             override fun onStopNavigation() {
+                if (!isCurrentPrimary()) return
                 Log.i(TAG, "onStopNavigation callback from Templates Host")
                 // Do NOT set isNavigating = false — GM's Templates Host may call this
                 // spuriously. We only end navigation on explicit nav_state_clear or
@@ -145,30 +198,30 @@ class ClusterMainSession : Session() {
             collectNavigationState()
         }
 
-        lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onDestroy(owner: LifecycleOwner) {
-                if (isPrimary) {
-                    primarySession = null
-                    Log.i(TAG, "Primary session destroyed")
-                    DiagnosticLog.i("cluster", "ClusterMainSession destroyed")
-                    arrivalTimeoutJob?.cancel()
-                    if (isNavigating) {
-                        try {
-                            navigationManager?.navigationEnded()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "navigationEnded() failed on destroy: ${e.message}")
-                        }
-                        isNavigating = false
-                    }
-                    scope?.cancel()
-                    scope = null
-                    navigationManager = null
-                }
-                ClusterBindingState.sessionAlive = false
-            }
-        })
-
         return RelayScreen(carContext)
+    }
+
+    private fun retirePrimary(reason: String, endNavigation: Boolean) {
+        if (endNavigation && isNavigating) {
+            try {
+                navigationManager?.navigationEnded()
+            } catch (e: Exception) {
+                Log.e(TAG, "navigationEnded() failed during $reason: ${e.message}")
+            }
+        }
+        isNavigating = false
+        arrivalTimeoutJob?.cancel()
+        arrivalTimeoutJob = null
+        scope?.cancel()
+        scope = null
+        navigationManager = null
+        Log.i(TAG, "Primary session retired: $reason")
+    }
+
+    private fun isCurrentPrimary(): Boolean {
+        val lease = bindingLease ?: return false
+        return ClusterBindingState.isSessionCurrent(lease) &&
+            primarySessions.isOwner(lease.generation, this)
     }
 
     private suspend fun collectNavigationState() {
@@ -187,6 +240,7 @@ class ClusterMainSession : Session() {
     }
 
     private fun processStateUpdate(maneuver: ManeuverState?) {
+        if (!isCurrentPrimary()) return
         val navManager = navigationManager ?: return
 
         if (maneuver != null) {
@@ -206,10 +260,21 @@ class ClusterMainSession : Session() {
             try {
                 val trip = buildTrip(maneuver)
                 navManager.updateTrip(trip)
+                if (!tripOutcomeLogged) {
+                    tripOutcomeLogged = true
+                    DiagnosticLog.i(
+                        "cluster",
+                        "Trip update outcome=sent generation=${bindingLease?.generation} " +
+                            "maneuver=${maneuver.type} road=${maneuver.roadName}",
+                    )
+                }
                 DiagnosticLog.d("cluster", "Trip: ${maneuver.type} dist=${maneuver.distanceMeters}m road=${maneuver.roadName} lanes=${maneuver.lanes?.size ?: 0}")
             } catch (e: Exception) {
                 Log.e(TAG, "updateTrip() failed: ${e.message}")
-                DiagnosticLog.e("cluster", "updateTrip() failed: ${e.message}")
+                DiagnosticLog.e(
+                    "cluster",
+                    "Trip update outcome=failed generation=${bindingLease?.generation} error=${e.message}",
+                )
             }
 
             // Arrival timeout for terminal maneuver types

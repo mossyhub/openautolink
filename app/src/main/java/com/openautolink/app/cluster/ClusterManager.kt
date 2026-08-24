@@ -17,8 +17,8 @@ import com.openautolink.app.diagnostics.DiagnosticLog
  * launching CarAppActivity to trigger Templates Host binding, and recovering from
  * GM killing the cluster session.
  *
- * GM AAOS may kill third-party CarAppService sessions. This manager detects when the
- * session dies (via [ClusterBindingState.sessionAlive]) and re-launches the binding chain.
+ * GM AAOS may kill third-party CarAppService sessions. This manager uses a generation-owned
+ * binding lease to detect stale sessions and re-launch the binding chain.
  */
 class ClusterManager(private val context: Context) {
 
@@ -32,6 +32,8 @@ class ClusterManager(private val context: Context) {
         private const val PERMISSIONS_RETRY_DELAY_MS = 3000L
         private const val HEALTH_CHECK_DELAY_MS = 5000L
         private const val MAX_HEALTH_RETRIES = 3
+        private fun openBindingManager(): ClusterBindingRegistry.ManagerLease =
+            synchronized(ClusterBindingLifecycle.lock) { ClusterBindingState.openManager() }
 
         /** Runtime permissions that must be granted before launching CarAppActivity,
          *  to avoid covering the system permissions dialog. */
@@ -45,13 +47,25 @@ class ClusterManager(private val context: Context) {
     private var enabled = false
     private var healthRetryCount = 0
     private var relaunching = false
+    private var bindingLease = openBindingManager()
 
     /**
      * Enable or disable the cluster CarAppService component.
      * Must be called early in Activity.onCreate() before Templates Host discovers it.
      */
     fun setClusterEnabled(enabled: Boolean) {
-        this.enabled = enabled
+        synchronized(ClusterBindingLifecycle.lock) {
+            if (!ClusterBindingState.isManagerCurrent(bindingLease)) {
+                Log.i(TAG, "Ignoring component state from retired generation ${bindingLease.generation}")
+                return@synchronized
+            }
+            this.enabled = enabled
+            applyClusterComponentState(enabled)
+        }
+    }
+
+    /** Caller owns [ClusterBindingLifecycle.lock]. */
+    private fun applyClusterComponentState(enabled: Boolean) {
         val newState = if (enabled) {
             PackageManager.COMPONENT_ENABLED_STATE_ENABLED
         } else {
@@ -75,71 +89,86 @@ class ClusterManager(private val context: Context) {
      * Launch CarAppActivity to trigger Templates Host binding for the cluster.
      * Uses a separate task (taskAffinity) so it doesn't disturb the main activity.
      *
-     * Guarded by [ClusterBindingState.sessionAlive] — if a session is already alive,
-     * waits for teardown before retrying.
+     * Guarded by this manager's generation-owned binding lease. Sessions from an
+     * older manager can never block a fresh launch.
      *
      * Brings the main activity back to front after binding completes (1s delay).
      */
     fun launchClusterBinding() {
-        if (!enabled) {
-            Log.d(TAG, "Cluster not enabled — skipping launch")
-            return
-        }
-
-        // Don't launch CarAppActivity while runtime permissions are pending —
-        // it starts a new task that covers the system permission dialog
-        val pendingPermissions = REQUIRED_PERMISSIONS.any {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (pendingPermissions) {
-            Log.i(TAG, "Runtime permissions pending — deferring cluster launch")
-            handler.postDelayed({ launchClusterBinding() }, PERMISSIONS_RETRY_DELAY_MS)
-            return
-        }
-
-        if (ClusterBindingState.sessionAlive) {
-            Log.i(TAG, "Session still alive — will retry after teardown")
-            handler.postDelayed({
-                if (!ClusterBindingState.sessionAlive) {
-                    Log.i(TAG, "Old session torn down — retrying launch")
-                    launchClusterBinding()
-                }
-            }, RETRY_DELAY_MS)
-            return
-        }
-
-        try {
-            val intent = Intent().apply {
-                setClassName(context, CAR_APP_ACTIVITY_CLASS)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
+        synchronized(ClusterBindingLifecycle.lock) {
+            if (!enabled) {
+                Log.d(TAG, "Cluster not enabled — skipping launch")
+                return@synchronized
             }
-            context.startActivity(intent)
-            Log.i(TAG, "Launched CarAppActivity for Templates Host binding")
-            DiagnosticLog.i("cluster", "Launched CarAppActivity for Templates Host binding")
+            val launchLease = bindingLease
+            if (!ClusterBindingState.isManagerCurrent(launchLease)) {
+                Log.i(TAG, "Cluster binding generation ${launchLease.generation} is retired — skipping launch")
+                return@synchronized
+            }
 
-            // Schedule health check — if session doesn't come alive, retry
-            scheduleHealthCheck()
+            // Don't launch CarAppActivity while runtime permissions are pending —
+            // it starts a new task that covers the system permission dialog
+            val pendingPermissions = REQUIRED_PERMISSIONS.any {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (pendingPermissions) {
+                Log.i(TAG, "Runtime permissions pending — deferring cluster launch")
+                handler.postDelayed({ launchClusterBinding() }, PERMISSIONS_RETRY_DELAY_MS)
+                return@synchronized
+            }
 
-            // Bring main activity back — binding is IPC-based, doesn't need foreground
-            handler.postDelayed({
-                try {
-                    val mainActivity = Class.forName("${context.packageName}.MainActivity")
-                    val bringBack = Intent(context, mainActivity).apply {
-                        flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                                Intent.FLAG_ACTIVITY_NEW_TASK or
-                                Intent.FLAG_ACTIVITY_NO_ANIMATION
+            if (ClusterBindingState.hasLiveSession(launchLease)) {
+                Log.i(TAG, "Current-generation session still alive — will retry after teardown")
+                handler.postDelayed({
+                    if (ClusterBindingState.isManagerCurrent(launchLease) &&
+                        !ClusterBindingState.hasLiveSession(launchLease)
+                    ) {
+                        Log.i(TAG, "Old session torn down — retrying launch")
+                        launchClusterBinding()
                     }
-                    context.startActivity(bringBack)
-                    Log.i(TAG, "Brought main activity back to foreground")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to bring main activity back: ${e.message}")
+                }, RETRY_DELAY_MS)
+                return@synchronized
+            }
+
+            try {
+                val intent = Intent().apply {
+                    setClassName(context, CAR_APP_ACTIVITY_CLASS)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
+                    putExtra(CLUSTER_BINDING_GENERATION_EXTRA, launchLease.generation)
                 }
-            }, BRING_BACK_DELAY_MS)
-        } catch (e: Exception) {
-            // Cluster service blocked or not available — graceful degradation
-            Log.w(TAG, "Failed to launch CarAppActivity: ${e.message}")
-            DiagnosticLog.w("cluster", "Failed to launch CarAppActivity: ${e.message}")
-            Log.i(TAG, "Cluster navigation will not be available — media metadata still flows via MediaSession")
+                context.startActivity(intent)
+                Log.i(TAG, "Launched CarAppActivity for Templates Host binding")
+                DiagnosticLog.i("cluster", "Launched CarAppActivity for Templates Host binding")
+
+                // Schedule health check — if session doesn't come alive, retry
+                scheduleHealthCheck(launchLease)
+
+                // Bring main activity back — binding is IPC-based, doesn't need foreground
+                handler.postDelayed({
+                    synchronized(ClusterBindingLifecycle.lock) {
+                        if (!enabled || !ClusterBindingState.isManagerCurrent(launchLease)) {
+                            return@synchronized
+                        }
+                        try {
+                            val mainActivity = Class.forName("${context.packageName}.MainActivity")
+                            val bringBack = Intent(context, mainActivity).apply {
+                                flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                                        Intent.FLAG_ACTIVITY_NO_ANIMATION
+                            }
+                            context.startActivity(bringBack)
+                            Log.i(TAG, "Brought main activity back to foreground")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to bring main activity back: ${e.message}")
+                        }
+                    }
+                }, BRING_BACK_DELAY_MS)
+            } catch (e: Exception) {
+                // Cluster service blocked or not available — graceful degradation
+                Log.w(TAG, "Failed to launch CarAppActivity: ${e.message}")
+                DiagnosticLog.w("cluster", "Failed to launch CarAppActivity: ${e.message}")
+                Log.i(TAG, "Cluster navigation will not be available — media metadata still flows via MediaSession")
+            }
         }
     }
 
@@ -148,26 +177,29 @@ class ClusterManager(private val context: Context) {
      * If the cluster session hasn't come alive after HEALTH_CHECK_DELAY_MS,
      * tear down the stale task and retry the full binding chain.
      */
-    private fun scheduleHealthCheck() {
+    private fun scheduleHealthCheck(launchLease: ClusterBindingRegistry.ManagerLease) {
         handler.postDelayed({
-            if (!enabled) return@postDelayed
-            if (ClusterBindingState.sessionAlive) {
-                Log.i(TAG, "Health check: cluster session alive")
-                healthRetryCount = 0
-                relaunching = false
-                return@postDelayed
+            synchronized(ClusterBindingLifecycle.lock) {
+                if (!enabled) return@synchronized
+                if (!ClusterBindingState.isManagerCurrent(launchLease)) return@synchronized
+                if (ClusterBindingState.hasLiveSession(launchLease)) {
+                    Log.i(TAG, "Health check: cluster session alive")
+                    healthRetryCount = 0
+                    relaunching = false
+                    return@synchronized
+                }
+                healthRetryCount++
+                if (healthRetryCount > MAX_HEALTH_RETRIES) {
+                    Log.w(TAG, "Health check: max retries ($MAX_HEALTH_RETRIES) exceeded — giving up")
+                    DiagnosticLog.w("cluster", "Cluster binding failed after $MAX_HEALTH_RETRIES retries")
+                    healthRetryCount = 0
+                    relaunching = false
+                    return@synchronized
+                }
+                Log.w(TAG, "Health check: session not alive — retry $healthRetryCount/$MAX_HEALTH_RETRIES")
+                DiagnosticLog.w("cluster", "Cluster session not alive — retrying ($healthRetryCount/$MAX_HEALTH_RETRIES)")
+                restartClusterBinding()
             }
-            healthRetryCount++
-            if (healthRetryCount > MAX_HEALTH_RETRIES) {
-                Log.w(TAG, "Health check: max retries ($MAX_HEALTH_RETRIES) exceeded \u2014 giving up")
-                DiagnosticLog.w("cluster", "Cluster binding failed after $MAX_HEALTH_RETRIES retries")
-                healthRetryCount = 0
-                relaunching = false
-                return@postDelayed
-            }
-            Log.w(TAG, "Health check: session not alive — retry $healthRetryCount/$MAX_HEALTH_RETRIES")
-            DiagnosticLog.w("cluster", "Cluster session not alive — retrying ($healthRetryCount/$MAX_HEALTH_RETRIES)")
-            restartClusterBinding()
         }, HEALTH_CHECK_DELAY_MS)
     }
 
@@ -176,28 +208,31 @@ class ClusterManager(private val context: Context) {
      * Called when the cluster session is detected as dead, or when nav state needs reset.
      */
     fun restartClusterBinding() {
-        Log.w(TAG, "Restarting cluster binding chain")
-        DiagnosticLog.w("cluster", "Restarting cluster binding chain")
-        ClusterNavigationState.clear()
-
-        // Find and finish the CarAppActivity task
-        try {
-            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            for (appTask in am.appTasks) {
-                if (appTask.taskInfo.baseActivity?.className == CAR_APP_ACTIVITY_CLASS) {
-                    Log.i(TAG, "Finishing CarAppActivity task")
-                    DiagnosticLog.w("cluster", "GM killed cluster session — finishing task and rebinding")
-                    appTask.finishAndRemoveTask()
-                    break
-                }
+        synchronized(ClusterBindingLifecycle.lock) {
+            val retiredLease = bindingLease
+            if (!ClusterBindingState.closeManager(retiredLease)) {
+                DiagnosticLog.i(
+                    "cluster",
+                    "Cluster binding restart ignored: retired generation=${retiredLease.generation}",
+                )
+                return@synchronized
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to finish CarAppActivity task: ${e.message}")
-        }
+            Log.w(TAG, "Restarting cluster binding chain")
+            DiagnosticLog.w("cluster", "Restarting cluster binding chain")
+            ClusterNavigationState.clear()
+            ClusterMainSession.invalidateBindingGeneration(retiredLease.generation, "binding restart")
+            finishClusterTask(retiredLease, "restart")
+            val replacementLease = ClusterBindingState.openManager()
+            bindingLease = replacementLease
+            DiagnosticLog.i(
+                "cluster",
+                "Cluster binding generation replaced: old=${retiredLease.generation} new=${replacementLease.generation}",
+            )
 
-        handler.postDelayed({
-            launchClusterBinding()
-        }, RELAUNCH_DELAY_MS)
+            handler.postDelayed({
+                if (ClusterBindingState.isManagerCurrent(replacementLease)) launchClusterBinding()
+            }, RELAUNCH_DELAY_MS)
+        }
     }
 
     /**
@@ -205,23 +240,68 @@ class ClusterManager(private val context: Context) {
      * Called after bridge reconnect (Hello received) and when returning from Settings.
      */
     fun ensureAlive() {
-        if (!enabled) return
-        if (ClusterBindingState.sessionAlive) return
-        if (relaunching) return
+        synchronized(ClusterBindingLifecycle.lock) {
+            if (!enabled) return@synchronized
+            if (ClusterBindingState.hasLiveSession(bindingLease)) return@synchronized
+            if (relaunching) return@synchronized
 
-        Log.w(TAG, "Cluster session not alive \u2014 relaunching binding")
-        DiagnosticLog.w("cluster", "Cluster session not alive \u2014 relaunching binding")
-        relaunching = true
-        restartClusterBinding()
+            Log.w(TAG, "Cluster session not alive — relaunching binding")
+            DiagnosticLog.w("cluster", "Cluster session not alive — relaunching binding")
+            relaunching = true
+            restartClusterBinding()
+        }
     }
 
     /**
      * Stop monitoring and release handler callbacks.
      */
     fun release() {
-        setClusterEnabled(false)
-        handler.removeCallbacksAndMessages(null)
-        healthRetryCount = 0
-        relaunching = false
+        synchronized(ClusterBindingLifecycle.lock) {
+            enabled = false
+            handler.removeCallbacksAndMessages(null)
+            healthRetryCount = 0
+            relaunching = false
+            val retiredLease = bindingLease
+            if (!ClusterBindingState.closeManager(retiredLease)) {
+                DiagnosticLog.i(
+                    "cluster",
+                    "Cluster manager release ignored: retired generation=${retiredLease.generation}",
+                )
+                return@synchronized
+            }
+            ClusterMainSession.invalidateBindingGeneration(retiredLease.generation, "manager release")
+            applyClusterComponentState(false)
+            finishClusterTask(retiredLease, "release")
+        }
+    }
+
+    private fun finishClusterTask(
+        lease: ClusterBindingRegistry.ManagerLease,
+        reason: String,
+    ) {
+        try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val task = am.appTasks.firstOrNull {
+                it.taskInfo.baseActivity?.className == CAR_APP_ACTIVITY_CLASS
+            }
+            if (task == null) {
+                DiagnosticLog.i(
+                    "cluster",
+                    "Cluster task teardown outcome=not-found reason=$reason generation=${lease.generation}",
+                )
+                return
+            }
+            task.finishAndRemoveTask()
+            DiagnosticLog.i(
+                "cluster",
+                "Cluster task teardown outcome=finished reason=$reason generation=${lease.generation}",
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to finish CarAppActivity task: ${e.message}")
+            DiagnosticLog.w(
+                "cluster",
+                "Cluster task teardown outcome=failed reason=$reason generation=${lease.generation} error=${e.message}",
+            )
+        }
     }
 }
