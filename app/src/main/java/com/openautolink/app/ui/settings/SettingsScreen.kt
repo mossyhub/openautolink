@@ -2145,7 +2145,7 @@ private fun InputTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
         Text(
             text = "Map physical buttons (steering wheel, remote) to Android Auto actions. " +
                     "Tap an action, then press the physical button you want to assign. " +
-                    "Requires Save & Reconnect.",
+                    "Key assignments apply immediately and persist across reconnects.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp)

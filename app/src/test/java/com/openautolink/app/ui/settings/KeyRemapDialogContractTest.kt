@@ -41,15 +41,33 @@ class KeyRemapDialogContractTest {
     }
 
     @Test
-    fun `empty saved map actively clears the live steering controller`() {
+    fun `saved key remap changes update the live controller without rebuilding the view model`() {
         val source = projectFile(
             "app/src/main/java/com/openautolink/app/ui/projection/ProjectionViewModel.kt",
         ).readText()
-        val load = source.substringAfter("// Load key remap from preferences")
-            .substringBefore("// Load volume offsets")
+        val initBlock = source.substringAfter("init {")
+            .substringBefore("/** Bind the overlay")
+        val connectBlock = source.substringAfter("private fun doConnect(")
+            .substringBefore("fun reconnect()")
 
-        assertTrue(load.contains("steeringWheelController.customKeyMap = map"))
-        assertFalse(load.contains("if (keyRemapJson.isNotBlank())"))
+        assertTrue(initBlock.contains("preferences.keyRemap.distinctUntilChanged()"))
+        assertTrue(initBlock.contains(".collect { serialized ->"))
+        assertTrue(initBlock.contains("KeyRemapParser.parse(serialized)"))
+        assertTrue(initBlock.contains("steeringWheelController.customKeyMap = map"))
+        assertTrue(initBlock.contains("Applied custom key map update:"))
+        assertFalse(connectBlock.contains("preferences.keyRemap.first()"))
+    }
+
+    @Test
+    fun `key remap help states that assignments apply immediately`() {
+        val source = projectFile(
+            "app/src/main/java/com/openautolink/app/ui/settings/SettingsScreen.kt",
+        ).readText()
+        val inputTab = source.substringAfter("private fun InputTab")
+            .substringBefore("private fun AudioTab")
+
+        assertTrue(inputTab.contains("Key assignments apply immediately"))
+        assertFalse(inputTab.contains("Requires Save & Reconnect"))
     }
 
     @Test

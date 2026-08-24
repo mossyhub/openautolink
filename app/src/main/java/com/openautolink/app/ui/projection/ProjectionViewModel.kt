@@ -19,6 +19,7 @@ import com.openautolink.app.audio.AudioStats
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.data.KnownPhone
 import com.openautolink.app.data.KnownPhonesStore
+import com.openautolink.app.input.KeyRemapParser
 import com.openautolink.app.input.SteeringWheelController
 import com.openautolink.app.input.TouchForwarder
 import com.openautolink.app.input.TouchForwarderImpl
@@ -316,6 +317,22 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     init {
         registerTransportNetworkCallback()
+
+        // Key remaps belong to this process-scoped input controller, not to an
+        // individual AA protocol session. Keep it bound to DataStore so an
+        // assignment replaces the live map immediately; Save & Reconnect only
+        // restarts the AA protocol session and does not recreate this ViewModel.
+        viewModelScope.launch {
+            preferences.keyRemap.distinctUntilChanged()
+                .collect { serialized ->
+                    val map = KeyRemapParser.parse(serialized)
+                    steeringWheelController.customKeyMap = map
+                    OalLog.i(
+                        "input",
+                        "Applied custom key map update: count=${map.size} mappings=$map",
+                    )
+                }
+        }
 
         // Attach the surface as soon as a decoder exists, in addition to the
         // state-change path below. Either one alone can miss: the state observer
@@ -664,25 +681,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             val saBottom = preferences.safeAreaBottom.first()
             val saLeft = preferences.safeAreaLeft.first()
             val saRight = preferences.safeAreaRight.first()
-
-            // Load key remap from preferences
-            val keyRemapJson = preferences.keyRemap.first()
-            val map: Map<Int, Int> = if (keyRemapJson.isBlank()) {
-                emptyMap()
-            } else {
-                try {
-                    val parsed = mutableMapOf<Int, Int>()
-                    val json = org.json.JSONObject(keyRemapJson)
-                    for (key in json.keys()) {
-                        parsed[key.toInt()] = json.getInt(key)
-                    }
-                    parsed
-                } catch (_: Exception) {
-                    emptyMap()
-                }
-            }
-            steeringWheelController.customKeyMap = map
-            OalLog.i("input", "Loaded custom key map: count=${map.size}")
 
             // Load volume offsets
             val volMedia = preferences.volumeOffsetMedia.first()
