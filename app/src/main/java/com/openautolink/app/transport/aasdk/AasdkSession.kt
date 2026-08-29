@@ -82,7 +82,7 @@ class AasdkSession(
     private val _videoFrames = MutableSharedFlow<VideoFrame>(extraBufferCapacity = 30)
     val videoFrames: SharedFlow<VideoFrame> = _videoFrames.asSharedFlow()
 
-    /** Negotiated video codec type from phone. 3=H.264, 5=H.264_BP, 7=H.265 */
+    /** Negotiated video codec type from phone. 3=H.264, 5=VP9, 7=H.265 */
     private val _negotiatedCodecType = MutableStateFlow(0)
     val negotiatedCodecType: StateFlow<Int> = _negotiatedCodecType.asStateFlow()
 

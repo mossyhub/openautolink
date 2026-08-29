@@ -206,6 +206,7 @@ class SettingsReceiver : BroadcastReceiver() {
                     manualIpAddress = if (prefs.manualIpEnabled.first())
                         prefs.manualIpAddress.first().takeIf { it.isNotBlank() } else null,
                     galVersion = prefs.galVersion.first(),
+                    seedIdrThresholds = prefs.seedIdrThresholds.first(),
                 )
                 OalLog.i("SettingsRcv", "RECONNECT: triggered")
             } catch (e: Exception) {

@@ -1449,6 +1449,68 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        SectionHeader("Seed keyframe thresholds")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Keyframes smaller than the selected codec's threshold are treated as " +
+                "startup placeholders and decoded silently for 2.5 seconds. Set 0 to disable " +
+                "the guard for that codec. Defaults come from uploaded vehicle logs: H.264 " +
+                "10,000 bytes, H.265 4,096 bytes, VP9 disabled. Requires Save & Reconnect.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(0.7f).padding(bottom = 12.dp),
+        )
+
+        data class SeedThresholdOption(
+            val testTag: String,
+            val label: String,
+            val value: Int,
+            val onChange: (Int) -> Unit,
+        )
+
+        listOf(
+            SeedThresholdOption(
+                "seedThreshold_h264",
+                "H.264 seed cutoff (bytes)",
+                uiState.videoSeedThresholdH264,
+                viewModel::updateVideoSeedThresholdH264,
+            ),
+            SeedThresholdOption(
+                "seedThreshold_h265",
+                "H.265 / HEVC seed cutoff (bytes)",
+                uiState.videoSeedThresholdH265,
+                viewModel::updateVideoSeedThresholdH265,
+            ),
+            SeedThresholdOption(
+                "seedThreshold_vp9",
+                "VP9 seed cutoff (bytes)",
+                uiState.videoSeedThresholdVp9,
+                viewModel::updateVideoSeedThresholdVp9,
+            ),
+        ).forEach { option ->
+            LocalEchoTextField(
+                value = option.value.toString(),
+                onValueChange = { raw ->
+                    option.onChange(raw.filter(Char::isDigit).take(7).toIntOrNull() ?: 0)
+                },
+                label = { Text(option.label) },
+                supportingText = { Text("0 disables this codec's seed filter") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .padding(vertical = 4.dp)
+                    .testTag(option.testTag),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // --- DPI ---
         SectionHeader("AA Display Density (DPI)")
 

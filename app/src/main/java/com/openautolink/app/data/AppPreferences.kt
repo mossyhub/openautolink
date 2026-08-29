@@ -9,6 +9,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.openautolink.app.transport.aasdk.GalProtocolPolicy
+import com.openautolink.app.video.SeedIdrPolicy
+import com.openautolink.app.video.SeedIdrThresholds
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -33,6 +35,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
         val VIDEO_AUTO_NEGOTIATE = booleanPreferencesKey("video_auto_negotiate")
         val VIDEO_CODEC = stringPreferencesKey("video_codec")
+        val VIDEO_SEED_THRESHOLD_H264 = intPreferencesKey("video_seed_threshold_h264")
+        val VIDEO_SEED_THRESHOLD_H265 = intPreferencesKey("video_seed_threshold_h265")
+        val VIDEO_SEED_THRESHOLD_VP9 = intPreferencesKey("video_seed_threshold_vp9")
         val VIDEO_FPS = intPreferencesKey("video_fps")
         // v2 deliberately starts every existing install on verified GAL 6.0.
         // Choices made after this migration persist normally under the new key.
@@ -248,6 +253,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
         const val DEFAULT_VIDEO_AUTO_NEGOTIATE = true
         const val DEFAULT_VIDEO_CODEC = "h264"
+        const val DEFAULT_VIDEO_SEED_THRESHOLD_H264 = SeedIdrThresholds.DEFAULT_H264_BYTES
+        const val DEFAULT_VIDEO_SEED_THRESHOLD_H265 = SeedIdrThresholds.DEFAULT_H265_BYTES
+        const val DEFAULT_VIDEO_SEED_THRESHOLD_VP9 = SeedIdrThresholds.DEFAULT_VP9_BYTES
         const val DEFAULT_VIDEO_FPS = 60
         const val DEFAULT_GAL_VERSION = "6.0"
         const val DEFAULT_DISPLAY_MODE = "fullscreen_immersive"
@@ -388,6 +396,20 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     val videoCodec: Flow<String> = dataStore.data.map { prefs ->
         prefs[VIDEO_CODEC] ?: DEFAULT_VIDEO_CODEC
+    }
+
+    val seedIdrThresholds: Flow<SeedIdrThresholds> = dataStore.data.map { prefs ->
+        SeedIdrThresholds(
+            h264Bytes = SeedIdrPolicy.sanitizeThreshold(
+                prefs[VIDEO_SEED_THRESHOLD_H264] ?: DEFAULT_VIDEO_SEED_THRESHOLD_H264,
+            ),
+            h265Bytes = SeedIdrPolicy.sanitizeThreshold(
+                prefs[VIDEO_SEED_THRESHOLD_H265] ?: DEFAULT_VIDEO_SEED_THRESHOLD_H265,
+            ),
+            vp9Bytes = SeedIdrPolicy.sanitizeThreshold(
+                prefs[VIDEO_SEED_THRESHOLD_VP9] ?: DEFAULT_VIDEO_SEED_THRESHOLD_VP9,
+            ),
+        )
     }
 
     val videoFps: Flow<Int> = dataStore.data.map { prefs ->
@@ -723,6 +745,18 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setVideoCodec(codec: String) {
         dataStore.edit { it[VIDEO_CODEC] = codec }
+    }
+
+    suspend fun setVideoSeedThresholdH264(bytes: Int) {
+        dataStore.edit { it[VIDEO_SEED_THRESHOLD_H264] = SeedIdrPolicy.sanitizeThreshold(bytes) }
+    }
+
+    suspend fun setVideoSeedThresholdH265(bytes: Int) {
+        dataStore.edit { it[VIDEO_SEED_THRESHOLD_H265] = SeedIdrPolicy.sanitizeThreshold(bytes) }
+    }
+
+    suspend fun setVideoSeedThresholdVp9(bytes: Int) {
+        dataStore.edit { it[VIDEO_SEED_THRESHOLD_VP9] = SeedIdrPolicy.sanitizeThreshold(bytes) }
     }
 
     suspend fun setVideoFps(fps: Int) {

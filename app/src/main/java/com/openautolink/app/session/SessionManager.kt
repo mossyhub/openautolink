@@ -44,6 +44,7 @@ import com.openautolink.app.video.DecoderState
 import com.openautolink.app.video.AutoDpiPolicy
 import com.openautolink.app.video.AutoVideoTouchPolicy
 import com.openautolink.app.video.MediaCodecDecoder
+import com.openautolink.app.video.SeedIdrThresholds
 import com.openautolink.app.video.VideoDecoder
 import com.openautolink.app.video.VideoStats
 import kotlinx.coroutines.CoroutineScope
@@ -294,6 +295,9 @@ class SessionManager(
     private var lastScalingMode: String = AppPreferences.DEFAULT_VIDEO_SCALING_MODE
 
     @Volatile
+    private var lastSeedIdrThresholds = SeedIdrThresholds()
+
+    @Volatile
     private var lastVolumeOffsetMedia: Int = 0
 
     @Volatile
@@ -448,11 +452,13 @@ class SessionManager(
     private fun createVideoDecoder(
         codecPreference: String,
         scalingMode: String,
+        seedIdrThresholds: SeedIdrThresholds,
     ): MediaCodecDecoder {
         val decoderGeneration = videoDecoderGeneration.incrementAndGet()
         return MediaCodecDecoder(
             codecPreference = codecPreference,
             scalingMode = scalingMode,
+            seedIdrThresholds = seedIdrThresholds,
             onSessionRestartNeeded = { reason ->
                 val targetSession = aasdkSession
                 OalLog.w(TAG, "Decoder cannot recover the output surface in-place — $reason")
@@ -484,7 +490,11 @@ class SessionManager(
             return
         }
         OalLog.i(TAG, "No video decoder for this session — creating one")
-        _videoDecoder = createVideoDecoder(lastCodecPreference, lastScalingMode)
+        _videoDecoder = createVideoDecoder(
+            lastCodecPreference,
+            lastScalingMode,
+            seedIdrThresholds = lastSeedIdrThresholds,
+        )
         lastKnownSurface?.let { (surface, w, h) ->
             if (surface.isValid) {
                 OalLog.i(TAG, "Attaching the last known surface to the new decoder")
@@ -1106,6 +1116,7 @@ class SessionManager(
         gpsForwarding: Boolean = true,
         galVersion: String = AppPreferences.DEFAULT_GAL_VERSION,
         wppRearmSource: String? = null,
+        seedIdrThresholds: SeedIdrThresholds = SeedIdrThresholds(),
     ) {
         val requestGeneration = lifecycleGeneration
         val transportStartGeneration = currentTransportStartGeneration()
@@ -1138,12 +1149,17 @@ class SessionManager(
         // needs one without re-running this setup.
         lastCodecPreference = codecPreference
         lastScalingMode = scalingMode
+        lastSeedIdrThresholds = seedIdrThresholds
         // Remembered for the same reason: an audio player rebuilt on a transport
         // restart must keep the user's volume offsets.
         lastVolumeOffsetMedia = volumeOffsetMedia
         lastVolumeOffsetNavigation = volumeOffsetNavigation
         lastVolumeOffsetAssistant = volumeOffsetAssistant
-        _videoDecoder = createVideoDecoder(codecPreference, scalingMode)
+        _videoDecoder = createVideoDecoder(
+            codecPreference,
+            scalingMode,
+            seedIdrThresholds = seedIdrThresholds,
+        )
         // Re-attach the surface the UI last reported, if there is one.
         //
         // Holding it here rather than only in the ViewModel removes the ordering
@@ -2113,6 +2129,7 @@ class SessionManager(
         safeAreaRight: Int = 0,
         gpsForwarding: Boolean = true,
         galVersion: String = AppPreferences.DEFAULT_GAL_VERSION,
+        seedIdrThresholds: SeedIdrThresholds = SeedIdrThresholds(),
     ) {
         // "Save & Reconnect" from Settings doesn't know the resolved Car
         // Hotspot IP — fall back to the last value we successfully used so
@@ -2133,6 +2150,7 @@ class SessionManager(
                 volumeOffsetMedia, volumeOffsetNavigation, volumeOffsetAssistant,
                 effectiveManualIp, safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight,
                 gpsForwarding, galVersion,
+                seedIdrThresholds = seedIdrThresholds,
             )
             return
         }
@@ -2227,6 +2245,7 @@ class SessionManager(
                     volumeOffsetMedia, volumeOffsetNavigation, volumeOffsetAssistant,
                     effectiveManualIp, safeAreaTop, safeAreaBottom, safeAreaLeft, safeAreaRight,
                     gpsForwarding, galVersion, transportStartGeneration,
+                    seedIdrThresholds,
                 )
             } catch (e: Exception) {
                 OalLog.e(TAG, "reconnect() failed: ${e.message}")
@@ -2260,6 +2279,7 @@ class SessionManager(
         gpsForwarding: Boolean,
         galVersion: String,
         transportStartGeneration: Long,
+        seedIdrThresholds: SeedIdrThresholds,
     ) {
         observeJob = null
         decoderWatchJob = null
@@ -2278,7 +2298,12 @@ class SessionManager(
 
         // 3. Flush video decoder (codec/scaling may have changed)
         _videoDecoder?.release()
-        _videoDecoder = createVideoDecoder(codecPreference, scalingMode)
+        lastSeedIdrThresholds = seedIdrThresholds
+        _videoDecoder = createVideoDecoder(
+            codecPreference,
+            scalingMode,
+            seedIdrThresholds = seedIdrThresholds,
+        )
         _telemetryCollector?.videoDecoder = _videoDecoder
 
         // 4. Update audio volume offsets in-place (no release/recreate)

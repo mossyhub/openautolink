@@ -639,6 +639,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         wppRearmSource: String? = null,
     ) {
             val codec = preferences.videoCodec.first()
+            val seedIdrThresholds = preferences.seedIdrThresholds.first()
             val micSrc = preferences.micSource.first()
             val scalingMode = preferences.videoScalingMode.first()
             val hotspotSsid = preferences.hotspotSsid.first()
@@ -869,6 +870,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 gpsForwarding = gpsForwarding,
                 galVersion = galVersion,
                 wppRearmSource = wppRearmSource,
+                seedIdrThresholds = seedIdrThresholds,
             )
     }
 

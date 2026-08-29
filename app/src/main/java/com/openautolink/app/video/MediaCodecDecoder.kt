@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicLong
 class MediaCodecDecoder(
     private val codecPreference: String = "h264",
     private val scalingMode: String = "letterbox", // "letterbox" or "crop"
+    private val seedIdrThresholds: SeedIdrThresholds = SeedIdrThresholds(),
     private val onSessionRestartNeeded: (String) -> Unit = {},
 ) : VideoDecoder {
 
@@ -47,30 +48,21 @@ class MediaCodecDecoder(
         private const val INPUT_TIMEOUT_BEHIND_US = 5000L // 5ms — shorter when catching up
         private const val OUTPUT_TIMEOUT_US = 1000L // 1ms timeout for output drain
         private const val STATS_INTERVAL_MS = 500L
-        // Minimum IDR size to be considered a real picture (not encoder startup seed
-        // and not gearhead's startup splash).
-        //
-        // HISTORY (#18): this was 4096 with a comment claiming "seed IDRs are ~900
-        // bytes". That was measured against an early seed IDR and is WRONG for the
-        // case that actually matters: gearhead sends an ~8176-byte black/green
-        // startup-splash keyframe at session start (confirmed in the deep-sleep
-        // black-video investigation, 2026-07-18). 8176 > 4096, so the splash took
-        // the REAL-IDR branch — we unblanked on a non-picture and then rendered
-        // P-frames anchored to it until the phone's next scheduled IDR.
-        //
-        // On WIRELESS that next IDR is 60 SECONDS away: gearhead hard-codes
-        // VideoEncoderParams__key_frame_interval_wireless = 60 (teardown
-        // p000/acgw.java mo3361l; the 2s "ackless" alternative in mo3360k is dead
-        // code — p000/vlz.java's constructor assigns ackless=false unconditionally).
-        // That is the exact source of #18's "green for the first 60 seconds".
-        //
-        // Real content IDRs measure 100-210KB. 50000 sits well above the 8176B
-        // splash and well below the smallest observed real IDR.
-        private const val MIN_REAL_IDR_BYTES = 50_000
+        // Seed cutoffs are codec-specific and user-configurable. The archive has
+        // an 8,176-byte H.264 startup splash, 898-1,075-byte H.265 placeholders,
+        // and legitimate H.265 content IDRs down to 43,026 bytes. One global
+        // 50,000-byte cutoff therefore blanked Clark's healthy stream for 2.5s.
         // After accepting a seed IDR, silently decode P-frames for this long before
         // rendering. Gives the decoder time to accumulate picture content from P-frames
         // so the first visible frame is mostly complete rather than green.
         private const val SEED_WARMUP_MS = 2500L
+    }
+
+    init {
+        val message = "Seed IDR thresholds: h264=${seedIdrThresholds.h264Bytes} " +
+            "h265=${seedIdrThresholds.h265Bytes} vp9=${seedIdrThresholds.vp9Bytes}"
+        Log.i(TAG, message)
+        DiagnosticLog.i("video", message)
     }
 
     private val _decoderState = MutableStateFlow(DecoderState.IDLE)
@@ -126,9 +118,10 @@ class MediaCodecDecoder(
     /** Emit the #18 diagnostic line for an IDR, naming the branch that consumed it. */
     private fun logIdrDiag(branch: String, frame: VideoFrame) {
         if (!isH265Stream()) return
+        val thresholdBytes = SeedIdrPolicy.thresholdBytes(detectedCodec, seedIdrThresholds)
         val sinceLast = if (lastRealIdrMs > 0) System.currentTimeMillis() - lastRealIdrMs else -1L
         val msg = "H265-IDR branch=$branch size=${frame.data.size}B " +
-                "threshold=$MIN_REAL_IDR_BYTES pSinceLastIdr=${pFramesSinceIdr.get()} " +
+                "threshold=$thresholdBytes pSinceLastIdr=${pFramesSinceIdr.get()} " +
                 "msSinceLastIdr=$sinceLast real=$realIdrCount sub=$subThresholdIdrCount " +
                 "renderGate=$renderingEnabled outFmt=$outputFormatReceived"
         Log.i(TAG, msg)
@@ -139,14 +132,10 @@ class MediaCodecDecoder(
     /**
      * Set the negotiated codec type from the AA protocol (video setup response).
      * Must be called before video frames arrive.
-     * @param aaCodecType aasdk MediaCodecType: 3=H.264, 5=H.264_BP, 7=H.265
+     * @param aaCodecType aasdk MediaCodecType: 3=H.264, 5=VP9, 7=H.265
      */
     fun setNegotiatedCodec(aaCodecType: Int) {
-        val newCodec = when (aaCodecType) {
-            7 -> "h265"
-            3, 5 -> "h264"
-            else -> return
-        }
+        val newCodec = SeedIdrPolicy.codecForAaType(aaCodecType) ?: return
         if (newCodec != detectedCodec) {
             val newMime = CodecSelector.codecToMime(newCodec)
             Log.i(TAG, "Negotiated codec from AA protocol: $newCodec ($newMime) — was $detectedCodec ($mimeType)")
@@ -418,7 +407,10 @@ class MediaCodecDecoder(
         if (inputPaused) {
             // Still cache config and the newest IDR — they are what lets the
             // fallback reconfigure path work if the swap is refused.
-            if (frame.isKeyframe && frame.data.size >= MIN_REAL_IDR_BYTES) {
+            val seedThresholdBytes = SeedIdrPolicy.thresholdBytes(detectedCodec, seedIdrThresholds)
+            if (frame.isKeyframe &&
+                (seedThresholdBytes == 0 || frame.data.size >= seedThresholdBytes)
+            ) {
                 cachedIdrFrame = frame
             }
             framesDropped.incrementAndGet()
@@ -606,10 +598,11 @@ class MediaCodecDecoder(
         // but suppress rendering for SEED_WARMUP_MS. After warmup, enough P-frame blocks
         // have accumulated that the picture is mostly complete. A real IDR (when it arrives
         // at the phone's natural GOP interval) will clean up any remaining artifacts.
-        if (frame.data.size < MIN_REAL_IDR_BYTES) {
+        val seedThresholdBytes = SeedIdrPolicy.thresholdBytes(detectedCodec, seedIdrThresholds)
+        if (seedThresholdBytes > 0 && frame.data.size < seedThresholdBytes) {
             subThresholdIdrCount++
             logIdrDiag("sub-threshold(seed-or-splash)", frame)
-            Log.w(TAG, "Seed IDR detected (${frame.data.size} bytes < $MIN_REAL_IDR_BYTES) — silent decode for ${SEED_WARMUP_MS}ms before rendering")
+            Log.w(TAG, "Seed IDR detected (${frame.data.size} bytes < $seedThresholdBytes for $detectedCodec) — silent decode for ${SEED_WARMUP_MS}ms before rendering")
             DiagnosticLog.w("video", "Seed IDR: ${frame.data.size}B, warmup ${SEED_WARMUP_MS}ms")
             queueFrame(frame)  // Feed to decoder — establishes reference for P-frames
             receivedIdr = true  // Allow P-frames to flow to decoder

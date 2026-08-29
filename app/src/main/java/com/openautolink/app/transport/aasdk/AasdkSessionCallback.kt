@@ -28,7 +28,7 @@ interface AasdkSessionCallback {
 
     /**
      * Phone negotiated a video codec during channel setup.
-     * @param codecType aasdk MediaCodecType: 3=H.264, 5=H.264_BP, 7=H.265
+     * @param codecType aasdk MediaCodecType: 3=H.264, 5=VP9, 7=H.265
      */
     fun onVideoCodecConfigured(codecType: Int)
 

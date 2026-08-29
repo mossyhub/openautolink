@@ -60,6 +60,7 @@ GM's recent AAOS EVs share much of the same infotainment platform. A problem rep
 - **Wide-display adaptation** — configurable DPI, safe areas, margins, and scaling
 - **Modern video support** — H.264, H.265, and VP9; manual tiers include 1440p (2560×1440) and 4K (3840×2160), plus portrait equivalents
 - **Verified H.265 startup** — H.265 startup is verified clean over USB and wireless with GAL 6's 120-frame GOP
+- **Per-codec seed filtering** — Settings → Video exposes startup-placeholder cutoffs; defaults are H.264 10,000 bytes, H.265 4,096 bytes, and VP9 disabled (0), with changes applied by Save & Reconnect
 - **Built-in diagnostics** — transport status, network tools, VHAL browser, and optional log export
 
 OpenAutoLink forwards the vehicle's real battery and range data into Android Auto. Google Maps uses the standard vehicle energy model for battery-aware navigation and destination estimates. See [EV range estimates](docs/ev-range.md).

@@ -27,6 +27,9 @@ data class SettingsUiState(
     val wppChannelMhz: String = "",
     val videoAutoNegotiate: Boolean = AppPreferences.DEFAULT_VIDEO_AUTO_NEGOTIATE,
     val videoCodec: String = AppPreferences.DEFAULT_VIDEO_CODEC,
+    val videoSeedThresholdH264: Int = AppPreferences.DEFAULT_VIDEO_SEED_THRESHOLD_H264,
+    val videoSeedThresholdH265: Int = AppPreferences.DEFAULT_VIDEO_SEED_THRESHOLD_H265,
+    val videoSeedThresholdVp9: Int = AppPreferences.DEFAULT_VIDEO_SEED_THRESHOLD_VP9,
     val videoFps: Int = AppPreferences.DEFAULT_VIDEO_FPS,
     val galVersion: String = AppPreferences.DEFAULT_GAL_VERSION,
     val displayMode: String = AppPreferences.DEFAULT_DISPLAY_MODE,
@@ -220,6 +223,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _wppChannelMhzOverride = MutableStateFlow("")
     private val _directTransportOverride = MutableStateFlow(AppPreferences.DEFAULT_DIRECT_TRANSPORT)
 
+    private val seedIdrThresholds = preferences.seedIdrThresholds.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        com.openautolink.app.video.SeedIdrThresholds(),
+    )
+
     init {
         viewModelScope.launch {
             preferences.hotspotSsid.collect { _hotspotSsidOverride.value = it }
@@ -252,6 +261,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _wppApInterfaceOverride,
         _wppChannelMhzOverride,
         galVersion,
+        seedIdrThresholds,
     ) { arr ->
         val state = arr[0] as SettingsUiState
         state.copy(
@@ -260,6 +270,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             wppApInterface = arr[5] as String,
             wppChannelMhz = arr[6] as String,
             galVersion = arr[7] as String,
+            videoSeedThresholdH264 = (arr[8] as com.openautolink.app.video.SeedIdrThresholds).h264Bytes,
+            videoSeedThresholdH265 = (arr[8] as com.openautolink.app.video.SeedIdrThresholds).h265Bytes,
+            videoSeedThresholdVp9 = (arr[8] as com.openautolink.app.video.SeedIdrThresholds).vp9Bytes,
         )
     }.stateIn(
         viewModelScope,
@@ -376,6 +389,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
     fun updateVideoCodec(codec: String) {
         viewModelScope.launch { preferences.setVideoCodec(codec) }
+    }
+
+    fun updateVideoSeedThresholdH264(bytes: Int) {
+        viewModelScope.launch { preferences.setVideoSeedThresholdH264(bytes) }
+    }
+
+    fun updateVideoSeedThresholdH265(bytes: Int) {
+        viewModelScope.launch { preferences.setVideoSeedThresholdH265(bytes) }
+    }
+
+    fun updateVideoSeedThresholdVp9(bytes: Int) {
+        viewModelScope.launch { preferences.setVideoSeedThresholdVp9(bytes) }
     }
 
     fun updateVideoAutoNegotiate(enabled: Boolean) {
@@ -607,6 +632,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val sm = com.openautolink.app.session.SessionManager.instanceOrNull() ?: return@launch
             val codec = preferences.videoCodec.first()
+            val seedIdrThresholds = preferences.seedIdrThresholds.first()
             val micSrc = preferences.micSource.first()
             val scalingMode = preferences.videoScalingMode.first()
             val hotspotSsid = preferences.hotspotSsid.first()
@@ -675,6 +701,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 safeAreaRight = saRight,
                 gpsForwarding = gpsForwarding,
                 galVersion = galVersion,
+                seedIdrThresholds = seedIdrThresholds,
             )
         }
     }
