@@ -69,8 +69,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         /**
          * BSSID of the access point the phone should join for WPP.
          *
-         * Must be typed in: an unprivileged app cannot read a running SoftAP's
-         * BSSID, and gearhead hard-rejects empty, zero and broadcast MACs
+         * Auto-config receives the scanned AP BSSID from the companion over
+         * the WPP config side channel. Manual entry remains available.
+         * Gearhead hard-rejects empty, zero and broadcast MACs
          * (WIFI_INVALID_BSSID) before it will attempt projection.
          */
         val WPP_BSSID = stringPreferencesKey("wpp_bssid")
@@ -634,6 +635,22 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     suspend fun setHotspotSsid(ssid: String) {
         dataStore.edit { it[HOTSPOT_SSID] = ssid }
+    }
+
+    /** Store a received network identity as one snapshot; SSIDs are not trimmed. */
+    suspend fun setWppConfig(
+        ssid: String,
+        bssid: String,
+        applyIfCurrent: (() -> Unit) -> Boolean,
+    ): Boolean {
+        var applied = false
+        dataStore.edit { prefs ->
+            applied = applyIfCurrent {
+                prefs[HOTSPOT_SSID] = ssid
+                prefs[WPP_BSSID] = bssid.trim()
+            }
+        }
+        return applied
     }
 
     suspend fun setWppBssid(bssid: String) {

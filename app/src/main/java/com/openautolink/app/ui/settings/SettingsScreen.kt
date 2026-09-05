@@ -326,13 +326,9 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
         )
 
         if (uiState.directTransport == AppPreferences.DIRECT_TRANSPORT_WPP) {
+            val wppConfigBtStatus by viewModel.wppConfigBtStatus.collectAsStateWithLifecycle()
+            val appliedWppConfig by viewModel.wppConfigBtAppliedConfig.collectAsStateWithLifecycle()
             Spacer(modifier = Modifier.height(8.dp))
-            // These must be entered by hand. An unprivileged app cannot read a
-            // running access point's SSID/passphrase/BSSID on AAOS —
-            // getWifiApConfiguration() is signature-gated — so there is nothing
-            // to auto-fill from. The phone hard-rejects wrong or missing values
-            // (WIFI_INVALID_BSSID / WIFI_SECURITY_NOT_SUPPORTED) before it will
-            // start projection, so the hints below matter.
             Text(
                 text = "Wi-Fi details sent to the phone",
                 style = MaterialTheme.typography.titleSmall,
@@ -340,7 +336,7 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
             )
             Text(
                 text = "Enter the network the phone should join to reach this head unit — normally the car's own hotspot. " +
-                    "These can't be detected automatically.",
+                    "Enter the SSID, password, and BSSID manually, or send SSID/BSSID from the companion app over Bluetooth.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -348,6 +344,8 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
             LocalEchoTextField(
                 value = uiState.hotspotSsid,
                 onValueChange = { viewModel.updateHotspotSsid(it) },
+                externalValue = appliedWppConfig?.ssid,
+                externalValueVersion = appliedWppConfig?.version ?: 0L,
                 label = { Text("Network name (SSID)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -425,9 +423,36 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
                     }
                 }
             }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        if (wppConfigBtStatus.contains("Listening", ignoreCase = true)) {
+                            viewModel.stopWppConfigListener()
+                        } else {
+                            viewModel.startWppConfigListener()
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        if (wppConfigBtStatus.contains("Listening", ignoreCase = true)) {
+                            "Stop WPP config listener"
+                        } else {
+                            "Start WPP config listener"
+                        }
+                    )
+                }
+            }
+
             LocalEchoTextField(
                 value = uiState.wppBssid,
                 onValueChange = { viewModel.updateWppBssid(it) },
+                externalValue = appliedWppConfig?.bssid,
+                externalValueVersion = appliedWppConfig?.version ?: 0L,
                 label = { Text("Access point BSSID") },
                 singleLine = true,
                 isError = uiState.wppBssid.isNotBlank() && !BSSID_PATTERN.matches(uiState.wppBssid),
@@ -442,6 +467,31 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
                 },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
+            val wppStatusColor = when {
+                wppConfigBtStatus.contains("Listening") || wppConfigBtStatus.contains("Applied") ->
+                    MaterialTheme.colorScheme.primary
+                wppConfigBtStatus.contains("failed", ignoreCase = true) ||
+                    wppConfigBtStatus.contains("not granted", ignoreCase = true) ||
+                    wppConfigBtStatus.contains("disabled", ignoreCase = true) ->
+                    MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(wppStatusColor, shape = MaterialTheme.shapes.small),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "WPP BT config listener: $wppConfigBtStatus",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (uiState.directTransport == AppPreferences.DIRECT_TRANSPORT_HOTSPOT) {
             Spacer(modifier = Modifier.height(12.dp))

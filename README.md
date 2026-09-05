@@ -149,7 +149,7 @@ For Android Auto 17.4 or newer:
 1. Install matching current car and companion releases.
 2. Enable the car's Wi-Fi access point.
 3. In OpenAutoLink on the car, select **Settings → Transport → Wireless (WPP)**.
-4. Enter the access point's SSID, password, and BSSID, then select the WPP network interface that serves that access point.
+4. Enter the access point's SSID, password, and BSSID, then select the WPP network interface that serves that access point. You can [send SSID/BSSID from the companion over Bluetooth](docs/wireless-wpp.md#send-ssidbssid-from-the-phone-instead-of-typing-them) instead of typing them.
 5. Pair the phone to the car over Bluetooth again after updating.
 6. Keep the Bluetooth **Phone calls** profile enabled; **Media audio** may be disabled.
 7. Remove any old **Car WiFi** entry from the companion so it does not compete with Android Auto for the same radio.

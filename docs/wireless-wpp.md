@@ -48,6 +48,18 @@ In OpenAutoLink, open **Settings → Connection**:
 
 OpenAutoLink restricts WPP advertisement, companion discovery, and session traffic to this one interface. It does not fall back across other Wi-Fi or Ethernet interfaces.
 
+#### Send SSID/BSSID from the phone instead of typing them
+
+With both components updated and the phone paired to the car:
+
+1. On the phone, select the vehicle under **Auto-Start → Select Devices**.
+2. In the car's WPP settings, tap **Start WPP config listener**.
+3. On the phone, open **Send WPP WiFi to Car → Scan & Send to Car** and select the car's access point.
+4. Wait for the phone's confirmation, then check the SSID and BSSID shown in the car settings.
+5. Enter the Wi-Fi password manually, verify the WPP interface, and tap **Save & Reconnect**.
+
+Only SSID and BSSID are transferred; the password and interface selection are unchanged. The listener is opt-in and stops after a successful transfer. Tap **Stop WPP config listener** to cancel it. If sending fails, restart the listener and retry, or use the manual fields above. The phone needs Wi-Fi scan/location permissions and Bluetooth enabled.
+
 ### 4. Configure the companion
 
 1. Open the companion.

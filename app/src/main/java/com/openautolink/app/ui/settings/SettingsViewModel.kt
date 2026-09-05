@@ -4,9 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openautolink.app.data.AppPreferences
-import com.openautolink.app.transport.NetworkInterfaceInfo
-import com.openautolink.app.transport.NetworkInterfaceScanner
-import kotlinx.coroutines.Dispatchers
+import com.openautolink.app.transport.bluetooth.WppConfigBtServer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +17,7 @@ data class SettingsUiState(
     val directTransport: String = AppPreferences.DEFAULT_DIRECT_TRANSPORT,
     val hotspotSsid: String = AppPreferences.DEFAULT_HOTSPOT_SSID,
     val hotspotPassword: String = AppPreferences.DEFAULT_HOTSPOT_PASSWORD,
-    /** AP BSSID advertised to the phone in WPP mode. Must be entered by hand. */
+    /** AP BSSID advertised to the phone in WPP mode. */
     val wppBssid: String = "",
     /** Interface serving the car's hotspot; its IPv4 is advertised to the phone. */
     val wppApInterface: String = AppPreferences.DEFAULT_WPP_AP_INTERFACE,
@@ -92,9 +90,7 @@ data class SettingsUiState(
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val preferences = AppPreferences.getInstance(application)
-    private val interfaceScanner = NetworkInterfaceScanner(application)
-
-    val networkInterfaces: StateFlow<List<NetworkInterfaceInfo>> = interfaceScanner.interfaces
+    private val wppConfigServer = WppConfigBtServer(application, viewModelScope)
 
     val uiState: StateFlow<SettingsUiState> = combine(
         preferences.videoAutoNegotiate,
@@ -211,6 +207,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         SharingStarted.WhileSubscribed(5000),
         AppPreferences.DEFAULT_GAL_VERSION,
     )
+
+    val wppConfigBtStatus: StateFlow<String> = wppConfigServer.status
+    val wppConfigBtAppliedConfig = wppConfigServer.appliedConfig
 
     private val _hotspotSsidOverride = MutableStateFlow(AppPreferences.DEFAULT_HOTSPOT_SSID)
     private val _hotspotPasswordOverride = MutableStateFlow(AppPreferences.DEFAULT_HOTSPOT_PASSWORD)
@@ -370,6 +369,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun updateWppBssid(bssid: String) {
         _wppBssidOverride.value = bssid
         viewModelScope.launch { preferences.setWppBssid(bssid) }
+    }
+
+    fun startWppConfigListener() {
+        wppConfigServer.start()
+    }
+
+    fun stopWppConfigListener() {
+        wppConfigServer.stop()
     }
 
     fun updateDirectTransport(transport: String) {
@@ -558,12 +565,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun scanNetworkInterfaces() {
-        viewModelScope.launch(Dispatchers.IO) {
-            interfaceScanner.scan()
-        }
-    }
-
     fun updateSafeAreaInsets(top: Int, bottom: Int, left: Int, right: Int) {
         viewModelScope.launch {
             preferences.setSafeAreaTop(top)
@@ -600,13 +601,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { preferences.setVolumeOffsetAssistant(offset) }
     }
 
-    fun clearDefaultPhone() {
-        viewModelScope.launch {
-            preferences.setDefaultPhoneName("")
-            com.openautolink.app.session.SessionManager.instanceOrNull()?.clearDefaultPhone()
-        }
-    }
-
     fun updateManualIpEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setManualIpEnabled(enabled) }
     }
@@ -616,6 +610,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     override fun onCleared() {
+        wppConfigServer.stop()
         super.onCleared()
     }
 

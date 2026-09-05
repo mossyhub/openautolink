@@ -63,12 +63,14 @@ jobs:
       - name: Run unit tests
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest --no-daemon
+          ./gradlew :app:testDebugUnitTest :companion:testDebugUnitTest --no-daemon
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-results
-          path: app/build/reports/tests/testDebugUnitTest/
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            companion/build/reports/tests/testDebugUnitTest/
           retention-days: 14
