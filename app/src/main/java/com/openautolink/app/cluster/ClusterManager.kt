@@ -11,6 +11,11 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.openautolink.app.diagnostics.DiagnosticLog
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 /**
  * Manages the cluster service lifecycle: enabling/disabling the CarAppService component,
@@ -47,6 +52,11 @@ class ClusterManager(private val context: Context) {
     private var healthRetryCount = 0
     private var relaunching = false
     private var bindingLease = openBindingManager()
+    private var demandJob: Job? = null
+    private var recoveryExhausted = false
+    private var recoveryRoute: Long? = null
+    private var routeRecoveryAttempts = 0
+    private var callbackEpoch = 0L
 
     /**
      * Enable or disable the cluster CarAppService component.
@@ -58,8 +68,33 @@ class ClusterManager(private val context: Context) {
                 Log.i(TAG, "Ignoring component state from retired generation ${bindingLease.generation}")
                 return@synchronized
             }
+            if (this.enabled != enabled) {
+                callbackEpoch++
+                handler.removeCallbacksAndMessages(null)
+                relaunching = false
+            }
             this.enabled = enabled
             applyClusterComponentState(enabled)
+            demandJob?.cancel()
+            demandJob = if (enabled) CoroutineScope(Dispatchers.Main).launch {
+                ClusterNavigationState.recoveryDemand.collectLatest { route ->
+                    synchronized(ClusterBindingLifecycle.lock) {
+                        if (recoveryRoute != null && recoveryRoute != route) {
+                            callbackEpoch++
+                            handler.removeCallbacksAndMessages(null)
+                            relaunching = false
+                            recoveryRoute = null
+                        }
+                        recoveryExhausted = false
+                        healthRetryCount = 0
+                        routeRecoveryAttempts = 0
+                    }
+                    while (route != null) {
+                        ensureAlive()
+                        kotlinx.coroutines.delay(HEALTH_CHECK_DELAY_MS)
+                    }
+                }
+            } else null
         }
     }
 
@@ -96,6 +131,7 @@ class ClusterManager(private val context: Context) {
      */
     fun launchClusterBinding() {
         synchronized(ClusterBindingLifecycle.lock) {
+            if (!isRecoveryDemandCurrent()) return@synchronized
             if (!enabled) {
                 Log.d(TAG, "Cluster not enabled — skipping launch")
                 return@synchronized
@@ -113,20 +149,20 @@ class ClusterManager(private val context: Context) {
             }
             if (pendingPermissions) {
                 Log.i(TAG, "Runtime permissions pending — deferring cluster launch")
-                handler.postDelayed({ launchClusterBinding() }, PERMISSIONS_RETRY_DELAY_MS)
+                postOwned(PERMISSIONS_RETRY_DELAY_MS) { launchClusterBinding() }
                 return@synchronized
             }
 
             if (ClusterBindingState.hasLiveSession(launchLease)) {
                 Log.i(TAG, "Current-generation session still alive — will retry after teardown")
-                handler.postDelayed({
+                postOwned(RETRY_DELAY_MS) {
                     if (ClusterBindingState.isManagerCurrent(launchLease) &&
                         !ClusterBindingState.hasLiveSession(launchLease)
                     ) {
                         Log.i(TAG, "Old session torn down — retrying launch")
                         launchClusterBinding()
                     }
-                }, RETRY_DELAY_MS)
+                }
                 return@synchronized
             }
 
@@ -137,6 +173,7 @@ class ClusterManager(private val context: Context) {
                     putExtra(CLUSTER_BINDING_GENERATION_EXTRA, launchLease.generation)
                 }
                 context.startActivity(intent)
+                relaunching = true
                 Log.i(TAG, "Launched CarAppActivity for Templates Host binding")
                 DiagnosticLog.i("cluster", "Launched CarAppActivity for Templates Host binding")
 
@@ -158,13 +195,15 @@ class ClusterManager(private val context: Context) {
      * tear down the stale task and retry the full binding chain.
      */
     private fun scheduleHealthCheck(launchLease: ClusterBindingRegistry.ManagerLease) {
-        handler.postDelayed({
+        postOwned(HEALTH_CHECK_DELAY_MS) {
             synchronized(ClusterBindingLifecycle.lock) {
                 if (!enabled) return@synchronized
                 if (!ClusterBindingState.isManagerCurrent(launchLease)) return@synchronized
+                if (!isRecoveryDemandCurrent()) return@synchronized
                 if (ClusterBindingState.hasReadySession(launchLease)) {
                     Log.i(TAG, "Health check: cluster session ready")
                     healthRetryCount = 0
+                    recoveryExhausted = false
                     relaunching = false
                     return@synchronized
                 }
@@ -172,7 +211,7 @@ class ClusterManager(private val context: Context) {
                 if (healthRetryCount > MAX_HEALTH_RETRIES) {
                     Log.w(TAG, "Health check: max retries ($MAX_HEALTH_RETRIES) exceeded — giving up")
                     DiagnosticLog.w("cluster", "Cluster binding failed after $MAX_HEALTH_RETRIES retries")
-                    healthRetryCount = 0
+                    recoveryExhausted = true
                     relaunching = false
                     return@synchronized
                 }
@@ -180,7 +219,7 @@ class ClusterManager(private val context: Context) {
                 DiagnosticLog.w("cluster", "Cluster session not ready — retrying ($healthRetryCount/$MAX_HEALTH_RETRIES)")
                 restartClusterBinding()
             }
-        }, HEALTH_CHECK_DELAY_MS)
+        }
     }
 
     /**
@@ -189,6 +228,15 @@ class ClusterManager(private val context: Context) {
      */
     fun restartClusterBinding() {
         synchronized(ClusterBindingLifecycle.lock) {
+            if (!enabled || !isRecoveryDemandCurrent()) return@synchronized
+            if (routeRecoveryAttempts >= MAX_HEALTH_RETRIES + 1) {
+                recoveryExhausted = true
+                relaunching = false
+                DiagnosticLog.i("cluster", "Cluster recovery outcome=exhausted reason=route-budget generation=${bindingLease.generation}")
+                return@synchronized
+            }
+            routeRecoveryAttempts++
+            DiagnosticLog.i("cluster", "Cluster recovery outcome=attempted reason=binding-loss generation=${bindingLease.generation} attempt=$routeRecoveryAttempts route=$recoveryRoute preserved=${ClusterNavigationState.isActive}")
             val retiredLease = bindingLease
             if (!ClusterBindingState.closeManager(retiredLease)) {
                 DiagnosticLog.i(
@@ -199,7 +247,6 @@ class ClusterManager(private val context: Context) {
             }
             Log.w(TAG, "Restarting cluster binding chain")
             DiagnosticLog.w("cluster", "Restarting cluster binding chain")
-            ClusterNavigationState.clear()
             ClusterMainSession.invalidateBindingGeneration(retiredLease.generation, "binding restart")
             finishClusterTask(retiredLease, "restart")
             val replacementLease = ClusterBindingState.openManager()
@@ -209,9 +256,7 @@ class ClusterManager(private val context: Context) {
                 "Cluster binding generation replaced: old=${retiredLease.generation} new=${replacementLease.generation}",
             )
 
-            handler.postDelayed({
-                if (ClusterBindingState.isManagerCurrent(replacementLease)) launchClusterBinding()
-            }, RELAUNCH_DELAY_MS)
+            postOwned(RELAUNCH_DELAY_MS) { launchClusterBinding() }
         }
     }
 
@@ -222,11 +267,14 @@ class ClusterManager(private val context: Context) {
     fun ensureAlive() {
         synchronized(ClusterBindingLifecycle.lock) {
             if (!enabled) return@synchronized
+            if (ClusterNavigationState.isRouteSuppressed) return@synchronized
             if (ClusterBindingState.hasReadySession(bindingLease)) return@synchronized
             if (relaunching) return@synchronized
+            if (recoveryExhausted) return@synchronized
 
             Log.w(TAG, "Cluster session not alive — relaunching binding")
             DiagnosticLog.w("cluster", "Cluster session not alive — relaunching binding")
+            recoveryRoute = ClusterNavigationState.recoveryDemand.value
             relaunching = true
             restartClusterBinding()
         }
@@ -238,6 +286,9 @@ class ClusterManager(private val context: Context) {
     fun release() {
         synchronized(ClusterBindingLifecycle.lock) {
             enabled = false
+            callbackEpoch++
+            demandJob?.cancel()
+            demandJob = null
             handler.removeCallbacksAndMessages(null)
             healthRetryCount = 0
             relaunching = false
@@ -254,6 +305,24 @@ class ClusterManager(private val context: Context) {
             finishClusterTask(retiredLease, "release")
         }
     }
+
+    /** Capture ownership at scheduling, including cancellation after dequeue. */
+    private fun postOwned(delayMs: Long, action: () -> Unit) {
+        val lease = bindingLease
+        val route = recoveryRoute
+        val epoch = callbackEpoch
+        handler.postDelayed({
+            synchronized(ClusterBindingLifecycle.lock) {
+                if (enabled && epoch == callbackEpoch &&
+                    ClusterBindingState.isManagerCurrent(lease) &&
+                    (route == null || route == ClusterNavigationState.recoveryDemand.value)
+                ) action()
+            }
+        }, delayMs)
+    }
+
+    private fun isRecoveryDemandCurrent(): Boolean =
+        recoveryRoute == null || recoveryRoute == ClusterNavigationState.recoveryDemand.value
 
     private fun finishClusterTask(
         lease: ClusterBindingRegistry.ManagerLease,

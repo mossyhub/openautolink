@@ -19,6 +19,21 @@ object ClusterNavigationState {
 
     private val _state = MutableStateFlow<ManeuverState?>(null)
     val state: StateFlow<ManeuverState?> = _state.asStateFlow()
+    private var routeEpoch = 0L
+    private val _recoveryDemand = MutableStateFlow<Long?>(null)
+    internal val recoveryDemand: StateFlow<Long?> = _recoveryDemand.asStateFlow()
+
+    internal val isRouteSuppressed: Boolean
+        get() = synchronized(ClusterBindingLifecycle.lock) {
+            _state.value != null && _recoveryDemand.value == null
+        }
+
+    /** Host stop belongs to the route, not to the replaceable consumer. */
+    internal fun suppressCurrentRoute() {
+        synchronized(ClusterBindingLifecycle.lock) {
+            _recoveryDemand.value = null
+        }
+    }
 
     /** Latest route-aware result from Maps and the VEM capacity snapshot used with it. */
     val vehicleEnergyForecast = MutableStateFlow<VehicleEnergyForecast?>(null)
@@ -32,11 +47,17 @@ object ClusterNavigationState {
     val isActive: Boolean get() = _state.value != null
 
     fun update(maneuver: ManeuverState) {
-        _state.value = maneuver
+        synchronized(ClusterBindingLifecycle.lock) {
+            if (_state.value == null) _recoveryDemand.value = ++routeEpoch
+            _state.value = maneuver
+        }
     }
 
     fun clear() {
-        _state.value = null
-        vehicleEnergyForecast.value = null
+        synchronized(ClusterBindingLifecycle.lock) {
+            _state.value = null
+            _recoveryDemand.value = null
+            vehicleEnergyForecast.value = null
+        }
     }
 }

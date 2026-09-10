@@ -66,8 +66,8 @@ class ClusterMainSession : Session() {
          * Without this, Templates Host keeps the cluster UI on its last frame
          * because our process going away doesn't synchronously notify it.
          */
-        fun endActiveNavigation() {
-            val session = primarySessions.currentOwner() ?: return
+        fun endActiveNavigation() = synchronized(ClusterBindingLifecycle.lock) {
+            val session = primarySessions.currentOwner() ?: return@synchronized
             if (session.navigationLifecycle.onRouteTerminated() ==
                 ClusterNavigationLifecyclePolicy.Action.END
             ) {
@@ -83,7 +83,7 @@ class ClusterMainSession : Session() {
 
         /** Retire only the primary owned by [generation]. A late callback from
          * that session cannot clear a replacement generation's owner. */
-        fun invalidateBindingGeneration(generation: Long, reason: String) {
+        fun invalidateBindingGeneration(generation: Long, reason: String) = synchronized(ClusterBindingLifecycle.lock) {
             primarySessions.invalidate(generation)?.retirePrimary(reason, endNavigation = true)
         }
     }
@@ -94,6 +94,7 @@ class ClusterMainSession : Session() {
     private var arrivalTimeoutJob: Job? = null
     private var bindingLease: ClusterBindingRegistry.SessionLease? = null
     private var tripOutcomeLogged = false
+    private var observedRoute: Long? = null
 
     override fun onCreateScreen(intent: Intent): Screen =
         synchronized(ClusterBindingLifecycle.lock) { createScreen(intent) }
@@ -116,7 +117,7 @@ class ClusterMainSession : Session() {
         bindingLease = lease
 
         lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onDestroy(owner: LifecycleOwner) {
+            override fun onDestroy(owner: LifecycleOwner) = synchronized(ClusterBindingLifecycle.lock) {
                 val ownedLease = bindingLease
                 if (ownedLease != null) {
                     if (primarySessions.release(ownedLease.generation, this@ClusterMainSession)) {
@@ -162,12 +163,15 @@ class ClusterMainSession : Session() {
         }
 
         navigationManager?.setNavigationManagerCallback(object : NavigationManagerCallback {
-            override fun onStopNavigation() {
-                if (!isCurrentPrimary()) return
+            override fun onStopNavigation() = synchronized(ClusterBindingLifecycle.lock) {
+                if (!isCurrentPrimary() || observedRoute == null ||
+                    observedRoute != ClusterNavigationState.recoveryDemand.value
+                ) return@synchronized
                 Log.i(TAG, "onStopNavigation callback from Templates Host")
                 arrivalTimeoutJob?.cancel()
                 arrivalTimeoutJob = null
                 navigationLifecycle.onHostStop()
+                ClusterNavigationState.suppressCurrentRoute()
                 DiagnosticLog.i(
                     "cluster",
                     "Host stopped navigation; suppressing current route until clear",
@@ -234,20 +238,42 @@ class ClusterMainSession : Session() {
         combine(
             ClusterNavigationState.state,
             ClusterNavigationState.vehicleEnergyForecast,
-        ) { maneuver, _ -> maneuver }.collectLatest { maneuver ->
+            ClusterNavigationState.recoveryDemand,
+        ) { _, _, _ ->
+            synchronized(ClusterBindingLifecycle.lock) {
+                ClusterNavigationState.state.value to ClusterNavigationState.recoveryDemand.value
+            }
+        }.collectLatest { (maneuver, route) ->
             debounceJob?.cancel()
             debounceJob = scope?.launch {
                 delay(200)
-                processStateUpdate(maneuver)
+                synchronized(ClusterBindingLifecycle.lock) {
+                    processStateUpdate(maneuver, route)
+                }
             }
         }
     }
 
-    private fun processStateUpdate(maneuver: ManeuverState?) {
-        if (!isCurrentPrimary()) return
+    /** Caller owns the lifecycle lock from snapshot validation through effects. */
+    private fun processStateUpdate(maneuver: ManeuverState?, route: Long?) {
+        fun isSnapshotCurrent(): Boolean = isCurrentPrimary() &&
+            route == ClusterNavigationState.recoveryDemand.value &&
+            maneuver === ClusterNavigationState.state.value
+        if (!isSnapshotCurrent()) return
         val navManager = navigationManager ?: return
 
         if (maneuver != null) {
+            if (ClusterNavigationState.isRouteSuppressed) return
+            if (observedRoute != route) {
+                arrivalTimeoutJob?.cancel()
+                arrivalTimeoutJob = null
+                if (navigationLifecycle.onRouteCleared() == ClusterNavigationLifecyclePolicy.Action.END) {
+                    try { navManager.navigationEnded() } catch (_: Exception) {}
+                    if (!isSnapshotCurrent()) return
+                }
+                observedRoute = route
+                tripOutcomeLogged = false
+            }
             when (navigationLifecycle.onRouteAvailable()) {
                 ClusterNavigationLifecyclePolicy.Action.NONE -> return
                 ClusterNavigationLifecyclePolicy.Action.START_AND_UPDATE -> {
@@ -273,7 +299,9 @@ class ClusterMainSession : Session() {
             }
 
             try {
+                if (!isSnapshotCurrent()) return
                 val trip = buildTrip(maneuver)
+                if (!isSnapshotCurrent()) return
                 navManager.updateTrip(trip)
                 if (!tripOutcomeLogged) {
                     tripOutcomeLogged = true
@@ -292,17 +320,23 @@ class ClusterMainSession : Session() {
                 )
             }
 
+            if (!isSnapshotCurrent()) return
+
             // Arrival timeout for terminal maneuver types
             val maneuverName = maneuver.type.name.lowercase()
             if (TERMINAL_TYPES.any { maneuverName.contains(it) }) {
                 if (arrivalTimeoutJob?.isActive != true) {
                     arrivalTimeoutJob = scope?.launch {
                         delay(ARRIVAL_TIMEOUT_MS)
-                        if (navigationLifecycle.onRouteTerminated() ==
-                            ClusterNavigationLifecyclePolicy.Action.END
-                        ) {
-                            Log.i(TAG, "Arrival timeout — ending navigation")
-                            try { navManager.navigationEnded() } catch (_: Exception) {}
+                        synchronized(ClusterBindingLifecycle.lock) {
+                            if (!isCurrentPrimary() || route != ClusterNavigationState.recoveryDemand.value) return@synchronized
+                            if (navigationLifecycle.onRouteTerminated() ==
+                                ClusterNavigationLifecyclePolicy.Action.END
+                            ) {
+                                ClusterNavigationState.suppressCurrentRoute()
+                                Log.i(TAG, "Arrival timeout — ending navigation")
+                                try { navManager.navigationEnded() } catch (_: Exception) {}
+                            }
                         }
                     }
                 }
