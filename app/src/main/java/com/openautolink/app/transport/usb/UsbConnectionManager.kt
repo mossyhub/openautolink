@@ -469,12 +469,20 @@ class UsbConnectionManager(
         }
         _connectionState.value = UsbConnectionState.PERMISSION_REQUESTED
         _status.value = "Requesting USB permission..."
-        val permissionIntent = PendingIntent.getBroadcast(
-            context, 0,
-            Intent(ACTION_USB_PERMISSION),
-            PendingIntent.FLAG_MUTABLE
-        )
-        usbManager.requestPermission(device, permissionIntent)
+        val request = runCatching {
+            val permissionIntent = PendingIntent.getBroadcast(
+                context, 0,
+                Intent(ACTION_USB_PERMISSION).setPackage(context.packageName),
+                PendingIntent.FLAG_MUTABLE,
+            )
+            usbManager.requestPermission(device, permissionIntent)
+        }
+        request.onFailure { error ->
+            pendingPermissionDevice.compareAndSet(key, null)
+            _connectionState.value = UsbConnectionState.IDLE
+            _status.value = "USB permission request failed"
+            OalLog.e(TAG, "USB permission request failed for $key: ${error.message}")
+        }
     }
 
     private fun onPermissionGranted(device: UsbDevice) {
@@ -687,6 +695,7 @@ class UsbConnectionManager(
      * device the user needs.
      */
     private fun isHubOrSystemDevice(device: UsbDevice): Boolean {
+        if (UsbDevicePolicy.isKnownNonPhoneDevice(device.vendorId, device.productId)) return true
         if (device.deviceClass in EXCLUDED_USB_CLASSES) return true
         val ifaceCount = device.interfaceCount
         // No interfaces at all: cannot rule it out — a charge-only phone looks
