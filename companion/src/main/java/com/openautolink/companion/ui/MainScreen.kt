@@ -822,7 +822,7 @@ private fun BtDevicePickerDialog(
         onDismissRequest = onDismiss,
         title = { Text("Select Bluetooth Devices") },
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 if (pairedDevices.isEmpty()) {
                     Text("No paired Bluetooth devices found.")
                 } else {
