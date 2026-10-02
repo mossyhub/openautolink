@@ -15,6 +15,16 @@ class WppWifiUiContractTest {
     }
 
     @Test
+    fun bluetoothPickerDeviceListIsScrollable() {
+        val picker = screenSource().substringAfter("private fun BtDevicePickerDialog(")
+            .substringBefore("// ── WiFi Auto-Start Config")
+        assertTrue(
+            "Bonded devices below the dialog height must remain reachable",
+            picker.contains("Column(modifier = Modifier.verticalScroll(rememberScrollState()))"),
+        )
+    }
+
+    @Test
     fun sendIsGuardedBeforeLaunchAndAlwaysReleasesBusyState() {
         val section = screenSource().substringAfter("private fun WppWifiSendSection(")
             .substringBefore("private fun CarWifiAddDialog(")
