@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
+        com.openautolink.app.input.ProcessVehicleDataRuntime.requestSubscriptionRefresh("permission-result")
         val denied = results.filterValues { !it }.keys
         if (denied.isNotEmpty()) {
             Log.w("MainActivity", "Permissions denied: $denied")
@@ -154,6 +155,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.openautolink.app.input.ProcessVehicleDataRuntime.requestSubscriptionRefresh("activity-resume")
         com.openautolink.app.diagnostics.DiagnosticLog.i("lifecycle", "MainActivity.onResume")
         com.openautolink.app.wake.PreWakeMonitor.reportActivity(
             com.openautolink.app.wake.PreWakeActivityCallback.RESUME

@@ -30,9 +30,10 @@
     <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
     <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
 
-    <!-- Car permissions for VHAL property monitoring.
-         Only properties confirmed available on 2024 Blazer EV are used.
-         Signature-level on production GM; grantable via adb on non-Play Store emulators. -->
+    <!-- Car permissions for VHAL property monitoring; HAL exposure varies by vehicle.
+         Inspected Android 14 / GM firmware: CAR_ENERGY and CAR_SPEED are dangerous;
+         CAR_INFO and the powertrain/environment/ports/display-unit permissions are normal.
+         Returning from system Settings reconciles grants without restarting the process. -->
     <uses-permission android:name="android.car.permission.CAR_SPEED" />
     <uses-permission android:name="android.car.permission.CAR_ENERGY" />
     <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
@@ -40,9 +41,9 @@
     <uses-permission android:name="android.car.permission.CAR_INFO" />
     <uses-permission android:name="android.car.permission.CAR_ENERGY_PORTS" />
     <uses-permission android:name="android.car.permission.READ_CAR_DISPLAY_UNITS" />
-    <!-- Round-6 audit additions — dangerous-level perms grantable to normal apps.
-         CAR_MILEAGE unlocks PERF_ODOMETER; CAR_TIRES unlocks TIRE_PRESSURE per wheel;
-         CAR_DYNAMICS_STATE unlocks ABS_ACTIVE / TRACTION_CONTROL_ACTIVE. -->
+    <!-- Optional privileged/signature permissions on inspected GM firmware, not ordinary
+         runtime grants for a Play app. Denied or unsupported properties degrade gracefully:
+         mileage -> odometer, tires -> tire pressure, dynamics -> ABS / traction state. -->
     <uses-permission android:name="android.car.permission.CAR_MILEAGE" />
     <uses-permission android:name="android.car.permission.CAR_TIRES" />
     <uses-permission android:name="android.car.permission.CAR_DYNAMICS_STATE" />

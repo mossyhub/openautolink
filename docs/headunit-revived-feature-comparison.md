@@ -105,7 +105,7 @@ The AA protocol is identical over USB and WiFi — same version exchange, SSL ha
 
 ### ~~8. User-Configurable Key Remapping~~ ✅ DONE
 
-> **Completed.** New **Input** tab in Settings with 14 mappable AA actions (play/pause, next/prev, stop, voice, DPAD, call/endcall). Tap an action → capture dialog opens → press any physical button → assigns it. Custom map stored as JSON in DataStore, loaded at session start into `SteeringWheelController.customKeyMap`. Custom mappings take highest priority over built-in GM F-key defaults. "Reset All Mappings" button clears everything. Requires Save & Restart.
+> **Completed.** New **Input** tab in Settings with 14 mappable AA actions (play/pause, next/prev, stop, voice, DPAD, call/endcall). Tap an action → capture dialog opens → press any physical button → assigns it. Custom map stored as JSON in DataStore and continuously applied to `SteeringWheelController.customKeyMap`; remap changes take effect live without reconnect. Custom mappings take highest priority for each assigned key; unrelated custom keys do not disable built-in fallbacks. "Reset All Mappings" clears overrides and restores defaults. Equinox owner-confirmed Previous is F8 (138), so #143 changes its fallback to Previous (88); F7 (137) remains Next (87). F6 (136) and F9 (139) Previous assignments remain suspected. These defaults retain the existing global unmapped-key behavior, not a new OEM gate. The changed F8 fallback still needs post-change vehicle validation.
 
 ---
 

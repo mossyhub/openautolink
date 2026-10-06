@@ -75,6 +75,8 @@ internal class ProcessVehicleDataOwner(
         if (automotive) createForwarder(coordinator::onRawBatch) else null
     }
 
+    fun requestSubscriptionRefresh(reason: String) = forwarder?.requestSubscriptionRefresh(reason)
+
     fun startProcess() {
         forwarder?.start()
     }
@@ -135,6 +137,10 @@ object ProcessVehicleDataRuntime {
             ).also { it.startProcess() }
             DiagnosticLog.i("vhal", "process vehicle runtime initialized automotive=$automotive")
         }
+    }
+
+    fun requestSubscriptionRefresh(reason: String) {
+        owner?.requestSubscriptionRefresh(reason)
     }
 
     fun forwarderOrNull(): VehicleDataForwarder? = owner?.forwarder

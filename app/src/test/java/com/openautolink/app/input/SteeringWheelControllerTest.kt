@@ -146,11 +146,118 @@ class SteeringWheelControllerTest {
     }
 
     @Test
-    fun `GM F8 maps to play pause`() {
+    fun `GM F8 maps to media previous`() {
         val downEvent = mockKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F8)
         assertTrue(controller.onKeyEvent(downEvent))
 
         assertEquals(1, sentMessages.size)
-        assertEquals(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, sentMessages[0].keycode)
+        assertEquals(KeyEvent.KEYCODE_MEDIA_PREVIOUS, sentMessages[0].keycode)
+    }
+
+    @Test
+    fun `GM F8 sends previous on both edges`() {
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F8)))
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F8)))
+
+        assertEquals(
+            listOf(
+                ControlMessage.Button(keycode = 88, down = true, metastate = 0, longpress = false),
+                ControlMessage.Button(keycode = 88, down = false, metastate = 0, longpress = false),
+            ),
+            sentMessages,
+        )
+    }
+
+    @Test
+    fun `custom F8 play pause overrides fallback on both edges`() {
+        controller.customKeyMap = mapOf(KeyEvent.KEYCODE_F8 to KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F8)))
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F8)))
+
+        assertEquals(
+            listOf(
+                ControlMessage.Button(keycode = 85, down = true, metastate = 0, longpress = false),
+                ControlMessage.Button(keycode = 85, down = false, metastate = 0, longpress = false),
+            ),
+            sentMessages,
+        )
+    }
+
+    @Test
+    fun `clearing custom F8 override restores previous live`() {
+        controller.customKeyMap = mapOf(KeyEvent.KEYCODE_F8 to KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F8)))
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F8)))
+        assertEquals(listOf(85, 85), sentMessages.map { it.keycode })
+
+        controller.customKeyMap = emptyMap()
+        sentMessages.clear()
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F8)))
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F8)))
+        assertEquals(listOf(88, 88), sentMessages.map { it.keycode })
+        assertEquals(listOf(true, false), sentMessages.map { it.down })
+    }
+
+    @Test
+    fun `unrelated custom key preserves F8 fallback`() {
+        controller.customKeyMap = mapOf(KeyEvent.KEYCODE_A to KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A)))
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_A)))
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F8)))
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F8)))
+
+        assertEquals(listOf(85, 85, 88, 88), sentMessages.map { it.keycode })
+        assertEquals(listOf(true, false, true, false), sentMessages.map { it.down })
+    }
+
+    @Test
+    fun `GM F7 keeps next on both edges`() {
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F7)))
+        assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F7)))
+
+        assertEquals(listOf(87, 87), sentMessages.map { it.keycode })
+        assertEquals(listOf(true, false), sentMessages.map { it.down })
+        assertTrue(sentMessages.none { it.longpress })
+    }
+
+    @Test
+    fun `standard media keys retain direct paired forwarding`() {
+        for (keycode in listOf(
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_MEDIA_STOP,
+            KeyEvent.KEYCODE_MEDIA_NEXT,
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+            KeyEvent.KEYCODE_MEDIA_REWIND,
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+            KeyEvent.KEYCODE_MEDIA_PLAY,
+            KeyEvent.KEYCODE_MEDIA_PAUSE,
+        )) {
+            sentMessages.clear()
+            assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, keycode)))
+            assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_UP, keycode)))
+            assertEquals(listOf(keycode, keycode), sentMessages.map { it.keycode })
+            assertEquals(listOf(true, false), sentMessages.map { it.down })
+            assertTrue(sentMessages.all { it.metastate == 0 && !it.longpress })
+        }
+    }
+
+    @Test
+    fun `F keys and standard media retain repeat down semantics`() {
+        for ((keycode, expected) in listOf(
+            KeyEvent.KEYCODE_F8 to 88,
+            KeyEvent.KEYCODE_F7 to 87,
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS to 88,
+            KeyEvent.KEYCODE_MEDIA_NEXT to 87,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE to 85,
+        )) {
+            sentMessages.clear()
+            assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, keycode)))
+            assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_DOWN, keycode, repeatCount = 2)))
+            assertTrue(controller.onKeyEvent(mockKeyEvent(KeyEvent.ACTION_UP, keycode, repeatCount = 2)))
+            assertEquals(listOf(expected, expected, expected), sentMessages.map { it.keycode })
+            assertEquals(listOf(true, true, false), sentMessages.map { it.down })
+            assertEquals(listOf(false, true, false), sentMessages.map { it.longpress })
+            assertTrue(sentMessages.all { it.metastate == 0 })
+        }
     }
 }

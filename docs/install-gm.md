@@ -17,7 +17,11 @@ Availability in the maintainer group can change.
 4. After the maintainer adds the account, accept the Google Play testing invitation or opt-in link provided to you.
 5. Sign into the vehicle's Play Store with that same account and install OpenAutoLink.
 6. Install the matching companion APK from [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) on the Android phone.
-7. Grant the car permissions and continue with [Wireless WPP setup](wireless-wpp.md) or USB.
+7. While parked, grant supported car permissions in the vehicle's system Settings, then **return to OpenAutoLink**. The process-owned VHAL source rechecks grants and adds newly authorized properties without restarting projection. Continue with [Wireless WPP setup](wireless-wpp.md) or USB.
+
+`CAR_ENERGY` and `CAR_SPEED` are dangerous permissions on inspected Android 14 / GM firmware; `CAR_INFO` is normal (normally install-granted), not a runtime dialog permission. Mileage, tires and dynamics can be privileged/signature-only and cannot be granted to a normal Play app. Firmware and HAL support vary; granting a permission does not guarantee the vehicle exposes its properties. OpenAutoLink does not repeatedly prompt for car permissions on resume.
+
+Late-grant refresh is an implementation attempt pending vehicle validation. If EV values remain absent after returning, check Diagnostics → VHAL Property Status. A force-stop and reopen remains a fallback workaround until the surviving-process behavior is confirmed on the vehicle; it is not the expected refresh path.
 
 If the app does not appear, confirm the vehicle uses the invited Google account and that the testing opt-in was accepted. Play propagation can take time.
 

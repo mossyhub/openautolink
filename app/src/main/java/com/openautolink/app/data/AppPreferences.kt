@@ -186,7 +186,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val VIEWPORT_ASPECT_RATIO_LOCKED = booleanPreferencesKey("viewport_aspect_ratio_locked")
 
         // Key remapping — JSON string: {"androidKeycode": aaKeycode, ...}
-        // e.g. {"131":88,"137":87} means F6→MEDIA_PREVIOUS, F7→MEDIA_NEXT
+        // e.g. {"138":88,"137":87} means F8→MEDIA_PREVIOUS, F7→MEDIA_NEXT
         val KEY_REMAP = stringPreferencesKey("key_remap")
 
         // Per-purpose volume offsets (-100 to +100, applied as gain multiplier)

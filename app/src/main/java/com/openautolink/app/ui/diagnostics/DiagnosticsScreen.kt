@@ -1424,7 +1424,7 @@ private fun CarTab(car: CarInfo) {
                         status.startsWith("permission_denied") -> {
                             val perm = status.substringAfter(":")
                                 .substringAfterLast(".")
-                            "✗ No permission ($perm)" to Color(0xFFFF5722)
+                            "✗ No permission ($perm) — grant supported access in Settings, then return to OAL" to Color(0xFFFF5722)
                         }
                         else -> status to Color.White
                     }

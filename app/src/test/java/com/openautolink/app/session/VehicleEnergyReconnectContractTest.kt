@@ -175,14 +175,9 @@ class VehicleEnergyReconnectContractTest {
         assertTrue("Car service lifecycle must reset or schedule through the same retry owner",
             source.contains("CarServiceLifecycleListener") && source.contains("onCarServiceLost") &&
                 source.contains("onCarServiceReady") && source.contains("retryState.serviceReady()"))
-        assertTrue("Failed partial starts must clean before retry to prevent duplicate subscriptions",
-            source.contains("if (stale || attemptFailed)") &&
-                source.contains("Failed VHAL start cleaned before bounded retry"))
-        val serviceLoss = source.substringAfter("private fun onCarServiceLost")
-            .substringBefore("private fun onCarServiceReady")
-        assertTrue("Service loss during startup must mark that exact generation failed",
-            serviceLoss.contains("if (startInFlight)") &&
-                serviceLoss.contains("startFailureGeneration = failedGeneration"))
+        assertSerializedVhalRetirement(source)
+        // Executable stop/start, service-loss, stale-proxy and Binder-retirement races
+        // are covered by VehiclePermissionRefreshTest; this guards their source wiring.
         assertTrue("Startup cannot publish active without a meaningful subscription",
             source.contains("VhalSubscriptionReadiness.mayActivate(subscribed)"))
     }
@@ -242,6 +237,96 @@ class VehicleEnergyReconnectContractTest {
         val nativeStart = source.substringAfter("void JniSession::start(")
             .substringBefore("void JniSession::stop()")
         assertTrue(nativeStart.contains("energyModelDiagMask_ = 0"))
+    }
+
+    @Test
+    fun `retirement source guard rejects unsafe variants retaining lifecycle tokens`() {
+        val source = projectFile(
+            "app/src/main/java/com/openautolink/app/input/VehicleDataForwarderImpl.kt",
+        ).readText()
+        assertSerializedVhalRetirement(source)
+        val mutations = listOf(
+            "failed and stale must each retire" to source.replace(
+                "!cleaned && (attemptFailed || stale)", "!cleaned && (attemptFailed && stale)",
+            ),
+            "lane must remain reserved until cleanup completes" to source.replace(
+                "            cleanup()\n            cleaned = true",
+                "            startInFlight = false\n            cleanup()\n            cleaned = true",
+            ),
+            "Binder cleanup must stay outside state monitor" to source.replace(
+                "            cleanup()\n            cleaned = true",
+                "            synchronized(this) { cleanup() }\n            cleaned = true",
+            ),
+            "retry must only follow current failed retirement" to source.replace(
+                "if (attemptFailed && !stale) retryDelayMs",
+                "if (attemptFailed) retryDelayMs",
+            ),
+            "loss must fail its exact generation" to source.replace(
+                "startFailureGeneration = generation", "startFailureGeneration = generation + 1",
+            ),
+            "loss must not free an occupied mutation lane" to source.replace(
+                "if (startInFlight) null else { startInFlight = true; generation }",
+                "if (startInFlight) { startInFlight = false; null } else { startInFlight = true; generation }",
+            ),
+        )
+        for ((reason, unsafe) in mutations) {
+            assertTrue("Mutation must change source: $reason", unsafe != source)
+            assertTrue(
+                "Unsafe source must be rejected: $reason",
+                runCatching { assertSerializedVhalRetirement(unsafe) }.exceptionOrNull() is AssertionError,
+            )
+        }
+    }
+
+    private fun assertSerializedVhalRetirement(source: String) {
+        // Ignore formatting and comments, but assert contiguous control-flow shape,
+        // not isolated tokens or log prose. Executable races remain the behavior oracle.
+        fun compact(text: String): String = text.replace(Regex("//[^\\n]*"), "")
+            .replace(Regex("\\s+"), "")
+        val cleanup = compact(source.substringAfter("private fun cleanupAfterStartAttempt")
+            .substringBefore("private fun scheduleReconnectAfterCleanup"))
+        assertTrue("Failed OR stale attempts must reserve the lane for retirement", cleanup.contains(compact("""
+            val mustClean = synchronized(this) {
+                val attemptFailed = failed || startFailureGeneration == generation
+                val stale = lifecycleGeneration != generation || !desiredActive
+                if (!cleaned && (attemptFailed || stale)) true else {
+        """)))
+        assertTrue("Lane release and retry decision must share the post-cleanup handoff", cleanup.contains(compact("""
+            if (startFailureGeneration == generation) startFailureGeneration = null
+            startInFlight = false
+            if (attemptFailed && !stale) retryDelayMs = retryState.failedAttemptCleaned(generation)
+        """)))
+        assertTrue("Captured-manager retirement must finish outside the monitor before looping to handoff",
+            cleanup.contains(compact("""
+                false
+                }
+                }
+                if (!mustClean) break
+                cleanup()
+                cleaned = true
+                }
+                nextGeneration?.let(::launchStartAttempt)
+                refreshGeneration?.let(::launchRefresh)
+                retryDelayMs?.let { scheduleReconnectAfterCleanup(generation, it) }
+            """)))
+        val loss = compact(source.substringAfter("private fun onCarServiceLost")
+            .substringBefore("private fun onCarServiceReady"))
+        assertTrue("Service loss must fence the exact generation and retain an occupied lane", loss.contains(compact("""
+            val retirement = synchronized(this) {
+                if (!desiredActive || (carObject != null && carObject !== lostCar)) return
+                val generation = lifecycleGeneration
+                if (isActive) retryState.serviceLost(generation)
+                isActive = false
+                startFailureGeneration = generation
+                registrationGeneration++
+                publishImmediate()
+                reconnectAttempt = 0
+                if (startInFlight) null else { startInFlight = true; generation }
+            }
+        """)))
+        assertTrue("Idle-lane service loss must dispatch serialized retirement", loss.contains(compact("""
+            retirement?.let { generation -> scope.launch { cleanupAfterStartAttempt(generation, true) } }
+        """)))
     }
 
     private fun sessionManagerSource(): String = projectFile(
