@@ -83,7 +83,7 @@ class VehicleDataForwarderImpl(
         )
     }
 
-    override var isActive: Boolean = false
+    @Volatile override var isActive: Boolean = false
         private set
 
     // Background scope for Car API calls (matches app_v1 pattern)
@@ -157,6 +157,73 @@ class VehicleDataForwarderImpl(
     private var reconnectJob: kotlinx.coroutines.Job? = null
     private var carLifecycleProxy: Any? = null
     private val retryState = VhalRetryState()
+    // startInFlight owns the entire mutation/retirement lane, including refresh.
+    private var refreshRequested = 0L
+    private var refreshCompleted = 0L
+    private var requestedGrants: Map<String, Boolean>? = null
+    private val attemptedGrants = mutableMapOf<Int, Boolean>()
+    private val subscribedNames = mutableSetOf<String>()
+
+    private fun permissionGrants(): Map<String, Boolean> = properties.mapNotNull { it.permission }
+        .distinct().associateWith { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+
+    private fun staticInfoMissing() = carMake == null || carModel == null || carYear == null ||
+        fuelTypes == null || evConnectorTypes == null
+
+    override fun requestSubscriptionRefresh(reason: String) {
+        val grants = permissionGrants()
+        var refreshGeneration: Long? = null
+        var restartGeneration: Long? = null
+        synchronized(this) {
+            if (!desiredActive) return
+            if (requestedGrants != grants || (!startInFlight && staticInfoMissing())) {
+                // A grant epoch retries missing members of that group, including HALs
+                // that flattened an earlier permission failure to absent/rejected.
+                properties.filter { it.permission != null && requestedGrants?.get(it.permission) != grants[it.permission] }
+                    .forEach { prop -> VEHICLE_PROPERTY_ID_FALLBACK[prop.fieldName]?.let { id ->
+                        if (id !in trackedPropertyIds) attemptedGrants.remove(id)
+                    } }
+                requestedGrants = grants
+                refreshRequested++
+            }
+            DiagnosticLog.i("vhal", "VHAL refresh requested reason=$reason generation=$registrationGeneration grants=$grants pending=${refreshRequested > refreshCompleted}")
+            if (startInFlight) return
+            if (isActive) {
+                if (refreshRequested <= refreshCompleted) return
+                startInFlight = true
+                refreshGeneration = lifecycleGeneration
+            } else {
+                reconnectJob?.cancel()
+                reconnectJob = null
+                restartGeneration = retryState.serviceReady()
+                restartGeneration?.let { startInFlight = true; lifecycleGeneration = it }
+            }
+        }
+        refreshGeneration?.let(::launchRefresh)
+        restartGeneration?.let(::launchStartAttempt)
+    }
+
+    private fun launchRefresh(generation: Long) {
+        scope.launch {
+            try {
+                do {
+                    val request = synchronized(this@VehicleDataForwarderImpl) { refreshRequested }
+                    if (!isStartCurrent(generation)) break
+                    readStaticVehicleInfo(generation)
+                    registerProperties(generation)
+                    synchronized(this@VehicleDataForwarderImpl) {
+                        if (isStartCurrent(generation)) refreshCompleted = request
+                    }
+                } while (synchronized(this@VehicleDataForwarderImpl) {
+                    isStartCurrent(generation) && refreshRequested > refreshCompleted
+                })
+            } catch (e: Exception) {
+                DiagnosticLog.w("vhal", "VHAL refresh failed: ${e.rootCause().message}")
+            } finally {
+                cleanupAfterStartAttempt(generation, false)
+            }
+        }
+    }
 
     override fun start() {
         val generation = synchronized(this) {
@@ -178,14 +245,18 @@ class VehicleDataForwarderImpl(
         // Run on background thread — Car API calls can block (connect, waitForConnected).
         // Every stage is fenced because stop() may run while this coroutine is blocked.
         scope.launch {
+            val request = synchronized(this@VehicleDataForwarderImpl) {
+                requestedGrants = permissionGrants()
+                refreshRequested
+            }
             var failed = false
             try {
                 if (!isStartCurrent(generation)) return@launch
                 connectToCar()
                 if (!isStartCurrent(generation)) return@launch
-                readStaticVehicleInfo()
+                readStaticVehicleInfo(generation)
                 if (!isStartCurrent(generation)) return@launch
-                val subscribed = registerProperties()
+                val subscribed = registerProperties(generation)
                 check(VhalSubscriptionReadiness.mayActivate(subscribed)) {
                     "No meaningful safety or energy VHAL property subscribed"
                 }
@@ -214,6 +285,7 @@ class VehicleDataForwarderImpl(
                 Log.w(TAG, "Failed to start vehicle data forwarding: ${root.message}")
                 DiagnosticLog.w("vhal", "Failed to start: ${root.javaClass.simpleName}: ${root.message}")
             } finally {
+                synchronized(this@VehicleDataForwarderImpl) { refreshCompleted = maxOf(refreshCompleted, request) }
                 cleanupAfterStartAttempt(generation, failed)
             }
         }
@@ -224,86 +296,85 @@ class VehicleDataForwarderImpl(
     }
 
     private fun cleanupAfterStartAttempt(generation: Long, failed: Boolean) {
+        var cleaned = false
         var nextGeneration: Long? = null
-        var cleanupOutcome: String? = null
+        var refreshGeneration: Long? = null
         var retryDelayMs: Long? = null
-        synchronized(this) {
-            val attemptFailed = failed || startFailureGeneration == generation
-            if (startFailureGeneration == generation) startFailureGeneration = null
-            val stale = lifecycleGeneration != generation || !desiredActive
-            if (stale || attemptFailed) {
-                isActive = false
-                cleanup()
-                cleanupOutcome = when {
-                    attemptFailed -> "Failed VHAL start cleaned before bounded retry"
-                    desiredActive -> "Stale VHAL start cleaned before queued restart"
-                    else -> "In-flight VHAL start cleaned after stop"
+        while (true) {
+            val mustClean = synchronized(this) {
+                val attemptFailed = failed || startFailureGeneration == generation
+                val stale = lifecycleGeneration != generation || !desiredActive
+                if (!cleaned && (attemptFailed || stale)) true else {
+                    // Retirement decision and lane handoff share ONE critical section.
+                    // stop/loss cannot slip between a healthy decision and handoff.
+                    if (startFailureGeneration == generation) startFailureGeneration = null
+                    startInFlight = false
+                    if (attemptFailed && !stale) retryDelayMs = retryState.failedAttemptCleaned(generation)
+                    val pendingGrant = refreshRequested > refreshCompleted
+                    if (desiredActive && !isActive && (stale || !attemptFailed || pendingGrant)) {
+                        nextGeneration = retryState.serviceReady()
+                        nextGeneration?.let {
+                            startInFlight = true; lifecycleGeneration = it; retryDelayMs = null
+                        }
+                    } else if (desiredActive && isActive && pendingGrant) {
+                        startInFlight = true
+                        refreshGeneration = lifecycleGeneration
+                    }
+                    false
                 }
             }
-            startInFlight = false
-            if (attemptFailed && !stale) retryDelayMs = retryState.failedAttemptCleaned(generation)
-            // stop() followed quickly by start() while the old attempt was blocked
-            // leaves desiredActive=true but invalidates the old generation. Relaunch
-            // only after that attempt has cleaned up its partially-created Car state.
-            if (desiredActive && !isActive && (stale || !attemptFailed)) {
-                startInFlight = true
-                nextGeneration = retryState.serviceReady()
-                if (nextGeneration != null) lifecycleGeneration = nextGeneration!!
-            }
-        }
-        cleanupOutcome?.let {
-            Log.i(TAG, it)
-            DiagnosticLog.i("vhal", it)
+            if (!mustClean) break
+            // Keep the mutation lane reserved across captured-manager OS retirement,
+            // but never hold the state monitor across a blocking Binder operation.
+            cleanup()
+            cleaned = true
         }
         nextGeneration?.let(::launchStartAttempt)
+        refreshGeneration?.let(::launchRefresh)
         retryDelayMs?.let { scheduleReconnectAfterCleanup(generation, it) }
     }
 
     private fun scheduleReconnectAfterCleanup(failedGeneration: Long, delayMs: Long) {
-        synchronized(this) { reconnectAttempt++ }
-        reconnectJob?.cancel()
-        reconnectJob = scope.launch {
-            delay(delayMs)
-            val next = synchronized(this@VehicleDataForwarderImpl) {
-                if (!desiredActive || isActive || startInFlight || lifecycleGeneration != failedGeneration) return@launch
-                val retryGeneration = retryState.retryTimerFired(failedGeneration) ?: return@launch
-                startInFlight = true
-                lifecycleGeneration = retryGeneration
-                retryGeneration
-            }
-            launchStartAttempt(next)
+        val job = synchronized(this) {
+            if (!desiredActive || isActive || startInFlight || lifecycleGeneration != failedGeneration) return
+            reconnectAttempt++
+            reconnectJob?.cancel()
+            scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                delay(delayMs)
+                val next = synchronized(this@VehicleDataForwarderImpl) {
+                    if (!desiredActive || isActive || startInFlight || lifecycleGeneration != failedGeneration) return@launch
+                    val retryGeneration = retryState.retryTimerFired(failedGeneration) ?: return@launch
+                    startInFlight = true
+                    lifecycleGeneration = retryGeneration
+                    reconnectJob = null
+                    retryGeneration
+                }
+                launchStartAttempt(next)
+            }.also { reconnectJob = it }
         }
+        job.start()
         DiagnosticLog.i("vhal", "VHAL reconnect scheduled attempt=$reconnectAttempt delayMs=$delayMs")
     }
 
     override fun stop() {
-        val (hadWork, cleanupDeferred) = synchronized(this) {
-            val pendingOrActive = isActive || startInFlight || carObject != null
-            val deferred = startInFlight
+        val retirement = synchronized(this) {
+            val old = lifecycleGeneration
             desiredActive = false
+            isActive = false
             retryState.stop()
             reconnectJob?.cancel()
             reconnectJob = null
             reconnectAttempt = 0
             lifecycleGeneration++
-            // An in-flight attempt owns its partially-created reflection objects;
-            // it observes the generation change in finally and cleans them there.
-            // Otherwise teardown is serialized here so a new start cannot overlap.
-            if (!startInFlight) {
-                isActive = false
-                if (pendingOrActive) cleanup()
+            registrationGeneration++ // Fence the live proxy immediately, even if subscribe is blocked.
+            publishImmediate() // Publish the retired epoch before a blocked OS call can return.
+            if (startInFlight) null else {
+                startInFlight = true
+                old
             }
-            pendingOrActive to deferred
         }
-        if (hadWork) {
-            val outcome = if (cleanupDeferred) {
-                "VHAL stop requested; in-flight startup cleanup pending"
-            } else {
-                "Vehicle data forwarding stopped"
-            }
-            Log.i(TAG, outcome)
-            DiagnosticLog.i("vhal", outcome)
-        }
+        retirement?.let { generation -> scope.launch { cleanupAfterStartAttempt(generation, false) } }
+        DiagnosticLog.i("vhal", "VHAL stop requested; serialized retirement pending")
     }
 
     private fun connectToCar() {
@@ -352,13 +423,14 @@ class VehicleDataForwarderImpl(
         if (!waitForConnected(car)) {
             throw IllegalStateException("Car service did not report connected within timeout")
         }
-        carObject = car
+        synchronized(this) { carObject = car }
 
         // Get CarPropertyManager
         val propertyServiceName = carClass.getField("PROPERTY_SERVICE").get(null) as String
-        propertyManager = carClass.getMethod("getCarManager", String::class.java)
+        val manager = carClass.getMethod("getCarManager", String::class.java)
             .invoke(car, propertyServiceName)
             ?: throw IllegalStateException("CarPropertyManager is null")
+        synchronized(this) { propertyManager = manager }
 
         Log.i(TAG, "Connected to Car API via reflection")
         DiagnosticLog.i("vhal", "Connected to Car API")
@@ -366,14 +438,19 @@ class VehicleDataForwarderImpl(
 
     private fun createCarWithLifecycle(carClass: Class<*>): Any? = runCatching {
         val listenerClass = Class.forName("android.car.Car\$CarServiceLifecycleListener")
+        val generation = synchronized(this) { lifecycleGeneration }
         val listener = java.lang.reflect.Proxy.newProxyInstance(
             listenerClass.classLoader,
             arrayOf(listenerClass),
         ) { proxy, method, args ->
             when (method.name) {
                 "onLifecycleChanged" -> {
-                    val ready = args?.getOrNull(1) as? Boolean ?: false
-                    if (ready) onCarServiceReady(args?.firstOrNull()) else onCarServiceLost(args?.firstOrNull())
+                    synchronized(this) {
+                        if (lifecycleGeneration == generation && carLifecycleProxy === proxy) {
+                            val ready = args?.getOrNull(1) as? Boolean ?: false
+                            if (ready) onCarServiceReady(args?.firstOrNull()) else onCarServiceLost(args?.firstOrNull())
+                        }
+                    }
                     null
                 }
                 "toString" -> "OalCarServiceLifecycleListener"
@@ -386,31 +463,24 @@ class VehicleDataForwarderImpl(
             candidate.name == "createCar" && candidate.parameterTypes.size == 4 &&
                 candidate.parameterTypes.last() == listenerClass
         }
-        carLifecycleProxy = listener
+        synchronized(this) { carLifecycleProxy = listener }
         method.invoke(null, context, null, 2_000L, listener)
     }.getOrNull()
 
     private fun onCarServiceLost(lostCar: Any?) {
-        val loss = synchronized(this) {
-            if (!desiredActive) return
-            if (carObject != null && carObject !== lostCar) return
-            val failedGeneration = lifecycleGeneration
-            if (startInFlight) {
-                startFailureGeneration = failedGeneration
-                failedGeneration to false
-            } else {
-                if (!isActive || !retryState.serviceLost(failedGeneration)) return
-                isActive = false
-                reconnectAttempt = 0
-                cleanup()
-                startInFlight = false
-                failedGeneration to true
-            }
+        val retirement = synchronized(this) {
+            if (!desiredActive || (carObject != null && carObject !== lostCar)) return
+            val generation = lifecycleGeneration
+            if (isActive) retryState.serviceLost(generation)
+            isActive = false
+            startFailureGeneration = generation
+            registrationGeneration++
+            publishImmediate()
+            reconnectAttempt = 0
+            if (startInFlight) null else { startInFlight = true; generation }
         }
-        DiagnosticLog.w("vhal", "Car service lost; startupFailed=${!loss.second}; scheduling process-owned reconnect")
-        if (loss.second) {
-            retryState.failedAttemptCleaned(loss.first)?.let { scheduleReconnectAfterCleanup(loss.first, it) }
-        }
+        DiagnosticLog.w("vhal", "Car service lost; serialized process-owned retirement pending")
+        retirement?.let { generation -> scope.launch { cleanupAfterStartAttempt(generation, true) } }
     }
 
     private fun onCarServiceReady(readyCar: Any?) {
@@ -438,9 +508,13 @@ class VehicleDataForwarderImpl(
     }
 
     /** Read static vehicle info (make/model/year) — one-time, these don't change. */
-    private fun readStaticVehicleInfo() {
-        val pm = propertyManager ?: return
+    private fun readStaticVehicleInfo(lifecycle: Long) {
+        val pm = synchronized(this) {
+            if (!isStartCurrent(lifecycle)) return
+            propertyManager
+        } ?: return
         val pmClass = pm::class.java
+        if (context.checkSelfPermission("android.car.permission.CAR_INFO") != PackageManager.PERMISSION_GRANTED) return
 
         fun readStringProp(fieldName: String): String? {
             val propId = resolveIntConstant("android.car.VehiclePropertyIds", fieldName) ?: return null
@@ -466,9 +540,9 @@ class VehicleDataForwarderImpl(
             }
         }
 
-        carMake = readStringProp("INFO_MAKE")
-        carModel = readStringProp("INFO_MODEL")
-        carYear = readIntProp("INFO_MODEL_YEAR")?.toString()
+        val make = if (synchronized(this) { carMake == null }) readStringProp("INFO_MAKE") else null
+        val model = if (synchronized(this) { carModel == null }) readStringProp("INFO_MODEL") else null
+        val year = if (synchronized(this) { carYear == null }) readIntProp("INFO_MODEL_YEAR")?.toString() else null
 
         // Read fuel type and EV connector arrays (Integer[] properties)
         fun readIntArrayProp(fieldName: String): List<Int>? {
@@ -488,11 +562,16 @@ class VehicleDataForwarderImpl(
             }
         }
 
-        fuelTypes = readIntArrayProp("INFO_FUEL_TYPE")
-        evConnectorTypes = readIntArrayProp("INFO_EV_CONNECTOR_TYPE")
-
-        if (carMake != null || carModel != null) {
-            DiagnosticLog.i("vhal", "Vehicle identity: $carMake $carModel $carYear fuel=$fuelTypes ev_conn=$evConnectorTypes")
+        val fuel = if (synchronized(this) { fuelTypes == null }) readIntArrayProp("INFO_FUEL_TYPE") else null
+        val connectors = if (synchronized(this) { evConnectorTypes == null }) readIntArrayProp("INFO_EV_CONNECTOR_TYPE") else null
+        synchronized(this) {
+            if (propertyManager !== pm || lifecycleGeneration != lifecycle || !isStartCurrent(lifecycle) ||
+                context.checkSelfPermission("android.car.permission.CAR_INFO") != PackageManager.PERMISSION_GRANTED) return
+            if (carMake == null) carMake = make
+            if (carModel == null) carModel = model
+            if (carYear == null) carYear = year
+            if (fuelTypes == null) fuelTypes = fuel
+            if (evConnectorTypes == null) evConnectorTypes = connectors
         }
     }
 
@@ -507,140 +586,177 @@ class VehicleDataForwarderImpl(
         return cause?.rootCause() ?: this
     }
 
-    private fun registerProperties(): Set<String> {
-        val pm = propertyManager ?: return emptySet()
+    // Property definitions: fieldName → (permission, rateField)
+    private data class PropDef(val fieldName: String, val permission: String?, val rateField: String = "SENSOR_RATE_ONCHANGE")
+    private val properties = listOf(
+        PropDef("PERF_VEHICLE_SPEED", "android.car.permission.CAR_SPEED", "SENSOR_RATE_FAST"),
+        PropDef("GEAR_SELECTION", "android.car.permission.CAR_POWERTRAIN"),
+        PropDef("PARKING_BRAKE_ON", "android.car.permission.CAR_POWERTRAIN"),
+        PropDef("NIGHT_MODE", null),
+        PropDef("EV_BATTERY_LEVEL", "android.car.permission.CAR_ENERGY"),
+        PropDef("INFO_EV_BATTERY_CAPACITY", "android.car.permission.CAR_INFO"),
+        PropDef("ENV_OUTSIDE_TEMPERATURE", "android.car.permission.CAR_EXTERIOR_ENVIRONMENT"),
+        PropDef("EV_BATTERY_INSTANTANEOUS_CHARGE_RATE", "android.car.permission.CAR_ENERGY"),
+        PropDef("RANGE_REMAINING", "android.car.permission.CAR_ENERGY"),
+        PropDef("PERF_ENGINE_RPM", "android.car.permission.CAR_SPEED"),
+        PropDef("EV_CHARGE_PORT_OPEN", "android.car.permission.CAR_ENERGY_PORTS"),
+        PropDef("EV_CHARGE_PORT_CONNECTED", "android.car.permission.CAR_ENERGY_PORTS"),
+        PropDef("IGNITION_STATE", "android.car.permission.CAR_POWERTRAIN"),
+        // Extended EV / vehicle properties — may or may not be exposed by HAL
+        PropDef("DISTANCE_DISPLAY_UNITS", "android.car.permission.READ_CAR_DISPLAY_UNITS"),
+        PropDef("EV_CHARGE_STATE", "android.car.permission.CAR_ENERGY"),
+        PropDef("EV_CHARGE_TIME_REMAINING", "android.car.permission.CAR_ENERGY"),
+        PropDef("EV_CURRENT_BATTERY_CAPACITY", "android.car.permission.CAR_ENERGY"),
+        PropDef("EV_BATTERY_AVERAGE_TEMPERATURE", "android.car.permission.CAR_ENERGY"),
+        PropDef("EV_CHARGE_PERCENT_LIMIT", "android.car.permission.CAR_ENERGY"),
+        PropDef("EV_CHARGE_CURRENT_DRAW_LIMIT", "android.car.permission.CAR_ENERGY"),
+        PropDef("EV_BRAKE_REGENERATION_LEVEL", "android.car.permission.CAR_POWERTRAIN"),
+        PropDef("EV_STOPPING_MODE", "android.car.permission.CAR_POWERTRAIN"),
+        // Round-6 additions — see recon_dump/gm-aaos-recon.md §14
+        PropDef("PERF_ODOMETER", "android.car.permission.CAR_MILEAGE"),
+        PropDef("TIRE_PRESSURE", "android.car.permission.CAR_TIRES"),
+        PropDef("ABS_ACTIVE", "android.car.permission.CAR_DYNAMICS_STATE"),
+        PropDef("TRACTION_CONTROL_ACTIVE", "android.car.permission.CAR_DYNAMICS_STATE"),
+    )
+
+    private fun registerProperties(lifecycle: Long): Set<String> {
+        val pm = synchronized(this) {
+            if (!isStartCurrent(lifecycle)) return emptySet()
+            propertyManager
+        } ?: return emptySet()
         val pmClass = pm::class.java
 
         // Resolve callback interface ONCE and create ONE shared proxy (app_v1 pattern)
-        val callbackInterface = try {
+        val callbackInterface = callbackProxy?.javaClass?.interfaces?.firstOrNull() ?: try {
             Class.forName("android.car.hardware.property.CarPropertyManager\$CarPropertyEventCallback")
         } catch (e: ClassNotFoundException) {
             DiagnosticLog.w("vhal", "CarPropertyEventCallback class not found")
             return emptySet()
         }
-        callbackProxy = createCallbackProxy(callbackInterface)
-
-        // Property definitions: fieldName → (permission, rateField)
-        data class PropDef(val fieldName: String, val permission: String?, val rateField: String = "SENSOR_RATE_ONCHANGE")
-        val properties = listOf(
-            PropDef("PERF_VEHICLE_SPEED", "android.car.permission.CAR_SPEED", "SENSOR_RATE_FAST"),
-            PropDef("GEAR_SELECTION", "android.car.permission.CAR_POWERTRAIN"),
-            PropDef("PARKING_BRAKE_ON", "android.car.permission.CAR_POWERTRAIN"),
-            PropDef("NIGHT_MODE", null),
-            PropDef("EV_BATTERY_LEVEL", "android.car.permission.CAR_ENERGY"),
-            PropDef("INFO_EV_BATTERY_CAPACITY", "android.car.permission.CAR_INFO"),
-            PropDef("ENV_OUTSIDE_TEMPERATURE", "android.car.permission.CAR_EXTERIOR_ENVIRONMENT"),
-            PropDef("EV_BATTERY_INSTANTANEOUS_CHARGE_RATE", "android.car.permission.CAR_ENERGY"),
-            PropDef("RANGE_REMAINING", "android.car.permission.CAR_ENERGY"),
-            PropDef("PERF_ENGINE_RPM", "android.car.permission.CAR_SPEED"),
-            PropDef("EV_CHARGE_PORT_OPEN", "android.car.permission.CAR_ENERGY_PORTS"),
-            PropDef("EV_CHARGE_PORT_CONNECTED", "android.car.permission.CAR_ENERGY_PORTS"),
-            PropDef("IGNITION_STATE", "android.car.permission.CAR_POWERTRAIN"),
-            // Extended EV / vehicle properties — may or may not be exposed by HAL
-            PropDef("DISTANCE_DISPLAY_UNITS", "android.car.permission.READ_CAR_DISPLAY_UNITS"),
-            PropDef("EV_CHARGE_STATE", "android.car.permission.CAR_ENERGY"),
-            PropDef("EV_CHARGE_TIME_REMAINING", "android.car.permission.CAR_ENERGY"),
-            PropDef("EV_CURRENT_BATTERY_CAPACITY", "android.car.permission.CAR_ENERGY"),
-            PropDef("EV_BATTERY_AVERAGE_TEMPERATURE", "android.car.permission.CAR_ENERGY"),
-            PropDef("EV_CHARGE_PERCENT_LIMIT", "android.car.permission.CAR_ENERGY"),
-            PropDef("EV_CHARGE_CURRENT_DRAW_LIMIT", "android.car.permission.CAR_ENERGY"),
-            PropDef("EV_BRAKE_REGENERATION_LEVEL", "android.car.permission.CAR_POWERTRAIN"),
-            PropDef("EV_STOPPING_MODE", "android.car.permission.CAR_POWERTRAIN"),
-            // Round-6 additions — see recon_dump/gm-aaos-recon.md §14
-            PropDef("PERF_ODOMETER", "android.car.permission.CAR_MILEAGE"),
-            PropDef("TIRE_PRESSURE", "android.car.permission.CAR_TIRES"),
-            PropDef("ABS_ACTIVE", "android.car.permission.CAR_DYNAMICS_STATE"),
-            PropDef("TRACTION_CONTROL_ACTIVE", "android.car.permission.CAR_DYNAMICS_STATE"),
-        )
-
+        val (callback, generation) = synchronized(this) {
+            if (!isStartCurrent(lifecycle) || propertyManager !== pm) return emptySet()
+            if (callbackProxy == null) callbackProxy = createCallbackProxy(callbackInterface)
+            checkNotNull(callbackProxy) to registrationGeneration
+        }
+        fun current(): Boolean = desiredActive && propertyManager === pm && callbackProxy === callback &&
+            registrationGeneration == generation && lifecycleGeneration == lifecycle && startFailureGeneration != lifecycle
+        val grants = permissionGrants()
+        synchronized(this) { if (requestedGrants == null) requestedGrants = grants }
+        val authorizedBefore = synchronized(this) {
+            subscribedNames.filterTo(mutableSetOf()) { _propertyStatus[it] == "subscribed" }
+        }
         var subscribed = 0
-        val subscribedNames = mutableSetOf<String>()
+        val registeredAdditions = mutableSetOf<String>()
         for (prop in properties) {
-            // Resolve property ID from VehiclePropertyIds at runtime (app_v1 pattern)
-            val propId = resolveIntConstant("android.car.VehiclePropertyIds", prop.fieldName)
-            if (propId == null) {
-                DiagnosticLog.d("vhal", "${prop.fieldName}: not in this SDK")
-                _propertyStatus[prop.fieldName] = "not_in_sdk"
+            val propId = resolveIntConstant("android.car.VehiclePropertyIds", prop.fieldName) ?: continue
+            val granted = prop.permission == null || context.checkSelfPermission(prop.permission) == PackageManager.PERMISSION_GRANTED
+            var restore = false
+            val candidate = synchronized(this) {
+                if (!current()) return@synchronized false
+                if (!granted) {
+                    _propertyStatus[prop.fieldName] = "permission_denied:${prop.permission}"
+                    currentValues.remove(propId)
+                    evObservationMetadata.remove(prop.fieldName)
+                    attemptedGrants[propId] = false
+                    false
+                } else if (propId in trackedPropertyIds) {
+                    restore = _propertyStatus[prop.fieldName]?.startsWith("permission_denied") == true
+                    restore
+                } else if (attemptedGrants[propId] == true) false
+                else { attemptedGrants[propId] = true; true }
+            }
+            if (!candidate) continue
+            if (restore) {
+                val pv = runCatching {
+                    pmClass.getMethod("getProperty", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                        .invoke(pm, propId, 0)
+                }.getOrNull()
+                synchronized(this) {
+                    if (current() && propertyPermitted(propId)) {
+                        // A concurrently delivered callback outranks this recovery read.
+                        if (pv != null && evObservationMetadata[prop.fieldName] == null) handleChangeEvent(pv)
+                        _propertyStatus[prop.fieldName] = "subscribed"
+                    }
+                }
                 continue
             }
-
-            // Check permission before subscribing
-            if (prop.permission != null && context.checkSelfPermission(prop.permission) != PackageManager.PERMISSION_GRANTED) {
-                DiagnosticLog.i("vhal", "${prop.fieldName}: permission not granted (${prop.permission})")
-                _propertyStatus[prop.fieldName] = "permission_denied:${prop.permission}"
-                continue
-            }
-
-            // Check if property is exposed by this vehicle's HAL
-            val config = try {
-                pmClass.getMethod("getCarPropertyConfig", Int::class.javaPrimitiveType)
-                    .invoke(pm, propId)
-            } catch (t: Throwable) {
-                DiagnosticLog.d("vhal", "${prop.fieldName}: config lookup failed: ${t.rootCause().message}")
-                null
-            }
+            val config = runCatching {
+                pmClass.getMethod("getCarPropertyConfig", Int::class.javaPrimitiveType).invoke(pm, propId)
+            }.getOrNull()
             if (config == null) {
-                DiagnosticLog.i("vhal", "${prop.fieldName}: not exposed by this vehicle/HAL")
-                _propertyStatus[prop.fieldName] = "not_exposed"
+                synchronized(this) { if (current()) _propertyStatus[prop.fieldName] = "not_exposed" }
                 continue
             }
-
-            // Read initial value
-            var initialPropertyValue: Any? = null
-            try {
-                val pv = pmClass.getMethod("getProperty", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            // Initial values remain private until this exact subscription succeeds.
+            val initial = runCatching {
+                pmClass.getMethod("getProperty", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
                     .invoke(pm, propId, 0)
-                initialPropertyValue = pv
-                if (pv != null) {
-                    val initVal = try { pv.javaClass.getMethod("getValue").invoke(pv) } catch (_: Throwable) { null }
-                    DiagnosticLog.d("vhal", "${prop.fieldName}: initial read = $initVal")
-                    handleInitialRead(pv)
-                } else {
-                    DiagnosticLog.d("vhal", "${prop.fieldName}: initial read returned null")
+            }.getOrNull()
+            val reserved = synchronized(this) {
+                if (!current()) false else {
+                    beginSafetySubscription(propId, generation)
+                    initial?.let {
+                        val value = runCatching { it.javaClass.getMethod("getValue").invoke(it) }.getOrNull()
+                        bufferedSafetyObservations[propId] = BufferedSafetyObservation(value,
+                            observationFrom(it, propId, authoritative = false))
+                    }
+                    true
                 }
-            } catch (t: Throwable) {
-                DiagnosticLog.d("vhal", "${prop.fieldName}: initial read: ${t.rootCause().javaClass.simpleName}: ${t.rootCause().message}")
             }
-
-            // A platform may synchronously deliver the current value from inside
-            // subscribe(). Fence and buffer that callback before invoking it so
-            // the older initial read cannot overwrite a newer safety observation.
-            val subscriptionGeneration = registrationGeneration
-            beginSafetySubscription(propId, subscriptionGeneration)
-            // Subscribe using shared callback (app_v1's subscribe pattern)
-            val ok = subscribe(pm, callbackInterface, callbackProxy!!, propId, prop.rateField)
-            if (ok) {
-                trackedPropertyIds.add(propId)
-                if (isSafetyProperty(propId)) {
-                    commitSafetySubscription(propId, subscriptionGeneration)
+            if (!reserved) break
+            val ok = subscribe(pm, callbackInterface, callback, propId, prop.rateField)
+            synchronized(this) {
+                if (!current()) return@synchronized
+                val stillGranted = prop.permission == null || context.checkSelfPermission(prop.permission) == PackageManager.PERMISSION_GRANTED
+                if (ok) {
+                    trackedPropertyIds.add(propId)
+                    subscribedNames += prop.fieldName
+                    registeredAdditions += prop.fieldName
+                    if (stillGranted) {
+                        commitSafetySubscription(propId, generation)
+                        _propertyStatus[prop.fieldName] = "subscribed"
+                        subscribed++
+                    } else {
+                        pendingSafetySubscriptions.remove(propId)
+                        bufferedSafetyObservations.remove(propId)
+                        _propertyStatus[prop.fieldName] = "permission_denied:${prop.permission}"
+                        attemptedGrants[propId] = false
+                    }
                 } else {
-                    initialPropertyValue?.let { promoteSubscribedInitialRead(propId, it) }
+                    rejectSafetySubscription(propId)
+                    _propertyStatus[prop.fieldName] = "rejected"
                 }
-                subscribed++
-                subscribedNames += prop.fieldName
-                _propertyStatus[prop.fieldName] = "subscribed"
-                DiagnosticLog.d("vhal", "${prop.fieldName}: subscribed")
-            } else {
-                rejectSafetySubscription(propId)
-                _propertyStatus[prop.fieldName] = "rejected"
-                DiagnosticLog.w("vhal", "${prop.fieldName}: subscription rejected")
             }
         }
-
         Log.i(TAG, "Subscribed to $subscribed/${properties.size} vehicle properties")
         DiagnosticLog.i("vhal", "Subscribed to $subscribed/${properties.size} vehicle properties")
         DiagnosticLog.i("vhal", "currentValues after subscription: ${currentValues.size} entries")
 
-        // Fire initial data with all values populated from initial reads.
-        // Reset lastSendTime to bypass throttle — earlier throttled sends during
-        // subscription may have sent incomplete data (missing EV battery values).
-        if (currentValues.isNotEmpty()) {
-            lastSendTime = 0L  // force send regardless of throttle
-            val data = buildVehicleData()
-            _latestVehicleData.value = data
-            sendMessage(data)
+        synchronized(this) {
+            if (current()) {
+                // Authorization can change after an earlier property's successful
+                // commit while a later Binder call blocks. Recheck the full pass.
+                properties.forEach { prop ->
+                    val id = VEHICLE_PROPERTY_ID_FALLBACK[prop.fieldName] ?: return@forEach
+                    if (!propertyPermitted(id)) {
+                        currentValues.remove(id)
+                        evObservationMetadata.remove(prop.fieldName)
+                        _propertyStatus[prop.fieldName] = "permission_denied:${prop.permission}"
+                        attemptedGrants[id] = false
+                    }
+                }
+                val authorized = subscribedNames.filterTo(mutableSetOf()) { _propertyStatus[it] == "subscribed" }
+                // Missing static INFO stays retryable, but an unchanged recovery pass
+                // is not a new raw observation for the process learner/recorder.
+                // Keep startup and authorization transitions even without a value;
+                // real observations (including equal values) differ by metadata.
+                if (!isActive || authorized != authorizedBefore || buildVehicleData() != _latestVehicleData.value) {
+                    publishImmediate()
+                }
+                DiagnosticLog.i("vhal", "VHAL refresh completed generation=$generation registeredAdded=$registeredAdditions total=${trackedPropertyIds.size} authorized=${subscribedNames.filter { _propertyStatus[it] == "subscribed" }} staticMissing=${staticInfoMissing()}")
+            }
+            return subscribedNames.filterTo(mutableSetOf()) { _propertyStatus[it] == "subscribed" }
         }
-        return subscribedNames
     }
 
     /** Create ONE shared callback proxy for all properties (app_v1 pattern). */
@@ -768,14 +884,14 @@ class VehicleDataForwarderImpl(
 
     @Synchronized
     private fun beginSafetySubscription(propertyId: Int, generation: Long) {
-        if (!isSafetyProperty(propertyId) || generation != registrationGeneration) return
+        if (generation != registrationGeneration) return
         pendingSafetySubscriptions[propertyId] = generation
         bufferedSafetyObservations.remove(propertyId)
     }
 
     @Synchronized
     private fun commitSafetySubscription(propertyId: Int, generation: Long) {
-        if (!isSafetyProperty(propertyId) || generation != registrationGeneration ||
+        if (generation != registrationGeneration ||
             pendingSafetySubscriptions[propertyId] != generation
         ) return
         pendingSafetySubscriptions.remove(propertyId)
@@ -788,15 +904,9 @@ class VehicleDataForwarderImpl(
             initial == null || buffered.observation.sequence > initial.sequence -> buffered
             else -> BufferedSafetyObservation(currentValues[propertyId], initial)
         } ?: return
-        applySafetyObservation(
-            propertyId,
-            newest.value,
-            newest.observation.copy(
-                registrationGeneration = generation,
-                subscriptionActive = true,
-            ),
-        )
-        publishImmediate()
+        applySafetyObservation(propertyId, newest.value, newest.observation.copy(
+            registrationGeneration = generation, subscriptionActive = true))
+        if (isSafetyProperty(propertyId)) publishImmediate()
     }
 
     @Synchronized
@@ -804,7 +914,7 @@ class VehicleDataForwarderImpl(
         val propertyId = runCatching {
             propertyValue.javaClass.getMethod("getPropertyId").invoke(propertyValue) as? Int
         }.getOrNull() ?: return
-        if (isSafetyProperty(propertyId) && pendingSafetySubscriptions[propertyId] == generation) {
+        if (pendingSafetySubscriptions[propertyId] == generation) {
             val value = runCatching { propertyValue.javaClass.getMethod("getValue").invoke(propertyValue) }.getOrNull()
             val observation = observationFrom(propertyValue, propertyId, authoritative = true)
                 .copy(registrationGeneration = generation)
@@ -814,12 +924,19 @@ class VehicleDataForwarderImpl(
             }
             return
         }
-        handleChangeEvent(propertyValue)
+        if (propertyPermitted(propertyId)) handleChangeEvent(propertyValue)
+    }
+
+    private fun propertyPermitted(propertyId: Int): Boolean {
+        val permission = properties.firstOrNull {
+            VEHICLE_PROPERTY_ID_FALLBACK[it.fieldName] == propertyId
+        }?.permission ?: return true
+        return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
     }
 
     @Synchronized
     private fun handleCallbackError(generation: Long, propertyId: Int) {
-        if (isSafetyProperty(propertyId) && pendingSafetySubscriptions[propertyId] == generation) {
+        if (pendingSafetySubscriptions[propertyId] == generation) {
             val observation = VehiclePropertyObservation(
                 timestampElapsedNanos = SystemClock.elapsedRealtimeNanos(),
                 receivedElapsedMs = SystemClock.elapsedRealtime(),
@@ -835,12 +952,11 @@ class VehicleDataForwarderImpl(
             }
             return
         }
-        handleErrorEvent(propertyId)
+        if (propertyPermitted(propertyId)) handleErrorEvent(propertyId)
     }
 
     @Synchronized
     private fun rejectSafetySubscription(propertyId: Int) {
-        if (!isSafetyProperty(propertyId)) return
         pendingSafetySubscriptions.remove(propertyId)
         bufferedSafetyObservations.remove(propertyId)
         trackedPropertyIds.remove(propertyId)
@@ -1217,47 +1333,37 @@ class VehicleDataForwarderImpl(
         else -> "none"
     }
 
-    @Synchronized
     private fun cleanup() {
-        registrationGeneration++
-        historyPollerJob?.cancel()
-        historyPollerJob = null
-        latestMotorPowerSnapshot = null
-        latestMotorTorqueNm = null
-
-        val pm = propertyManager
-        val callback = callbackProxy
-
-        // Unregister the shared callback (app_v1 pattern)
+        val retiredObjects = synchronized(this) {
+            registrationGeneration++
+            isActive = false
+            historyPollerJob?.cancel()
+            historyPollerJob = null
+            latestMotorPowerSnapshot = null
+            latestMotorTorqueNm = null
+            val objects = Triple(propertyManager, callbackProxy, carObject)
+            trackedPropertyIds.clear()
+            subscribedNames.clear()
+            attemptedGrants.clear()
+            pendingSafetySubscriptions.clear()
+            bufferedSafetyObservations.clear()
+            currentValues.clear()
+            _propertyStatus.clear()
+            evObservationMetadata.clear()
+            callbackProxy = null
+            carLifecycleProxy = null
+            carObject = null
+            propertyManager = null
+            publishImmediate()
+            objects
+        }
+        val (pm, callback, car) = retiredObjects
         if (pm != null && callback != null) {
-            val iface = callback.javaClass.interfaces.firstOrNull()
-            if (iface != null) {
-                runCatching {
-                    pm.javaClass.getMethod("unsubscribePropertyEvents", iface).invoke(pm, callback)
-                }
-                runCatching {
-                    pm.javaClass.getMethod("unregisterCallback", iface).invoke(pm, callback)
-                }
+            callback.javaClass.interfaces.firstOrNull()?.let { iface ->
+                runCatching { pm.javaClass.getMethod("unsubscribePropertyEvents", iface).invoke(pm, callback) }
+                runCatching { pm.javaClass.getMethod("unregisterCallback", iface).invoke(pm, callback) }
             }
         }
-
-        // Disconnect car
-        runCatching {
-            carObject?.javaClass?.getMethod("disconnect")?.invoke(carObject)
-        }
-
-        trackedPropertyIds.clear()
-        pendingSafetySubscriptions.clear()
-        bufferedSafetyObservations.clear()
-        currentValues.clear()
-        _propertyStatus.clear()
-        evObservationMetadata.clear()
-        val retired = buildVehicleData()
-        _latestVehicleData.value = retired
-        sendMessage(retired)
-        callbackProxy = null
-        carLifecycleProxy = null
-        carObject = null
-        propertyManager = null
+        runCatching { car?.javaClass?.getMethod("disconnect")?.invoke(car) }
     }
 }

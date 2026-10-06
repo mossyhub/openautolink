@@ -12,6 +12,9 @@ interface VehicleDataForwarder {
     /** Start monitoring VHAL properties and forwarding to bridge. */
     fun start()
 
+    /** Reconcile late grants on the process IO lane without replacing live registrations. */
+    fun requestSubscriptionRefresh(reason: String) { }
+
     /** Stop monitoring and unregister all property listeners. */
     fun stop()
 
