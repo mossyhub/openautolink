@@ -15,8 +15,9 @@ import com.openautolink.app.transport.ControlMessage
  * Android keycodes match AA protobuf KeyCode values, so media keys forward directly.
  * Voice button (KEYCODE_VOICE_ASSIST=231) maps to AA's KEYCODE_SEARCH=84.
  *
- * GM AAOS quirk: steering wheel track buttons send KEYCODE_F7 (137) instead of
- * standard KEYCODE_MEDIA_NEXT/PREVIOUS. We map F-keys to AA media keycodes.
+ * GM AAOS quirk: steering wheel track buttons send F-keys instead of standard
+ * KEYCODE_MEDIA_NEXT/PREVIOUS: F7 (137) → Next; Equinox F8 (138) → Previous.
+ * Per-key custom remaps override these defaults.
  */
 class SteeringWheelController(
     private val sendMessage: (ControlMessage.Button) -> Unit,
@@ -44,10 +45,10 @@ class SteeringWheelController(
         // GM AAOS steering wheel F-key mappings (built-in defaults).
         // Used when no custom key remap is configured for a given key.
         private val GM_FKEY_TO_AA = mapOf(
-            KeyEvent.KEYCODE_F6 to KeyEvent.KEYCODE_MEDIA_PREVIOUS,     // 131 → track prev (suspected)
+            KeyEvent.KEYCODE_F6 to KeyEvent.KEYCODE_MEDIA_PREVIOUS,     // 136 → track prev (suspected)
             KeyEvent.KEYCODE_F7 to KeyEvent.KEYCODE_MEDIA_NEXT,         // 137 → track next (confirmed)
-            KeyEvent.KEYCODE_F8 to KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,   // 139 → play/pause (suspected)
-            KeyEvent.KEYCODE_F9 to KeyEvent.KEYCODE_MEDIA_PREVIOUS,     // 140 → alt mapping (suspected)
+            KeyEvent.KEYCODE_F8 to KeyEvent.KEYCODE_MEDIA_PREVIOUS,     // 138 → track prev (Equinox owner-confirmed)
+            KeyEvent.KEYCODE_F9 to KeyEvent.KEYCODE_MEDIA_PREVIOUS,     // 139 → alt mapping (suspected)
         )
 
         private val VOICE_KEYCODES = setOf(

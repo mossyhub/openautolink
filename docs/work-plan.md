@@ -38,7 +38,7 @@ These can only be validated on the real GM head unit. Remote diagnostics (M11) s
 | Unknown | Status |
 |---------|--------|
 | `KEYCODE_VOICE_ASSIST` interception — does GM let the app see it, or does the system consume it? | **CONFIRMED: System consumes it** — tested 2024-04-06. GM intercepts `KEYCODE_VOICE_ASSIST` at the system input policy level. App receives zero key events. All 3 probes failed (dispatchKeyEvent, MediaSession.onMediaButtonEvent, voice Intent filters). Only visible effect is audio focus loss when GM's built-in assistant launches. AccessibilityService is the remaining approach. |
-| Media button reliability (all steering wheel buttons) | **PARTIAL** — GM sends `KEYCODE_F7` (137) for track buttons instead of standard `KEYCODE_MEDIA_NEXT`/`PREVIOUS`. F-key mapping added. Need to confirm F6/F8/F9 assignments for prev/play-pause. |
+| Media button reliability (all steering wheel buttons) | **PARTIAL** — F7 (137) defaults to Next (87). Equinox owner-confirmed Previous arrives as F8 (138); #143 corrects its fallback from Play/Pause (85) to Previous (88). F6 (136) and F9 (139) Previous assignments remain suspected, not owner-confirmed. Custom mappings override only their assigned keys and update live without reconnect; clearing an override restores that key's fallback. The existing fallback table applies to unmapped keys without an OEM gate. Needs post-change vehicle validation. |
 
 ### Video/Audio on Real Hardware
 | Unknown | Status |
