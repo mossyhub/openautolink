@@ -148,7 +148,9 @@ Wireless CarPlay is still in development and is not working in the maintainer's 
 ### Video and display
 
 - Use **Auto** for automatic video sizing, or choose a resolution in **Video**. **Fit to window** lets standard quality tiers fill the available projection area without stretching. Custom resolutions retain their chosen aspect ratio.
-- Use **Display → Calibrate safe controls** to move controls away from physical screen curves. This is manual adjustment, not automatic curve detection. Tap **Done**, then **Save & Reconnect**.
+- **For CarPlay on curved screens, we recommend Display → System UI Visible.** OAL starts in fullscreen mode by default, but CarPlay controls can be clipped by the physical screen curves in fullscreen.
+- In **Display → Calibrate safe controls**, adjust the safe rectangle to inset CarPlay controls as far from the edges as you prefer. This is manual adjustment, not automatic curve detection; without suitable insets, fullscreen can cut off parts of the UI. Confirm the calibration, then **Save & Reconnect**.
+- If you prefer fullscreen, **swipe down from the top edge of the screen to reveal the GM navigation bar** when you need the vehicle's system controls. This does not replace safe-control calibration.
 - Available resolutions and frame rates depend on the phone and head unit. A frame-rate setting is a limit, not a guarantee. Safe-area calibration and system-bars-visible layouts still need broader vehicle testing.
 
 ### Authentication and source builds
