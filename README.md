@@ -118,10 +118,6 @@ For example, keep **Android Auto connection → Wireless** and **CarPlay connect
 
 This handoff is implemented for both phone protocols; successful end-to-end switching in the vehicle is still being validated.
 
-### Keep Android Auto call controls visible on GM
-
-In the native **Phone app → Settings**, turn **Active Call OFF** and **Privacy ON**. Leave Bluetooth **Phone calls enabled**: Android Auto controls/displays the call while the car's native HFP path carries microphone and speaker audio. See [Phone calls](docs/phone-calls.md). These settings apply to Android Auto.
-
 ## CarPlay setup
 
 Keep the vehicle parked while configuring. Disconnect the iPhone from any other OAL receiver before connecting it to the car.
@@ -156,6 +152,19 @@ Wireless CarPlay is still in development and is not working in the maintainer's 
 ### Authentication and source builds
 
 Maintainer Play builds include the CarPlay authentication files. Public GitHub APKs and source builds omit them and require your own compatible files. OAL is **not an Apple-certified CarPlay product**. Never publish authentication files or signing keys. See the [authentication and build policy](docs/carplay-private-mfi-assets.md) for requirements, provenance and redistribution limitations.
+
+## Keep incoming and active calls in Android Auto or CarPlay on GM
+
+The same vehicle settings apply to **both Android Auto and Apple CarPlay**. To stop GM's native Phone app from covering the projected incoming-call and in-call controls on the center display:
+
+1. Open the vehicle's native **Phone** app.
+2. Tap the **Settings** gear.
+3. Turn **Active Call** **OFF** (“Show active call view when answering call”).
+4. Turn **Privacy** **ON** (“Only show call alerts in cluster”).
+
+Incoming-call alerts stay in the instrument cluster, and the native active-call screen no longer takes over the center display. Answer and manage calls from Android Auto or CarPlay instead.
+
+These are **Phone-app display settings**, not Bluetooth profile settings. For **Android Auto**, leave the paired phone's Bluetooth **Phone calls** profile **enabled**: the vehicle's hands-free system carries microphone and speaker audio, and disabling it can also break wireless WPP startup. See [Phone calls](docs/phone-calls.md) for Android Auto audio routing, verification and troubleshooting.
 
 ## Vehicle compatibility
 
