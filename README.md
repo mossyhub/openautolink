@@ -171,6 +171,22 @@ See [compatibility notes](docs/compatibility.md) for vehicle-specific informatio
 
 ## Demonstrations
 
+### Apple CarPlay
+
+CarPlay Dashboard combines navigation and playback controls on the Blazer EV's wide display.
+
+<p align="center">
+  <img src="docs/screenshots/CarPlay-Dashboard-Fullscreen.jpg" alt="Apple CarPlay Dashboard in fullscreen mode on a Chevrolet Blazer EV" width="720">
+  <br><em>Fullscreen CarPlay, with the vehicle's top system bar hidden.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/CarPlay-Dashboard-System-UI.jpg" alt="Apple CarPlay Dashboard with the Chevrolet Blazer EV's top system bar visible" width="720">
+  <br><em>CarPlay with the vehicle's top system bar visible. Climate controls remain accessible below in both views.</em>
+</p>
+
+### Android Auto
+
 <p align="center">
   <img src="docs/screenshots/AA-Streaming-Screenshot.jpg" alt="Android Auto streaming wirelessly on a 2024 Chevrolet Blazer EV" width="720">
   <br><em>Android Auto on the Blazer EV.</em>
