@@ -1,8 +1,10 @@
 # Real CarPlay runtime integration: intake, enrollment and manual fallback
 
+> **Historical handoff:** This records an earlier development stage, not current setup guidance. USB CarPlay has since shipped; the former default-off/manual-enable rollout is superseded by the [current shipped policy](usb-hotplug-independent-protocol-modes.md#current-shipped-carplay-policy) and [CarPlay setup](../README.md#carplay-setup). Saved disabled choices are still respected. Wireless CarPlay remains in development.
+
 ## Implemented runtime path
 
-`OalCarPlayRuntime` now supplies `ProjectionReceiver.runtimeCarDataFactory`. Each actual Wi-Fi iAP2 tunnel gets a new `OalCarPlayIntakeLink`, borrowing the process-owned vehicle StateFlow through the completed vehicle/appearance adapters and creating the existing `GnssForwarderImpl` only on an authenticated location subscription. No AA consumer attachment, second VHAL producer, UI/ViewModel edit, WPP policy change, synthetic location or synthetic EV values were added. CarPlay remains opt-in/default-off.
+`OalCarPlayRuntime` now supplies `ProjectionReceiver.runtimeCarDataFactory`. Each actual Wi-Fi iAP2 tunnel gets a new `OalCarPlayIntakeLink`, borrowing the process-owned vehicle StateFlow through the completed vehicle/appearance adapters and creating the existing `GnssForwarderImpl` only on an authenticated location subscription. No AA consumer attachment, second VHAL producer, UI/ViewModel edit, WPP policy change, synthetic location or synthetic EV values were added. CarPlay was opt-in at this handoff stage; the shipped USB policy now supersedes that rollout.
 
 - Qualified GPS capability requires existing fine-location permission and an enabled real GPS provider. No new permission prompt/provider or synthetic encoder.
 - Range/current/maximum energy capability is frozen from truthful initially available snapshots before that link's IdentificationInformation. The exact same immutable subset governs its reporter. Values that appear later cannot expand the offer mid-link.

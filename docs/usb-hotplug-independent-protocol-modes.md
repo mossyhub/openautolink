@@ -2,6 +2,10 @@
 
 Owner contract supersedes the former shared/global USB/Wireless selector.
 
+## Current shipped CarPlay policy
+
+USB CarPlay is supported in the real OAL app. Fresh settings permit iPhone projection with USB mode; there is no separate manual-enable step for normal setup. Explicit saved disabled choices and wireless modes are preserved. Malformed stored settings fail closed. The iPhone-projection switch remains available for disabling the feature or restoring a previously disabled choice; choosing a transport does not change it. Earlier default-off/experimental handoffs are historical, not current onboarding. See [CarPlay setup](../README.md#carplay-setup).
+
 ## Exact storage migration
 
 * `direct_transport` remains Android Auto's **normal** selection, with the same `usb` / `wpp` IDs. Default remains `wpp`. No startup, cable consent, Stay, switch, failure, detach, or restoration writes this key. Its pre-existing read normalization of retired AA transport IDs to WPP is unchanged; stored bytes are not rewritten by this change.

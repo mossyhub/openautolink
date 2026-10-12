@@ -1,5 +1,7 @@
 # Independent normal connections and temporary USB prompt — UI handoff
 
+> **Historical handoff:** This records an earlier development stage, not current setup guidance. USB CarPlay has since shipped; the former default-off/manual-enable rollout is superseded by the [current shipped policy](usb-hotplug-independent-protocol-modes.md#current-shipped-carplay-policy) and [CarPlay setup](../README.md#carplay-setup). Saved disabled choices are still respected. Wireless CarPlay remains in development.
+
 ## Outcome and scope
 
 UI source implemented in the real OAL settings/projection composition. This work does not modify ViewModels, DataStore implementation, USB dispatch, runtime, permissions, PIN/Trust handling, release configuration or backend-owned tests. It does not claim rendered Compose, physical phone/vehicle behavior or release readiness.
@@ -7,7 +9,7 @@ UI source implemented in the real OAL settings/projection composition. This work
 Connection now has separate compact **CarPlay connection: USB / Wireless** and **Android Auto connection: USB / Wireless** choices in their own groups. The former shared Connection mode selector and legacy AA hotspot/topology/manual-IP settings are removed from this page. The header explains that a USB phone can temporarily take over only after confirmation without changing saved modes.
 
 - Android Auto continues using the existing `viewModel.updateDirectTransport(mode)` convention. Inspection confirmed that it already writes AA preferences asynchronously; this UI work preserves that established behavior rather than introducing a second AA draft/API.
-- CarPlay uses `updateCarPlayDraft { it.copy(connectionMode = mode) }`, retained across tabs and persisted only by the existing awaited global Save & Reconnect transaction. Selecting a connection never changes enabled or AA normal mode. The selector remains editable when CarPlay is disabled, but respects loaded/saving gates. CarPlay enabled remains backend-default false.
+- CarPlay uses `updateCarPlayDraft { it.copy(connectionMode = mode) }`, retained across tabs and persisted only by the existing awaited global Save & Reconnect transaction. Selecting a connection never changes enabled or AA normal mode. The selector remains editable when CarPlay is disabled, but respects loaded/saving gates. The backend still used disabled fresh settings at this handoff stage; the later shipped USB policy supersedes that rollout.
 - CarPlay Wireless remains selectable. Collapsed help explicitly says wireless CarPlay is unverified in the car. Wireless paired-phone and advanced network inputs are visible only for the wireless draft; USB does not present them as mandatory setup. Authentication recovery remains available for enabled CarPlay independently of its normal transport.
 - One common `UsbHotPlugSwitchDialog` call occurs before the CarPlay/AA branch split. It observes the agreed ViewModel StateFlow, is independent of connected/streaming state, and is not nested in Settings/Stats. It waits while settings/diagnostics/the parent safe editor are open.
 - The dialog asks `Switch to [Android Auto / CarPlay] for this connection?`, with **Switch / Stay here**. Both actions capture `prompt.generation`; back/outside dismiss uses the same explicit Stay callback. The UI performs no preference write, permission request or protocol retirement.

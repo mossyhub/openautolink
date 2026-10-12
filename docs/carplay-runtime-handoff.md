@@ -1,10 +1,12 @@
 # Native CarPlay runtime integration handoff
 
+> **Historical handoff:** This records an earlier development stage, not current setup guidance. USB CarPlay has since shipped; the former default-off/manual-enable rollout is superseded by the [current shipped policy](usb-hotplug-independent-protocol-modes.md#current-shipped-carplay-policy) and [CarPlay setup](../README.md#carplay-setup). Saved disabled choices are still respected. Wireless CarPlay remains in development.
+
 ## Entry / preference contract
 
 - Production `ProjectionScreen` / `ProjectionViewModel` and the original `MainActivity`, not `BenchActivity`.
 - Read the settings worker's **atomic** `AppPreferences.carPlaySettings: Flow<CarPlaySettings>` on each explicit connection. Never modify AA preferences to select CarPlay.
-- Enabling stays inert. The projection screen exposes **Connect selected CarPlay phone (experimental)** only when enabled. The tap requests Bluetooth permissions, then reserves process admission.
+- At this handoff stage, enabling was inert and the projection screen exposed **Connect selected CarPlay phone (experimental)** only after manual enablement. The tap requested Bluetooth permissions, then reserved process admission. This is not the shipped USB onboarding flow.
 - The runtime uses exact selected bonded Bluetooth identity, numeric selected peer **IPv4**, selected interface, explicit SSID and receiver address. No friendly-name protocol classification or automatic phone selection.
 - `SavedWifiPassword` reads the existing encrypted no-backup credential. MFi identity and pairing state remain in the same app-private no-backup directories; no keys/assets/import were added.
 - Shared-Wi-Fi override validates current SSID, security, channel, and interface ownership. Configured AP mode uses `wppChannelMhz`; **0 is not usable for CarPlay** and fails closed. OEM AP scoped IPv6 is not implemented. This is an experimental manual candidate, not proven OEM network integration.

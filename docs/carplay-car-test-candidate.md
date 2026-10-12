@@ -1,5 +1,7 @@
 # CarPlay car-test candidate 0.1.509
 
+> **Historical handoff:** This records an earlier development stage, not current setup guidance. USB CarPlay has since shipped; the former default-off/manual-enable rollout is superseded by the [current shipped policy](usb-hotplug-independent-protocol-modes.md#current-shipped-carplay-policy) and [CarPlay setup](../README.md#carplay-setup). Saved disabled choices are still respected. Wireless CarPlay remains in development.
+
 ## Verified
 
 - Signed automotive AAB: host `/mnt/Temp/Hermes_Work/oal-carplay-integration/app/build/outputs/bundle/release/app-release.aab`; versionCode 509 / versionName 0.1.509. Shared signing tool reported Signature OK. Both `base/assets/offline-mfi/identity.pk8` and `certificate.p7b` verified present by archive entry names only; no credential contents exported.
@@ -10,7 +12,7 @@
 
 ## Intended first car test
 
-This is a vehicle-test candidate, not proof of GM CarPlay compatibility. CarPlay remains off by default and AA/WPP behavior must remain unchanged. Configure real head-unit Bluetooth MAC and car AP information, enable CarPlay, use GM Bluetooth pairing and iPhone CarPlay consent, then attempt projection. Native Bluetooth/iAP2 AP credentials and scoped IPv6 endpoint exchange are preferred. Manual AP join/numeric peer fallback does not bypass blocked phone-to-head-unit IPv4.
+This is a vehicle-test candidate, not proof of GM CarPlay compatibility. At this candidate’s development stage, CarPlay was off and required manual enablement; that rollout is now superseded. The wireless-only test procedure was to configure the real head-unit Bluetooth MAC and car AP information, enable the candidate’s CarPlay option, use GM Bluetooth pairing and iPhone CarPlay consent, then attempt projection. Native Bluetooth/iAP2 AP credentials and scoped IPv6 endpoint exchange are preferred. Manual AP join/numeric peer fallback does not bypass blocked phone-to-head-unit IPv4.
 
 ## Vehicle validation outstanding
 

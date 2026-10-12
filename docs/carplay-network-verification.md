@@ -1,11 +1,13 @@
 # Scoped CarPlay AP networking handoff
 
+> **Historical handoff:** This records an earlier development stage, not current setup guidance. USB CarPlay has since shipped; the former default-off/manual-enable rollout is superseded by the [current shipped policy](usb-hotplug-independent-protocol-modes.md#current-shipped-carplay-policy) and [CarPlay setup](../README.md#carplay-setup). Saved disabled choices are still respected. Wireless CarPlay remains in development.
+
 ## Implemented
 - AP auto selects only IPv6 link-local on the configured up interface (default `ap_br_swlan0`). No address/interface/default-network discovery fallback or AP creation. Explicit IPv4/IPv6 family, exact owned local address, manual numeric peer, independent AP frequency/security remain overrides.
 - AP listener binds the actual scoped address before EndpointOffer construction. Offer contains one scope-free AP address; socket binding retains the local numeric zone.
 - Unknown AP peer requires exactly one already persisted controller at startup. One live pre-auth connection, 32 total bounded accept attempts and 30s handshake deadline. PairSetup is disabled for unknown-peer admission. Real PairVerify must verify a stored Ed25519 key and the exact-session admission callback must accept it before authenticated control/media SETUP. No new-controller enrollment or unauthenticated media discovery.
 - Control/event/keepalive/timing/screen/audio/tunnel/microphone sockets on the new path retain exact session endpoint/family. Scope comparison uses bytes AND zone IDs, not Inet6Address.equals. No secondary wildcard iAP tunnel on this path.
-- Default shared-Wi-Fi IPv4 still uses existing MediaPolicy, listener, activation and auxiliary socket behavior; its existing advertisement list is preserved. CarPlay remains disabled by default and Android Auto WPP untouched.
+- Default shared-Wi-Fi IPv4 still uses existing MediaPolicy, listener, activation and auxiliary socket behavior; its existing advertisement list is preserved. This handoff did not change the then-disabled CarPlay rollout or Android Auto WPP; the shipped USB policy now supersedes that rollout.
 - Manual-peer PhoneActivation binds local address before connecting; unknown AP peer skips it rather than inventing discovery or a phone IP.
 - Privacy-safe address-selected, listener-bound, accept, authentication and failure stages; no IPs, scopes, SSID/passphrase, controller IDs or crypto printed by new stages. Missing trusted controller is admission-unavailable, not bind-failed.
 

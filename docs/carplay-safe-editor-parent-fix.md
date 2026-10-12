@@ -1,5 +1,7 @@
 # CarPlay 513 calibration parent fix
 
+> **Historical handoff:** This records an earlier development stage, not current setup guidance. USB CarPlay has since shipped; the former default-off/manual-enable rollout is superseded by the [current shipped policy](usb-hotplug-independent-protocol-modes.md#current-shipped-carplay-policy) and [CarPlay setup](../README.md#carplay-setup). Saved disabled choices are still respected. Wireless CarPlay remains in development.
+
 ## Owner evidence and scope
 
 - Inspected owner photos `IMG20261011200742.jpg` (editor) and `IMG20261011200728.jpg` (wide video) from attachment `20261011_181336_02591e`.
@@ -21,7 +23,7 @@
 
 - `CarPlaySettings.fitToWindow` defaults to **true**. Serialization uses that same default for absent fields: fresh records and old records without the flag fit standard 720p/1080p/1440p/4K detail tiers to the measured parent.
 - Explicit saved `false` remains false. An explicitly saved 513 false choice is **not** rewritten by this default migration; the owner must turn Fit on for that record (and has confirmed doing so in the pictured successful wide-video test).
-- Custom and geometry-named presets retain exact geometry regardless of the flag. Resolution/FPS/physical UI-size choices and CarPlay's **off-by-default** admission toggle are unchanged.
+- Custom and geometry-named presets retain exact geometry regardless of the flag. This calibration change left resolution/FPS/physical UI-size choices and the then-disabled admission toggle unchanged. The later shipped USB policy supersedes that rollout.
 
 ## Verified host gates
 

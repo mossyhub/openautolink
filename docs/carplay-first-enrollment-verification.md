@@ -1,5 +1,7 @@
 # First-time CarPlay enrollment: independent premise audit and implementation
 
+> **Historical handoff:** This records an earlier development stage, not current setup guidance. USB CarPlay has since shipped; the former default-off/manual-enable rollout is superseded by the [current shipped policy](usb-hotplug-independent-protocol-modes.md#current-shipped-carplay-policy) and [CarPlay setup](../README.md#carplay-setup). Saved disabled choices are still respected. Wireless CarPlay remains in development.
+
 ## Outcome
 
 **The earlier blanket blocker was based on an additional OAL threat-model requirement, not a demonstrated CarPlay enrollment requirement.** Public Apple onboarding uses native device selection, Bluetooth Secure Simple Pairing, CarPlay permission/consent, Wi-Fi provisioning and protocol authentication. Independent receiver code and pinned DiPlay support ordinary first-controller SRP/Ed25519 PairSetup followed by stored-key PairVerify; they do not expose the demanded selected-Bluetooth-phone → AirPlay-controller-key cryptographic handoff.
@@ -47,7 +49,7 @@ Paths relative to `/hermes_work/research/gm-carplay-oal-20261006/targeted`:
 
 ## Supported candidate behavior and accepted risk
 
-Ordinary flow remains: launch/enable OAL CarPlay and configure head-unit Bluetooth MAC/AP information once, use GM native Bluetooth selection/pairing, accept the ordinary iPhone CarPlay prompt (and native CarPlay consent when required), then deliver real AP/endpoint information through the selected bootstrap. Do not add a companion or OAL phone list. The existing explicit OAL CarPlay enable choice is available for accessory-side consent; do not silently treat every generic GM bond as a CarPlay choice. Runtime integration must document which existing native/OAL choice supplies that consent.
+The wireless flow audited at this development stage was to launch/manually enable OAL CarPlay and configure head-unit Bluetooth MAC/AP information once, use GM native Bluetooth selection/pairing, accept the ordinary iPhone CarPlay prompt (and native CarPlay consent when required), then deliver real AP/endpoint information through the selected bootstrap. Do not add a companion or OAL phone list. The existing explicit OAL CarPlay enable choice is available for accessory-side consent; do not silently treat every generic GM bond as a CarPlay choice. Runtime integration must document which existing native/OAL choice supplies that consent.
 
 Fresh enrollment is **trust on first enrollment under native consent and AP access control**, not cryptographic proof of which bonded phone presented the key. Fixed-code SRP proves self-consistency/key possession; MFi proves the accessory to the phone. A rogue client able to reach the same AP/listener and knowing the fixed code can race or deny the first setup. A one-live-candidate rule, interface scoping and short deadline reduce exposure, but do not defeat a local-network attacker. Other occupants with the AP password remain in this threat model. Automatic enrollment must not silently replace or add controllers to an already trusted receiver.
 

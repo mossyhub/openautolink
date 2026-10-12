@@ -108,9 +108,9 @@ Select **USB** under **Android Auto connection** for normal wired use, then conn
 
 ### Temporary USB switch between phones
 
-For example, keep **Android Auto connection → Wireless** and **CarPlay connection → USB**, with **Enable iPhone projection** on. Enabling CarPlay does not disable wireless Android Auto or change its saved mode.
+For example, keep **Android Auto connection → Wireless** and **CarPlay connection → USB**. Both phone protocols are available in the same app; using CarPlay does not disable wireless Android Auto or change its saved mode.
 
-- Plug in an Android phone or enabled iPhone while projection is connected or connecting. OAL offers **Switch / Stay here** before starting USB setup or stopping the current projection.
+- Plug in an Android phone or iPhone while projection is connected or connecting. OAL offers **Switch / Stay here** before starting USB setup or stopping the current projection.
 - **Stay here** (or dismissing the prompt) leaves the current projection alone. Replug the phone to offer it again.
 - **Switch** attempts to stop the current receiver, then starts the attached phone over USB. Accept the applicable system permission/Trust prompts.
 - The selection lasts for that cable connection only. Unplugging returns OAL to its saved normal connection policy; it does not rewrite either mode. Wireless reconnection still depends on the phone and vehicle.
@@ -125,9 +125,10 @@ Keep the vehicle parked while configuring. Disconnect the iPhone from any other 
 ### Common prerequisites
 
 1. Install a current OAL build with a valid accessory authentication identity. Maintainer Play builds provide the identity; public GitHub APKs and source builds require your own compatible files. See the [authentication/build policy](docs/carplay-private-mfi-assets.md).
-2. In **OAL → Settings → Connection → CarPlay**, check **Enable iPhone projection** if you previously disabled it. Saved choices are retained; selecting a connection mode does not change this control.
-3. Choose **USB** or **Wireless** under **CarPlay connection**, independently of Android Auto. Fresh or older records without a CarPlay mode default to USB.
-4. Apply changes with **Save & Reconnect**. Keep file logging enabled for testing and upload results, including failed attempts.
+2. Use **USB** under **OAL → Settings → Connection → CarPlay → CarPlay connection** for wired projection. Wireless remains a development option; CarPlay and Android Auto connection modes are independent.
+3. Apply any changes with **Save & Reconnect**. Keep file logging enabled for testing and upload results, including failed attempts.
+
+If you previously turned off iPhone projection, OAL retains that choice. Only in that case, turn **Enable iPhone projection** back on in the same settings page and save. There is no separate enablement step for normal setup.
 
 ### USB
 
