@@ -81,6 +81,22 @@ class PairingProbeServerTest {
             server.allowPeer(setOf("::1")); server.start()
             Socket("::1", server.port).use { socket ->
                 socket.soTimeout = 2000
+                // connect() can complete while this connection is still in the listen backlog.
+                // A closed listener resets pending connections on Linux. Complete a real request
+                // first so this test closes an accepted, idle worker and still requires EOF.
+                socket.getOutputStream().write("GET /info RTSP/1.0\r\n\r\n".toByteArray())
+                val input = socket.getInputStream()
+                val header = StringBuilder()
+                while (!header.endsWith("\r\n\r\n")) {
+                    header.append(input.read().also { assertTrue(it >= 0) }.toChar())
+                }
+                assertTrue(header.startsWith("RTSP/1.0 200 OK"))
+                val length = Regex("Content-Length: ([0-9]+)").find(header)!!.groupValues[1].toInt()
+                val body = ByteArray(length)
+                var offset = 0
+                while (offset < length) {
+                    offset += input.read(body, offset, length - offset).also { assertTrue(it > 0) }
+                }
                 val before = System.nanoTime()
                 server.close()
                 assertTrue((System.nanoTime() - before) / 1_000_000 < 2000)

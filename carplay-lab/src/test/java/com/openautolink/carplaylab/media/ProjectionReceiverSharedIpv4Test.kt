@@ -35,8 +35,26 @@ class ProjectionReceiverSharedIpv4Test {
     private fun runReconnect(replacement: Boolean = false, unrelated: Boolean = false,
         invalidSignature: Boolean = false, retireBeforeM5: Boolean = false,
         firstEnrollment: Boolean = false, reconnect: Boolean = false) {
-        val ip = NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }
-            .filterIsInstance<Inet4Address>().first { !it.isLoopbackAddress && !it.isAnyLocalAddress }
+        // Use a real unicast host endpoint: the production policy deliberately rejects loopback.
+        val ip = NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp }
+            .flatMap { it.inetAddresses.toList() }.filterIsInstance<Inet4Address>()
+            .first { !it.isLoopbackAddress && !it.isAnyLocalAddress && !it.isMulticastAddress && !it.isLinkLocalAddress }
+        // API32 Robolectric carries real TCP bytes but may synthesize accept's peer metadata.
+        // Measure that exact endpoint instead of pinning the developer host's 192.168.0.10.
+        val peer = ServerSocket().use { probe ->
+            probe.soTimeout = 5000
+            probe.bind(InetSocketAddress(InetAddress.getByName("::"), 0), 2)
+            Socket().use { client ->
+                client.bind(InetSocketAddress(ip, 0)); client.connect(InetSocketAddress(ip, probe.localPort))
+                client.getOutputStream().write(42)
+                probe.accept().use { accepted ->
+                    accepted.soTimeout = 5000
+                    assertEquals(42, accepted.getInputStream().read())
+                    assertEquals(ip, accepted.localAddress)
+                    accepted.inetAddress.also { assertTrue(it is Inet4Address) }
+                }
+            }
+        }
         val context = RuntimeEnvironment.getApplication() as Context
         val directory = File(context.noBackupFilesDir, "pairing-probe")
         directory.deleteRecursively()
@@ -67,8 +85,7 @@ class ProjectionReceiverSharedIpv4Test {
                     manufacturer = "test", serialNumber = "test", firmwareVersion = "test", hardwareVersion = "test",
                     wireless = Iap2WirelessIdentification("02:00:00:00:00:01", "test")))
                 if (firstEnrollment) receiver.authorizeFirstEnrollment(120_000)
-                receiver.startSharedIpv4(CarPlayNetworkSelection(ip, 1, InetAddress.getByName("192.168.0.10")))
-                // API32 Robolectric accept reports a synthetic peer; RTSP bytes use real TCP.
+                receiver.startSharedIpv4(CarPlayNetworkSelection(ip, NetworkInterface.getByInetAddress(ip).index, peer))
                 @Suppress("UNCHECKED_CAST")
                 fun session(): AirPlaySession = (ProjectionReceiver::class.java.getDeclaredField("allSessions")
                     .apply { isAccessible = true }.get(receiver) as Set<AirPlaySession>).single { !it.isClosed }
@@ -191,7 +208,10 @@ class ProjectionReceiverSharedIpv4Test {
                                 AirPlayCrypto.nonceLabel("PV-Msg03"), tlv(1 to id, 10 to sig))))
                             assertEquals(4, pv4.getValue(6).single().toInt())
                             assertTrue(session().controlAuthenticated)
-                            assertNotNull(admission()?.authenticatedBinding(session()))
+                            val binding = admission()?.authenticatedBinding(session())
+                            assertNotNull(binding)
+                            assertEquals(ip, binding!!.local)
+                            assertEquals(peer, binding.peer)
                             assertEquals(postSetupFileKey, Files.readAttributes(state.toPath(), BasicFileAttributes::class.java).fileKey())
                             assertArrayEquals(postSetupState, state.readBytes())
                         }
