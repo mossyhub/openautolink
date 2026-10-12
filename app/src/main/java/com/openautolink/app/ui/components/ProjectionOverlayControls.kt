@@ -4,10 +4,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.openautolink.app.ui.projection.ProjectionUiState
@@ -29,21 +30,18 @@ fun ProjectionOverlayControls(
     onUpload: (() -> Unit)? = null,
     onSimulateIgnition: (() -> Unit)? = null,
 ) {
-        BoxWithConstraints(
-            modifier = modifier
-
-                .padding(end = 16.dp, bottom = 16.dp),
+        var viewport by remember { mutableStateOf<OverlayButtonViewport?>(null) }
+        // Measure the entire already chrome-free AA/CarPlay parent, not the
+        // bottom-end control column or the possibly letterboxed video Surface.
+        // A plain Box has no background pointer handler: maps retain blank-space touches.
+        Box(
+            modifier = modifier.fillMaxSize().onGloballyPositioned { coordinates ->
+                val origin = coordinates.positionInRoot()
+                viewport = OverlayButtonViewport(origin.x, origin.y,
+                    coordinates.size.width.toFloat(), coordinates.size.height.toFloat())
+            },
         ) {
-            // `maxWidth.value` returns DP, but the drag offset inside
-            // DraggableOverlayButton is in PIXELS. Passing the DP value
-            // was clamping the drag to ~screen_width/density pixels —
-            // i.e. an "invisible wall" roughly 1/3 of the way across the
-            // screen on common AAOS panel densities. Convert to pixels.
-            val density = LocalDensity.current
-            val maxBoundsX = with(density) { this@BoxWithConstraints.maxWidth.toPx() }
-            val maxBoundsY = with(density) { this@BoxWithConstraints.maxHeight.toPx() }
-
-            Column {
+            Column(Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp)) {
                 // Settings button — draggable
                 DraggableOverlayButton(
                     icon = Icons.Default.Settings,
@@ -51,8 +49,7 @@ fun ProjectionOverlayControls(
                     onClick = onSettings,
                     positionKey = "overlay_settings",
                     modifier = Modifier.testTag("settingsButton"),
-                    maxBoundsX = maxBoundsX,
-                    maxBoundsY = maxBoundsY,
+                    viewport = viewport,
                 )
 
                 // Switch Phone button — Car Hotspot mode only. Tapping opens a
@@ -77,8 +74,7 @@ fun ProjectionOverlayControls(
                             MaterialTheme.colorScheme.onSurface
                         },
                         modifier = Modifier.testTag("switchPhoneButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
+                        viewport = viewport,
                     )
                 }
 
@@ -102,8 +98,7 @@ fun ProjectionOverlayControls(
                             MaterialTheme.colorScheme.onSurface
                         },
                         modifier = Modifier.testTag("statsButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
+                        viewport = viewport,
                     )
                 }
 
@@ -119,8 +114,7 @@ fun ProjectionOverlayControls(
                         onClick = { onReconnect?.invoke() },
                         positionKey = "overlay_reconnect",
                         modifier = Modifier.testTag("reconnectButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
+                        viewport = viewport,
                     )
                 }
 
@@ -144,8 +138,7 @@ fun ProjectionOverlayControls(
                         MaterialTheme.colorScheme.onSurface
                     },
                     modifier = Modifier.testTag("fileLogButton"),
-                    maxBoundsX = maxBoundsX,
-                    maxBoundsY = maxBoundsY,
+                    viewport = viewport,
                 )
                 } // end fileLoggingEnabled
 
@@ -181,8 +174,7 @@ fun ProjectionOverlayControls(
                         containerColor = uploadContainer,
                         tint = uploadTint,
                         modifier = Modifier.testTag("uploadLogsButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
+                        viewport = viewport,
                     )
                 }
 
@@ -200,8 +192,7 @@ fun ProjectionOverlayControls(
                         onClick = { onSimulateIgnition?.invoke() },
                         positionKey = "overlay_simulate_ignition",
                         modifier = Modifier.testTag("simulateIgnitionButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
+                        viewport = viewport,
                     )
                 }
             }

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.517
+
+### Display controls
+- Keep floating controls inside the available projection area when switching between fullscreen and visible system UI.
+- Recover previously saved off-screen positions automatically, without clearing settings or phone trust.
+- Preserve dragged positions across layout changes while keeping untouched controls in their normal stack.
+
+### CarPlay audio
+- Correct output-purpose attributes for admitted alternate/navigation, phone, assistant and alert audio; preserve the existing media path.
+- Add bounded audio-owner and device-wide playback-route diagnostics to distinguish OAL playback from other vehicle audio sources.
+- These corrections do not yet establish the cause or resolution of the reported GM navigation-volume behavior. Vehicle confirmation is still required.
+
+### Documentation
+- Showcase CarPlay Dashboard in fullscreen and with the vehicle system bar visible.
+
 ## 0.1.516
 
 ### Phone projection

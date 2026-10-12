@@ -80,6 +80,10 @@ object CarPlayAudioDiagnostics {
         "media stage=(audio-decoder-configured|audio-output-failed) codec=$codec",
         "media stage=audiotrack-written bytes=$number; human audibility unverified",
         "media stage=(audio-focus-change|audio-focus-granted|audio-focus-denied|audio-owner-limit|audio-retirement-pending|audio-queue-overflow|audio-decoder-backpressure|audio-write-backpressure|microphone-owner-busy|session-ended)",
+        "media stage=audio-owners scope=own owners=[0-8] tracks=[0-8]",
+        "media stage=audio-route stream=$number type=(100|101|102) audioType=$audioType codec=$codec scope=own usage=([0-9]{1,4}|null) content=([0-9]{1,4}|null) device=([0-9]{1,4}|null)",
+        "media stage=device-playback-summary scope=device owner=unknown result=(ok|unavailable) observed=[0-9]{1,4} emitted=[0-8] truncated=$bool",
+        "media stage=device-playback index=[0-7] scope=device owner=unknown usage=([0-9]{1,4}|null) content=([0-9]{1,4}|null) device=([0-9]{1,4}|null)",
         "media stage=status-queue drops=[0-9]{1,19}",
         "media stage=record-active; rendering unverified",
     ).map(::Regex)

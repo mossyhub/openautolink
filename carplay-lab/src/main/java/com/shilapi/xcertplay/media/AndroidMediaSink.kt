@@ -65,6 +65,12 @@ class AndroidMediaSink(
     private val currentVideoCodec = java.util.concurrent.atomic.AtomicReference<MediaCodec?>()
     @Volatile private var announcedCodec = VideoCodec.H264
     private val videoThread = Thread(::runVideo, "lab-video").apply { isDaemon = true; start() }
+    private val routeDiagnostics = PassiveAudioRouteDiagnostics(manager, {
+        // Include closed-but-not-retired platform owners: zero must not hide a stalled release.
+        val owners = tracks.values.filter { !it.isRetired }.take(8)
+        val receipts = owners.mapNotNull { it.routeReceipt() }
+        listOf("media stage=audio-owners scope=own owners=${owners.size} tracks=${receipts.size}") + receipts
+    }, ::report)
     private sealed class VideoJob {
         class Config(val codec: VideoCodec, val bytes: ByteArray) : VideoJob()
         class Frame(val bytes: ByteArray) : VideoJob()
@@ -234,6 +240,7 @@ class AndroidMediaSink(
         finally { release(); videoRetired.set(true) }
     }
     override fun close() {
+        routeDiagnostics.close()
         if (closed.compareAndSet(false, true)) telemetry.retire()
         currentVideoCodec.set(null)
         videoThread.interrupt(); videoQueue.clear()
@@ -259,7 +266,7 @@ class AndroidMediaSink(
             val retired = synchronized(this) {
                 tracks.entries.removeIf { it.value.isRetired }
                 microphoneOwners.removeIf { it.isRetired }
-                closed.get() && videoRetired.get() && !videoThread.isAlive &&
+                closed.get() && routeDiagnostics.isRetired && videoRetired.get() && !videoThread.isAlive &&
                     tracks.isEmpty() && microphoneOwners.isEmpty()
             }
             if (retired) return true
@@ -315,6 +322,12 @@ private class AudioOutputTrack(
         else { queueDrops.incrementAndGet(); report("media stage=audio-queue-overflow") }
     }
     fun volume(value: Float) { requestedVolume = value }
+    fun routeReceipt(): String? {
+        val current = track ?: return null
+        val attrs = runCatching { current.audioAttributes }.getOrNull()
+        val device = runCatching { current.routedDevice?.type }.getOrNull()
+        return "media stage=audio-route $qualification scope=own usage=${PassiveAudioRouteDiagnostics.bounded(attrs?.usage)} content=${PassiveAudioRouteDiagnostics.bounded(attrs?.contentType)} device=${PassiveAudioRouteDiagnostics.bounded(device)}"
+    }
     private fun run() {
         var current: AudioTrack? = null
         var codec: MediaCodec? = null
@@ -328,10 +341,17 @@ private class AudioOutputTrack(
             val mask = if (channels == 1) PlatformAudioFormat.CHANNEL_OUT_MONO else PlatformAudioFormat.CHANNEL_OUT_STEREO
             val minimum = AudioTrack.getMinBufferSize(rate,mask,encoding)
             require(minimum > 0)
+            // GM's alternate channel is NAV for every type101 purpose. Main defaults stay MEDIA.
+            // Phone/Siri and alert match OAL's Android Auto usage/content contract; no focus changes.
+            val (usage, content) = when {
+                format.payloadType == 101 -> AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE to AudioAttributes.CONTENT_TYPE_SPEECH
+                format.audioType == "telephony" -> AudioAttributes.USAGE_VOICE_COMMUNICATION to AudioAttributes.CONTENT_TYPE_SPEECH
+                format.audioType == "speechrecognition" -> AudioAttributes.USAGE_ASSISTANT to AudioAttributes.CONTENT_TYPE_SPEECH
+                format.audioType == "alert" -> AudioAttributes.USAGE_NOTIFICATION_RINGTONE to AudioAttributes.CONTENT_TYPE_SONIFICATION
+                else -> AudioAttributes.USAGE_MEDIA to AudioAttributes.CONTENT_TYPE_MUSIC
+            }
             val built = AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder()
-                .setUsage(if (format.audioType == "default" && format.payloadType == 101)
-                    AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE else AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setUsage(usage).setContentType(content).build())
                 .setAudioFormat(PlatformAudioFormat.Builder().setSampleRate(rate)
                     .setChannelMask(mask).setEncoding(encoding).build())
                 .setBufferSizeInBytes(maxOf(minimum * 2,rate * channels * 2 / 10))

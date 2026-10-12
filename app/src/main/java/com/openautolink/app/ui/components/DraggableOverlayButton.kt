@@ -3,7 +3,7 @@ package com.openautolink.app.ui.components
 import android.content.Context
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -21,23 +21,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-/**
- * A draggable semi-transparent icon button for use as a floating overlay.
- * Tap triggers [onClick]. Drag moves the button. Drag vs tap is distinguished
- * by tracking cumulative drag distance — only taps with < threshold movement fire onClick.
- * Position is persisted across restarts via SharedPreferences.
- * Positions are clamped to ±[maxBoundsX] / ±[maxBoundsY] so the button can be
- * dragged anywhere within the screen bounds (including left/top of the default
- * bottom-right placement) while still staying visible across display mode changes.
- */
+/** Shared draggable control. Geometry and persisted positions use parent pixels, not column deltas. */
 @Composable
-fun DraggableOverlayButton(
+internal fun DraggableOverlayButton(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
@@ -47,33 +40,15 @@ fun DraggableOverlayButton(
     tint: Color = MaterialTheme.colorScheme.onSurface,
     containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
     onGlobalPosition: ((LayoutCoordinates) -> Unit)? = null,
-    maxBoundsX: Float = Float.POSITIVE_INFINITY,
-    maxBoundsY: Float = Float.POSITIVE_INFINITY,
+    viewport: OverlayButtonViewport? = null,
 ) {
-    val density = LocalDensity.current
+    val density = LocalDensity.current.density
     val context = LocalContext.current
-    val prefs = remember {
-        context.getSharedPreferences("overlay_positions", Context.MODE_PRIVATE)
-    }
-
-    // Helper to clamp offset to bounds.
-    // Minimum is negative to allow dragging left/up from the default bottom-right position.
-    fun clampOffset(offset: Offset): Offset {
-        return Offset(
-            x = offset.x.coerceIn(-maxBoundsX, maxBoundsX),
-            y = offset.y.coerceIn(-maxBoundsY, maxBoundsY)
-        )
-    }
-
-    val initialPx = with(density) {
-        if (positionKey != null && prefs.contains("${positionKey}_x")) {
-            val savedOffset = Offset(prefs.getFloat("${positionKey}_x", 0f), prefs.getFloat("${positionKey}_y", 0f))
-            clampOffset(savedOffset)
-        } else {
-            Offset(initialOffsetDp.x * this.density, initialOffsetDp.y * this.density)
-        }
-    }
-    var offset by remember { mutableStateOf(initialPx) }
+    val prefs = remember(context) { context.getSharedPreferences("overlay_positions", Context.MODE_PRIVATE) }
+    val store = remember(prefs, positionKey) { positionKey?.let { OverlayButtonPositionStore(prefs, it) } }
+    val initialPx = OverlayButtonPoint(initialOffsetDp.x * density, initialOffsetDp.y * density)
+    var offset by remember(positionKey) { mutableStateOf(initialPx) }
+    var geometry by remember(positionKey) { mutableStateOf<OverlayButtonGeometry?>(null) }
     var lastDragEndTime by remember { mutableStateOf(0L) }
     var wasDragged by remember { mutableStateOf(false) }
 
@@ -88,45 +63,50 @@ fun DraggableOverlayButton(
             onClick()
         },
         modifier = modifier
-            .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
-            .then(
-                if (onGlobalPosition != null) Modifier.onGloballyPositioned(onGlobalPosition)
-                else Modifier
-            )
-            .pointerInput(Unit) {
+            // Physical/root coordinates must not reverse their X axis in RTL.
+            .absoluteOffset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
+            .onGloballyPositioned { coordinates ->
+                onGlobalPosition?.invoke(coordinates)
+                val parent = viewport
+                if (parent != null && parent.width > 0f && parent.height > 0f &&
+                    coordinates.size.width > 0 && coordinates.size.height > 0) {
+                    val placed = coordinates.positionInRoot()
+                    val measured = OverlayButtonGeometry(
+                        parent.width, parent.height,
+                        placed.x - parent.left - offset.x.roundToInt(),
+                        placed.y - parent.top - offset.y.roundToInt(),
+                        coordinates.size.width.toFloat(), coordinates.size.height.toFloat(),
+                    )
+                    // Relayout (bars, window, size, optional controls) is the trigger,
+                    // not recomposition. The first layout also recovers legacy traps.
+                    if (measured != geometry) {
+                        offset = store?.readOffset(measured, initialPx) ?: measured.clampOffset(offset)
+                        geometry = measured
+                    }
+                }
+            }
+            .pointerInput(geometry, store) {
+                val bounds = geometry ?: return@pointerInput
                 detectDragGestures(
                     onDragStart = { wasDragged = false },
                     onDragEnd = {
                         if (wasDragged) {
                             lastDragEndTime = System.currentTimeMillis()
-                            if (positionKey != null) {
-                                prefs.edit()
-                                    .putFloat("${positionKey}_x", offset.x)
-                                    .putFloat("${positionKey}_y", offset.y)
-                                    .apply()
-                            }
+                            store?.saveOffset(bounds, offset)
                         }
                     },
+                    // A geometry-key change cancels the old handler. Do not
+                    // persist its old coordinate basis over the reprojected position.
                     onDragCancel = { wasDragged = false },
                 ) { change, dragAmount ->
                     change.consume()
                     wasDragged = true
-                    offset = clampOffset(Offset(
-                        x = offset.x + dragAmount.x,
-                        y = offset.y + dragAmount.y,
-                    ))
+                    offset = bounds.clampOffset(OverlayButtonPoint(offset.x + dragAmount.x, offset.y + dragAmount.y))
                 }
             },
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = containerColor,
-            contentColor = tint,
-        ),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = containerColor, contentColor = tint),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(24.dp),
-        )
+        Icon(imageVector = icon, contentDescription = contentDescription, modifier = Modifier.size(24.dp))
     }
 }
