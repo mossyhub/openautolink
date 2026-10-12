@@ -208,6 +208,11 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                if (selectedTab == SettingsTab.CONNECTION) {
+                    SupportOpenAutoLink()
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
                 // Tab content
                 Box(modifier = Modifier.weight(1f)) {
                     when (selectedTab) {
