@@ -27,11 +27,11 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 
 | Phone / mode | Connection | Companion needed? | Notes |
 |---|---|---|---|
-| Android Auto, wireless | Bluetooth WPP bootstrap + car Wi-Fi | **Yes**, for GM wireless | Use WPP for Android Auto 17.4+ |
-| Android Auto, USB | Direct AOA v2 USB transport | **No** | GM requests USB permission on each connection |
-| CarPlay, USB | Direct USB-host transport with an app-local network bridge | **No iPhone companion** | Data-capable USB port/cable, authentication identity and USB/VPN consent required |
-| CarPlay, wireless | Native Bluetooth/iAP2 bootstrap + Wi-Fi/AirPlay | **No iPhone companion** | Available for development; not working in the maintainer's vehicle |
-| CarPlay, shared Wi-Fi | Wireless bootstrap, with both devices on an existing LAN | **No iPhone companion** | Advanced wireless network configuration; not a USB requirement |
+| Android Auto, wireless | Bluetooth + car Wi-Fi (WPP) | **Yes**, for GM wireless | Use WPP for Android Auto 17.4+ |
+| Android Auto, USB | USB cable | **No** | GM requests USB permission on each connection |
+| CarPlay, USB | USB cable | **No iPhone companion** | Data-capable USB port/cable, authentication identity and USB/VPN consent required |
+| CarPlay, wireless | Bluetooth + Wi-Fi | **No iPhone companion** | Available for development; not working in the maintainer's vehicle |
+| CarPlay, shared Wi-Fi | Existing Wi-Fi network | **No iPhone companion** | Advanced wireless network configuration; not a USB requirement |
 
 Check the notes for your installed build: internal Play builds can include changes not yet published in [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest). USB hot-plug handoff is implemented, but current vehicle validation is still pending.
 
@@ -39,11 +39,11 @@ Check the notes for your installed build: internal Play builds can include chang
 
 ### Shared application
 
-- One car app with existing Connection, Video and Display settings; CarPlay does not replace OAL's launcher or Android Auto implementation.
-- Shared draggable Settings/Stats overlays and a single **Save & Reconnect** transaction.
+- One car app for Android Auto and CarPlay.
+- Draggable Settings/Stats controls and **Save & Reconnect**.
 - Configurable display layout, safe areas and video sizing for wide AAOS screens.
 - Built-in diagnostics, optional log upload and network/vehicle inspection tools.
-- Separate Android Auto and CarPlay preferences. Only one projection receiver owns the active session at a time.
+- Separate Android Auto and CarPlay settings; one phone projects at a time.
 - Temporary USB hot-plug: when a phone arrives during active or connecting projection, choose **Switch** or **Stay here** without changing either protocol's saved connection mode.
 
 ### Android Auto
@@ -51,20 +51,19 @@ Check the notes for your installed build: internal Play builds can include chang
 - **Wireless WPP and direct USB**, without additional projection hardware.
 - **EV data in Google Maps**: vehicle battery, range, charge-port data and a configurable energy model. See [EV range estimates](docs/ev-range.md).
 - **Instrument-cluster navigation and media metadata** on supported vehicles. Navigation-app support varies.
-- **Projected calls with native Bluetooth HFP audio**, microphone, steering-wheel controls and ignition reconnects.
+- **Phone calls**, microphone, steering-wheel controls and ignition reconnects.
 - **H.264, H.265 and VP9 video**, with manual 1440p (2560×1440) and 4K (3840×2160) tiers and portrait equivalents, subject to phone/decoder support.
-- In this branch, fresh-install video defaults prefer H.265; **AA Auto prefers 1440p, not 4K**, with lower compatibility tiers. Existing saved choices are retained; 4K remains manual.
-- Per-codec startup-placeholder filtering is configurable in Video settings.
+- **Automatic video sizing prefers 1440p** where supported; 4K can be selected manually.
 
 ### CarPlay
 
-- Native **iAP2 accessory identification/authentication and AirPlay control/media**; no mandatory iPhone app or external relay.
+- No iPhone companion app or additional projection hardware.
 - **USB projection**, with wireless connection retained separately for development.
-- **Video, touch and audio**, including AAC and qualified H.264/HEVC decoding. Music playback quality is still being refined; do not assume uninterrupted audio on every setup.
-- **Two-contact input** for gestures such as map pinch-to-zoom.
-- **Auto/custom video geometry**, default-on **Fit to window** for standard detail tiers, independent UI sizing and manual control-safe calibration. A requested FPS is a cap, not a sustained-frame-rate guarantee.
-- **Metadata-only cluster integration** through OAL's existing host outputs, rather than a second video stream. Media/artwork is available; route guidance remains under validation. Availability depends on the vehicle and navigation app.
-- Authenticated night-mode, location and vehicle-data reporting.
+- **Video, touch and audio**. Music playback quality is still being refined.
+- **Multi-touch gestures**, including map pinch-to-zoom.
+- **Adjustable video quality, Fit to window and safe-control calibration** for wide or curved screens.
+- **Music information and artwork on supported vehicle displays**. Cluster route guidance is still being refined.
+- Night-mode and vehicle-data integration.
 
 ## Installation
 
@@ -82,7 +81,7 @@ For wireless Android Auto, install `openautolink-companion-vX.Y.Z.apk` from the 
 
 ### iPhone
 
-No OAL iPhone companion is required. For **USB**, connect a data-capable cable; Bluetooth pairing and car Wi-Fi fields are not required for wired startup. For **wireless**, pair through the **car's system Bluetooth settings** and configure the wireless fields below. USB Trust approval is separate from Bluetooth pairing; appropriately provisioned internal builds do not require routine replacement of authentication files.
+No OAL iPhone companion is required. For **USB**, connect a data-capable cable; Bluetooth pairing and car Wi-Fi fields are not required for wired startup. For **wireless**, pair through the **car's system Bluetooth settings** and configure the wireless fields below. USB Trust approval is separate from Bluetooth pairing; maintainer Play builds include the required authentication files.
 
 ### Other AAOS systems
 
@@ -101,13 +100,11 @@ For Android Auto 17.4 or newer:
 5. Remove any old **Car WiFi** entry in the companion so it does not compete with Android Auto for the radio.
 6. Select the car under companion **Auto-Start → Select Devices**, then save and reconnect.
 
-The car advertises Android Auto Wireless and provides AP details. On the validated GM topology, Android Auto attaches to a phone-local loopback proxy held by the companion, which relays the session to OAL. **The companion is still required for this wireless path.** In WPP mode, GM's Bluetooth logic determines which nearby paired phone connects first; OAL does not replace that choice with its own phone switcher.
-
-Read [Wireless WPP setup](docs/wireless-wpp.md) for migration, channel/BSSID requirements and saved-network trade-offs. Legacy **Car Hotspot / Phone Hotspot** modes are no longer offered in this branch's settings; older instructions for them are not a current wireless fallback. Historical SBC work remains on the [`bridge-mode`](https://github.com/mossyhub/openautolink/tree/bridge-mode) branch.
+**The companion is required for wireless Android Auto.** GM chooses which nearby paired phone connects first. See the [WPP guide](docs/wireless-wpp.md) for detailed setup and migration instructions.
 
 ### USB
 
-Select **USB** under **Android Auto connection** for normal wired use, then connect a data-capable cable. OAL receives Android Auto directly through AOA v2. No companion is used. GM asks for USB permission on every connection even when **Always allow** is selected. You can also leave normal AA mode set to Wireless and use the temporary USB switch below.
+Select **USB** under **Android Auto connection** for normal wired use, then connect a data-capable cable. No companion is needed. GM asks for USB permission on every connection even when **Always allow** is selected. You can also leave normal AA mode set to Wireless and use the temporary USB switch below.
 
 ### Temporary USB switch between phones
 
@@ -142,63 +139,21 @@ Keep the vehicle parked while configuring. Disconnect the iPhone from any other 
 2. Connect the iPhone to a data-capable head-unit USB port with a data-capable cable. If another projection is active, choose **Switch** to attempt temporary USB takeover.
 3. Accept Android USB access and OAL's local VPN consent when requested. If the iPhone asks to trust the connection, unlock it and approve **Trust** on the iPhone itself.
 
-Wired startup does **not** require a selected Bluetooth phone, car AP credentials, a phone IP or a head-unit Bluetooth MAC. OAL uses a package-scoped local USB network bridge; its VPN consent is Android networking plumbing, not an Internet VPN service. Another active VPN can conflict—do not replace one without understanding its purpose. Host USB access and VPN consent availability depend on the AAOS platform.
+USB CarPlay does not require Bluetooth pairing or Wi-Fi setup. The VPN permission is used locally for the USB connection—not an Internet VPN service. Another active VPN can conflict. USB access and permission support vary by head unit.
 
-### Wireless — development path
+### Wireless CarPlay
 
-Wireless CarPlay is retained for continued development, but is not currently working in the maintainer's vehicle. The following fields describe that path, not prerequisites for USB:
-
-1. Select **CarPlay connection → Wireless**.
-2. Pair the iPhone through the **car's Bluetooth settings**, accept its prompts and select the bonded iPhone in OAL.
-3. Open **Advanced network** and provide the real car AP SSID/passphrase, frequency in MHz, security type and interface. OAL does not change the OEM hotspot configuration. Wi-Fi passphrases are stored encrypted and excluded from backups.
-4. Enter the **head unit Bluetooth MAC** using the car menu below. Leave the exact local address blank unless you deliberately need an override.
-5. Use **Save & Reconnect**.
-
-### Find the car's Bluetooth address
-
-In the **car's Settings app → System → About**, scroll to **Bluetooth address**. Copy that value into **OAL → Connection → CarPlay → Advanced network → Head unit Bluetooth MAC**.
-
-On the Chevrolet Blazer EV, use this menu path; other vehicle menus may differ. Use the **car's Bluetooth address**, not the iPhone's own address or the Wi-Fi BSSID. Android can hide the head unit's local address from OAL; `02:00:00:00:00:00` is a privacy placeholder and cannot be used. No Android phone is needed to obtain it through this car menu.
-
-### Three car-AP configurations
-
-These are configurations of the **same native receiver/bootstrap**, not three independent implementations. Keep **Use shared Wi-Fi / LAN instead of car AP OFF**. On the Blazer EV, the AP interface is `ap_br_swlan0`; do not assume that name on other platforms.
-
-| Configuration | iPhone Wi-Fi action | OAL address family | Phone numeric IP |
-|---|---|---|---|
-| Native AP provisioning | Let native bootstrap supply the AP connection | IPv6 | Leave blank |
-| Manual AP join + IPv6 | Join the car AP yourself | IPv6 | Leave blank |
-| Manual AP join + explicit IPv4 | Join the car AP yourself | IPv4 | Enter its current car-AP IPv4 address |
-
-Use **Save & Reconnect** after each change and accept iPhone prompts. Manual joining removes automatic association as a dependency, **not Bluetooth bootstrap**. Explicit IPv4 does not bypass blocked phone-to-head-unit ingress.
-
-### Shared Wi-Fi / LAN diagnostic path
-
-With the car and iPhone joined to the same existing Wi-Fi network:
-
-- Turn **Use shared Wi-Fi / LAN instead of car AP ON**.
-- Enter that network's SSID/passphrase; shared mode reads its current frequency/security.
-- Choose the car's connected Wi-Fi interface (`wlan0` on the Blazer EV), **IPv4**, and the iPhone's current IP on that network.
-- Leave exact local address blank; retain the real head-unit Bluetooth address and selected bonded iPhone.
-- Use **Save & Reconnect**.
-
-This still uses Bluetooth/iAP2 bootstrap. Both devices must be able to communicate on the LAN; guest-network or client isolation can prevent the connection.
+Wireless CarPlay is still in development and is not working in the maintainer's vehicle. Use USB for now. Advanced wireless configuration is covered in the [network guide](docs/carplay-network-contract.md).
 
 ### Video and display
 
-**CarPlay Auto** chooses one decoder-qualified geometry matching the available viewport's aspect ratio, targeting 1440p-class detail where supported. It does **not** simply copy the Surface's pixel dimensions, and it does not advertise a list of fake displays for the phone to choose from.
+- Use **Auto** for automatic video sizing, or choose a resolution in **Video**. **Fit to window** lets standard quality tiers fill the available projection area without stretching. Custom resolutions retain their chosen aspect ratio.
+- Use **Display → Calibrate safe controls** to move controls away from physical screen curves. This is manual adjustment, not automatic curve detection. Tap **Done**, then **Save & Reconnect**.
+- Available resolutions and frame rates depend on the phone and head unit. A frame-rate setting is a limit, not a guarantee. Safe-area calibration and system-bars-visible layouts still need broader vehicle testing.
 
-For **manual standard detail tiers** such as 1080p or 1440p, **Fit to window** is on by default: OAL qualifies a canvas matching the available window while retaining the chosen detail tier. Explicit saved-off choices remain off. With Fit to window off, or with Custom/geometry-named presets, OAL preserves the selected aspect ratio and fits with margins rather than stretching. Unsupported requests use a qualified fallback.
+### Authentication and source builds
 
-In **Display → Calibrate safe controls**, move the edges inward to keep CarPlay controls clear of physical screen curves. This is manual rectangular calibration, not automatic curve detection. CarPlay can retain background outside the control-safe region; AA's existing inset editor instead shrinks its projection region. **Done** stages the CarPlay draft; **Save & Reconnect** applies it to the next session.
-
-Fullscreen and system-bars-visible layouts use their own available app rectangle. Safe-editor alignment and system-bars-visible CarPlay behavior still need vehicle validation. Codec, frame-rate cap, physical UI sizing, window fit and safe controls are separate settings. H.264 remains compatible; HEVC is offered only through the qualified receiver path. Available resolution and frame rate depend on the phone and head-unit decoder.
-
-### Authentication and private builds
-
-OAL is **not an Apple-certified CarPlay product**. Internal builds reuse an existing accessory authentication identity; this is not a newly issued identity or a claim of redistribution rights. Bundled private assets are **extractable from distributed artifacts**.
-
-The Git repository and source archives contain **no accessory credentials or Android signing keys**. Ordinary source/CI builds omit runtime identity assets. Authorized internal builds can inject them from an external directory and validate/install them on first use, preserving existing valid credentials. Builders can obtain compatible files from an APK they possess and are authorized to inspect; never upload those files in issues or PRs. See the [full policy and build instructions](docs/carplay-private-mfi-assets.md).
+Maintainer Play builds include the CarPlay authentication files. Public GitHub APKs and source builds omit them and require your own compatible files. OAL is **not an Apple-certified CarPlay product**. Never publish authentication files or signing keys. See the [authentication and build policy](docs/carplay-private-mfi-assets.md) for requirements, provenance and redistribution limitations.
 
 ## Vehicle compatibility
 
@@ -248,28 +203,19 @@ Never post passwords, accessory credentials, upload invitation tokens or account
 
 ## Documentation and development
 
-OAL embeds [aasdk](https://github.com/opencardev/aasdk) through C++/JNI for Android Auto. The native layer handles protocol/TLS/framing/channels; Kotlin owns transport, media, sensors, input and UI. The CarPlay receiver is integrated as a library under the same real application/lifecycle. Shared resource ownership keeps the protocols from using the active receiver and metadata host simultaneously.
+User guides:
 
-| Guide | Purpose |
-|---|---|
-| [Personal AAB builder](docs/build-aab.md) | Build/sign/update your own Play artifact and preserve signing state |
-| [GM installation](docs/install-gm.md) | Play distribution and locked-vehicle requirements |
-| [Wireless WPP](docs/wireless-wpp.md) | Current Android Auto wireless setup and migration |
-| [CarPlay authentication/build policy](docs/carplay-private-mfi-assets.md) | Private assets, source builds, provenance and extractability |
-| [Independent connection modes / USB hot-plug](docs/usb-hotplug-independent-protocol-modes.md) | Saved normal modes, consent and temporary cable ownership |
-| [CarPlay window / safe-area contract](docs/carplay-window-safe-area-contract.md) | Detail tiers, window fit and manual control-safe calibration |
-| [CarPlay network contract](docs/carplay-network-contract.md) | Interface, address-family and connection design |
-| [CarPlay Auto negotiation research](docs/carplay-auto-negotiation-research.md) | Video geometry and codec negotiation |
-| [CarPlay cluster integration](docs/carplay-cluster-metadata-handoff.md) | Media and navigation metadata integration |
-| [Compatibility](docs/compatibility.md) | Vehicle-specific information |
-| [EV range estimates](docs/ev-range.md) | Android Auto energy-model behavior and tuning |
-| [Phone calls](docs/phone-calls.md) | Android Auto controls with native HFP audio |
-| [Architecture](docs/architecture.md) | Existing component structure; older AA-focused material |
-| [Embedded knowledge](docs/embedded-knowledge.md) | Protocol and hardware constraints |
-| [Legacy testing](docs/testing.md) | Historical SBC/emulator workflow |
-| [Privacy policy](docs/privacy-policy.md) | Data access and handling |
+- [GM installation](docs/install-gm.md) and [personal AAB builder](docs/build-aab.md)
+- [Wireless Android Auto](docs/wireless-wpp.md)
+- [Compatibility](docs/compatibility.md), [EV range estimates](docs/ev-range.md) and [phone calls](docs/phone-calls.md)
+- [Troubleshooting](docs/troubleshooting.md) and [privacy policy](docs/privacy-policy.md)
 
-Some linked guides predate this integration and remain Android Auto-specific. Follow the protocol-specific instructions above rather than applying WPP/companion requirements to CarPlay.
+Developer guides:
+
+- [Architecture](docs/architecture.md)
+- [CarPlay authentication/build policy](docs/carplay-private-mfi-assets.md)
+- [Connection modes and USB switching](docs/usb-hotplug-independent-protocol-modes.md)
+- [CarPlay networking](docs/carplay-network-contract.md), [display sizing](docs/carplay-window-safe-area-contract.md) and [cluster integration](docs/carplay-cluster-metadata-handoff.md)
 
 ## Contributing and support
 
