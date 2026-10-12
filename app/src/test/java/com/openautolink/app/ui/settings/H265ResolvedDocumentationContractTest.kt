@@ -27,7 +27,8 @@ class H265ResolvedDocumentationContractTest {
         assertFalse(readme.contains("H.265 video may appear green-tinted"))
         assertFalse(h265GreenWarning.containsMatchIn(normalized(readme)))
         assertTrue(readme.contains("H.264, H.265 and VP9 video"))
-        assertTrue(readme.contains("Per-codec startup-placeholder filtering"))
+        // The main README is product-facing; decoder internals belong in developer docs.
+        assertFalse(readme.contains("Per-codec startup-placeholder filtering"))
     }
 
     @Test
