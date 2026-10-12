@@ -118,6 +118,12 @@ For example, keep **Android Auto connection → Wireless** and **CarPlay connect
 
 This handoff is implemented for both phone protocols; successful end-to-end switching in the vehicle is still being validated.
 
+### Android Auto video quality
+
+If text or maps look soft, try **1440p** as the recommended manual quality setting: in **OAL → Settings → Video → Android Auto**, turn **Auto (Recommended)** off so it reads **Manual**, select **Video Codec → H.265 / HEVC**, then **AA Resolution → 1440p (2560×1440)** and tap **Save & Reconnect**. Keep **GAL / PDK protocol version → 6.0** for the verified modern HEVC path.
+
+**4K (3840×2160)** is an optional higher-detail setting if your phone and head-unit decoder support it. It costs more bandwidth and processing; return to 1440p if it stutters or fails to connect. Auto does not guarantee a particular negotiated resolution, and a blurry image alone does not prove the stream is 1080p. These codec controls apply to Android Auto, not CarPlay.
+
 ### Keep Android Auto call controls visible on GM
 
 In the native **Phone app → Settings**, turn **Active Call OFF** and **Privacy ON**. Leave Bluetooth **Phone calls enabled**: Android Auto controls/displays the call while the car's native HFP path carries microphone and speaker audio. See [Phone calls](docs/phone-calls.md). These settings apply to Android Auto.
@@ -147,7 +153,8 @@ Wireless CarPlay is still in development and is not working in the maintainer's 
 
 ### Video and display
 
-- Use **Auto** for automatic video sizing, or choose a resolution in **Video**. **Fit to window** lets standard quality tiers fill the available projection area without stretching. Custom resolutions retain their chosen aspect ratio.
+- Automatic sizing targets a decoder-qualified **1440p-class** image, with lower-detail fallbacks. If text or maps look soft, open **OAL → Settings → Video → CarPlay**, select **Manual** under **Resolution / detail**, then choose **1440p** (recommended) or try **4K** if supported. **Fit to window (standard detail tiers)** keeps the selected detail tier at the available window aspect without stretching; custom resolutions retain their chosen aspect ratio. Tap **Save & Reconnect** to apply.
+- For optional H.265/HEVC support, select **Codec → Automatic (H.264 + qualified HEVC)** in the same CarPlay section. This offers HEVC only when the exact size/rate qualifies and retains H.264; it does **not** force the iPhone to use HEVC. If connection fails, return to **H.264** and **Save & Reconnect**. 4K adds bandwidth and processing demand; return to 1440p if it stutters. Blurry video alone does not establish the negotiated resolution.
 - **For CarPlay on curved screens, we recommend Display → System UI Visible.** OAL starts in fullscreen mode by default, but CarPlay controls can be clipped by the physical screen curves in fullscreen.
 - In **Display → Calibrate safe controls**, adjust the safe rectangle to inset CarPlay controls as far from the edges as you prefer. This is manual adjustment, not automatic curve detection; without suitable insets, fullscreen can cut off parts of the UI. Confirm the calibration, then **Save & Reconnect**.
 - If you prefer fullscreen, **swipe down from the top edge of the screen to reveal the GM navigation bar** when you need the vehicle's system controls. This does not replace safe-control calibration.
