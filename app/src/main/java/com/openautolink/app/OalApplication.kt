@@ -23,6 +23,12 @@ import java.util.Locale
  * so they appear in the diagnostics screen without ADB access.
  */
 class OalApplication : Application() {
+    private val carBluetoothObservationScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate,
+    )
+    internal var carBluetoothConnectionObserver:
+        com.openautolink.app.transport.bluetooth.CarBluetoothConnectionObserver? = null
+        private set
 
     companion object {
         private const val CRASH_FILE = "oal-crash.txt"
@@ -57,6 +63,14 @@ class OalApplication : Application() {
         // after the VHAL observer and before Bluetooth advertising so it can
         // observe (but never cause) the complete pre-ignition sequence.
         com.openautolink.app.wake.PreWakeMonitor.initialize(this)
+
+        // Independent passive GM profile evidence, default-off with CarPlay. Never
+        // selects/prioritizes phones or alters the existing Android Auto advertiser.
+        carBluetoothConnectionObserver = com.openautolink.app.transport.bluetooth.CarBluetoothConnectionObserver(
+            this,
+            com.openautolink.app.data.AppPreferences.getInstance(this).carPlayEnabled,
+            carBluetoothObservationScope,
+        ).also { it.start() }
 
         // Android Auto Wireless BT advertiser.
         //
@@ -93,6 +107,12 @@ class OalApplication : Application() {
         } catch (e: Throwable) {
             Log.w("OAL-App", "Failed to initialize MediaSession: ${e.message}")
         }
+    }
+
+    override fun onTerminate() {
+        carBluetoothConnectionObserver?.close()
+        carBluetoothObservationScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        super.onTerminate()
     }
 
     /**

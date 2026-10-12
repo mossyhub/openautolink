@@ -6,13 +6,19 @@ on:
     paths:
       - 'app/**'
       - 'companion/**'
+      - 'carplay-lab/**'
       - 'README.md'
       - 'docs/experimental-gal6.md'
       - 'docs/screenshots/README.md'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - 'external/**'
       - 'gradle/**'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/release-apk.yml'
+      - '.github/workflows/tests/**'
   pull_request:
     branches: [main]
 
@@ -30,24 +36,32 @@ jobs:
         with:
           submodules: true
 
-      - name: Set up JDK 21
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 17
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: ''
+          packages: 'platform-tools platforms;android-36 build-tools;34.0.0 ndk;28.2.13676358 cmake;3.22.1'
+
+      # Public CI never injects private CarPlay identity assets. Internal Play
+      # builds using oalCarPlayMfiAssetsDir remain on the owner's host.
+      - name: Check public workflow contracts
+        run: python3 -m unittest discover -s .github/workflows/tests -v
 
       - name: Download native deps
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           for ABI in arm64-v8a x86_64; do
-            gh release download native-deps -p "native-deps-${ABI}.tar.gz" -O "/tmp/native-deps-${ABI}.tar.gz"
-            tar xzf "/tmp/native-deps-${ABI}.tar.gz" -C app/src/main/cpp/
+            gh release download native-deps --repo "$GITHUB_REPOSITORY" -p "native-deps-${ABI}.tar.gz" -O "$RUNNER_TEMP/native-deps-${ABI}.tar.gz"
+            tar xzf "$RUNNER_TEMP/native-deps-${ABI}.tar.gz" -C app/src/main/cpp/
+            test -f app/src/main/cpp/third_party/boost/include/boost/asio.hpp
+            test -f "app/src/main/cpp/third_party/openssl/${ABI}/lib/libssl.a"
+            test -f "app/src/main/cpp/third_party/aasdk/${ABI}/lib/libaasdk.a"
           done
 
       - name: Cache Gradle
@@ -63,7 +77,7 @@ jobs:
       - name: Run unit tests
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest :companion:testDebugUnitTest --no-daemon
+          ./gradlew :app:testDebugUnitTest :companion:testDebugUnitTest :carplay-lab:testDebugUnitTest --no-daemon
 
       - name: Upload test results
         if: always()
@@ -73,4 +87,8 @@ jobs:
           path: |
             app/build/reports/tests/testDebugUnitTest/
             companion/build/reports/tests/testDebugUnitTest/
+            carplay-lab/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+            companion/build/test-results/testDebugUnitTest/
+            carplay-lab/build/test-results/testDebugUnitTest/
           retention-days: 14

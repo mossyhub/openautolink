@@ -23,3 +23,4 @@ dependencyResolutionManagement {
 rootProject.name = "OpenAutoLink"
 include(":app")
 include(":companion")
+include(":carplay-lab")

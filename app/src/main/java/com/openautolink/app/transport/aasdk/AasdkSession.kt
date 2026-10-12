@@ -558,7 +558,20 @@ class AasdkSession(
         }
     }
 
+    /** Device detection lives with the unified projection owner, not the AA session. */
+    var externalUsbTransport: Boolean = false
+
+    fun acceptUsbTransport(pipe: AasdkTransportPipe) = handleUsbConnection(pipe)
+
+    fun detachUsbTransport(pipe: AasdkTransportPipe, retired: () -> Unit) {
+        detachedUsbTransports.add(pipe)
+        scope.launch(Dispatchers.IO) {
+            if (retireDetachedUsbTransport(pipe)) retired()
+        }
+    }
+
     private fun startUsb() {
+        if (externalUsbTransport) return
         OalLog.i(TAG, "Starting aasdk session (USB transport)")
         _usbConnectionManager?.stop()
         _usbConnectionManager = UsbConnectionManager(

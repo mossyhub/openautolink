@@ -1,0 +1,25 @@
+{
+  "app:testDebugUnitTest": {
+    "tests": 985,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "app:testTabletDebugUnitTest": {
+    "tests": 985,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "carplay-lab:testDebugUnitTest": {
+    "tests": 257,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "apk": {
+    "path": "app/build/outputs/apk/tabletDebug/app-tabletDebug.apk",
+    "bytes": 102933949,
+    "sha256": "2f74ca10e41f0b9d759e64cb39e2da2df2574c8f81980dadb102da7f860c46d6"
+  }
+}

@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Process-scoped owner of [AaWirelessBtServer].
@@ -90,6 +91,25 @@ object AaWirelessBtControl {
 
     /** Only the current WPP protocol owner may make the phone act on SDP. */
     private val sessionAdmission = WppSessionAdmission()
+
+    /** Cable-lifetime fence, independent of CarPlay reservation (Android USB needs it too). */
+    class UsbHandoffToken internal constructor(val generation: Long) {
+        internal var advertiserRetired = false
+    }
+    @Volatile private var usbHandoff: UsbHandoffToken? = null
+    private val advertiserRetirementMutex = kotlinx.coroutines.sync.Mutex()
+    private fun wirelessAdmissionBlocked() = usbHandoff != null ||
+        com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto
+
+    @Synchronized fun reserveUsbHandoff(generation: Long): UsbHandoffToken =
+        UsbHandoffToken(generation).also { usbHandoff = it }
+
+    /** Caller has also awaited SessionManager and any CarPlay owner, before restoring normal mode. */
+    @Synchronized fun releaseUsbHandoff(token: UsbHandoffToken): Boolean {
+        if (usbHandoff !== token || !token.advertiserRetired) return false
+        usbHandoff = null
+        return true
+    }
 
     /**
      * Last IPv4 we saw the companion on, used to ask it for its proxy port.
@@ -229,7 +249,7 @@ object AaWirelessBtControl {
     var onStatus: ((String) -> Unit)? = null
 
     fun isCurrentSessionOwner(token: WppSessionAdmission.Token): Boolean =
-        token.transportMode == "wpp" && sessionAdmission.isCurrent(token)
+        !wirelessAdmissionBlocked() && token.transportMode == "wpp" && sessionAdmission.isCurrent(token)
 
     fun hasCurrentWppOwner(): Boolean = sessionAdmission.currentWppOwner() != null
 
@@ -238,6 +258,7 @@ object AaWirelessBtControl {
         wppInterfaceName: String? = null,
     ): WppSessionAdmission.Token {
         val token = synchronized(this) {
+            check(transportMode != "wpp" || !wirelessAdmissionBlocked()) { "Wireless admission reserved" }
             sessionAdmission.installSession(transportMode, wppInterfaceName)
         }
         OalLog.i(TAG, "Session admission installed: generation=${token.generation} " +
@@ -292,6 +313,7 @@ object AaWirelessBtControl {
     }
 
     fun ensureAdvertising() {
+        if (wirelessAdmissionBlocked()) return
         val owner = sessionAdmission.currentWppOwner()
         if (owner == null) {
             OalLog.i(TAG, "Advertiser deferred — no current WPP session owner")
@@ -775,6 +797,7 @@ object AaWirelessBtControl {
     }
 
     fun beginHandshake(): HandshakeLease? = synchronized(handshakeStateLock) {
+        if (wirelessAdmissionBlocked()) return null
         if (!sessionAdmission.canAdvertise()) return null
         if (sessionIsStreaming?.invoke() == true) {
             OalLog.i(TAG, "Suppressing redundant WPP activation — projection is already streaming")
@@ -1513,7 +1536,8 @@ object AaWirelessBtControl {
             },
         )
         synchronized(this) {
-            if (!sessionAdmission.isCurrent(expectedOwner)) {
+            if (wirelessAdmissionBlocked() ||
+                !sessionAdmission.isCurrent(expectedOwner)) {
                 OalLog.i(TAG, "SDP publish cancelled before ownership swap")
                 bt.stop()
                 return
@@ -1790,6 +1814,41 @@ object AaWirelessBtControl {
             }
             return
         }
-        bt.start()
+        synchronized(this) {
+            if (btServer !== bt || wirelessAdmissionBlocked() ||
+                !sessionAdmission.isCurrent(expectedOwner)) {
+                bt.stop()
+                if (btServer === bt) btServer = null
+                return
+            }
+            bt.start()
+        }
+    }
+    private var carPlayRetiringAdvertiser: AaWirelessBtServer? = null
+    /** Off UI, after CP admission reservation. Failed-stop server is retained for retry. */
+    suspend fun retireForCarPlay() {
+        check(com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto)
+        awaitAdvertiserRetirement()
+    }
+
+    /** USB Switch reserves its own exact lease, not a fictitious CarPlay owner. */
+    suspend fun retireForUsb(token: UsbHandoffToken) {
+        check(usbHandoff === token) { "Stale USB handoff" }
+        awaitAdvertiserRetirement()
+        synchronized(this) {
+            check(usbHandoff === token) { "USB handoff superseded during retirement" }
+            token.advertiserRetired = true
+        }
+    }
+
+    private suspend fun awaitAdvertiserRetirement() = advertiserRetirementMutex.withLock {
+        val retiring = synchronized(this) {
+            carPlayRetiringAdvertiser ?: btServer?.also {
+                carPlayRetiringAdvertiser = it
+                btServer = null
+            }
+        }
+        retiring?.stopAndAwait()
+        synchronized(this) { if (carPlayRetiringAdvertiser === retiring) carPlayRetiringAdvertiser = null }
     }
 }

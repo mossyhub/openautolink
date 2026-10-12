@@ -4,6 +4,12 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openautolink.app.data.AppPreferences
+import com.openautolink.app.data.CarPlaySettings
+import com.openautolink.app.data.CarPlayPairedPhone
+
+import com.openautolink.carplaylab.SavedWifiPassword as EncryptedSavedWifiPassword
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.openautolink.app.transport.bluetooth.WppConfigBtServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +17,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -89,10 +96,210 @@ data class SettingsUiState(
     val manualIpAddress: String = AppPreferences.DEFAULT_MANUAL_IP_ADDRESS,
 )
 
+/** Memory-only edits shared by every CarPlay tab; transformations copy only edited fields. */
+internal class CarPlaySettingsDraft {
+    private val edits = mutableListOf<(CarPlaySettings) -> CarPlaySettings>()
+    private var password: String? = null
+    private var passwordRevision = 0
+
+    @Synchronized fun setPassword(value: String?) { password = value; passwordRevision++ }
+    @Synchronized fun pendingPassword(): String? = password
+
+    @Synchronized fun update(edit: (CarPlaySettings) -> CarPlaySettings) { edits += edit }
+    @Synchronized fun preview(latest: CarPlaySettings): CarPlaySettings = edits.fold(latest) { value, edit -> edit(value) }
+
+    suspend fun commit(persist: suspend ((CarPlaySettings) -> CarPlaySettings, String?) -> Unit): Boolean {
+        val (pendingEdits, pendingPassword, revision) = synchronized(this) { Triple(edits.toList(), password, passwordRevision) }
+        if (pendingEdits.isEmpty() && pendingPassword == null) return true
+        return try {
+            persist({ latest -> pendingEdits.fold(latest) { value, edit -> edit(value) } }, pendingPassword)
+            synchronized(this) {
+                edits.subList(0, pendingEdits.size).clear()
+                if (passwordRevision == revision) password = null
+            }
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false // Never export an exception that could contain a secret.
+        }
+    }
+}
+
+/** The global action never restarts or dismisses settings before persistence succeeds. */
+internal suspend fun applySettingsAndRestart(
+    commit: suspend () -> Boolean,
+    restart: () -> Unit,
+    close: () -> Unit,
+) {
+    if (commit()) { restart(); close() }
+}
+
+/** Incomplete setup is saveable; malformed entered values are not. Readiness is separate. */
+internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
+    settings.networkFamily !in setOf("auto", "ipv4", "ipv6") -> "Choose Auto, IPv4 or IPv6 in Connection."
+    settings.apSecurity !in setOf("wpa2", "wpa3") -> "Choose WPA2 or WPA3 in Connection."
+    !(settings.apFrequencyMhz == 2484 ||
+        settings.apFrequencyMhz in 2412..2472 && (settings.apFrequencyMhz - 2407) % 5 == 0 ||
+        settings.apFrequencyMhz in 5000..5900 && settings.apFrequencyMhz % 5 == 0) ->
+        "Enter a supported AP frequency in MHz in Connection."
+    settings.sharedWifiOverride && settings.peerAddress.isEmpty() -> "Shared LAN requires an explicit numeric phone IP in Connection."
+    settings.peerAddress.isNotEmpty() && !com.openautolink.app.data.CarPlaySettingsPolicy.configuredEndpoint(settings.peerAddress, settings) ->
+        "Enter a numeric phone IP matching the family and interface in Connection."
+    settings.localAddress.isNotEmpty() && !com.openautolink.app.data.CarPlaySettingsPolicy.configuredEndpoint(settings.localAddress, settings) ->
+        "Enter an exact numeric local address matching the family and interface in Connection."
+    listOf(settings.phoneAddress, settings.receiverAddress).any {
+        it.isNotEmpty() && (!it.matches(Regex("([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}")) || it == "02:00:00:00:00:00")
+    } -> "Choose a paired phone or correct the Bluetooth address in Connection."
+    settings.videoError() != null -> settings.videoError()
+    settings.widthPhysicalMm !in com.openautolink.carplaylab.media.CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM ->
+        "Choose a manual UI size from the slider in Display (100 to 400 mm calibration)."
+    else -> null
+}
+
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val preferences = AppPreferences.getInstance(application)
     private val wppConfigServer = WppConfigBtServer(application, viewModelScope)
+
+    // Shared, memory-only next-session draft. Reading it never starts either protocol.
+    private val carPlayDraft = CarPlaySettingsDraft()
+    private val carPlayDraftRevision = MutableStateFlow(0)
+    private val _carPlaySettingsLoaded = MutableStateFlow(false)
+    val carPlaySettingsLoaded: StateFlow<Boolean> = _carPlaySettingsLoaded
+    val carPlaySettings: StateFlow<CarPlaySettings> = combine(
+        preferences.carPlaySettings.onEach { _carPlaySettingsLoaded.value = true },
+        carPlayDraftRevision,
+    ) { latest, _ -> carPlayDraft.preview(latest) }.stateIn(
+        viewModelScope, SharingStarted.Eagerly, CarPlaySettings(),
+    )
+    private val carPlayMutation = Mutex()
+    private val _carPlayPhones = MutableStateFlow<List<CarPlayPairedPhone>>(emptyList())
+    val carPlayPhones: StateFlow<List<CarPlayPairedPhone>> = _carPlayPhones
+    private val _carPlayIdentityReady = MutableStateFlow(false)
+    val carPlayIdentityReady: StateFlow<Boolean> = _carPlayIdentityReady
+    private val _carPlayPasswordSaved = MutableStateFlow(false)
+    val carPlayPasswordSaved: StateFlow<Boolean> = _carPlayPasswordSaved
+    private val _carPlaySettingsStatus = MutableStateFlow("")
+    val carPlaySettingsStatus: StateFlow<String> = _carPlaySettingsStatus
+    private val _carPlaySettingsSaving = MutableStateFlow(false)
+    val carPlaySettingsSaving: StateFlow<Boolean> = _carPlaySettingsSaving
+    private val _carPlayApplyError = MutableStateFlow("")
+    val carPlayApplyError: StateFlow<String> = _carPlayApplyError
+
+    private val _carPlayCredentialImportStatus = MutableStateFlow("")
+    val carPlayCredentialImportStatus: StateFlow<String> = _carPlayCredentialImportStatus
+    private val _carPlayCredentialImportBusy = MutableStateFlow(false)
+    val carPlayCredentialImportBusy: StateFlow<Boolean> = _carPlayCredentialImportBusy
+
+    /** Explicit import, independent of the shared preference Apply/Restart transaction. */
+    fun importCarPlayCredentials(privateKey: android.net.Uri, certificate: android.net.Uri) {
+        if (_carPlayCredentialImportBusy.value || _carPlaySettingsSaving.value) return
+        _carPlayCredentialImportBusy.value = true
+        _carPlayCredentialImportStatus.value = "Validating selected pair…"
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val resolver = getApplication<Application>().contentResolver
+                require(privateKey.scheme == "content" && certificate.scheme == "content")
+                val imported = resolver.openInputStream(privateKey)?.use { key ->
+                    resolver.openInputStream(certificate)?.use { cert ->
+                        CarPlayCredentialImporter(getApplication<Application>().noBackupFilesDir).importPair(key, cert)
+                    }
+                } == true
+                _carPlayCredentialImportStatus.value = if (imported) {
+                    _carPlayIdentityReady.value = true
+                    "Identity imported and locally validated. Use Save & Reconnect for the next connection. Phone acceptance is not verified."
+                } else "Import failed. Choose a matching P-256 PKCS#8 key and single certificate (each at most 16 KiB). Existing identity is unchanged."
+            } catch (_: Exception) {
+                _carPlayCredentialImportStatus.value = "Could not read or import the selected files. Existing identity is unchanged."
+            } finally {
+                _carPlayCredentialImportBusy.value = false
+            }
+        }
+    }
+
+    fun updateCarPlayEnabled(enabled: Boolean) {
+        updateCarPlayDraft { it.copy(enabled = enabled) }
+    }
+
+    fun updateCarPlayDraft(edit: (CarPlaySettings) -> CarPlaySettings) {
+        if (_carPlaySettingsSaving.value || !_carPlaySettingsLoaded.value) return
+        carPlayDraft.update(edit)
+        carPlayDraftRevision.value++
+        _carPlayApplyError.value = ""
+    }
+
+    /** Secret remains only in this ViewModel's private memory, not a StateFlow or Bundle. */
+    fun pendingCarPlayPassword(): String? = carPlayDraft.pendingPassword()
+    fun updateCarPlayPassword(password: String?) {
+        if (_carPlaySettingsSaving.value) return
+        carPlayDraft.setPassword(password)
+        _carPlayApplyError.value = ""
+    }
+
+    /** Reads only bonded devices. Never discovers, picks by name or starts either protocol. */
+    fun refreshCarPlaySetup() {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!carPlaySettings.value.enabled) return@launch
+            try {
+                val adapter = getApplication<Application>().getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter
+                _carPlayPhones.value = adapter?.bondedDevices.orEmpty().map {
+                    CarPlayPairedPhone(it.address, it.name ?: "Paired phone")
+                }.sortedWith(compareBy({ it.name }, { it.address }))
+                _carPlaySettingsStatus.value = if (adapter?.isEnabled == true) "" else "Turn on Bluetooth in Android settings"
+            } catch (_: SecurityException) {
+                _carPlayPhones.value = emptyList()
+                _carPlaySettingsStatus.value = "Allow Bluetooth access, then refresh paired phones"
+            }
+            _carPlayIdentityReady.value = runCatching {
+                com.shilapi.xcertplay.mfi.LocalMfiAuthenticationClient.load(java.io.File(
+                    getApplication<Application>().noBackupFilesDir,
+                    com.shilapi.xcertplay.mfi.LocalMfiAuthenticationClient.DIRECTORY,
+                ))
+            }.isSuccess // Local key consistency only; not proof that an iPhone trusts it.
+            _carPlayPasswordSaved.value = runCatching {
+                EncryptedSavedWifiPassword(getApplication()).load().isNotEmpty()
+            }.getOrDefault(false)
+        }
+    }
+
+    /** Global Apply awaits persistence. Validation/save failure keeps the draft and overlay open. */
+    suspend fun commitCarPlaySettings(): Boolean {
+        if (_carPlaySettingsSaving.value) return false
+        _carPlaySettingsSaving.value = true
+        _carPlayApplyError.value = ""
+        return try {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                carPlayMutation.withLock {
+                    var validationError: String? = null
+                    val saved = carPlayDraft.commit { merge, password ->
+                        preferences.updateCarPlaySettings(merge) { next ->
+                            validationError = carPlayEditError(next)
+                            if (validationError == null && next.enabled && !next.usesWindowGeometry) {
+                                val request = next.displayRequest()
+                                if (!com.openautolink.carplaylab.media.CarPlayDisplayPolicy.isQualified(request)) {
+                                    validationError = "This exact resolution and maximum FPS are not supported by the local decoder in Video."
+                                }
+                            }
+                            check(validationError == null)
+                            if (password != null) EncryptedSavedWifiPassword(getApplication()).save(password)
+                        }
+                    }
+                    if (saved) {
+                        carPlayDraftRevision.value++
+                        _carPlayPasswordSaved.value = runCatching {
+                            EncryptedSavedWifiPassword(getApplication()).load().isNotEmpty()
+                        }.getOrDefault(false)
+                    } else {
+                        _carPlayApplyError.value = validationError ?: "CarPlay settings could not be saved. Check storage and try again."
+                    }
+                    saved
+                }
+            }
+        } finally {
+            _carPlaySettingsSaving.value = false
+        }
+    }
 
     val uiState: StateFlow<SettingsUiState> = combine(
         preferences.videoAutoNegotiate,

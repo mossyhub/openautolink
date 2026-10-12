@@ -161,7 +161,9 @@ class OalMediaSessionManager private constructor(private val context: Context) {
      * stays valid for the next session — see the class kdoc for why the session
      * must outlive individual connections.
      */
-    fun resetToIdle() {
+    fun resetToIdle() = com.openautolink.app.carplay.MetadataHostOwnership.process.legacy { resetHostToIdle() }
+
+    internal fun resetHostToIdle() {
         synchronized(sessionLock) {
             val session = mediaSession ?: return
             cachedArtHash = 0
@@ -185,7 +187,12 @@ class OalMediaSessionManager private constructor(private val context: Context) {
     /**
      * Update now-playing metadata from bridge media_metadata control message.
      */
-    fun updateMetadata(
+    fun updateMetadata(title: String?, artist: String?, album: String?, durationMs: Long?, albumArtBase64: String?) =
+        com.openautolink.app.carplay.MetadataHostOwnership.process.legacy {
+            updateAaMetadata(title, artist, album, durationMs, albumArtBase64)
+        }
+
+    private fun updateAaMetadata(
         title: String?,
         artist: String?,
         album: String?,
@@ -263,7 +270,10 @@ class OalMediaSessionManager private constructor(private val context: Context) {
     /**
      * Update playback state (playing/paused + position).
      */
-    fun updatePlaybackState(playing: Boolean, positionMs: Long) {
+    fun updatePlaybackState(playing: Boolean, positionMs: Long) =
+        com.openautolink.app.carplay.MetadataHostOwnership.process.legacy { updateAaPlaybackState(playing, positionMs) }
+
+    private fun updateAaPlaybackState(playing: Boolean, positionMs: Long) {
         synchronized(sessionLock) {
             val session = mediaSession ?: return
             // Don't dedup on `playing` alone: position resets to 0 on track change while
@@ -278,6 +288,52 @@ class OalMediaSessionManager private constructor(private val context: Context) {
             session.setPlaybackState(buildPlaybackState(state, positionMs))
         }
     }
+
+    /** Full retained CP snapshot. Null art + clearArtwork explicitly removes prior cover.
+     * Decode runs on the metadata worker, never on the iAP2 link pump. */
+    fun updateCarPlay(owner: Any, value: com.openautolink.carplaylab.metadata.CarPlayMediaMetadata,
+                       artwork: ByteArray?, clearArtwork: Boolean): Boolean =
+        com.openautolink.app.carplay.MetadataHostOwnership.process.publish(owner) {
+            synchronized(sessionLock) {
+                val session = mediaSession ?: return@synchronized
+                if (clearArtwork) { cachedBitmap = null; cachedArtHash = 0 }
+                if (artwork != null) cachedBitmap = decodeCarPlayArtwork(artwork)
+                val builder = MediaMetadataCompat.Builder()
+                value.title?.let { builder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, it) }
+                value.artist?.let { builder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, it) }
+                value.album?.let { builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, it) }
+                value.durationMillis?.let { builder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, it) }
+                cachedBitmap?.let {
+                    builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
+                    builder.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, it)
+                }
+                session.setMetadata(builder.build())
+                lastPushedPlaying = value.playing
+                lastPushedPosition = value.elapsedMillis ?: PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN
+                lastPushedState = when (value.playing) {
+                    true -> PlaybackStateCompat.STATE_PLAYING
+                    false -> PlaybackStateCompat.STATE_PAUSED
+                    null -> PlaybackStateCompat.STATE_NONE
+                }
+                session.setPlaybackState(buildPlaybackState(lastPushedState, lastPushedPosition))
+            }
+        }
+
+    private fun decodeCarPlayArtwork(bytes: ByteArray): Bitmap? = runCatching {
+        if (bytes.isEmpty() || bytes.size > 2 * 1024 * 1024) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth !in 1..16384 || bounds.outHeight !in 1..16384) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_ART_SIZE) sample *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888 }
+        val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+        if (raw.width <= MAX_ART_SIZE && raw.height <= MAX_ART_SIZE) raw else {
+            val scale = MAX_ART_SIZE.toFloat() / maxOf(raw.width, raw.height)
+            Bitmap.createScaledBitmap(raw, maxOf(1, (raw.width * scale).toInt()), maxOf(1, (raw.height * scale).toInt()), true)
+                .also { if (it !== raw) raw.recycle() }
+        }
+    }.getOrNull()
 
     private fun buildPlaybackState(state: Int, position: Long): PlaybackStateCompat {
         val actions = PlaybackStateCompat.ACTION_PLAY or

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Existing diagnostic probes intentionally catch denial of privileged APIs.
+         These exceptions are limited to exact files; new runtime code is still checked. -->
+    <issue id="MissingPermission">
+        <ignore path="src/main/java/com/openautolink/app/diagnostics/DeviceDebugProbe.kt" />
+        <ignore path="src/main/java/com/openautolink/app/ui/diagnostics/DiagnosticsViewModel.kt" />
+        <ignore path="src/main/java/com/openautolink/app/session/SessionManager.kt" />
+    </issue>
+    <!-- Retain existing automotive projection/navigation declarations used by Play/GM. -->
+    <issue id="InvalidUsesTagAttribute">
+        <ignore path="src/main/res/xml/automotive_app_desc.xml" />
+    </issue>
+    <!-- Existing ComponentActivity super dispatch is required for normal key propagation. -->
+    <issue id="RestrictedApi">
+        <ignore path="src/main/java/com/openautolink/app/MainActivity.kt" />
+    </issue>
+</lint>

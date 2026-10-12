@@ -33,6 +33,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
             }
         }
 
+        /** Atomic CarPlay-only record; no Wi-Fi password or authentication material. */
+        val CARPLAY_SETTINGS = stringPreferencesKey("carplay_settings_v1")
+
         val VIDEO_AUTO_NEGOTIATE = booleanPreferencesKey("video_auto_negotiate")
         val VIDEO_CODEC = stringPreferencesKey("video_codec")
         val VIDEO_SEED_THRESHOLD_H264 = intPreferencesKey("video_seed_threshold_h264")
@@ -253,7 +256,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         val EV_LEARNED_RATES_JSON = stringPreferencesKey("ev_learned_rates_json")
 
         const val DEFAULT_VIDEO_AUTO_NEGOTIATE = true
-        const val DEFAULT_VIDEO_CODEC = "h264"
+        // Fresh installs prefer the existing high-resolution GAL 6 path.
+        // Saved codec choices remain authoritative; AVC Auto is limited to 1080p.
+        const val DEFAULT_VIDEO_CODEC = "h265"
         const val DEFAULT_VIDEO_SEED_THRESHOLD_H264 = SeedIdrThresholds.DEFAULT_H264_BYTES
         const val DEFAULT_VIDEO_SEED_THRESHOLD_H265 = SeedIdrThresholds.DEFAULT_H265_BYTES
         const val DEFAULT_VIDEO_SEED_THRESHOLD_VP9 = SeedIdrThresholds.DEFAULT_VP9_BYTES
@@ -291,7 +296,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
          * even though the subnet it serves is reassigned on every boot.
          */
         const val DEFAULT_WPP_AP_INTERFACE = "ap_br_swlan0"
-        const val DEFAULT_DIRECT_TRANSPORT = "hotspot" // "hotspot" (TCP over shared WiFi), "usb" (AOAv2)
+        const val DEFAULT_DIRECT_TRANSPORT = "wpp" // Wireless AA by default; explicit shared Wi-Fi and USB selections are retained.
         const val DEFAULT_MANUAL_IP_ENABLED = false
         const val DEFAULT_MANUAL_IP_ADDRESS = ""
         const val DEFAULT_AA_RESOLUTION = "1080p" // "480p", "720p", "1080p", "1440p", "4k"
@@ -391,6 +396,43 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_EV_LEARNED_RATES_JSON = "{}"
     }
 
+    val carPlaySettings: Flow<CarPlaySettings> = dataStore.data.map { CarPlaySettings.decode(it[CARPLAY_SETTINGS]) }
+
+    val carPlayEnabled: Flow<Boolean> = carPlaySettings.map { it.enabled }
+    val carPlayConnectionMode: Flow<String> = carPlaySettings.map { it.connectionMode }
+    val carPlayPhoneAddress: Flow<String> = carPlaySettings.map { it.phoneAddress }
+    val carPlayPeerAddress: Flow<String> = carPlaySettings.map { it.peerAddress }
+    val carPlayInterface: Flow<String> = carPlaySettings.map { it.interfaceName }
+    val carPlaySharedWifiOverride: Flow<Boolean> = carPlaySettings.map { it.sharedWifiOverride }
+    val carPlaySsid: Flow<String> = carPlaySettings.map { it.ssid }
+    val carPlayReceiverAddress: Flow<String> = carPlaySettings.map { it.receiverAddress }
+    val carPlayResolution: Flow<String> = carPlaySettings.map { it.resolution }
+    val carPlayFps: Flow<Int> = carPlaySettings.map { it.fps }
+
+    /** Change opt-in without overwriting a concurrently saved phone/network profile. */
+    suspend fun setCarPlayEnabled(enabled: Boolean) {
+        dataStore.edit {
+            it[CARPLAY_SETTINGS] = CarPlaySettings.encode(CarPlaySettings.decode(it[CARPLAY_SETTINGS]).copy(enabled = enabled))
+        }
+    }
+
+    /** Merge only edited CarPlay fields against the record inside the atomic DataStore edit. */
+    suspend fun updateCarPlaySettings(
+        transform: (CarPlaySettings) -> CarPlaySettings,
+        beforeWrite: (CarPlaySettings) -> Unit = {},
+    ) {
+        dataStore.edit { prefs ->
+            val next = transform(CarPlaySettings.decode(prefs[CARPLAY_SETTINGS]))
+            val record = CarPlaySettings.encode(next)
+            beforeWrite(next) // Validate and save an optional encrypted secret before publishing.
+            prefs[CARPLAY_SETTINGS] = record
+        }
+    }
+
+    suspend fun setCarPlaySettings(settings: CarPlaySettings) {
+        dataStore.edit { it[CARPLAY_SETTINGS] = CarPlaySettings.encode(settings) }
+    }
+
     val videoAutoNegotiate: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[VIDEO_AUTO_NEGOTIATE] ?: DEFAULT_VIDEO_AUTO_NEGOTIATE
     }
@@ -488,10 +530,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
     }
 
     val directTransport: Flow<String> = dataStore.data.map { prefs ->
-        // Migrate any saved "nearby" preference to "hotspot" — Nearby Connections
-        // is no longer used; the companion app speaks TCP over the shared WiFi.
+        // Retain USB; migrate retired AA Wi-Fi/Nearby choices to modern wireless WPP.
         val raw = prefs[DIRECT_TRANSPORT] ?: DEFAULT_DIRECT_TRANSPORT
-        if (raw == "nearby") "hotspot" else raw
+        if (raw == DIRECT_TRANSPORT_USB) DIRECT_TRANSPORT_USB else DIRECT_TRANSPORT_WPP
     }
 
     val manualIpEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
@@ -685,7 +726,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
     }
 
     suspend fun setDirectTransport(transport: String) {
-        dataStore.edit { it[DIRECT_TRANSPORT] = transport }
+        dataStore.edit { it[DIRECT_TRANSPORT] = if (transport == DIRECT_TRANSPORT_USB) DIRECT_TRANSPORT_USB else DIRECT_TRANSPORT_WPP }
     }
 
     suspend fun setManualIpEnabled(enabled: Boolean) {

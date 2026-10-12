@@ -24,6 +24,8 @@ object UsbAccessoryMode {
      * @return true if the switch was initiated successfully
      */
     fun switchToAccessory(usbManager: UsbManager, device: UsbDevice): Boolean {
+        // Defense in depth: Apple must never receive GET_PROTOCOL/SEND_STRING/START.
+        if (UsbDispatchOwnership.route(device.vendorId) == UsbDispatchOwnership.Route.APPLE) return false
         val connection = usbManager.openDevice(device)
         if (connection == null) {
             OalLog.e(TAG, "Failed to open USB device: ${device.deviceName}")

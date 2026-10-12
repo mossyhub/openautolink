@@ -46,14 +46,18 @@ object ClusterNavigationState {
     /** True when navigation is actively routing. */
     val isActive: Boolean get() = _state.value != null
 
-    fun update(maneuver: ManeuverState) {
+    fun update(maneuver: ManeuverState) = com.openautolink.app.carplay.MetadataHostOwnership.process.legacy { updateHost(maneuver) }
+
+    internal fun updateHost(maneuver: ManeuverState) {
         synchronized(ClusterBindingLifecycle.lock) {
             if (_state.value == null) _recoveryDemand.value = ++routeEpoch
             _state.value = maneuver
         }
     }
 
-    fun clear() {
+    fun clear() = com.openautolink.app.carplay.MetadataHostOwnership.process.legacy { clearHost() }
+
+    internal fun clearHost() {
         synchronized(ClusterBindingLifecycle.lock) {
             _state.value = null
             _recoveryDemand.value = null

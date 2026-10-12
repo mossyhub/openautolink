@@ -1,0 +1,60 @@
+{
+  "app": {
+    "suites": 19,
+    "tests": 69,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "target_suites": [
+      {
+        "name": "com.openautolink.app.carplay.CarPlayConnectionFailureTest",
+        "tests": 2,
+        "failures": 0
+      },
+      {
+        "name": "com.openautolink.app.carplay.OalCarPlayIntakeIntegrationTest",
+        "tests": 6,
+        "failures": 0
+      },
+      {
+        "name": "com.openautolink.app.carplay.CarPlayIntakeDiagnosticsTest",
+        "tests": 1,
+        "failures": 0
+      }
+    ]
+  },
+  "carplay-lab": {
+    "suites": 52,
+    "tests": 209,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "target_suites": [
+      {
+        "name": "com.openautolink.carplaylab.network.WirelessEnrollmentConsentGateTest",
+        "tests": 1,
+        "failures": 0
+      },
+      {
+        "name": "com.shilapi.xcertplay.airplay.SessionEnrollmentIntegrationTest",
+        "tests": 2,
+        "failures": 0
+      },
+      {
+        "name": "com.shilapi.xcertplay.transport.Iap2RuntimeWrittenTest",
+        "tests": 4,
+        "failures": 0
+      },
+      {
+        "name": "com.openautolink.carplaylab.intake.RuntimeCarDataWiringTest",
+        "tests": 1,
+        "failures": 0
+      },
+      {
+        "name": "com.shilapi.xcertplay.airplay.RuntimeAppearanceEventTest",
+        "tests": 1,
+        "failures": 0
+      }
+    ]
+  }
+}

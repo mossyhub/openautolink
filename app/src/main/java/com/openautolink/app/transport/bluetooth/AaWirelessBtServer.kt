@@ -288,15 +288,17 @@ class AaWirelessBtServer(
             }
             if (client != null) {
                 val remote = runCatching { client.remoteDevice?.address ?: "?" }.getOrDefault("?")
+                if (!trackClient(client)) continue
                 OalLog.i(TAG, "HFP presence connection from $remote — draining and holding briefly")
-                scope.launch {
+                val clientJob = scope.launch {
                     runCatching {
                         // Read once so the phone sees a live peer rather than an
                         // instant close, then let it go. We cannot serve HFP.
                         client.inputStream.read(ByteArray(1024))
                     }
-                    runCatching { client.close() }
+                    retireClient(client)
                 }
+                clientJob.invokeOnCompletion { retireClient(client) }
             }
         }
     }
@@ -339,6 +341,7 @@ class AaWirelessBtServer(
 
             if (client != null) {
                 outcomeObserver.phoneDialbackAt(SystemClock.elapsedRealtime())
+                if (!trackClient(client)) continue
                 val remoteDevice = runCatching { client.remoteDevice }.getOrNull()
                 val remote = runCatching { remoteDevice?.address ?: "?" }.getOrDefault("?")
                 val remoteName = runCatching { remoteDevice?.name }.getOrNull()
@@ -350,7 +353,7 @@ class AaWirelessBtServer(
                 val handshakeLease = AaWirelessBtControl.beginHandshake()
                 if (handshakeLease == null) {
                     OalLog.i(TAG, "Rejecting dial-back — handshake admission denied")
-                    runCatching { client.close() }
+                    retireClient(client)
                     continue
                 }
                 val handshakeJob = scope.launch(CoroutineName("AaWirelessBt-Handshake")) {
@@ -360,6 +363,7 @@ class AaWirelessBtServer(
                     // This also runs when the coroutine is cancelled before its
                     // body starts, so accepted sockets cannot leak ownership.
                     handshakeLease.finish()
+                    retireClient(client)
                     AaWirelessBtControl.flushPendingReadvertise()
                 }
                 continue
@@ -712,12 +716,32 @@ class AaWirelessBtServer(
         ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
                 PackageManager.PERMISSION_GRANTED
 
+    private val clientRetirementLock = Any()
+    private val acceptedClients = mutableSetOf<BluetoothSocket>()
+    private fun trackClient(client: BluetoothSocket): Boolean = synchronized(clientRetirementLock) {
+        if (!running || !scope.isActive) { runCatching { client.close() }; false }
+        else { acceptedClients.add(client); true }
+    }
+    private fun retireClient(client: BluetoothSocket) {
+        synchronized(clientRetirementLock) { acceptedClients.remove(client) }
+        runCatching { client.close() }
+    }
+    /** Cross-protocol owner awaits actual workers, not just running=false. */
+    suspend fun stopAndAwait() {
+        stop()
+        kotlinx.coroutines.withTimeout(15_000) { scope.coroutineContext[kotlinx.coroutines.Job]?.join() }
+        stop()
+    }
     fun stop() {
         // Cleanup is deliberately idempotent. A dead accept loop clears
         // `running` before recovery replaces this server; returning early here
         // would leak its sockets/jobs and let the old HFP listener conflict with
         // the replacement instance.
-        running = false
+        val retiringClients = synchronized(clientRetirementLock) {
+            running = false
+            acceptedClients.toList().also { acceptedClients.clear() }
+        }
+        retiringClients.forEach { runCatching { it.close() } }
         runCatching { aaServerSocket?.close() }
         aaServerSocket = null
         runCatching { hfpServerSocket?.close() }

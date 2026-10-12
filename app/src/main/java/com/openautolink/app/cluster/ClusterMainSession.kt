@@ -308,10 +308,10 @@ class ClusterMainSession : Session() {
                     DiagnosticLog.i(
                         "cluster",
                         "Trip update outcome=sent generation=${bindingLease?.generation} " +
-                            "maneuver=${maneuver.type} road=${maneuver.roadName}",
+                            "maneuver=${maneuver.type}",
                     )
                 }
-                DiagnosticLog.d("cluster", "Trip: ${maneuver.type} dist=${maneuver.distanceMeters}m road=${maneuver.roadName} lanes=${maneuver.lanes?.size ?: 0}")
+                DiagnosticLog.d("cluster", "Trip: ${maneuver.type} distanceReported=${maneuver.distanceMeters != null} lanes=${maneuver.lanes?.size ?: 0}")
             } catch (e: Exception) {
                 Log.e(TAG, "updateTrip() failed: ${e.message}")
                 DiagnosticLog.e(
@@ -362,9 +362,8 @@ class ClusterMainSession : Session() {
 
     private fun buildTrip(maneuver: ManeuverState): Trip {
         val tripBuilder = Trip.Builder()
-        val eta = ZonedDateTime.now().plus(
-            Duration.ofSeconds((maneuver.etaSeconds ?: 0).toLong())
-        )
+        val now = ZonedDateTime.now()
+        val eta = maneuver.etaSeconds?.let { now.plusSeconds(it.toLong()) }
 
         val maneuverObj = buildManeuver(maneuver, carContext)
         val stepBuilder = Step.Builder()
@@ -383,13 +382,14 @@ class ClusterMainSession : Session() {
             }
         }
 
-        val distance = toDistance(
-            maneuver.distanceMeters ?: 0,
+        val distance = maneuver.distanceMeters?.let { meters -> toDistance(
+            meters,
             ClusterNavigationState.distanceUnits,
             maneuver.displayDistance,
             maneuver.displayDistanceUnit
-        )
-        val stepEstimate = TravelEstimate.Builder(distance, eta).build()
+        ) }
+        val stepEstimate = if (distance != null && eta != null) TravelEstimate.Builder(distance, eta).build()
+            else ClusterTravelEstimate.buildDistance(distance, maneuver.etaSeconds?.toLong(), now)
         tripBuilder.addStep(stepBuilder.build(), stepEstimate)
 
         // Add destination info when available (address + arrival ETA + remaining distance)
@@ -409,15 +409,15 @@ class ClusterMainSession : Session() {
             } else {
                 eta
             }
-            val destEstimateBuilder = TravelEstimate.Builder(destDistance, destEta)
+            val destEstimateBuilder = destEta?.let { TravelEstimate.Builder(destDistance, it) }
             val forecast = ClusterNavigationState.vehicleEnergyForecast.value
             if (VehicleEnergyForecastPolicy.isFresh(forecast, SystemClock.elapsedRealtime())) {
                 VehicleEnergyForecastPolicy.tripText(
                     forecast,
                     ClusterNavigationState.batteryCapacityWh,
-                )?.let { destEstimateBuilder.setTripText(CarText.create(it)) }
+                )?.let { destEstimateBuilder?.setTripText(CarText.create(it)) }
             }
-            val destEstimate = destEstimateBuilder.build()
+            val destEstimate = destEstimateBuilder?.build() ?: ClusterTravelEstimate.buildDistance(destDistance, maneuver.timeToArrivalSeconds, now)
             tripBuilder.addDestination(destBuilder.build(), destEstimate)
         }
 

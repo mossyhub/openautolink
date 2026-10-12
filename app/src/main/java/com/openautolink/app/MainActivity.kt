@@ -19,6 +19,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.ui.navigation.AppNavHost
 import com.openautolink.app.ui.projection.ProjectionViewModel
@@ -40,6 +41,17 @@ class MainActivity : ComponentActivity() {
         add(Manifest.permission.BLUETOOTH_CONNECT)
     }.toTypedArray()
 
+    private var usbVpnConsentGeneration: Long? = null
+    private val usbVpnConsentLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        usbVpnConsentGeneration?.let { generation ->
+            com.openautolink.app.carplay.UsbCarPlayVpnConsent.complete(
+                generation, result.resultCode == android.app.Activity.RESULT_OK)
+        }
+        usbVpnConsentGeneration = null
+    }
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
@@ -50,9 +62,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        usbVpnConsentGeneration?.let { outState.putLong("usbVpnConsentGeneration", it) }
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        usbVpnConsentGeneration = savedInstanceState?.getLong("usbVpnConsentGeneration")?.takeIf { it > 0 }
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+                com.openautolink.app.carplay.UsbCarPlayVpnConsent.request.collect { request ->
+                    if (request != null && usbVpnConsentGeneration != request.generation) {
+                        usbVpnConsentGeneration = request.generation
+                        try { usbVpnConsentLauncher.launch(request.intent) }
+                        catch (_: Exception) {
+                            com.openautolink.app.carplay.UsbCarPlayVpnConsent.complete(request.generation, false)
+                            usbVpnConsentGeneration = null
+                        }
+                    }
+                }
+            }
+        }
 
         // Init version-prefixed logging (reads versionName from PackageInfo)
         try {
@@ -191,6 +223,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Foreground Surface-owned CarPlay has no background service/start policy.
+        // This does not alter AA wake/start behavior; CarPlay reconnect stays explicit.
+        if (com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto) {
+            ViewModelProvider(this)[ProjectionViewModel::class.java].stopCarPlay()
+        }
         com.openautolink.app.diagnostics.DiagnosticLog.i("lifecycle", "MainActivity.onStop")
         com.openautolink.app.wake.PreWakeMonitor.reportActivity(
             com.openautolink.app.wake.PreWakeActivityCallback.STOP

@@ -79,11 +79,16 @@ fun SafeAreaEditorScreen(
     displayMode: String = "fullscreen_immersive",
     onDone: (top: Int, bottom: Int, left: Int, right: Int) -> Unit,
     onBack: () -> Unit,
+    coordinateWidth: Int = VIDEO_W,
+    coordinateHeight: Int = VIDEO_H,
+    maximumInset: Int = MAX_INSET,
+    title: String = "",
+    doneLabel: String = "Save",
 ) {
-    var insetTop by remember { mutableIntStateOf(initialTop.coerceIn(0, MAX_INSET)) }
-    var insetBottom by remember { mutableIntStateOf(initialBottom.coerceIn(0, MAX_INSET)) }
-    var insetLeft by remember { mutableIntStateOf(initialLeft.coerceIn(0, MAX_INSET)) }
-    var insetRight by remember { mutableIntStateOf(initialRight.coerceIn(0, MAX_INSET)) }
+    var insetTop by remember { mutableIntStateOf(initialTop.coerceIn(0, maximumInset)) }
+    var insetBottom by remember { mutableIntStateOf(initialBottom.coerceIn(0, maximumInset)) }
+    var insetLeft by remember { mutableIntStateOf(initialLeft.coerceIn(0, maximumInset)) }
+    var insetRight by remember { mutableIntStateOf(initialRight.coerceIn(0, maximumInset)) }
     var showManualInput by remember { mutableStateOf(false) }
 
     val label = if (insetTop == 0 && insetBottom == 0 && insetLeft == 0 && insetRight == 0) {
@@ -107,10 +112,10 @@ fun SafeAreaEditorScreen(
         val canvasHPx = with(density) { canvasH.toPx() }
 
         // Fractions for each inset
-        val topFrac = insetTop.toFloat() / VIDEO_H
-        val bottomFrac = insetBottom.toFloat() / VIDEO_H
-        val leftFrac = insetLeft.toFloat() / VIDEO_W
-        val rightFrac = insetRight.toFloat() / VIDEO_W
+        val topFrac = insetTop.toFloat() / coordinateHeight
+        val bottomFrac = insetBottom.toFloat() / coordinateHeight
+        val leftFrac = insetLeft.toFloat() / coordinateWidth
+        val rightFrac = insetRight.toFloat() / coordinateWidth
 
         // --- Background: checkerboard simulating AA map ---
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -264,9 +269,9 @@ fun SafeAreaEditorScreen(
                         onDrag = { change, dragAmount ->
                             change.consume()
                             dragAccTop += dragAmount.y
-                            val deltaPx = (dragAccTop / canvasHPx * VIDEO_H).roundToInt()
+                            val deltaPx = (dragAccTop / canvasHPx * coordinateHeight).roundToInt()
                             if (deltaPx != 0) {
-                                insetTop = (insetTop + deltaPx).coerceIn(0, MAX_INSET)
+                                insetTop = (insetTop + deltaPx).coerceIn(0, maximumInset)
                                 dragAccTop = 0f
                             }
                         }
@@ -294,9 +299,9 @@ fun SafeAreaEditorScreen(
                         onDrag = { change, dragAmount ->
                             change.consume()
                             dragAccBottom -= dragAmount.y
-                            val deltaPx = (dragAccBottom / canvasHPx * VIDEO_H).roundToInt()
+                            val deltaPx = (dragAccBottom / canvasHPx * coordinateHeight).roundToInt()
                             if (deltaPx != 0) {
-                                insetBottom = (insetBottom + deltaPx).coerceIn(0, MAX_INSET)
+                                insetBottom = (insetBottom + deltaPx).coerceIn(0, maximumInset)
                                 dragAccBottom = 0f
                             }
                         }
@@ -324,9 +329,9 @@ fun SafeAreaEditorScreen(
                         onDrag = { change, dragAmount ->
                             change.consume()
                             dragAccLeft += dragAmount.x
-                            val deltaPx = (dragAccLeft / canvasWPx * VIDEO_W).roundToInt()
+                            val deltaPx = (dragAccLeft / canvasWPx * coordinateWidth).roundToInt()
                             if (deltaPx != 0) {
-                                insetLeft = (insetLeft + deltaPx).coerceIn(0, MAX_INSET)
+                                insetLeft = (insetLeft + deltaPx).coerceIn(0, maximumInset)
                                 dragAccLeft = 0f
                             }
                         }
@@ -354,9 +359,9 @@ fun SafeAreaEditorScreen(
                         onDrag = { change, dragAmount ->
                             change.consume()
                             dragAccRight -= dragAmount.x
-                            val deltaPx = (dragAccRight / canvasWPx * VIDEO_W).roundToInt()
+                            val deltaPx = (dragAccRight / canvasWPx * coordinateWidth).roundToInt()
                             if (deltaPx != 0) {
-                                insetRight = (insetRight + deltaPx).coerceIn(0, MAX_INSET)
+                                insetRight = (insetRight + deltaPx).coerceIn(0, maximumInset)
                                 dragAccRight = 0f
                             }
                         }
@@ -412,7 +417,7 @@ fun SafeAreaEditorScreen(
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Save")
+                Text(doneLabel)
             }
         }
 
@@ -424,6 +429,7 @@ fun SafeAreaEditorScreen(
         ) {
             if (showManualInput) {
                 SafeAreaManualInput(
+                    maximumInset = maximumInset,
                     top = insetTop, bottom = insetBottom,
                     left = insetLeft, right = insetRight,
                     onApply = { t, b, l, r ->
@@ -434,7 +440,7 @@ fun SafeAreaEditorScreen(
                 )
             } else {
                 Text(
-                    text = label,
+                    text = if (title.isEmpty()) label else "$title · $label",
                     color = Color.White,
                     fontSize = 14.sp,
                     fontFamily = FontFamily.Monospace,
@@ -541,6 +547,7 @@ private fun GripLines(horizontal: Boolean, modifier: Modifier = Modifier) {
 
 @Composable
 private fun SafeAreaManualInput(
+    maximumInset: Int,
     top: Int, bottom: Int, left: Int, right: Int,
     onApply: (top: Int, bottom: Int, left: Int, right: Int) -> Unit,
     onDismiss: () -> Unit,
@@ -550,7 +557,7 @@ private fun SafeAreaManualInput(
     var lText by remember { mutableStateOf(left.toString()) }
     var rText by remember { mutableStateOf(right.toString()) }
 
-    fun parse(s: String) = (s.toIntOrNull() ?: 0).coerceIn(0, MAX_INSET)
+    fun parse(s: String) = (s.toIntOrNull() ?: 0).coerceIn(0, maximumInset)
 
     Surface(
         shape = RoundedCornerShape(12.dp),

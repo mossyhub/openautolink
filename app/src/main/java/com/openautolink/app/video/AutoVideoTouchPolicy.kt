@@ -15,8 +15,8 @@ object AutoVideoTouchPolicy {
         val hevc = codec.equals("h265", ignoreCase = true) ||
             codec.equals("hevc", ignoreCase = true)
         return when {
-            hevc && portrait -> 2160 to 3840
-            hevc -> 3840 to 2160
+            hevc && portrait -> 1440 to 2560
+            hevc -> 2560 to 1440
             portrait -> 1080 to 1920
             else -> 1920 to 1080
         }

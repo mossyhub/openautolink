@@ -282,7 +282,9 @@ class VehiclePermissionRefreshTest {
         x.manager.duringSubscribe = { id, callback -> if (id == BATTERY) callback.onErrorEvent(id, 0) }
         x.energy = true
         x.request()
-        x.await { x.f.propertyStatus["RANGE_REMAINING"] == "subscribed" }
+        // Subscription bookkeeping precedes asynchronous snapshot publication.
+        // Await the battery error snapshot itself, not an unrelated property's status.
+        x.await { x.f.latestVehicleData.value.evObservationMetadata["EV_BATTERY_LEVEL"]?.status == 1 }
         assertNull(x.f.latestVehicleData.value.evBatteryLevelWh)
         assertEquals(1, x.f.latestVehicleData.value.evObservationMetadata.getValue("EV_BATTERY_LEVEL").status)
         x.f.stop()

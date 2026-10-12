@@ -52,6 +52,12 @@ scripts/mfi_read2
 *.keystore
 *.jks
 secrets/
+# CarPlay accessory credentials are external build inputs, never repository content.
+*.pk8
+*.p7b
+offline-mfi/
+# Also ignore the local native-dependency symlink (not only real directories).
+/app/src/main/cpp/third_party
 
 # Legacy app reference (not part of build)
 app_v1/

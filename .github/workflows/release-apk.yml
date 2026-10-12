@@ -28,10 +28,12 @@ jobs:
       # normal publish, the input supplies it on a manual re-run.
       - name: Resolve release tag
         id: tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag }}"
-          if [ -z "$TAG" ]; then
-            echo "ERROR: no tag from the release event or the workflow input" >&2
+          TAG="$RELEASE_TAG"
+          if ! [[ "$TAG" =~ ^v0\.1\.[1-9][0-9]*$ ]]; then
+            echo "ERROR: expected a release tag v0.1.PATCH with positive PATCH" >&2
             exit 1
           fi
           echo "value=$TAG" >> "$GITHUB_OUTPUT"
@@ -45,24 +47,27 @@ jobs:
           submodules: true
           ref: ${{ steps.tag.outputs.value }}
 
-      - name: Set up JDK 21
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 17
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: ''
+          packages: 'platform-tools platforms;android-36 build-tools;34.0.0 ndk;28.2.13676358 cmake;3.22.1'
 
       - name: Download native deps
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           for ABI in arm64-v8a x86_64; do
-            gh release download native-deps -p "native-deps-${ABI}.tar.gz" -O "/tmp/native-deps-${ABI}.tar.gz"
-            tar xzf "/tmp/native-deps-${ABI}.tar.gz" -C app/src/main/cpp/
+            gh release download native-deps --repo "$GITHUB_REPOSITORY" -p "native-deps-${ABI}.tar.gz" -O "$RUNNER_TEMP/native-deps-${ABI}.tar.gz"
+            tar xzf "$RUNNER_TEMP/native-deps-${ABI}.tar.gz" -C app/src/main/cpp/
+            test -f app/src/main/cpp/third_party/boost/include/boost/asio.hpp
+            test -f "app/src/main/cpp/third_party/openssl/${ABI}/lib/libssl.a"
+            test -f "app/src/main/cpp/third_party/aasdk/${ABI}/lib/libaasdk.a"
           done
 
       - name: Cache Gradle
@@ -75,10 +80,17 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      - name: Decode keystore
+      # Retain the existing Android APK signing key only; never add MFi secrets
+      # or oalCarPlayMfiAssetsDir. Credential-bearing Play builds are host-only.
+      - name: Decode Android signing keystore
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
         run: |
+          test -n "$UPLOAD_KEYSTORE_BASE64"
+          umask 077
           mkdir -p secrets
-          echo "${{ secrets.UPLOAD_KEYSTORE_BASE64 }}" | base64 -d > secrets/upload-key.jks
+          printf '%s' "$UPLOAD_KEYSTORE_BASE64" | base64 -d > secrets/upload-key.jks
+          test -s secrets/upload-key.jks
 
       # Derive the version from the release tag so both APKs are stamped with a
       # real, increasing version. Without this both modules fall back to their
@@ -98,8 +110,10 @@ jobs:
       # together, because a versionCode bump on Play is irreversible.
       - name: Derive version from release tag
         id: version
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.value }}
         run: |
-          TAG="${{ steps.tag.outputs.value }}"
+          TAG="$RELEASE_TAG"
           NAME="${TAG#v}"
           if ! [[ "$NAME" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             echo "ERROR: release tag '$TAG' is not vMAJOR.MINOR.PATCH" >&2
@@ -108,6 +122,10 @@ jobs:
           MAJOR="${BASH_REMATCH[1]}"
           MINOR="${BASH_REMATCH[2]}"
           PATCH="${BASH_REMATCH[3]}"
+          if [ "${#PATCH}" -gt 10 ] || [ "$PATCH" -gt 2100000000 ]; then
+            echo "ERROR: versionCode exceeds the Android/Play limit" >&2
+            exit 1
+          fi
           if [ "$MAJOR" != "0" ] || [ "$MINOR" != "1" ]; then
             echo "ERROR: tag '$TAG' leaves the 0.1.x line." >&2
             echo "versionCode is the bare PATCH component, so '$NAME' would" >&2
@@ -142,12 +160,43 @@ jobs:
             -PoalVersionName=${{ steps.version.outputs.name }}
 
       - name: Rename APKs
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.value }}
         run: |
-          TAG="${{ steps.tag.outputs.value }}"
+          TAG="$RELEASE_TAG"
           mv app/build/outputs/apk/release/app-release.apk \
              "app/build/outputs/apk/release/openautolink-car-${TAG}.apk"
           mv companion/build/outputs/apk/release/companion-release.apk \
              "companion/build/outputs/apk/release/openautolink-companion-${TAG}.apk"
+
+      # Fail closed on the exact final files attached below, including assets
+      # accidentally introduced through sources, dependencies or Gradle config.
+      - name: Verify public APKs contain no private CarPlay identity
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          # Unsigned builder output is not an installable public release APK.
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify \
+            "app/build/outputs/apk/release/openautolink-car-${RELEASE_TAG}.apk"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify \
+            "companion/build/outputs/apk/release/openautolink-companion-${RELEASE_TAG}.apk"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          tag = os.environ['RELEASE_TAG']
+          for module, label in (('app', 'car'), ('companion', 'companion')):
+              apk = Path(f'{module}/build/outputs/apk/release/openautolink-{label}-{tag}.apk')
+              with ZipFile(apk) as archive:
+                  forbidden = [name for name in archive.namelist()
+                               if 'offline-mfi' in name.replace('\\', '/').casefold().split('/')
+                               or name.replace('\\', '/').casefold().split('/')[-1]
+                               in ('identity.pk8', 'certificate.p7b')]
+              if forbidden:
+                  raise SystemExit(f'Private CarPlay identity found in {apk}; refusing public upload')
+              print(f'Verified credential-free public APK: {apk}')
+          PY
 
       - name: Upload APKs to release
         uses: softprops/action-gh-release@v2
@@ -155,6 +204,7 @@ jobs:
           # Explicit: on workflow_dispatch there is no release in the event
           # context to infer the target from.
           tag_name: ${{ steps.tag.outputs.value }}
+          fail_on_unmatched_files: true
           files: |
-            app/build/outputs/apk/release/openautolink-car-*.apk
-            companion/build/outputs/apk/release/openautolink-companion-*.apk
+            app/build/outputs/apk/release/openautolink-car-${{ steps.tag.outputs.value }}.apk
+            companion/build/outputs/apk/release/openautolink-companion-${{ steps.tag.outputs.value }}.apk

@@ -70,14 +70,58 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.openautolink.app.R
+import com.openautolink.app.carplay.CarPlayProjectionLayer
 import com.openautolink.app.audio.AudioStats
 import com.openautolink.app.session.SessionState
-import com.openautolink.app.ui.components.DraggableOverlayButton
+import com.openautolink.app.ui.components.ProjectionOverlayControls
+import com.openautolink.app.ui.components.StatsForNerdsOverlay
+import com.openautolink.app.ui.components.StatLine
 import com.openautolink.app.video.VideoStats
+
+@Composable
+private fun CarPlayRecoveryPanel(
+    guidance: String,
+    enabled: Boolean,
+    onRetry: () -> Unit,
+    onSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.padding(24.dp).background(Color.Black.copy(alpha = 0.85f)).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(guidance, color = Color.White, textAlign = TextAlign.Center)
+        Row {
+            androidx.compose.material3.TextButton(onClick = onSettings) { Text("Connection settings") }
+            androidx.compose.material3.TextButton(onClick = onRetry, enabled = enabled,
+                modifier = Modifier.testTag("carPlayRetry")) { Text("Retry CarPlay") }
+        }
+    }
+}
+
+/** Confirmation only: the ViewModel owns routing, permissions and exact-generation retirement. */
+@Composable
+private fun UsbHotPlugSwitchDialog(
+    prompt: com.openautolink.app.carplay.UsbHotPlugPrompt,
+    onSwitch: () -> Unit,
+    onStay: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        modifier = Modifier.testTag("usbHotPlugPrompt"),
+        onDismissRequest = onStay,
+        title = { Text("USB phone connected") },
+        text = { Text("Switch to ${prompt.protocolLabel} for this connection? Your normal connection settings will not change.") },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onSwitch,
+                modifier = Modifier.testTag("usbHotPlugSwitch")) { Text("Switch") }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onStay,
+                modifier = Modifier.testTag("usbHotPlugStay")) { Text("Stay here") }
+        },
+    )
+}
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -85,11 +129,31 @@ fun ProjectionScreen(
     viewModel: ProjectionViewModel = viewModel(),
     onNavigateToSettings: () -> Unit = {},
     onReconnect: () -> Unit = {},
-    settingsOverlay: @Composable (onBack: () -> Unit, onShowDiagnostics: () -> Unit) -> Unit = { _, _ -> },
+    settingsOverlay: @Composable (onBack: () -> Unit, onShowDiagnostics: () -> Unit,
+        onCarPlaySafeEditor: () -> Unit) -> Unit = { _, _, _ -> },
     diagnosticsOverlay: @Composable (onBack: () -> Unit) -> Unit = {},
+    carPlaySafeEditorOverlay: @Composable (onBack: () -> Unit) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val carPlayState by viewModel.carPlayState.collectAsStateWithLifecycle()
+    val usbHotPlugPrompt by viewModel.usbHotPlugPrompt.collectAsStateWithLifecycle()
+    val usbSwitchFailure by viewModel.usbSwitchFailure.collectAsStateWithLifecycle()
+    val carPlayEnabled by viewModel.carPlayEnabled.collectAsStateWithLifecycle()
+    val carPlayStartupGuidance by viewModel.carPlayStartupGuidance.collectAsStateWithLifecycle()
+    val carPlayPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        if (grants.values.all { it }) viewModel.connectCarPlay()
+    }
+    val retryCarPlay = {
+        carPlayPermissionLauncher.launch(arrayOf(
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_SCAN,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+        ))
+    }
     val connectionMode by viewModel.connectionMode.collectAsStateWithLifecycle()
+    val directTransport by viewModel.directTransport.collectAsStateWithLifecycle()
     val isCarHotspotMode = connectionMode == com.openautolink.app.data.AppPreferences.CONNECTION_MODE_CAR_HOTSPOT
     val carHotspotPhones by viewModel.carHotspotPhones.collectAsStateWithLifecycle()
     val carHotspotSweeping by viewModel.carHotspotSweepActive.collectAsStateWithLifecycle()
@@ -105,6 +169,8 @@ fun ProjectionScreen(
 
     // Settings overlay state
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    // Separate sibling overlay; never navigate away from or re-key the live Surface.
+    var showCarPlaySafeEditor by remember { mutableStateOf(false) }
     // Diagnostics overlay state — rendered as overlay (not nav destination) so the
     // projection Surface stays alive underneath. Returning to projection avoids
     // a codec/Surface re-init and the black frames that come with it.
@@ -115,32 +181,99 @@ fun ProjectionScreen(
     }
 
     DisposableEffect(Unit) {
-        viewModel.connect()
+        viewModel.startProjectionOnce()
         onDispose {
             // Don't disconnect on dispose — session survives config changes
         }
     }
 
-    // Compute explicit padding from system bar AND display cutout dimensions.
-    // Use getInsetsIgnoringVisibility() because AAOS CarSystemUI may not update
-    // inset values when bars are requested to hide via WindowInsetsController.
-    // Display cutout insets represent physically curved/missing screen areas.
-    val view = LocalView.current
-    val rootInsets = view.rootWindowInsets
-    val sysBarInsets = rootInsets?.getInsetsIgnoringVisibility(
-        android.view.WindowInsets.Type.systemBars()
-    )
-    val cutoutInsets = rootInsets?.getInsetsIgnoringVisibility(
-        android.view.WindowInsets.Type.displayCutout()
-    )
-    val barTop = sysBarInsets?.top ?: 0
-    val barBottom = sysBarInsets?.bottom ?: 0
-    val barLeft = sysBarInsets?.left ?: 0
-    val barRight = sysBarInsets?.right ?: 0
-    val cutTop = cutoutInsets?.top ?: 0
-    val cutBottom = cutoutInsets?.bottom ?: 0
-    val cutLeft = cutoutInsets?.left ?: 0
-    val cutRight = cutoutInsets?.right ?: 0
+    // Keep the AA density calculations unchanged; ProjectionViewport owns mode padding once.
+    val density = LocalDensity.current
+
+    // One generation-qualified confirmation for either projection owner, not a settings action.
+    // Keep the current Surface and the sibling safe-area editor in their existing composition.
+    if (!showSettings && !showDiagnostics && !showCarPlaySafeEditor) {
+        if (usbHotPlugPrompt == null) usbSwitchFailure?.let { guidance ->
+            androidx.compose.material3.AlertDialog(
+                modifier = Modifier.testTag("usbSwitchFailure"),
+                onDismissRequest = viewModel::dismissUsbSwitchFailure,
+                title = { Text("USB switch paused") },
+                text = { Text(guidance) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = viewModel::retryUsbSwitch) { Text("Retry USB") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = viewModel::dismissUsbSwitchFailure) { Text("Dismiss") }
+                },
+            )
+        }
+        usbHotPlugPrompt?.let { prompt ->
+            key(prompt.generation) {
+                UsbHotPlugSwitchDialog(
+                    prompt = prompt,
+                    onSwitch = { viewModel.acceptUsbHotPlug(prompt.generation) },
+                    onStay = { viewModel.stayOnCurrentProjection(prompt.generation) },
+                )
+            }
+        }
+    }
+
+    if (carPlayState.selected) {
+        ProjectionViewport(uiState.displayMode) {
+            CarPlayProjectionLayer(
+                viewModel = viewModel, state = carPlayState, enabled = carPlayEnabled, controls = uiState,
+                onReconnect = onReconnect,
+                showSettings = showSettings, showDiagnostics = showDiagnostics,
+                onSettings = { showSettings = true },
+            )
+            if (showSettings) settingsOverlay(
+                { showSettings = false }, { showSettings = false; showDiagnostics = true },
+                { showCarPlaySafeEditor = true })
+            if (showDiagnostics) diagnosticsOverlay { showDiagnostics = false }
+            // Same exact parent and constraints as CarPlayProjectionLayer, above settings chrome.
+            if (showCarPlaySafeEditor) carPlaySafeEditorOverlay { showCarPlaySafeEditor = false }
+        }
+        if (!showSettings && !showDiagnostics && !carPlayState.busy &&
+            !carPlayState.evidence.videoRendered && carPlayState.failure == null) {
+            Box(Modifier.fillMaxSize()) {
+                CarPlayRecoveryPanel(
+                    guidance = carPlayStartupGuidance ?: carPlayState.status,
+                    enabled = carPlayEnabled,
+                    onRetry = retryCarPlay,
+                    onSettings = { showSettings = true },
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+        }
+
+        if (!showSettings && !showDiagnostics && usbHotPlugPrompt == null) carPlayState.failure?.let { failure ->
+            androidx.compose.material3.AlertDialog(
+                modifier = Modifier.testTag("carPlayFailure"),
+                onDismissRequest = viewModel::dismissCarPlayFailure,
+                title = { Text("CarPlay connection failed") },
+                text = { Text(failure.userGuidance) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = viewModel::returnToAndroidAuto) {
+                        Text("Return to Android Auto")
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        androidx.compose.material3.TextButton(onClick = { showSettings = true; viewModel.dismissCarPlayFailure() }) {
+                            Text("Connection settings")
+                        }
+                        androidx.compose.material3.TextButton(onClick = retryCarPlay, enabled = carPlayEnabled) {
+                            Text("Retry CarPlay")
+                        }
+                    }
+                },
+            )
+        }
+        androidx.activity.compose.BackHandler(!showCarPlaySafeEditor && (showSettings || showDiagnostics)) {
+            showSettings = false; showDiagnostics = false
+        }
+        return
+    }
 
     // Effective system inset = max(systemBars, displayCutout) per edge. This
     // is what AA should treat as `content_insets` so dropdowns/dialogs avoid
@@ -171,30 +304,7 @@ fun ProjectionScreen(
         viewModel.setSystemInsets(0, 0, 0, 0)
     }
 
-    val density = LocalDensity.current
-    val displayModePadding = with(density) {
-        when (uiState.displayMode) {
-            // System UI visible — pad for status bar (top), nav bar (bottom), and cutouts.
-            "system_ui_visible" -> androidx.compose.foundation.layout.PaddingValues(
-                top = maxOf(barTop, cutTop).toDp(),
-                bottom = maxOf(barBottom, cutBottom).toDp(),
-                start = maxOf(barLeft, cutLeft).toDp(),
-                end = maxOf(barRight, cutRight).toDp()
-            )
-            // Fullscreen — no padding. Video fills entire framebuffer.
-            // AA stable_insets (right only) keep buttons away from the curve.
-            "fullscreen_immersive" -> androidx.compose.foundation.layout.PaddingValues()
-            else -> androidx.compose.foundation.layout.PaddingValues()
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .padding(displayModePadding)
-            .testTag("projectionScreen")
-    ) {
+    ProjectionViewport(uiState.displayMode, Modifier.testTag("projectionScreen")) {
         // The Box's content area = the "render rect" — the region where the
         // AA SurfaceView actually lands after displayMode padding. Push it
         // (plus the panel's reported DPI) to SessionManager so auto-DPI can
@@ -446,8 +556,16 @@ fun ProjectionScreen(
             }
         }
 
-        // Connection status HUD — centered overlay, visible when not streaming
-        if (uiState.sessionState != SessionState.STREAMING) {
+        // Setup/retry is secondary recovery UI, not the normal startup mechanism.
+        if (carPlayEnabled && carPlayStartupGuidance != null && !showSettings && !showDiagnostics) {
+            CarPlayRecoveryPanel(
+                guidance = carPlayStartupGuidance!!,
+                enabled = true,
+                onRetry = retryCarPlay,
+                onSettings = { showSettings = true },
+                modifier = Modifier.align(Alignment.Center),
+            )
+        } else if (uiState.sessionState != SessionState.STREAMING) {
             ConnectionHud(
                 uiState = uiState,
                 modifier = Modifier.align(Alignment.Center)
@@ -546,186 +664,18 @@ fun ProjectionScreen(
             }
         }
 
-        // Floating overlay buttons — bottom-right, above nav bar. Draggable.
-        // Use BoxWithConstraints to get available bounds and pass them to
-        // buttons so they can clamp positions when display mode changes.
-        BoxWithConstraints(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 16.dp),
-        ) {
-            // `maxWidth.value` returns DP, but the drag offset inside
-            // DraggableOverlayButton is in PIXELS. Passing the DP value
-            // was clamping the drag to ~screen_width/density pixels —
-            // i.e. an "invisible wall" roughly 1/3 of the way across the
-            // screen on common AAOS panel densities. Convert to pixels.
-            val density = LocalDensity.current
-            val maxBoundsX = with(density) { this@BoxWithConstraints.maxWidth.toPx() }
-            val maxBoundsY = with(density) { this@BoxWithConstraints.maxHeight.toPx() }
-
-            Column {
-                // Settings button — draggable
-                DraggableOverlayButton(
-                    icon = Icons.Default.Settings,
-                    contentDescription = "Settings",
-                    onClick = { showSettings = true },
-                    positionKey = "overlay_settings",
-                    modifier = Modifier.testTag("settingsButton"),
-                    maxBoundsX = maxBoundsX,
-                    maxBoundsY = maxBoundsY,
-                )
-
-                // Switch Phone button — Car Hotspot mode only. Tapping opens a
-                // centered chooser overlay; the underlying AA session keeps
-                // streaming until the user explicitly picks a different phone.
-                if (isCarHotspotMode && uiState.overlayPhoneSwitchButton) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    DraggableOverlayButton(
-                        icon = Icons.Default.PhoneAndroid,
-                        contentDescription = "Switch Phone",
-                        onClick = { viewModel.showCarHotspotChooser() },
-                        positionKey = "overlay_switch_phone",
-                        containerColor = if (carHotspotSwitching) {
-                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f)
-                        } else {
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-                        },
-                        tint = if (carHotspotSwitching) {
-                            MaterialTheme.colorScheme.onTertiary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                        modifier = Modifier.testTag("switchPhoneButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
-                    )
-                }
-
-                // Stats button — user-configurable, unlike Settings which always stays visible.
-                if (uiState.overlayStatsButton) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    DraggableOverlayButton(
-                        icon = Icons.Default.Info,
-                        contentDescription = "Stats for nerds",
-                        onClick = { viewModel.toggleStats() },
-                        positionKey = "overlay_stats",
-                        containerColor = if (uiState.showStats) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                        } else {
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-                        },
-                        tint = if (uiState.showStats) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                        modifier = Modifier.testTag("statsButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
-                    )
-                }
-
-                // Reconnect button — invokes the exact same callback as Settings'
-                // Save & Reconnect action, so preference reload and session behavior
-                // cannot drift between the two entry points.
-                if (uiState.overlayReconnectButton) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    DraggableOverlayButton(
-                        icon = Icons.Default.Refresh,
-                        contentDescription = "Reconnect",
-                        onClick = onReconnect,
-                        positionKey = "overlay_reconnect",
-                        modifier = Modifier.testTag("reconnectButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
-                    )
-                }
-
-                // File logging button — only shown when enabled in Settings → Diagnostics
-                if (uiState.fileLoggingEnabled) {
-                Spacer(modifier = Modifier.height(8.dp))
-
-                DraggableOverlayButton(
-                    icon = Icons.Default.FiberManualRecord,
-                    contentDescription = "File Logging",
-                    onClick = { viewModel.toggleFileLogging() },
-                    positionKey = "overlay_file_log",
-                    containerColor = if (uiState.fileLoggingActive) {
-                        Color.Red.copy(alpha = 0.7f)
-                    } else {
-                        MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-                    },
-                    tint = if (uiState.fileLoggingActive) {
-                        Color.White
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    modifier = Modifier.testTag("fileLogButton"),
-                    maxBoundsX = maxBoundsX,
-                    maxBoundsY = maxBoundsY,
-                )
-                } // end fileLoggingEnabled
-
-                // Upload Logs button — maintainer-only, shown when the feature
-                // is enabled in Settings. Color states: amber (uploading),
-                // green (success), red (error), default surface (idle). Appears
-                // whenever uploadEnabled so the user can fire it right after a
-                // drive while the just-written logs are still in the 6h window.
-                if (uiState.uploadEnabled) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val uploadContainer = when (uiState.uploadState) {
-                        LogUploadState.UPLOADING -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.85f)
-                        LogUploadState.SUCCESS -> Color(0xFF2E7D32).copy(alpha = 0.85f)
-                        LogUploadState.ERROR -> Color.Red.copy(alpha = 0.8f)
-                        LogUploadState.IDLE -> MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-                    }
-                    val uploadTint = if (uiState.uploadState == LogUploadState.IDLE) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        Color.White
-                    }
-                    val uploadIcon = when (uiState.uploadState) {
-                        LogUploadState.SUCCESS -> Icons.Default.CloudDone
-                        LogUploadState.ERROR -> Icons.Default.CloudOff
-                        else -> Icons.Default.CloudUpload
-                    }
-                    DraggableOverlayButton(
-                        icon = uploadIcon,
-                        contentDescription = "Upload Logs",
-                        onClick = { viewModel.uploadLogsNow() },
-                        positionKey = "overlay_upload_logs",
-                        containerColor = uploadContainer,
-                        tint = uploadTint,
-                        modifier = Modifier.testTag("uploadLogsButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
-                    )
-                }
-
-                // Simulate ignition cycle — maintainer tool, off by default.
-                // Runs the shutdown -> Bluetooth loss -> republish -> reconnect
-                // sequence without turning the car off, so the path where the
-                // reconnect failures actually happen can be tested in the
-                // driveway instead of once per drive.
-                if (uiState.simulateIgnitionButton) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    DraggableOverlayButton(
-                        icon = Icons.Default.PowerSettingsNew,
-                        contentDescription = "Simulate ignition cycle",
-                        onClick = { viewModel.simulateIgnitionCycle() },
-                        positionKey = "overlay_simulate_ignition",
-                        modifier = Modifier.testTag("simulateIgnitionButton"),
-                        maxBoundsX = maxBoundsX,
-                        maxBoundsY = maxBoundsY,
-                    )
-                }
-            }
-        }
+        ProjectionOverlayControls(
+            uiState = uiState,
+            onSettings = { showSettings = true },
+            onStats = viewModel::toggleStats,
+            onReconnect = onReconnect,
+            modifier = Modifier.align(Alignment.BottomEnd),
+            onSwitchPhone = if (PhoneSwitcherPolicy.visible(directTransport, connectionMode, uiState.overlayPhoneSwitchButton)) ({ viewModel.showCarHotspotChooser() }) else null,
+            carHotspotSwitching = carHotspotSwitching,
+            onFileLogging = viewModel::toggleFileLogging,
+            onUpload = viewModel::uploadLogsNow,
+            onSimulateIgnition = viewModel::simulateIgnitionCycle,
+        )
 
         // Stats overlay panel — bottom-left
         if (uiState.showStats) {
@@ -764,6 +714,7 @@ fun ProjectionScreen(
                         // straight to projection.
                         showDiagnostics = true
                     },
+                    { showCarPlaySafeEditor = true },
                 )
             }
         }
@@ -830,9 +781,13 @@ fun ProjectionScreen(
         // it cover Settings/Diagnostics, and offer an explicit way back to the
         // transport settings even while no phone is plugged in.
         val transportMode by viewModel.transportMode.collectAsStateWithLifecycle()
-        if (UsbPickerVisibility.shouldShow(transportMode, showSettings, showDiagnostics)) {
+        if (usbHotPlugPrompt == null && UsbPickerVisibility.shouldShow(transportMode, showSettings, showDiagnostics)) {
             UsbDevicePickerOverlay(onOpenSettings = { showSettings = true })
         }
+
+        // Also supported while CarPlay is enabled in settings but Android Auto owns projection.
+        // Do not place this inside AnimatedVisibility/settings' rail, scroll or content pane.
+        if (showCarPlaySafeEditor) carPlaySafeEditorOverlay { showCarPlaySafeEditor = false }
 
     }
 }
@@ -1332,17 +1287,7 @@ private fun VideoStatsOverlay(
     wifiFrequencyMhz: Int = 0,
     modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(alpha = 0.72f))
-            .padding(14.dp)
-            .testTag("videoStatsOverlay")
-    ) {
-        Column {
-            StatLine("Stats for nerds", "", header = true)
-            Spacer(modifier = Modifier.height(6.dp))
-
+    StatsForNerdsOverlay(modifier = modifier) {
             StatLine("Session", sessionState.name)
 
             // WiFi band
@@ -1436,37 +1381,6 @@ private fun VideoStatsOverlay(
             } else {
                 StatLine("Audio", "not active")
             }
-        }
-    }
-}
-
-@Composable
-private fun StatLine(
-    label: String,
-    value: String,
-    header: Boolean = false,
-    valueColor: Color = Color.White,
-) {
-    Row(modifier = Modifier.padding(vertical = 1.dp)) {
-        Text(
-            text = label,
-            color = if (header) Color(0xFF64FFDA) else Color(0xFFB0BEC5),
-            fontSize = if (header) 16.sp else 13.sp,
-            fontWeight = if (header) FontWeight.Bold else FontWeight.Normal,
-            fontFamily = FontFamily.Monospace,
-            lineHeight = if (header) 20.sp else 16.sp,
-            modifier = Modifier.width(if (header) 200.dp else 100.dp),
-        )
-        if (value.isNotEmpty()) {
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = value,
-                color = valueColor,
-                fontSize = 13.sp,
-                fontFamily = FontFamily.Monospace,
-                lineHeight = 16.sp,
-            )
-        }
     }
 }
 

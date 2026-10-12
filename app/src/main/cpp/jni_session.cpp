@@ -1839,7 +1839,7 @@ void JniSession::buildServiceDiscoveryResponse(
           //
           // Codec preference (videoCodec):
           //   "h264" → up to 1080p
-          //   "h265" → up to 4K with the verified GAL 6 short-keyframe path
+          //   "h265" → prefer 1440p with lower compatibility tiers (4K manual only)
           //   else → fall back to h264
           //
           // Mirrors GM's GALDisplayManager.getVideoConfigList() which only
@@ -1855,11 +1855,11 @@ void JniSession::buildServiceDiscoveryResponse(
 
           if (useH265) {
               if (portrait) {
-                  tiers[0] = 9; tiers[1] = 8; tiers[2] = 7; tiers[3] = 6;
-                  tierCount = 4;
+                  tiers[0] = 8; tiers[1] = 7; tiers[2] = 6;
+                  tierCount = 3;
               } else {
-                  tiers[0] = 5; tiers[1] = 4; tiers[2] = 3; tiers[3] = 2; tiers[4] = 1;
-                  tierCount = 5;
+                  tiers[0] = 4; tiers[1] = 3; tiers[2] = 2; tiers[3] = 1;
+                  tierCount = 4;
               }
           } else {
               // H.264 BP: cap at 1080p. Match GM exactly for landscape.

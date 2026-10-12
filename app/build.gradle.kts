@@ -1,3 +1,6 @@
+import java.io.File
+import java.nio.file.Files
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -8,8 +11,30 @@ plugins {
 
 val oalBuilderUnsigned = providers.gradleProperty("oalBuilderUnsigned").orNull == "true"
 
+// Explicit owner-authorized internal builds only. Never copy credentials into source/generated dirs.
+val oalCarPlayMfiAssetsDir = providers.gradleProperty("oalCarPlayMfiAssetsDir").orNull?.let { path ->
+    require(path.isNotBlank()) { "oalCarPlayMfiAssetsDir must name an external asset root" }
+    val root = file(path).canonicalFile
+    require(!root.toPath().startsWith(rootProject.projectDir.canonicalFile.toPath())) {
+        "MFi assets must be outside the repository"
+    }
+    val identity = File(root, "offline-mfi")
+    val names = setOf("identity.pk8", "certificate.p7b")
+    require(root.isDirectory && root.list()?.toSet() == setOf("offline-mfi") &&
+        identity.isDirectory && identity.list()?.toSet() == names) {
+        "MFi asset root must contain exactly offline-mfi/identity.pk8 and offline-mfi/certificate.p7b"
+    }
+    require(!Files.isSymbolicLink(identity.toPath()) && names.all { name ->
+        val input = File(identity, name)
+        input.isFile && !Files.isSymbolicLink(input.toPath()) && input.length() in 1L..16384L
+    }) { "MFi assets must be complete bounded regular files, not links" }
+    root
+}
+
 android {
     namespace = "com.openautolink.app"
+    // Direct external input; APK/AAB assets are extractable, not encrypted secret storage.
+    oalCarPlayMfiAssetsDir?.let { sourceSets.getByName("main").assets.srcDir(it) }
     compileSdk = 36
 
     defaultConfig {
@@ -48,6 +73,11 @@ android {
     }
 
     buildTypes {
+        create("tabletDebug") {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -95,6 +125,12 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().all()) {
+        it.packaging.resources.excludes.add("META-INF/versions/9/OSGI-INF/MANIFEST.MF")
+    }
+}
+
 protobuf {
     protoc {
         artifact = "com.google.protobuf:protoc:4.29.3"
@@ -111,6 +147,7 @@ protobuf {
 }
 
 dependencies {
+    implementation(project(":carplay-lab"))
     // Core
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.ktx)
@@ -159,6 +196,7 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    testImplementation("org.robolectric:robolectric:4.14.1")
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)
 }

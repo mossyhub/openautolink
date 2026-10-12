@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- Tablet testing relaxes hardware eligibility only: real OAL Application/MainActivity/services remain. -->
+    <uses-feature android:name="android.hardware.type.automotive" android:required="false" tools:replace="android:required" />
+    <uses-feature android:name="android.software.car.templates_host" android:required="false" tools:replace="android:required" />
+    <application>
+        <!-- A plain tablet has no Templates Host. Keep automotive renderer tasks out of this hardware-only test variant. -->
+        <activity android:name="androidx.car.app.activity.CarAppActivity" tools:node="remove" />
+    </application>
+</manifest>

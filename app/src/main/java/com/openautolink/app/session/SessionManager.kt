@@ -773,6 +773,7 @@ class SessionManager(
         } else {
             val currentTransport = AppPreferences.getInstance(ctx).directTransport.first()
             when {
+                externalUsbTransport -> "transient-usb-owner"
                 currentTransport != AppPreferences.DIRECT_TRANSPORT_WPP -> "transport-changed"
                 IgnitionMonitor.isOffOrLocked() -> "ignition-off"
                 sessionState.value != SessionState.IDLE -> "session-not-idle"
@@ -1137,6 +1138,32 @@ class SessionManager(
         session.sendNightMode(night)
     }
 
+    /** Only the ViewModel's unified USB owner enables externally supplied AA pipes. */
+    @Volatile var externalUsbTransport: Boolean = false
+    private val detachedExternalUsb = java.util.Collections.synchronizedMap(
+        java.util.WeakHashMap<com.openautolink.app.transport.aasdk.AasdkTransportPipe, Boolean>())
+
+    suspend fun acceptUsbTransport(pipe: com.openautolink.app.transport.aasdk.AasdkTransportPipe): Boolean {
+        startMutex.lock()
+        try {
+            val session = aasdkSession
+            if (detachedExternalUsb.remove(pipe) == true || session == null || !externalUsbTransport ||
+                com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto) {
+                pipe.close()
+                return false
+            }
+            session.acceptUsbTransport(pipe)
+            return session.connectionState.value != ConnectionState.DISCONNECTED
+        } finally { startMutex.unlock() }
+    }
+
+    fun detachUsbTransport(pipe: com.openautolink.app.transport.aasdk.AasdkTransportPipe, retired: () -> Unit) {
+        detachedExternalUsb[pipe] = true
+        val session = synchronized(sessionStateLock) { aasdkSession ?: retiringAasdkSession }
+        if (session == null) { pipe.close(); retired() }
+        else session.detachUsbTransport(pipe, retired)
+    }
+
     suspend fun start(
         codecPreference: String = "h264",
         micSourcePreference: String = "car",
@@ -1173,12 +1200,18 @@ class SessionManager(
         galVersion: String = AppPreferences.DEFAULT_GAL_VERSION,
         wppRearmSource: String? = null,
         seedIdrThresholds: SeedIdrThresholds = SeedIdrThresholds(),
+        admissionCheck: () -> Boolean = { true },
     ) {
         val requestGeneration = lifecycleGeneration
         val transportStartGeneration = currentTransportStartGeneration()
         startMutex.lock()
         try {
         kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+        if (!admissionCheck() || externalUsbTransport && directTransport != AppPreferences.DIRECT_TRANSPORT_USB) return@withContext
+        if (com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto) {
+            OalLog.i(TAG, "AA start declined — explicit CarPlay owner reserved")
+            return@withContext
+        }
         if (requestGeneration != lifecycleGeneration) {
             OalLog.i(TAG, "Start request rejected — lifecycle stop completed while waiting")
             return@withContext
@@ -1408,6 +1441,11 @@ class SessionManager(
                 // owns both registration and unregistration.
                 registerScreenReceiver()
                 if (isDebuggableBuild()) registerDebugReceiver()
+                if (!admissionCheck()) {
+                    stopWhileLifecycleLocked(cancelObserveJob = false)
+                    startupOutcome.complete(Unit)
+                    return@launch
+                }
                 val finalWppRejection = currentWppRearmRejection(wppRearmSource, stage = "final")
             if (finalWppRejection != null) {
                 OalLog.i(TAG, "WPP rearm rejected: source=$wppRearmSource " +
@@ -1733,6 +1771,7 @@ class SessionManager(
             ),
         )
         session.transportMode = directTransport
+        session.externalUsbTransport = externalUsbTransport && directTransport == AppPreferences.DIRECT_TRANSPORT_USB
         session.wppInterfaceName = wppInterfaceName
         // Effective AA content_insets:
         //  - In `system_ui_visible` mode, the SurfaceView is already inside
@@ -2244,6 +2283,10 @@ class SessionManager(
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
             if (requestGeneration != lifecycleGeneration) {
                 OalLog.i(TAG, "Reconnect request rejected — lifecycle stop completed while waiting")
+                return@withContext
+            }
+            if (com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto) {
+                OalLog.i(TAG, "AA reconnect declined — explicit CarPlay owner reserved")
                 return@withContext
             }
         gpsForwardingEnabled = gpsForwarding

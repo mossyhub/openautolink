@@ -6,233 +6,286 @@
   </a>
 </p>
 
-# OpenAutoLink
+# OpenAutoLink — Android Auto & Apple CarPlay
 
-> Android Auto for Android Automotive OS head units that do not include it.<br>
-> Wireless or USB. No SBC, dongle, or additional hardware.
+> Bring Android Auto and Apple CarPlay to Android Automotive OS head units.<br>
+> Phone projection on the car's existing screen. No SBC, dongle, or additional projection hardware.
 
-**Android only. OpenAutoLink does not currently support Apple CarPlay.**
+OpenAutoLink runs on the vehicle's **Android Automotive OS (AAOS)** head unit. Android Automotive is the car's operating system; **Android Auto and Apple CarPlay are the phone-projection experiences** that OAL receives. OAL does not replace the car's operating system.
 
-OpenAutoLink runs the Android Auto protocol directly on the vehicle's Android Automotive OS (AAOS) head unit. It restores the phone-based Android Auto experience while integrating vehicle data, the instrument cluster, steering-wheel controls, microphone, calls, and ignition reconnects.
+Android Auto and CarPlay share one app, with independent connection settings. **USB CarPlay is supported alongside wireless and USB Android Auto.** Wireless CarPlay remains available for development but is not working in the maintainer's vehicle.
 
-**Real-world GM EV use:**
-
-- **2024 Chevrolet Blazer EV** — maintainer-validated daily driver
-- **2025–2026 Chevrolet Equinox EV** — community-tested, including a successful independent owner report and earlier issue reports
-- **2027 Chevrolet Bolt** — successful independent owner demonstration
-
-GM's recent AAOS EVs share much of the same infotainment platform. A problem reported on one model or model year is recorded as an app/phone/setup observation—not proof that the vehicle is incompatible. OpenAutoLink and Android Auto are both changing quickly, so older reports may no longer reproduce on current builds.
-
-[Latest release](https://github.com/mossyhub/openautolink/releases/latest) · [GM installation](docs/install-gm.md) · [Compatibility](docs/compatibility.md) · [Troubleshooting](docs/troubleshooting.md) · [XDA discussion](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/)
-
-> [!IMPORTANT]
-> GM production head units do not permit ADB installation or APK sideloading. The easiest route is the maintainer's Google Play test group: about 45 of 100 places are currently filled. If building and Play Console setup are blocking you, privately send the Google-account email used by your vehicle to the maintainer through the [XDA thread](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) or [Reddit](https://www.reddit.com/user/IPickedThisUserID/). Do not post your email publicly. Self-publishing remains available for people who want their own app identity and release track.<br><br>
-> Official builds are published on [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest). The companion APK installs on an Android phone. The car APK is for emulators and AAOS systems that permit sideloading; it cannot be sideloaded onto a locked GM production vehicle.
-
-**Polestar and other AAOS owners wanted:** If your vehicle runs Android Automotive OS but does not include Android Auto, contact the maintainer through XDA or Reddit. OpenAutoLink needs real-vehicle testers beyond GM; installation, networking, audio, vehicle APIs, and display behavior must be proven on each platform.
+[Releases](https://github.com/mossyhub/openautolink/releases/latest) · [Installation](#installation) · [Android Auto setup](#android-auto-setup) · [CarPlay setup](#carplay-setup) · [Compatibility](docs/compatibility.md) · [Troubleshooting](docs/troubleshooting.md) · [XDA discussion](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/)
 
 [![CI](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml/badge.svg)](https://github.com/mossyhub/openautolink/actions/workflows/ci.yml)
 [![Release](https://github.com/mossyhub/openautolink/actions/workflows/release-apk.yml/badge.svg)](https://github.com/mossyhub/openautolink/releases/latest)
 
-<p align="center">
-  <img src="docs/screenshots/AA-Streaming-Screenshot.jpg" alt="Android Auto streaming wirelessly on a 2024 Chevrolet Blazer EV" width="720">
-  <br>
-  <em>Android Auto streaming wirelessly on a 2024 Chevrolet Blazer EV</em>
-</p>
+> [!IMPORTANT]
+> **Locked GM production vehicles require Google Play delivery.** They do not permit ADB installation or APK sideloading. Ask privately to join the maintainer's Play test group through [XDA](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) or [Reddit](https://www.reddit.com/user/IPickedThisUserID/), providing the Google-account email used by your vehicle. **Never post your email publicly.** Places are limited; the group supports up to 100 testers. Independent Play publishing is also available.
 
-<p align="center">
-  <img src="docs/screenshots/AA-EV-Battery-Maps.jpg" alt="Google Maps showing vehicle battery data received through OpenAutoLink" width="720">
-  <br>
-  <em>Google Maps displaying battery data forwarded from the vehicle through OpenAutoLink</em>
-</p>
+## Choose your phone and connection
 
-## What it delivers
+| Phone / mode | Connection | Companion needed? | Notes |
+|---|---|---|---|
+| Android Auto, wireless | Bluetooth WPP bootstrap + car Wi-Fi | **Yes**, for GM wireless | Use WPP for Android Auto 17.4+ |
+| Android Auto, USB | Direct AOA v2 USB transport | **No** | GM requests USB permission on each connection |
+| CarPlay, USB | Direct USB-host transport with an app-local network bridge | **No iPhone companion** | Data-capable USB port/cable, authentication identity and USB/VPN consent required |
+| CarPlay, wireless | Native Bluetooth/iAP2 bootstrap + Wi-Fi/AirPlay | **No iPhone companion** | Available for development; not working in the maintainer's vehicle |
+| CarPlay, shared Wi-Fi | Wireless bootstrap, with both devices on an existing LAN | **No iPhone companion** | Advanced wireless network configuration; not a USB requirement |
 
-- **No additional hardware** — the AA protocol runs on the AAOS head unit
-- **Wireless (WPP)** — factory-style Bluetooth bootstrap and Wi-Fi projection on Android Auto 17.4+; advertising, discovery, and transport stay on one explicitly selected head-unit interface with no cross-interface fallback
-- **USB** — direct Android Open Accessory (AOA v2) transport
-- **EV data in Google Maps** — battery percentage, range, fuel type, charge-port data, and a tunable energy model
-- **Instrument cluster** — turn-by-turn navigation and media metadata on supported vehicles
-- **Calls and microphone** — projected call controls with the vehicle's native Bluetooth hands-free audio path
-- **Steering-wheel controls** — media, voice, call, and directional actions
-- **Automatic reconnect** — projection resumes across ignition and head-unit sleep/wake cycles
-- **Multi-phone support** — behavior depends on Android Auto version and transport
-- **Wide-display adaptation** — configurable DPI, safe areas, margins, and scaling
-- **Modern video support** — H.264, H.265, and VP9; manual tiers include 1440p (2560×1440) and 4K (3840×2160), plus portrait equivalents
-- **Verified H.265 startup** — H.265 startup is verified clean over USB and wireless with GAL 6's 120-frame GOP
-- **Per-codec seed filtering** — Settings → Video exposes startup-placeholder cutoffs; defaults are H.264 10,000 bytes, H.265 4,096 bytes, and VP9 disabled (0), with changes applied by Save & Reconnect
-- **Built-in diagnostics** — transport status, network tools, VHAL browser, and optional log export
+Check the notes for your installed build: internal Play builds can include changes not yet published in [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest). USB hot-plug handoff is implemented, but current vehicle validation is still pending.
 
-OpenAutoLink forwards the vehicle's real battery and range data into Android Auto. Google Maps uses the standard vehicle energy model for battery-aware navigation and destination estimates. See [EV range estimates](docs/ev-range.md).
+## What OAL provides
 
-## How it works
+### Shared application
 
-OpenAutoLink embeds [aasdk](https://github.com/opencardev/aasdk) v1.6 through C++/JNI. The native layer handles the Android Auto protocol, TLS, framing, and channels; Kotlin owns transport, video, audio, sensors, input, and UI.
+- One car app with existing Connection, Video and Display settings; CarPlay does not replace OAL's launcher or Android Auto implementation.
+- Shared draggable Settings/Stats overlays and a single **Save & Reconnect** transaction.
+- Configurable display layout, safe areas and video sizing for wide AAOS screens.
+- Built-in diagnostics, optional log upload and network/vehicle inspection tools.
+- Separate Android Auto and CarPlay preferences. Only one projection receiver owns the active session at a time.
+- Temporary USB hot-plug: when a phone arrives during active or connecting projection, choose **Switch** or **Stay here** without changing either protocol's saved connection mode.
 
-### Wireless — Android Auto 17.4+
+### Android Auto
 
-```text
-Android phone                         AAOS head unit
-┌────────────────────┐               ┌────────────────────────┐
-│ Android Auto       │◄── BT WPP ──►│ OpenAutoLink           │
-│ OAL Companion      │◄── Wi-Fi/TCP►│ aasdk C++ via JNI      │
-└────────────────────┘               └────────────────────────┘
-```
+- **Wireless WPP and direct USB**, without additional projection hardware.
+- **EV data in Google Maps**: vehicle battery, range, charge-port data and a configurable energy model. See [EV range estimates](docs/ev-range.md).
+- **Instrument-cluster navigation and media metadata** on supported vehicles. Navigation-app support varies.
+- **Projected calls with native Bluetooth HFP audio**, microphone, steering-wheel controls and ignition reconnects.
+- **H.264, H.265 and VP9 video**, with manual 1440p (2560×1440) and 4K (3840×2160) tiers and portrait equivalents, subject to phone/decoder support.
+- In this branch, fresh-install video defaults prefer H.265; **AA Auto prefers 1440p, not 4K**, with lower compatibility tiers. Existing saved choices are retained; 4K remains manual.
+- Per-codec startup-placeholder filtering is configurable in Video settings.
 
-The head unit advertises the Android Auto Wireless service over Bluetooth and supplies the car access point's details. On this GM topology, Android Auto connects to a loopback proxy held by the companion, which relays the session across the vehicle network. **The companion remains required.**
+### CarPlay
 
-Current Android Auto releases must use **Settings → Transport → Wireless (WPP)**. See the [WPP setup and 17.4 migration guide](docs/wireless-wpp.md).
-
-### USB
-
-```text
-Android phone ───── AOA v2 / bulk USB ─────► OpenAutoLink on AAOS
-```
-
-USB does not use the companion. GM's AAOS build asks for USB permission on every connection even when **Always allow** is selected.
-
-### Legacy Wi-Fi modes
-
-**Car Hotspot** and **Phone Hotspot** remain available for Android Auto 17.3 and older. Android Auto 17.4 disabled the startup entry point used by those modes, so they are not current wireless fallbacks. The historical SBC bridge remains on the [`bridge-mode`](https://github.com/mossyhub/openautolink/tree/bridge-mode) branch.
-
-## Compatibility
-
-Compatibility is evidence-based, but individual bug reports are not treated as model-specific verdicts. GM's recent AAOS EVs share substantial platform architecture, while app version, Android Auto version, phone behavior, setup, and exact vehicle software can all affect a result.
-
-| Vehicle | AAOS | Evidence | Report context |
-|---|---:|---|---|
-| 2024 Chevrolet Blazer EV | 12L | **Maintainer validated** | Daily use across many changing development builds; imperfect sessions have also driven ongoing fixes |
-| 2025–2026 Chevrolet Equinox EV | 14 reported | **Community tested** | A [successful owner report](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/post-90708465), plus earlier [startup](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/post-90620330) and [USB](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/post-90686188) issue reports; those issues are not established as Equinox-specific and may be dated |
-| 2027 Chevrolet Bolt | — | **Owner demonstrated working** | [Independent video](https://www.youtube.com/watch?v=xEYOxJroplQ) and [first-hand owner report](https://www.chevybolt.org/threads/openautolink-the-cheapest-way-to-get-andriod-auto-on-the-27-bolt.63027/), including occasional reconnect/slowness on the tested build |
-| Other GM AAOS EVs | Varies | **Testing encouraged** | Shared GM platform makes broad compatibility plausible, but each successful report adds useful evidence |
-| Non-GM AAOS vehicles | Varies | **Experimental** | Installation, networking, permissions, and display zoning can differ substantially |
-
-Read the [full compatibility and evidence notes](docs/compatibility.md) before assuming a vehicle will work.
-
-## What you need
-
-| Item | Requirement |
-|---|---|
-| Vehicle | Compatible AAOS head unit without native Android Auto |
-| Phone | Android phone running Android Auto and the OpenAutoLink Companion |
-| Vehicle network | Car Wi-Fi access point for current wireless WPP, or a USB data connection |
-| Locked-vehicle installation | A place in the maintainer's Play test group, or your own Play Console account, signing key, and test release |
-
-No additional projection hardware is required. Locked vehicles still require Google Play delivery, either through the maintainer's test group or your own Play Console release.
+- Native **iAP2 accessory identification/authentication and AirPlay control/media**; no mandatory iPhone app or external relay.
+- **USB projection**, with wireless connection retained separately for development.
+- **Video, touch and audio**, including AAC and qualified H.264/HEVC decoding. Music playback quality is still being refined; do not assume uninterrupted audio on every setup.
+- **Two-contact input** for gestures such as map pinch-to-zoom.
+- **Auto/custom video geometry**, default-on **Fit to window** for standard detail tiers, independent UI sizing and manual control-safe calibration. A requested FPS is a cap, not a sustained-frame-rate guarantee.
+- **Metadata-only cluster integration** through OAL's existing host outputs, rather than a second video stream. Media/artwork is available; route guidance remains under validation. Availability depends on the vehicle and navigation app.
+- Authenticated night-mode, location and vehicle-data reporting.
 
 ## Installation
 
+### Car app on a locked GM vehicle
+
+**Recommended:** request a place in the maintainer's Google Play test group using the private contact links above. Install/update through the vehicle's Play Store.
+
+**Independent publishing:** use the [one-command personal AAB builder](docs/build-aab.md) and [GM installation guide](docs/install-gm.md). Preserve the builder's signing/state directory: later Play updates must use the same application ID and signing key.
+
+The car APK on [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) is for AAOS systems/emulators that permit APK installation. **It cannot be sideloaded onto a locked GM production head unit.**
+
 ### Android phone
 
-1. Open [the latest GitHub release](https://github.com/mossyhub/openautolink/releases/latest).
-2. Download `openautolink-companion-vX.Y.Z.apk`.
-3. Install it on the phone and allow the requested permissions.
+For wireless Android Auto, install `openautolink-companion-vX.Y.Z.apk` from the matching [release](https://github.com/mossyhub/openautolink/releases/latest), grant its requested permissions, and configure the paired car. USB Android Auto does not need the companion.
 
-Release APKs use the project's signing key. A locally built debug APK uses a different signature and cannot update over a release APK without uninstalling it first.
+### iPhone
 
-### Locked GM vehicle
-
-**Recommended:** ask to join the maintainer's Google Play test group. It supports up to 100 people and currently has roughly 55 open places. Privately send the Google-account email used by the vehicle through the [XDA thread](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) or [Reddit](https://www.reddit.com/user/IPickedThisUserID/). Do not put your email in a public comment.
-
-**Independent route:** the [one-command personal AAB builder](docs/build-aab.md) asks for your package identity once, then handles source updates, signing, native dependencies, versioning, and verified AAB output in Docker. Run the same command for every later update. Preserve its state directory: future Play updates must use the same application ID and key.
-
-Follow [Installing OpenAutoLink on a locked GM vehicle](docs/install-gm.md) for both routes. Do not download the car APK expecting to sideload it onto a production GM head unit.
+No OAL iPhone companion is required. For **USB**, connect a data-capable cable; Bluetooth pairing and car Wi-Fi fields are not required for wired startup. For **wireless**, pair through the **car's system Bluetooth settings** and configure the wireless fields below. USB Trust approval is separate from Bluetooth pairing; appropriately provisioned internal builds do not require routine replacement of authentication files.
 
 ### Other AAOS systems
 
-The release car APK may be used only where the system permits APK installation. Installation alone does not prove the required network, Bluetooth, vehicle, audio, or display integration exists.
+Install the car APK only if the platform permits it. Bluetooth, networking, audio and vehicle integration vary by platform. **Polestar and other non-GM AAOS owners are wanted for testing**, especially vehicles without built-in phone projection.
 
-## Current wireless setup
+## Android Auto setup
+
+### Current wireless path: WPP
 
 For Android Auto 17.4 or newer:
 
-1. Install matching current car and companion releases.
-2. Enable the car's Wi-Fi access point.
-3. In OpenAutoLink on the car, select **Settings → Transport → Wireless (WPP)**.
-4. Enter the access point's SSID, password, and BSSID, then select the WPP network interface that serves that access point. You can [send SSID/BSSID from the companion over Bluetooth](docs/wireless-wpp.md#send-ssidbssid-from-the-phone-instead-of-typing-them) instead of typing them.
-5. Pair the phone to the car over Bluetooth again after updating.
-6. Keep the Bluetooth **Phone calls** profile enabled; **Media audio** may be disabled.
-7. Remove any old **Car WiFi** entry from the companion so it does not compete with Android Auto for the same radio.
-8. Select the car under the companion's **Auto-Start → Select Devices** list.
-9. Save and reconnect.
+1. Install matching current car and companion releases; enable the car's Wi-Fi access point.
+2. In **OAL → Settings → Connection → Android Auto connection**, select **Wireless** (WPP).
+3. Enter the AP SSID, password and BSSID, and select the interface serving that AP. The companion can [send SSID/BSSID over Bluetooth](docs/wireless-wpp.md#send-ssidbssid-from-the-phone-instead-of-typing-them).
+4. For the WPP migration, pair the phone to the car again after updating. Keep Bluetooth **Phone calls** enabled; **Media audio** may be disabled.
+5. Remove any old **Car WiFi** entry in the companion so it does not compete with Android Auto for the radio.
+6. Select the car under companion **Auto-Start → Select Devices**, then save and reconnect.
 
-Those are the short instructions. Read [Wireless WPP setup](docs/wireless-wpp.md) for the required BSSID, saved-network trade-offs, and multi-phone behavior.
+The car advertises Android Auto Wireless and provides AP details. On the validated GM topology, Android Auto attaches to a phone-local loopback proxy held by the companion, which relays the session to OAL. **The companion is still required for this wireless path.** In WPP mode, GM's Bluetooth logic determines which nearby paired phone connects first; OAL does not replace that choice with its own phone switcher.
 
-## Keep calls in Android Auto on GM vehicles
+Read [Wireless WPP setup](docs/wireless-wpp.md) for migration, channel/BSSID requirements and saved-network trade-offs. Legacy **Car Hotspot / Phone Hotspot** modes are no longer offered in this branch's settings; older instructions for them are not a current wireless fallback. Historical SBC work remains on the [`bridge-mode`](https://github.com/mossyhub/openautolink/tree/bridge-mode) branch.
 
-To keep the vehicle's native Phone app from covering Android Auto on the center display during incoming and active calls:
+### USB
 
-1. Open the vehicle's native **Phone** app.
-2. Tap the **Settings** gear.
-3. Turn **Active Call** **OFF**.
-4. Turn **Privacy** **ON**.
+Select **USB** under **Android Auto connection** for normal wired use, then connect a data-capable cable. OAL receives Android Auto directly through AOA v2. No companion is used. GM asks for USB permission on every connection even when **Always allow** is selected. You can also leave normal AA mode set to Wireless and use the temporary USB switch below.
 
-Leave the phone pairing's Bluetooth **Phone calls** profile **enabled**. Android Auto displays and controls the call while the vehicle's Bluetooth hands-free system carries microphone and speaker audio. Disabling **Phone calls** can remove call audio and break wireless startup.
+### Temporary USB switch between phones
 
-See [Phone calls](docs/phone-calls.md) for the setting descriptions, verification steps, and troubleshooting.
+For example, keep **Android Auto connection → Wireless** and **CarPlay connection → USB**, with **Enable iPhone projection** on. Enabling CarPlay does not disable wireless Android Auto or change its saved mode.
+
+- Plug in an Android phone or enabled iPhone while projection is connected or connecting. OAL offers **Switch / Stay here** before starting USB setup or stopping the current projection.
+- **Stay here** (or dismissing the prompt) leaves the current projection alone. Replug the phone to offer it again.
+- **Switch** attempts to stop the current receiver, then starts the attached phone over USB. Accept the applicable system permission/Trust prompts.
+- The selection lasts for that cable connection only. Unplugging returns OAL to its saved normal connection policy; it does not rewrite either mode. Wireless reconnection still depends on the phone and vehicle.
+- If stopping the old projection fails, use **Retry USB** or **Dismiss**. Dismiss hides the guidance; it does not bypass an incomplete shutdown.
+
+This handoff is implemented for both phone protocols; successful end-to-end switching in the vehicle is still being validated.
+
+### Keep Android Auto call controls visible on GM
+
+In the native **Phone app → Settings**, turn **Active Call OFF** and **Privacy ON**. Leave Bluetooth **Phone calls enabled**: Android Auto controls/displays the call while the car's native HFP path carries microphone and speaker audio. See [Phone calls](docs/phone-calls.md). These settings apply to Android Auto.
+
+## CarPlay setup
+
+Keep the vehicle parked while configuring. Disconnect the iPhone from any other OAL receiver before connecting it to the car.
+
+### Common prerequisites
+
+1. Install a current OAL build with a valid accessory authentication identity. Maintainer Play builds provide the identity; public GitHub APKs and source builds require your own compatible files. See the [authentication/build policy](docs/carplay-private-mfi-assets.md).
+2. In **OAL → Settings → Connection → CarPlay**, check **Enable iPhone projection** if you previously disabled it. Saved choices are retained; selecting a connection mode does not change this control.
+3. Choose **USB** or **Wireless** under **CarPlay connection**, independently of Android Auto. Fresh or older records without a CarPlay mode default to USB.
+4. Apply changes with **Save & Reconnect**. Keep file logging enabled for testing and upload results, including failed attempts.
+
+### USB
+
+1. Select **CarPlay connection → USB** and save.
+2. Connect the iPhone to a data-capable head-unit USB port with a data-capable cable. If another projection is active, choose **Switch** to attempt temporary USB takeover.
+3. Accept Android USB access and OAL's local VPN consent when requested. If the iPhone asks to trust the connection, unlock it and approve **Trust** on the iPhone itself.
+
+Wired startup does **not** require a selected Bluetooth phone, car AP credentials, a phone IP or a head-unit Bluetooth MAC. OAL uses a package-scoped local USB network bridge; its VPN consent is Android networking plumbing, not an Internet VPN service. Another active VPN can conflict—do not replace one without understanding its purpose. Host USB access and VPN consent availability depend on the AAOS platform.
+
+### Wireless — development path
+
+Wireless CarPlay is retained for continued development, but is not currently working in the maintainer's vehicle. The following fields describe that path, not prerequisites for USB:
+
+1. Select **CarPlay connection → Wireless**.
+2. Pair the iPhone through the **car's Bluetooth settings**, accept its prompts and select the bonded iPhone in OAL.
+3. Open **Advanced network** and provide the real car AP SSID/passphrase, frequency in MHz, security type and interface. OAL does not change the OEM hotspot configuration. Wi-Fi passphrases are stored encrypted and excluded from backups.
+4. Enter the **head unit Bluetooth MAC** using the car menu below. Leave the exact local address blank unless you deliberately need an override.
+5. Use **Save & Reconnect**.
+
+### Find the car's Bluetooth address
+
+In the **car's Settings app → System → About**, scroll to **Bluetooth address**. Copy that value into **OAL → Connection → CarPlay → Advanced network → Head unit Bluetooth MAC**.
+
+On the Chevrolet Blazer EV, use this menu path; other vehicle menus may differ. Use the **car's Bluetooth address**, not the iPhone's own address or the Wi-Fi BSSID. Android can hide the head unit's local address from OAL; `02:00:00:00:00:00` is a privacy placeholder and cannot be used. No Android phone is needed to obtain it through this car menu.
+
+### Three car-AP configurations
+
+These are configurations of the **same native receiver/bootstrap**, not three independent implementations. Keep **Use shared Wi-Fi / LAN instead of car AP OFF**. On the Blazer EV, the AP interface is `ap_br_swlan0`; do not assume that name on other platforms.
+
+| Configuration | iPhone Wi-Fi action | OAL address family | Phone numeric IP |
+|---|---|---|---|
+| Native AP provisioning | Let native bootstrap supply the AP connection | IPv6 | Leave blank |
+| Manual AP join + IPv6 | Join the car AP yourself | IPv6 | Leave blank |
+| Manual AP join + explicit IPv4 | Join the car AP yourself | IPv4 | Enter its current car-AP IPv4 address |
+
+Use **Save & Reconnect** after each change and accept iPhone prompts. Manual joining removes automatic association as a dependency, **not Bluetooth bootstrap**. Explicit IPv4 does not bypass blocked phone-to-head-unit ingress.
+
+### Shared Wi-Fi / LAN diagnostic path
+
+With the car and iPhone joined to the same existing Wi-Fi network:
+
+- Turn **Use shared Wi-Fi / LAN instead of car AP ON**.
+- Enter that network's SSID/passphrase; shared mode reads its current frequency/security.
+- Choose the car's connected Wi-Fi interface (`wlan0` on the Blazer EV), **IPv4**, and the iPhone's current IP on that network.
+- Leave exact local address blank; retain the real head-unit Bluetooth address and selected bonded iPhone.
+- Use **Save & Reconnect**.
+
+This still uses Bluetooth/iAP2 bootstrap. Both devices must be able to communicate on the LAN; guest-network or client isolation can prevent the connection.
+
+### Video and display
+
+**CarPlay Auto** chooses one decoder-qualified geometry matching the available viewport's aspect ratio, targeting 1440p-class detail where supported. It does **not** simply copy the Surface's pixel dimensions, and it does not advertise a list of fake displays for the phone to choose from.
+
+For **manual standard detail tiers** such as 1080p or 1440p, **Fit to window** is on by default: OAL qualifies a canvas matching the available window while retaining the chosen detail tier. Explicit saved-off choices remain off. With Fit to window off, or with Custom/geometry-named presets, OAL preserves the selected aspect ratio and fits with margins rather than stretching. Unsupported requests use a qualified fallback.
+
+In **Display → Calibrate safe controls**, move the edges inward to keep CarPlay controls clear of physical screen curves. This is manual rectangular calibration, not automatic curve detection. CarPlay can retain background outside the control-safe region; AA's existing inset editor instead shrinks its projection region. **Done** stages the CarPlay draft; **Save & Reconnect** applies it to the next session.
+
+Fullscreen and system-bars-visible layouts use their own available app rectangle. Safe-editor alignment and system-bars-visible CarPlay behavior still need vehicle validation. Codec, frame-rate cap, physical UI sizing, window fit and safe controls are separate settings. H.264 remains compatible; HEVC is offered only through the qualified receiver path. Available resolution and frame rate depend on the phone and head-unit decoder.
+
+### Authentication and private builds
+
+OAL is **not an Apple-certified CarPlay product**. Internal builds reuse an existing accessory authentication identity; this is not a newly issued identity or a claim of redistribution rights. Bundled private assets are **extractable from distributed artifacts**.
+
+The Git repository and source archives contain **no accessory credentials or Android signing keys**. Ordinary source/CI builds omit runtime identity assets. Authorized internal builds can inject them from an external directory and validate/install them on first use, preserving existing valid credentials. Builders can obtain compatible files from an APK they possess and are authorized to inspect; never upload those files in issues or PRs. See the [full policy and build instructions](docs/carplay-private-mfi-assets.md).
+
+## Vehicle compatibility
+
+Android Auto community reports are linked below. Compatibility varies with vehicle software, phone and connection mode.
+
+| Vehicle | AAOS | Android Auto reports |
+|---|---:|---|
+| 2024 Chevrolet Blazer EV | 12L | Maintainer daily driver |
+| 2025–2026 Chevrolet Equinox EV | 14 reported | [Successful owner report](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/post-90708465), alongside earlier build/setup issue reports |
+| 2027 Chevrolet Bolt | — | [Independent demonstration](https://www.youtube.com/watch?v=xEYOxJroplQ) and [owner report](https://www.chevybolt.org/threads/openautolink-the-cheapest-way-to-get-andriod-auto-on-the-27-bolt.63027/) |
+| Other GM AAOS EVs | Varies | Additional owner reports welcome |
+| Non-GM AAOS | Varies | Additional owner reports welcome; platform integration varies |
+
+See [compatibility notes](docs/compatibility.md) for vehicle-specific information.
 
 ## Demonstrations
 
-### Current project walkthrough
+<p align="center">
+  <img src="docs/screenshots/AA-Streaming-Screenshot.jpg" alt="Android Auto streaming wirelessly on a 2024 Chevrolet Blazer EV" width="720">
+  <br><em>Android Auto on the Blazer EV.</em>
+</p>
 
-The walkthrough demonstrates the interface and projection features. Its original Wi-Fi setup predates the Android Auto 17.4 WPP change; use the current WPP guide above for wireless setup.
+<p align="center">
+  <img src="docs/screenshots/AA-EV-Battery-Maps.jpg" alt="Google Maps showing vehicle battery data through OpenAutoLink" width="720">
+  <br><em>Real vehicle battery data forwarded into Android Auto's Google Maps.</em>
+</p>
 
 [![OpenAutoLink walkthrough](https://img.youtube.com/vi/2KcsTZalXcc/0.jpg)](https://youtu.be/2KcsTZalXcc)
 
-### Independent 2027 Bolt demonstration
+The walkthrough's original wireless setup predates Android Auto 17.4. Use the WPP guide, not the video's historical connection instructions.
 
-[![Android Auto on a 2027 Chevrolet Bolt with OpenAutoLink](https://img.youtube.com/vi/xEYOxJroplQ/0.jpg)](https://www.youtube.com/watch?v=xEYOxJroplQ)
+[![Android Auto on a 2027 Chevrolet Bolt](https://img.youtube.com/vi/xEYOxJroplQ/0.jpg)](https://www.youtube.com/watch?v=xEYOxJroplQ)
 
-## Current limitations
+## Diagnostics and useful test reports
 
-- **Apple CarPlay is not supported.** A dormant research branch exists, but it has never produced a complete CarPlay session or rendered frame.
-- Android Auto 17.4+ requires **Wireless (WPP)**, a fresh Bluetooth pairing after migration, and correct access-point details.
-- The companion is required for wireless projection on the validated GM topology.
-- Startup, reconnect, speed, audio, and USB issues have appeared during development on multiple setups. Treat old reports as build-specific until reproduced on a current release—not as proof against a particular GM model.
-- GM asks for USB permission after every connection; the platform does not preserve the grant.
-- The car app cannot be sideloaded onto locked GM production head units.
-- Non-GM AAOS compatibility is unknown until tested on the exact platform.
+Enable OAL file logging **before** reproducing a problem, then use the configured log-upload control. Each app uploads **only its own logs**: the car upload does not collect companion or iPhone logs. Consecutive uploads can contain overlapping sessions.
 
-For release-specific defects, see [open issues](https://github.com/mossyhub/openautolink/issues) and [Troubleshooting](docs/troubleshooting.md).
+Include:
 
-## Documentation
+- Vehicle/model year, AAOS version and exact OAL build.
+- Phone model, Android Auto or iOS version, and the chosen protocol/transport.
+- Approximate attempt time, configuration changes and what appeared on both screens.
+- Whether Wi-Fi joined, projection rendered, touch worked and audio was audible—these are separate outcomes.
+- For cluster issues, the navigation app and what appeared on the cluster/media display.
+
+Never post passwords, accessory credentials, upload invitation tokens or account emails. Logs/screenshots may contain private identifiers, location or media; use the configured private upload route rather than a public raw dump. See [Troubleshooting](docs/troubleshooting.md) and [Privacy policy](docs/privacy-policy.md).
+
+## Documentation and development
+
+OAL embeds [aasdk](https://github.com/opencardev/aasdk) through C++/JNI for Android Auto. The native layer handles protocol/TLS/framing/channels; Kotlin owns transport, media, sensors, input and UI. The CarPlay receiver is integrated as a library under the same real application/lifecycle. Shared resource ownership keeps the protocols from using the active receiver and metadata host simultaneously.
 
 | Guide | Purpose |
 |---|---|
-| [One-command AAB builder](docs/build-aab.md) | Docker-based first build, signing identity, updates, output, and backup |
-| [GM installation](docs/install-gm.md) | Play Console, application ID, signing, AAB, and update path |
-| [Wireless WPP](docs/wireless-wpp.md) | Android Auto 17.4+ setup, migration, and network behavior |
-| [Compatibility](docs/compatibility.md) | Vehicle-by-vehicle evidence and support language |
-| [Troubleshooting](docs/troubleshooting.md) | Connection, Wi-Fi, USB, audio, and logging checks |
-| [EV range estimates](docs/ev-range.md) | Energy-model profiles, driving-rate modes, and tuning |
-| [Phone calls](docs/phone-calls.md) | Keep projected controls while retaining native HFP audio |
-| [Architecture](docs/architecture.md) | Component structure and data flow |
-| [Embedded knowledge](docs/embedded-knowledge.md) | Hard-won protocol and hardware constraints |
-| [Legacy SBC/emulator testing](docs/testing.md) | Historical bridge-mode emulator and diagnostic workflow |
+| [Personal AAB builder](docs/build-aab.md) | Build/sign/update your own Play artifact and preserve signing state |
+| [GM installation](docs/install-gm.md) | Play distribution and locked-vehicle requirements |
+| [Wireless WPP](docs/wireless-wpp.md) | Current Android Auto wireless setup and migration |
+| [CarPlay authentication/build policy](docs/carplay-private-mfi-assets.md) | Private assets, source builds, provenance and extractability |
+| [Independent connection modes / USB hot-plug](docs/usb-hotplug-independent-protocol-modes.md) | Saved normal modes, consent and temporary cable ownership |
+| [CarPlay window / safe-area contract](docs/carplay-window-safe-area-contract.md) | Detail tiers, window fit and manual control-safe calibration |
+| [CarPlay network contract](docs/carplay-network-contract.md) | Interface, address-family and connection design |
+| [CarPlay Auto negotiation research](docs/carplay-auto-negotiation-research.md) | Video geometry and codec negotiation |
+| [CarPlay cluster integration](docs/carplay-cluster-metadata-handoff.md) | Media and navigation metadata integration |
+| [Compatibility](docs/compatibility.md) | Vehicle-specific information |
+| [EV range estimates](docs/ev-range.md) | Android Auto energy-model behavior and tuning |
+| [Phone calls](docs/phone-calls.md) | Android Auto controls with native HFP audio |
+| [Architecture](docs/architecture.md) | Existing component structure; older AA-focused material |
+| [Embedded knowledge](docs/embedded-knowledge.md) | Protocol and hardware constraints |
+| [Legacy testing](docs/testing.md) | Historical SBC/emulator workflow |
 | [Privacy policy](docs/privacy-policy.md) | Data access and handling |
 
-## Does it support CarPlay?
-
-No. OpenAutoLink currently implements Android Auto only.
-
-A CarPlay research prototype proved access to a CPC200's MFi authentication chip and built preliminary discovery and relay components. It stopped before the post-authentication CarPlay receiver, encrypted media streams, video, audio, or input path existed. It is not a user-facing feature and is not under active development.
+Some linked guides predate this integration and remain Android Auto-specific. Follow the protocol-specific instructions above rather than applying WPP/companion requirements to CarPlay.
 
 ## Contributing and support
 
-- Use [GitHub issues](https://github.com/mossyhub/openautolink/issues) for reproducible defects.
-- Use the [XDA thread](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) for setup discussion and vehicle reports.
-- If building is the blocker, privately ask the maintainer about a place in the Google Play test group; do not publish your Google-account email.
-- **Polestar and other non-GM AAOS owners:** please reach out if your vehicle lacks Android Auto. New platforms need installation and end-to-end projection testing.
-- Include the exact vehicle, model year, AAOS version, Android Auto version, transport, and both car/companion logs where available.
+Use [GitHub issues](https://github.com/mossyhub/openautolink/issues) for reproducible defects and [XDA](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) for setup and owner reports. Include exact builds, reproduction steps and logs.
+
+**Polestar and other non-GM AAOS testers are especially welcome.** Both Android and iPhone owners are welcome. Contact the maintainer privately for Play access—never request or supply account emails publicly. Public GitHub builds omit private CarPlay authentication assets; see the build policy before choosing that installation route.
 
 ## Acknowledgments
 
-- [opencardev/aasdk](https://github.com/opencardev/aasdk) — core Android Auto protocol library; the OpenAutoLink fork adds navigation and EV energy-model extensions
-- [metheos/carlink_native](https://github.com/metheos/carlink_native), [lvalen91/Carlink](https://github.com/lvalen91/Carlink), and the [XDA Carlink thread](https://xdaforums.com/t/carlink.4774308/) — original proof-of-concept inspiration and continued technical collaboration
-- [opencardev/openauto](https://github.com/opencardev/openauto) — head-unit architecture reference
-- [nisargjhaveri/WirelessAndroidAutoDongle](https://github.com/nisargjhaveri/WirelessAndroidAutoDongle) — Bluetooth and Wi-Fi bootstrap reference
-- [andreknieriem/open-headunit](https://github.com/andreknieriem/open-headunit) — receiver and protocol reference
+- [opencardev/aasdk](https://github.com/opencardev/aasdk) — Android Auto protocol library; the OAL fork adds navigation and EV energy-model extensions.
+- [shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay) — CarPlay receiver source/reference adapted for OAL; upstream credits shilapi/xcertplay. See retained source notices and the private authentication policy.
+- [metheos/carlink_native](https://github.com/metheos/carlink_native), [lvalen91/Carlink](https://github.com/lvalen91/Carlink), and the [XDA Carlink thread](https://xdaforums.com/t/carlink.4774308/) — proof-of-concept inspiration and technical collaboration.
+- [opencardev/openauto](https://github.com/opencardev/openauto) — head-unit architecture reference.
+- [nisargjhaveri/WirelessAndroidAutoDongle](https://github.com/nisargjhaveri/WirelessAndroidAutoDongle) — Bluetooth/Wi-Fi bootstrap reference.
+- [andreknieriem/open-headunit](https://github.com/andreknieriem/open-headunit) — receiver/protocol reference.
 
 ## License
 
-OpenAutoLink is licensed under the [GNU General Public License v3.0](LICENSE).
+OpenAutoLink is licensed under the [GNU General Public License v3.0](LICENSE). Retain the attribution and license notices for included/adapted components. Source availability does not confer rights to redistribute private accessory authentication assets.

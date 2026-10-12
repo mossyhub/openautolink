@@ -111,6 +111,539 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private val audioManager = application.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val sessionManager = SessionManager.getInstance(viewModelScope, application, audioManager)
+    private val _carPlayState = MutableStateFlow(com.openautolink.app.carplay.CarPlayUiState())
+    val carPlayState = _carPlayState.asStateFlow()
+    val carPlayEnabled: StateFlow<Boolean> = preferences.carPlaySettings.map { it.enabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    private val carPlaySurface = MutableStateFlow<Surface?>(null)
+    private val _carPlayDisplay = MutableStateFlow(com.openautolink.carplaylab.media.CarPlayDisplayPreferences())
+    val carPlayDisplay = _carPlayDisplay.asStateFlow()
+    @Volatile private var usbCarPlayRuntime: com.openautolink.app.carplay.OalUsbCarPlayRuntime? = null
+    private var unifiedUsbManager: com.openautolink.app.transport.usb.UsbConnectionManager? = null
+    private val usbConsent = com.openautolink.app.carplay.UsbHotPlugConsent()
+    private val usbHandoff = com.openautolink.app.carplay.UsbProjectionHandoff { stage ->
+        OalLog.i(TAG, "USB handoff stage=${stage.name}")
+        DiagnosticLog.i("usb_handoff", "stage=${stage.name}")
+    }
+    val usbSwitchFailure = usbHandoff.failure
+    private val usbDispatchMutex = kotlinx.coroutines.sync.Mutex()
+    private val usbDispatchEpoch = java.util.concurrent.atomic.AtomicLong()
+
+    @Volatile private var carPlayRuntime: com.openautolink.app.carplay.OalCarPlayRuntime? = null
+    private val carPlayCoordinator = com.openautolink.app.carplay.CarPlayCoordinator(
+        retireAndroidAuto = {
+            kotlinx.coroutines.runBlocking {
+                // Stop and await the advertiser BEFORE SessionManager clears its WPP owner.
+                com.openautolink.app.transport.bluetooth.AaWirelessBtControl.retireForCarPlay()
+                sessionManager.stop()
+            }
+            DiagnosticLog.i("carplay", "AA resource retirement acknowledged; CarPlay admission reserved")
+        },
+        onState = { state ->
+            val previousStatus = _carPlayState.value.status
+            _carPlayState.value = state
+            if (previousStatus != state.status) DiagnosticLog.i("carplay", state.status)
+        },
+    )
+
+    init {
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1_000)
+                carPlayCoordinator.refreshTelemetry()
+            }
+        }
+    }
+
+    private val projectionLaunchPolicy = ProjectionLaunchPolicy()
+    private val _carPlayStartupGuidance = MutableStateFlow<String?>(null)
+    val carPlayStartupGuidance = _carPlayStartupGuidance.asStateFlow()
+
+    /** One automatic attempt per retained ViewModel, using disk-backed preferences, not UI seeds. */
+    fun startProjectionOnce() {
+        viewModelScope.launch {
+            val saved = preferences.carPlaySettings.first()
+            val aaNormalTransport = preferences.directTransport.first()
+            startUnifiedUsb()
+            val wirelessCarPlay = usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)
+            _carPlayAutomaticResolution.value = saved.usesWindowGeometry
+            val issue = if (wirelessCarPlay) saved.videoError() ?: carPlayStartupIssue(saved) else null
+            if (wirelessCarPlay && issue == null) _carPlayDisplay.value = saved.displayRequest()
+            val ignitionOff = com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()
+            if (usbOverrideGeneration != null) return@launch
+            projectionLaunchPolicy.request(wirelessCarPlay, issue == null, ignitionOff,
+                connectAndroidAuto = { if (aaNormalTransport != AppPreferences.DIRECT_TRANSPORT_USB) connect() },
+                connectCarPlay = {
+                    _carPlayStartupGuidance.value = null
+                    carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+                },
+                showSetup = { _carPlayStartupGuidance.value = issue ?: "CarPlay is paused while ignition is off. Retry when the car is ready." },
+            )
+        }
+    }
+
+    /** Wait for exact CarPlay retirement before handing the cable to AA or a new attempt. */
+    private suspend fun releaseCarPlayUsbOwner() {
+        if (!_carPlayState.value.selected) return
+        kotlinx.coroutines.withTimeout(15_000) {
+            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { continuation ->
+                carPlayCoordinator.returnToAndroidAuto {
+                    if (continuation.isActive) continuation.resumeWith(Result.success(Unit))
+                }
+            }
+        }
+        carPlayRuntime = null
+        usbCarPlayRuntime = null
+        synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+    }
+
+    private suspend fun stopUnifiedUsb() {
+        usbDispatchEpoch.incrementAndGet()
+        usbPolicyEpoch.incrementAndGet()
+        _usbHotPlugPrompt.value = null
+        unifiedUsbManager?.stop()
+        unifiedUsbManager = null
+        retireUsbProjection()
+        sessionManager.externalUsbTransport = false
+        usbHandoff.release()
+        usbSwitchPolicy.clearRetired()
+    }
+
+    private suspend fun restartUnifiedUsb() {
+        usbDispatchMutex.lock()
+        try {
+            usbHandoff.dismissFailure()
+            usbPolicyEpoch.incrementAndGet()
+            _usbHotPlugPrompt.value = null
+            retireUsbProjection()
+            unifiedUsbManager?.failedAdmission()
+            sessionManager.externalUsbTransport = false
+            usbHandoff.release()
+            usbSwitchPolicy.clearRetired()
+            _usbHotPlugPrompt.value = null
+            synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+            restoreNormalProjection()
+            unifiedUsbManager?.retryCandidates()
+        } catch (failure: Exception) {
+            usbHandoff.failed()
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+        } finally { usbDispatchMutex.unlock() }
+        startUnifiedUsb()
+    }
+
+    /** Observe USB concurrently with normal AA/WPP; observation is not projection ownership. */
+    private suspend fun startUnifiedUsb() {
+        usbDispatchMutex.lock()
+        try {
+            if (unifiedUsbManager != null) return
+            val dispatchEpoch = usbDispatchEpoch.incrementAndGet()
+            val manager = com.openautolink.app.transport.usb.UsbConnectionManager(
+                context = getApplication(), scope = viewModelScope,
+                consent = usbConsent,
+                onCandidate = { generation, device ->
+                    viewModelScope.launch {
+                        val saved = preferences.carPlaySettings.first()
+                        if (dispatchEpoch != usbDispatchEpoch.get()) return@launch
+                        if (device.vendorId == 0x05ac && (!saved.enabled || saved.videoError() != null)) {
+                            unifiedUsbManager?.stay(generation)
+                            return@launch
+                        }
+                        if (unifiedUsbManager?.pendingDevice(generation) == null) return@launch
+                        val busy = usbSwitchPolicy.shouldPrompt(
+                            sessionManager.sessionState.value != SessionState.IDLE,
+                            synchronized(connectLock) { connectInFlight }, _carPlayState.value.selected)
+                        if (busy) _usbHotPlugPrompt.value = com.openautolink.app.carplay.UsbHotPlugPrompt(
+                            generation, if (device.vendorId == 0x05ac) "CarPlay" else "Android Auto")
+                        else acceptUsbHotPlug(generation, automatic = true)
+                    }
+                },
+                onCandidateDetached = { generation ->
+                    if (_usbHotPlugPrompt.value?.generation == generation) _usbHotPlugPrompt.value = null
+                },
+                onAdmissionEnded = { generation ->
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        finishUsbOverride(dispatchEpoch, generation)
+                    }
+                },
+                onTransportReady = { pipe ->
+                    val generation = usbOverrideGeneration
+                    val selectedManager = unifiedUsbManager
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        usbDispatchMutex.lock()
+                        try {
+                            if (dispatchEpoch != usbDispatchEpoch.get() || generation == null ||
+                                usbOverrideGeneration != generation || selectedManager?.ownsTransport(pipe, generation) != true ||
+                                !sessionManager.externalUsbTransport) {
+                                pipe.close()
+                                return@launch
+                            }
+                            doConnect(overrideIp = null, usbAdmission = true)
+                            if (!sessionManager.acceptUsbTransport(pipe)) {
+                                sessionManager.stop()
+                                selectedManager.failedAdmission(generation)
+                            } else usbAaStartedGeneration = generation
+                        } catch (_: Exception) {
+                            pipe.close()
+                            sessionManager.stop()
+                            if (generation != null) selectedManager?.failedAdmission(generation)
+                        } finally { usbDispatchMutex.unlock() }
+                    }
+                },
+                onTransportDetached = { pipe, retired -> sessionManager.detachUsbTransport(pipe, retired) },
+                onIphoneSelected = { device ->
+                    val selectedManager = unifiedUsbManager
+                    val generation = usbOverrideGeneration
+                    val transition = selectedManager?.iphoneReenumerationCallbacks(device)
+                        ?: Pair({ false }, { _: android.hardware.usb.UsbDevice -> false })
+                    val retired = selectedManager?.iphoneRetirementAcknowledgement(device) ?: {}
+                    val saved = kotlinx.coroutines.runBlocking { preferences.carPlaySettings.first() }
+                    if (!saved.enabled || usbOverrideGeneration == null) false else {
+                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            usbDispatchMutex.lock()
+                            try {
+                                if (dispatchEpoch != usbDispatchEpoch.get() || generation == null || usbOverrideGeneration != generation ||
+                                    !preferences.carPlaySettings.first().enabled) {
+                                    retired()
+                                    return@launch
+                                }
+                                val accepted = carPlayCoordinator.connect(true) { report ->
+                                    try {
+                                        check(dispatchEpoch == usbDispatchEpoch.get() && usbOverrideGeneration != null)
+                                        createProjectionCarPlayRuntime(report, device, transition.first, transition.second, retired)
+                                    } catch (failure: Exception) { retired(); throw failure }
+                                }
+                                if (!accepted) retired()
+                            } finally { usbDispatchMutex.unlock() }
+                        }
+                        true
+                    }
+                },
+                onIphoneDetached = { _, retired ->
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        usbDispatchMutex.lock()
+                        try {
+                            if (dispatchEpoch == usbDispatchEpoch.get()) releaseCarPlayUsbOwner()
+                            retired()
+                        } finally { usbDispatchMutex.unlock() }
+                    }
+                },
+            )
+            unifiedUsbManager = manager
+            manager.start()
+        } finally { usbDispatchMutex.unlock() }
+    }
+
+    private val _usbHotPlugPrompt = MutableStateFlow<com.openautolink.app.carplay.UsbHotPlugPrompt?>(null)
+    val usbHotPlugPrompt: StateFlow<com.openautolink.app.carplay.UsbHotPlugPrompt?> = _usbHotPlugPrompt.asStateFlow()
+    private val usbSwitchPolicy = com.openautolink.app.carplay.UsbHotPlugSwitchPolicy()
+    private val usbOverrideGeneration: Long? get() = usbSwitchPolicy.generation
+    @Volatile private var usbAaStartedGeneration: Long? = null
+    private val usbPolicyEpoch = java.util.concurrent.atomic.AtomicLong()
+
+    fun stayOnCurrentProjection(generation: Long) {
+        unifiedUsbManager?.stay(generation)
+        if (_usbHotPlugPrompt.value?.generation == generation) _usbHotPlugPrompt.value = null
+    }
+
+    fun acceptUsbHotPlug(generation: Long) = acceptUsbHotPlug(generation, automatic = false)
+
+    private fun acceptUsbHotPlug(generation: Long, automatic: Boolean) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            usbDispatchMutex.lock()
+            try {
+                val manager = unifiedUsbManager ?: return@launch
+                var promptInstead = false
+                val previousGeneration = usbOverrideGeneration
+                val accepted = usbSwitchPolicy.accept(generation,
+                    resolve = {
+                        manager.pendingDevice(generation)?.let {
+                            if (it.vendorId == 0x05ac) com.openautolink.app.carplay.UsbHotPlugSwitchPolicy.Protocol.CARPLAY
+                            else com.openautolink.app.carplay.UsbHotPlugSwitchPolicy.Protocol.ANDROID_AUTO
+                        }
+                    },
+                    eligible = { protocol ->
+                        val saved = preferences.carPlaySettings.first()
+                        if (automatic && usbOverrideGeneration == null && manager.pendingDevice(generation) != null && usbSwitchPolicy.shouldPrompt(
+                                sessionManager.sessionState.value != SessionState.IDLE,
+                                synchronized(connectLock) { connectInFlight }, _carPlayState.value.selected)) {
+                            promptInstead = true
+                            _usbHotPlugPrompt.value = com.openautolink.app.carplay.UsbHotPlugPrompt(generation,
+                                if (protocol == com.openautolink.app.carplay.UsbHotPlugSwitchPolicy.Protocol.CARPLAY) "CarPlay" else "Android Auto")
+                        }
+                        !com.openautolink.app.input.IgnitionMonitor.isOffOrLocked() &&
+                            !promptInstead &&
+                            (protocol == com.openautolink.app.carplay.UsbHotPlugSwitchPolicy.Protocol.ANDROID_AUTO ||
+                                saved.enabled && saved.videoError() == null)
+                    },
+                    claimed = {
+                        // Revoke queued wireless starts BEFORE awaited teardown; never write a preference.
+                        usbHandoff.claim(generation)
+                        _carPlayStartupGuidance.value = null
+                        projectionLaunchPolicy.suppress()
+                        usbPolicyEpoch.incrementAndGet()
+                        usbAaStartedGeneration = null
+                        _usbHotPlugPrompt.value = null
+                    },
+                    retire = {
+                        retireUsbProjection()
+                        if (previousGeneration != null) manager.failedAdmission(previousGeneration)
+                        synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+                    },
+                    admit = {
+                        sessionManager.externalUsbTransport = true
+                        manager.accept(generation).also { if (it) usbHandoff.admitted() }
+                    },
+                    cleared = {
+                        manager.failedAdmission(generation)
+                        manager.stay(generation)
+                        clearUsbOverrideState()
+                    },
+                    restore = { restoreNormalProjection() },
+                    replaceCurrent = !automatic,
+                )
+                if (!accepted && !promptInstead && usbOverrideGeneration == null) stayOnCurrentProjection(generation)
+            } catch (failure: Exception) {
+                // Failed retirement retains the transient generation and blocks every successor.
+                usbHandoff.failed()
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+            } finally { usbDispatchMutex.unlock() }
+        }
+    }
+
+    private fun clearUsbOverrideState() {
+        usbHandoff.release()
+        _carPlayStartupGuidance.value = null
+        usbAaStartedGeneration = null
+        sessionManager.externalUsbTransport = false
+        usbPolicyEpoch.incrementAndGet()
+        synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+    }
+
+    private suspend fun finishUsbOverride(dispatchEpoch: Long, generation: Long) {
+        usbDispatchMutex.lock()
+        try {
+            if (dispatchEpoch != usbDispatchEpoch.get()) return
+            usbSwitchPolicy.finish(generation,
+                retire = { retireUsbProjection() },
+                cleared = { clearUsbOverrideState() },
+                restore = { restoreNormalProjection() })
+        } catch (failure: Exception) {
+            usbHandoff.failed()
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+        } finally { usbDispatchMutex.unlock() }
+    }
+
+    private suspend fun retireUsbProjection() = usbHandoff.retire(
+        releaseCarPlay = { if (_carPlayState.value.selected) releaseCarPlayUsbOwner() },
+        stopAndroidAuto = { sessionManager.stop() },
+    )
+
+    fun retryUsbSwitch() {
+        projectionLaunchPolicy.suppress()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { restartUnifiedUsb() }
+    }
+    fun dismissUsbSwitchFailure() = usbHandoff.dismissFailure()
+
+    private suspend fun restoreNormalProjection() {
+        _carPlayStartupGuidance.value = null
+        val saved = preferences.carPlaySettings.first()
+        if (com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()) return
+        // Wired CarPlay enablement never suppresses normal Android Auto WPP / GM phone priority.
+        if (usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
+            if (prepareCarPlayStart(saved)) carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+        } else if (preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) connect()
+    }
+
+    /** Retry is explicit; preference collection and recomposition never spin a retry loop. */
+    fun connectCarPlay() = reconnectCarPlay()
+
+    @Suppress("MissingPermission")
+    private suspend fun carPlayStartupIssue(saved: com.openautolink.app.data.CarPlaySettings): String? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val app = getApplication<Application>()
+            val required = listOf(android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_SCAN)
+            if (required.any { app.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED })
+                return@withContext "Allow Bluetooth access to start CarPlay."
+            try {
+                val adapter = app.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter
+                if (adapter?.isEnabled != true) return@withContext "Turn on Bluetooth, then retry CarPlay."
+                val phones = adapter.bondedDevices.map { com.openautolink.app.data.CarPlayPairedPhone(it.address, "") }
+                // Runtime installs/validates bundled identity and validates persisted trust. No probe starts it here.
+                val action = com.openautolink.app.data.CarPlaySettingsPolicy.requiredAction(saved, phones,
+                    identityReady = true,
+                    passwordSaved = com.openautolink.carplaylab.SavedWifiPassword(app).load().isNotEmpty())
+                if (action.startsWith("Ready for") || action.startsWith("AP connection requires")) null else action
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                "Check CarPlay connection setup and Bluetooth access, then retry."
+            }
+        }
+    private fun createCarPlayRuntime(report: (String) -> Unit): com.openautolink.app.carplay.CarPlayRuntime =
+        createProjectionCarPlayRuntime(report, null)
+
+    private fun createProjectionCarPlayRuntime(
+        report: (String) -> Unit, usbDevice: android.hardware.usb.UsbDevice?,
+        beginTransition: () -> Boolean = { false },
+        acceptReplacement: (android.hardware.usb.UsbDevice) -> Boolean = { false },
+        retired: () -> Unit = {},
+    ): com.openautolink.app.carplay.CarPlayRuntime =
+        kotlinx.coroutines.runBlocking {
+            val saved = preferences.carPlaySettings.first()
+            check(saved.enabled) { "CarPlay disabled before bootstrap" }
+            check(!com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()) { "Ignition off before bootstrap" }
+            val surface = kotlinx.coroutines.withTimeout(5_000) {
+                carPlaySurface.first { it?.isValid == true }!!
+            }
+            val savedDisplayMode = preferences.displayMode.first()
+            val viewport = if (saved.autoScale || saved.autoResolution || saved.windowDetail || saved.hasSafeCalibration) {
+                // A display-mode switch can reuse the Surface while its measured bounds are pending.
+                // Do not use a fullscreen receipt for a system-UI-visible receiver (or vice versa).
+                kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                    carPlayViewport.first { it?.displayMode == savedDisplayMode }?.input
+                } ?: com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Input(
+                    0, 0, 0, 0, Double.NaN, Double.NaN, 0)
+            } else null
+            val display = saved.qualifiedDisplay(viewport)
+            val video = checkNotNull(display.qualifiedVideoSelection)
+            report("CarPlay video · ${video.width} × ${video.height} · ${video.fps} maximum FPS · " +
+                "${video.selectionReason} · H.264${if (video.hevcOffered) " + qualified HEVC" else ""}")
+            val size = display.physicalSize
+            val scaleBasis = when (size.basis) {
+                com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Basis.MANUAL -> "manual"
+                com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Basis.HARDWARE_ESTIMATE -> "hardware estimate"
+                com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Basis.CALIBRATION_NEEDED -> "calibration needed"
+            }
+            DiagnosticLog.i("carplay", "CarPlay scale: $scaleBasis widthMm=${size.widthMm} heightMm=${size.heightMm}; next-session snapshot")
+            report("CarPlay scale · $scaleBasis · ${size.widthMm} × ${size.heightMm} mm")
+            if (usbDevice != null) {
+                check(usbOverrideGeneration != null) { "Transient USB selection retired" }
+                val runtime = com.openautolink.app.carplay.OalUsbCarPlayRuntime(getApplication(), usbDevice, display, surface, report,
+                    onDisplayQualified = { _carPlayDisplay.value = it },
+                    onReenumerationStarted = beginTransition, onReplacementAccepted = acceptReplacement)
+                usbCarPlayRuntime = runtime
+                object : com.openautolink.app.carplay.CarPlayRuntime by runtime {
+                    override fun close() { runtime.close(); retired() }
+                }
+            } else {
+                val config = com.openautolink.app.data.CarPlaySettingsPolicy.runtimeConfig(saved, display)
+                check(saved.connectionMode == "wireless" && usbOverrideGeneration == null) { "Wireless CarPlay not opted in" }
+                com.openautolink.app.carplay.OalCarPlayRuntime(getApplication(), config, surface, report,
+                    onDisplayQualified = { _carPlayDisplay.value = it })
+                    .also { carPlayRuntime = it }
+            }
+        }
+    fun reconnectCarPlay() {
+        projectionLaunchPolicy.suppress()
+        viewModelScope.launch {
+            val saved = preferences.carPlaySettings.first()
+            if (!saved.enabled) return@launch
+            if (saved.connectionMode == "usb") {
+                restartUnifiedUsb()
+                return@launch
+            }
+            usbDispatchMutex.lock()
+            try {
+                if (usbOverrideGeneration != null || !prepareCarPlayStart(saved)) return@launch
+                if (_carPlayState.value.selected) carPlayCoordinator.reconnect(true, ::createCarPlayRuntime)
+                else carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+            } finally { usbDispatchMutex.unlock() }
+        }
+    }
+
+    private suspend fun prepareCarPlayStart(saved: com.openautolink.app.data.CarPlaySettings): Boolean {
+        _carPlayAutomaticResolution.value = saved.usesWindowGeometry
+        val issue = saved.videoError() ?: carPlayStartupIssue(saved)
+        if (issue == null) _carPlayDisplay.value = saved.displayRequest()
+        val off = com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()
+        _carPlayStartupGuidance.value = issue ?: if (off) "CarPlay is paused while ignition is off. Retry when the car is ready." else null
+        return issue == null && !off
+    }
+
+    /** Called only AFTER awaited commit success. Read DataStore, never a captured selected/enabled UI seed. */
+    fun reconnectAfterSettingsSave(reconnectAndroidAuto: () -> Unit) {
+        projectionLaunchPolicy.suppress()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            usbDispatchMutex.lock()
+            try {
+                usbPolicyEpoch.incrementAndGet()
+                retireUsbProjection()
+                unifiedUsbManager?.failedAdmission()
+                usbHandoff.release()
+                usbSwitchPolicy.clearRetired()
+                sessionManager.externalUsbTransport = false
+                synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+                val saved = preferences.carPlaySettings.first()
+                if (usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
+                    if (prepareCarPlayStart(saved)) carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+                } else {
+                    _carPlayStartupGuidance.value = null
+                    if (preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) reconnectAndroidAuto()
+                }
+                unifiedUsbManager?.retryCandidates()
+            } finally { usbDispatchMutex.unlock() }
+            startUnifiedUsb()
+        }
+    }
+    fun stopCarPlay() { carPlayCoordinator.stop() }
+    fun dismissCarPlayFailure() { carPlayCoordinator.dismissFailure() }
+    fun returnToAndroidAuto() {
+        carPlayCoordinator.returnToAndroidAuto {
+            viewModelScope.launch {
+                carPlayRuntime = null
+                synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+                connect()
+            }
+        }
+    }
+    // One atomic mode-qualified receipt; never pair a new mode with an old viewport input.
+    private data class CarPlayViewportReceipt(
+        val displayMode: String,
+        val input: com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Input,
+    )
+    private val carPlayViewport = kotlinx.coroutines.flow.MutableStateFlow<CarPlayViewportReceipt?>(null)
+    private val _carPlayAutomaticResolution = MutableStateFlow(false)
+    val carPlayAutomaticResolution = _carPlayAutomaticResolution.asStateFlow()
+
+    /** Parent SurfaceChanged callback supplies the measured viewport and its owning Display.
+     * Resize only updates the NEXT receiver snapshot; no active protocol/decoder renegotiation.
+     */
+    @Suppress("DEPRECATION")
+    fun onCarPlayViewportChanged(width: Int, height: Int, display: android.view.Display?, displayMode: String? = null) {
+        if (displayMode == null || width <= 0 || height <= 0) {
+            carPlayViewport.value = null
+            return
+        }
+        val metrics = android.util.DisplayMetrics()
+        val detected = runCatching {
+            check(display != null && display.isValid)
+            display.getRealMetrics(metrics)
+        }.isSuccess
+        carPlayViewport.value = CarPlayViewportReceipt(displayMode,
+            com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Input(
+                width, height, if (detected) metrics.widthPixels else 0,
+                if (detected) metrics.heightPixels else 0,
+                if (detected) metrics.xdpi.toDouble() else Double.NaN,
+                if (detected) metrics.ydpi.toDouble() else Double.NaN,
+                if (detected) metrics.densityDpi else 0,
+            ),
+        )
+    }
+    fun onCarPlaySurfaceAvailable(surface: Surface) { carPlaySurface.value = surface }
+    fun onCarPlaySurfaceDestroyed(surface: Surface) {
+        if (carPlaySurface.value !== surface) return
+        carPlaySurface.value = null
+        carPlayViewport.value = null
+        // A replacement surface requires a new receiver, never reuses a stale MediaCodec target.
+        carPlayCoordinator.stop()
+    }
+    fun onCarPlayTouch(event: MotionEvent, width: Int, height: Int) {
+        val pointers = (0 until event.pointerCount).map { index ->
+            com.openautolink.app.carplay.CarPlayPointer(event.getPointerId(index), event.getX(index), event.getY(index))
+        }
+        carPlayRuntime?.touch(event.actionMasked, event.actionIndex, pointers, width, height)
+        usbCarPlayRuntime?.touch(event.actionMasked, event.actionIndex, pointers, width, height)
+    }
     @Volatile private var selectedNetworkInterfaceName: String = ""
     @Volatile private var lastTransportNetworkEventAt: Long = 0L
     private val trackedTransportNetworks = mutableSetOf<Long>()
@@ -166,6 +699,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      * directed warm-cache loop has been trying without success long enough
      * that the user should verify their setup. Cleared on next select / dismiss.
      */
+    /** Current AA transport; CarPlay preferences never alter this selection. */
+    val directTransport = preferences.directTransport
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferences.DEFAULT_DIRECT_TRANSPORT)
+
     /**
      * Companion IP of the phone connected over Bluetooth, or null when that does
      * not apply (any transport other than WPP, or no handshake yet).
@@ -317,6 +854,24 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     init {
         registerTransportNetworkCallback()
+        viewModelScope.launch {
+            com.openautolink.app.input.IgnitionMonitor.ignitionState.collect {
+                if (com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()) carPlayCoordinator.stop()
+            }
+        }
+        viewModelScope.launch {
+            preferences.carPlaySettings.map { it.enabled }.distinctUntilChanged().collect { enabled ->
+                if (!enabled && _carPlayState.value.selected) {
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        usbDispatchMutex.lock()
+                        try {
+                            releaseCarPlayUsbOwner()
+                            if (usbOverrideGeneration == null) restoreNormalProjection()
+                        } finally { usbDispatchMutex.unlock() }
+                    }
+                }
+            }
+        }
 
         // Key remaps belong to this process-scoped input controller, not to an
         // individual AA protocol session. Keep it bound to DataStore so an
@@ -350,6 +905,18 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         // Collect video and audio stats when streaming
         viewModelScope.launch {
             sessionManager.sessionState.collect { state ->
+                val usbGeneration = usbAaStartedGeneration
+                if (state == SessionState.IDLE && usbGeneration != null) {
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        usbDispatchMutex.lock()
+                        try {
+                            if (usbOverrideGeneration == usbGeneration && usbAaStartedGeneration == usbGeneration) {
+                                sessionManager.stop()
+                                unifiedUsbManager?.failedAdmission(usbGeneration)
+                            }
+                        } finally { usbDispatchMutex.unlock() }
+                    }
+                }
                 // Attach pending surface when decoder becomes available
                 if (state == SessionState.CONNECTED ||
                     state == SessionState.STREAMING) {
@@ -492,6 +1059,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun connect(overrideIp: String?, wppRearmSource: String?) {
+        if (usbOverrideGeneration != null) return
+        val policyEpoch = usbPolicyEpoch.get()
+        if (com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto) return
         fun logWppRearmRejected(reason: String) {
             wppRearmSource?.let { source ->
                 OalLog.i(TAG, "WPP rearm rejected: source=$source reason=$reason")
@@ -562,6 +1132,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                             "reason=transport-changed current=$transport")
                         return@launch
                     }
+                    if (transport == AppPreferences.DIRECT_TRANSPORT_USB) {
+                        startUnifiedUsb()
+                        return@launch
+                    }
                     val usbMode = transport == AppPreferences.DIRECT_TRANSPORT_USB ||
                         transport == AppPreferences.DIRECT_TRANSPORT_WPP
                     if (!usbMode && mode == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT) {
@@ -580,7 +1154,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                             return@launch
                         }
                     }
-                    doConnect(overrideIp = null, wppRearmSource = wppRearmSource)
+                    doConnect(overrideIp = null, wppRearmSource = wppRearmSource, policyEpoch = policyEpoch)
                     settle = true
                 } catch (e: Exception) {
                     wppRearmSource?.let { source ->
@@ -618,7 +1192,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             var settle = false
             try {
-                doConnect(overrideIp)
+                doConnect(overrideIp, policyEpoch = policyEpoch)
                 settle = true
             } catch (e: Exception) {
                 OalLog.e(TAG, "connect() failed: ${e.message}")
@@ -637,14 +1211,17 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private suspend fun doConnect(
         overrideIp: String?,
         wppRearmSource: String? = null,
+        usbAdmission: Boolean = false,
+        policyEpoch: Long = usbPolicyEpoch.get(),
     ) {
+            if (policyEpoch != usbPolicyEpoch.get() || (!usbAdmission && usbOverrideGeneration != null)) return
             val codec = preferences.videoCodec.first()
             val seedIdrThresholds = preferences.seedIdrThresholds.first()
             val micSrc = preferences.micSource.first()
             val scalingMode = preferences.videoScalingMode.first()
             val hotspotSsid = preferences.hotspotSsid.first()
             val hotspotPassword = preferences.hotspotPassword.first()
-            val directTransport = preferences.directTransport.first()
+            val directTransport = if (usbAdmission) AppPreferences.DIRECT_TRANSPORT_USB else preferences.directTransport.first()
             val wppInterfaceName = preferences.wppApInterface.first()
             if (directTransport == AppPreferences.DIRECT_TRANSPORT_WPP) {
                 phoneDiscovery.setInterfaceConstraint(wppInterfaceName)
@@ -836,6 +1413,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             }
 
             sessionManager.start(
+                admissionCheck = { policyEpoch == usbPolicyEpoch.get() &&
+                    (if (usbAdmission) usbOverrideGeneration != null && sessionManager.externalUsbTransport
+                     else usbOverrideGeneration == null) },
                 codecPreference = codec,
                 micSourcePreference = micSrc,
                 scalingMode = scalingMode,
@@ -888,6 +1468,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      */
     fun reconnect() {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (usbOverrideGeneration != null || preferences.directTransport.first() == AppPreferences.DIRECT_TRANSPORT_USB) {
+                restartUnifiedUsb()
+                return@launch
+            }
             OalLog.i(TAG, "reconnect(): tearing down current session")
             sessionManager.stop()
             hasConnected = false
@@ -900,7 +1484,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         // releases its lock. viewModelScope is Dispatchers.Main, so this was the
         // UI thread sitting inside JNI teardown — five archived ANRs have
         // "JniTransport stopping" as their last main-thread line.
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { sessionManager.stop() }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            usbDispatchMutex.lock()
+            try {
+                stopUnifiedUsb()
+                sessionManager.stop()
+            } finally { usbDispatchMutex.unlock() }
+        }
     }
 
     // --- Multi-phone: Phone Chooser ---
@@ -2398,6 +2988,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     /** Handle a steering wheel key event. Returns true if consumed. */
     fun onKeyEvent(event: KeyEvent): Boolean {
+        if (_carPlayState.value.selected) return false // No invented CarPlay steering/HFP mapping.
         return steeringWheelController.onKeyEvent(event)
     }
 
@@ -2514,6 +3105,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     override fun onCleared() {
+        usbDispatchEpoch.incrementAndGet()
+        unifiedUsbManager?.stop()
+        unifiedUsbManager = null
+        sessionManager.externalUsbTransport = false
         try {
             connectivityManager.unregisterNetworkCallback(transportNetworkCallback)
         } catch (_: Exception) {}
@@ -2534,7 +3129,19 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         // plain thread — viewModelScope is already cancelled by this point, so a
         // coroutine here would never run.
         Thread({
-            kotlinx.coroutines.runBlocking { sessionManager.stop() }
+            try {
+                kotlinx.coroutines.runBlocking {
+                    usbDispatchMutex.lock()
+                    try {
+                        retireUsbProjection()
+                        usbHandoff.release()
+                        usbSwitchPolicy.clearRetired()
+                    } finally { usbDispatchMutex.unlock() }
+                }
+            } catch (_: Exception) {
+                // Keep a failed exact retirement fenced; never reopen WPP on an unproved close.
+                OalLog.e(TAG, "USB handoff stage=FAILED")
+            } finally { carPlayCoordinator.close() }
         }, "oal-session-stop").start()
         super.onCleared()
     }

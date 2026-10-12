@@ -172,6 +172,15 @@
                 android:resource="@xml/usb_device_filter" />
         </activity>
 
+        <service
+            android:name="com.openautolink.carplaylab.usb.OalUsbCarPlayVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
         <!-- Media source for AAOS system UI, cluster, and steering wheel controls -->
         <service
             android:name=".media.OalMediaBrowserService"

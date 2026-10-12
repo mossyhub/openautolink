@@ -1,0 +1,71 @@
+{
+  "carplay-lab": {
+    "suites": 43,
+    "tests": 172,
+    "failures": 0,
+    "errors": 0,
+    "target_suites": [
+      {
+        "name": "com.openautolink.carplaylab.intake.OalNmeaCacheTest",
+        "tests": "2",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-10-09T22:35:49"
+      },
+      {
+        "name": "com.openautolink.carplaylab.intake.OalCarDataCodecTest",
+        "tests": "2",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-10-09T22:35:49"
+      },
+      {
+        "name": "com.openautolink.carplaylab.intake.OalIap2CarDataReporterTest",
+        "tests": "10",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-10-09T22:35:49"
+      },
+      {
+        "name": "com.openautolink.carplaylab.intake.OalCarDataIdentificationTest",
+        "tests": "1",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-10-09T22:35:49"
+      }
+    ]
+  },
+  "app": {
+    "suites": 3,
+    "tests": 9,
+    "failures": 0,
+    "errors": 0,
+    "target_suites": [
+      {
+        "name": "com.openautolink.app.carplay.OalCarPlayGnssSnapshotAdapterTest",
+        "tests": "2",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-10-09T22:37:46"
+      },
+      {
+        "name": "com.openautolink.app.carplay.OalCarPlayVehicleSnapshotAdapterTest",
+        "tests": "3",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-10-09T22:37:46"
+      },
+      {
+        "name": "com.openautolink.app.input.ProcessVehicleDataCoordinatorTest",
+        "tests": "4",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-10-09T22:37:46"
+      }
+    ]
+  },
+  "new_test_count": 20,
+  "upstream_pin": "e2fd8eadf5a6b705666f292055e72aa93387533d",
+  "scope": "Full carplay-lab debug JVM suite; focused app snapshot adapters and existing AA process-coordinator tests. No phone/device proof.",
+  "warnings": "Final app compile emitted existing ProjectionViewModel intersection-type/deprecation warnings outside intake ownership."
+}

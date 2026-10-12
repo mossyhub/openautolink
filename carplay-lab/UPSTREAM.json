@@ -1,0 +1,92 @@
+{
+  "repository": "https://github.com/shihabal3amri/DiPlay",
+  "commit": "e2fd8eadf5a6b705666f292055e72aa93387533d",
+  "purpose": "lab-only Bluetooth identification/authentication; no controller/BYD/media/network services imported",
+  "files": [
+    {
+      "path": "iap2/body/Iap2BodyBuilder.kt",
+      "sha256": "1582474db22b718954050cf3e79cd10bf18647b831a6cfee79072efe8167755b"
+    },
+    {
+      "path": "iap2/body/Iap2BodyReader.kt",
+      "sha256": "2d292fb9d36ae5ed4bcc846cde59b85f7d7bcfe3da35c9f958ab6f022f8da146"
+    },
+    {
+      "path": "iap2/catalog/Iap2Endpoint.kt",
+      "sha256": "bc926b0d4e01d4a3d7b99d7900631a97538902f4aedc51f1295528edb5429420"
+    },
+    {
+      "path": "iap2/message/Iap2Messages.kt",
+      "sha256": "e686ccf3879577aa28255c555d764b2a99d29881f4d477e4b67feef5c119a860"
+    },
+    {
+      "path": "iap2/session/Iap2Session.kt",
+      "sha256": "67cc7c8d5ae24f89be3d2a31f65d2cc6091c9d292135c02cc1ba29d2d03f4791"
+    },
+    {
+      "path": "iap2/trace/Iap2FrameFormatter.kt",
+      "sha256": "f40be36ae5df9bc21c2cdb1136df1b14ef3f000d1d81570aa25ecb743e0c49bf"
+    },
+    {
+      "path": "iap2/wire/Iap2CsmFramer.kt",
+      "sha256": "1409b90cda3637d266fefdfd6f566d52143cdfbd88d5b447cf63bb6241afb7e5"
+    },
+    {
+      "path": "iap2/wire/Iap2Wire.kt",
+      "sha256": "f6fb6707e0ba0a21bed9cd08cfdc1557745cf66a5acff0c03358af9a98690af6"
+    },
+    {
+      "path": "iap2/wire/Iap2WireCodec.kt",
+      "sha256": "860865941159f56bd11172682ee504f623f249a1b052ce8542ddf90a269703f5"
+    },
+    {
+      "path": "mfi/Iap2MfiAuthenticationClient.kt",
+      "sha256": "e0d73aa19f29f4935519bb448f89380d3b161c8e323ff0848874f821bf958a6a"
+    },
+    {
+      "path": "mfi/LocalMfiAuthenticationClient.kt",
+      "sha256": "229d9de3653e842fbc4bee429b80a1a7a69a68a181742c3ee43a9d6826c61952"
+    },
+    {
+      "path": "mfi/MfiAuthenticationClient.kt",
+      "sha256": "d38cedb32804eec7798911be86e8fda753237a035fccba3db6cb0ee276e4fc1f"
+    },
+    {
+      "path": "transport/BlockingDuplexByteStream.kt",
+      "sha256": "1425939b1e54c6963b90a563177f63416e9ee7505b80285714d3da06e3fe27ed"
+    },
+    {
+      "path": "transport/BluetoothRfcommDuplexStream.kt",
+      "sha256": "3410ba964005b586928caecde4adced08ed2b4ed57fb95f334b2a6cd0e33a39b"
+    },
+    {
+      "path": "transport/I2cTransport.kt",
+      "sha256": "c44424ddd9fe471ca816a0f6c314e4eced3ff59ab2aaf56274907cf1341f5562"
+    },
+    {
+      "path": "transport/Iap2CsmChannel.kt",
+      "sha256": "cc76705b7df01150dbccbd6c52b657bf6c6787977c042f1801a7f1b8f98bf01b"
+    },
+    {
+      "path": "transport/Iap2FileTransferReceiver.kt",
+      "sha256": "f360e1a9279ea6b13fa5d4957c8b4afc8ced3c91dcd37b89d5b96328b4db6508"
+    },
+    {
+      "path": "transport/Iap2IdentificationClient.kt",
+      "sha256": "6e5bf982f13d2f4ab4b3078649a85c184c8532ba525756547dc33f96165377e8"
+    },
+    {
+      "path": "transport/Iap2LinkChannel.kt",
+      "sha256": "76b5daddb740e03bb7428741dd3a9e38604f6b41a9f48d7701c3fd8fdfaaa778"
+    },
+    {
+      "path": "transport/Iap2LinkEngine.kt",
+      "sha256": "c446cfc12a74c2759058f391d15d7d0509fe3c8e940708b13c247e8ea80ed70c"
+    },
+    {
+      "path": "transport/Iap2VehicleStatus.kt",
+      "sha256": "3abded8ec6021f2e141d36933aa17e79d5a705f9f76e41c6faff7efbfaf3a078"
+    }
+  ],
+  "extracted_declaration": "IphoneUsbException from transport/IphoneUsbHost.kt"
+}

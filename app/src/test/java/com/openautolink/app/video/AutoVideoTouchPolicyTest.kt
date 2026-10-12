@@ -22,7 +22,7 @@ class AutoVideoTouchPolicyTest {
     @Test
     fun `landscape auto mode follows first advertised tier per codec`() {
         assertEquals(
-            3840 to 2160,
+            2560 to 1440,
             AutoVideoTouchPolicy.resolve(true, "h265", 2914, 1134, 2560, 1440),
         )
         assertEquals(
@@ -34,7 +34,7 @@ class AutoVideoTouchPolicyTest {
     @Test
     fun `portrait auto mode follows first advertised tier per codec`() {
         assertEquals(
-            2160 to 3840,
+            1440 to 2560,
             AutoVideoTouchPolicy.resolve(true, "hevc", 1080, 1920, 1440, 2560),
         )
         assertEquals(

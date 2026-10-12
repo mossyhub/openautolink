@@ -1,4 +1,11 @@
 # ProGuard rules for OpenAutoLink
+# Unknown cluster estimates use AndroidX's nullable serialization constructor/fields.
+-keepclassmembers class androidx.car.app.navigation.model.TravelEstimate {
+    <init>();
+    androidx.car.app.model.Distance mRemainingDistance;
+    long mRemainingTimeSeconds;
+    androidx.car.app.model.DateTimeWithZone mArrivalTimeAtDestination;
+}
 # Keep kotlinx.serialization
 # Covers all @Serializable classes including ControlMessage, etc.
 # @SerialName values are baked into generated serializer code — no reflection needed.
