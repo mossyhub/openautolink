@@ -1,4 +1,14 @@
-# Keep phone calls inside Android Auto on GM vehicles
+# Phone calls in Android Auto and USB CarPlay on GM vehicles
+
+## USB CarPlay: leave the iPhone unpaired from vehicle Bluetooth
+
+Music and calls work over the USB CarPlay connection without pairing the iPhone to the car. The maintainer confirmed both outgoing and incoming calls on the 2024 Chevrolet Blazer EV with vehicle Bluetooth disconnected.
+
+**Do not pair the iPhone to the vehicle's Bluetooth for USB CarPlay.** If already paired, forget/remove that pairing so it does not reconnect. GM's native Bluetooth playback control competes with CarPlay when the iPhone is also Bluetooth-connected, causing media to constantly pause after pressing Play. Leave the car's Bluetooth adapter available for other phones; only the iPhone's vehicle pairing needs to be removed.
+
+This advice is specific to **USB CarPlay**. It does not replace Android Auto's Bluetooth requirements below.
+
+## Android Auto: native Bluetooth hands-free audio
 
 OpenAutoLink can keep Android Auto's incoming-call and in-call interface on the center display while the vehicle's native Bluetooth hands-free system carries microphone and speaker audio.
 
