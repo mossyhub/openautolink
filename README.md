@@ -75,6 +75,14 @@ Check the notes for your installed build: internal Play builds can include chang
 
 The car APK on [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) is for AAOS systems/emulators that permit APK installation. **It cannot be sideloaded onto a locked GM production head unit.**
 
+### Car internet: no OnStar data plan required
+
+**You do not need an OnStar data subscription to install or use OAL.** Without a vehicle data plan, connect **the car itself** to a Wi-Fi network with working internet, such as your home Wi-Fi, to download OAL through Google Play. A local car hotspot used for wireless Android Auto is not, by itself, an internet connection for the car.
+
+**Connect your car to internet-connected Wi-Fi regularly**, even after installation. Google Play needs internet access to download updates for the car's apps—including OAL as new versions are released. Leave the car online long enough for downloads, and check the vehicle's Play Store for pending updates; update timing depends on its settings and vehicle software. This is useful routine maintenance for any connected car, not an OAL-only requirement.
+
+OAL's phone-projection connection does not require a paid OnStar data plan. Online navigation, music and other phone-app services still need their own internet connection, normally your phone's mobile data.
+
 ### Android phone
 
 For wireless Android Auto, install `openautolink-companion-vX.Y.Z.apk` from the matching [release](https://github.com/mossyhub/openautolink/releases/latest), grant its requested permissions, and configure the paired car. USB Android Auto does not need the companion.
