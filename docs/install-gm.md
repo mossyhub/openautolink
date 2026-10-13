@@ -4,26 +4,28 @@ GM production AAOS head units do not expose ADB and do not permit APK sideloadin
 
 There are two installation routes:
 
-1. **Join the maintainer's Google Play test group — recommended.** About 45 of 100 places are currently filled, leaving roughly 55 places available. This route does not require building the car app or operating a Play Console release.
+1. **Join the Community closed test — recommended.** Request membership in [OpenAutoLink Testers](https://groups.google.com/g/openautolink-testers), then opt into the Play test after approval. This route does not require building the car app or operating a Play Console release.
 2. **Self-publish the car app.** The one-command Docker builder handles the build, signing identity, source updates, and versioning. You still operate your own Play Console app and testing track.
 
-Availability in the maintainer group can change.
+Membership requests are reviewed daily, not instantly; approval and Play availability are separate steps.
 
 ## Recommended: join the maintainer test group
 
-1. Use the Google account signed into the vehicle's Play Store.
-2. Privately send that account's email address to the maintainer through the [OpenAutoLink XDA thread](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) or [Reddit](https://www.reddit.com/user/IPickedThisUserID/).
-3. **Do not post your email address in a public reply.** Use the platform's private-message feature.
-4. After the maintainer adds the account, accept the Google Play testing invitation or opt-in link provided to you.
-5. Sign into the vehicle's Play Store with that same account and install OpenAutoLink.
-6. Install the matching companion APK from [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) on the Android phone.
+1. On a PC or Mac, use the Google account signed into the vehicle's Play Store.
+2. Open [OpenAutoLink Testers](https://groups.google.com/g/openautolink-testers) and request to join. No DM or public email address is needed.
+3. Wait for membership approval. Requests are reviewed daily, not instantly; install instructions are also in the group's description and welcome panel. Do not rely on receiving a custom welcome email.
+4. After approval, open the [Play testing opt-in](https://play.google.com/apps/testing/com.openautolink.app) with the same account and click **Become a tester**.
+5. Follow the Google Play download link, select **your VEHICLE**, not your phone, and confirm installation. Give the car itself internet-connected Wi-Fi or its data connection for installation and updates; a paid OnStar plan is not required with working Wi-Fi internet. If the vehicle is unavailable, stop and ask for help before uninstalling anything.
+6. For wireless Android Auto only, install the matching companion APK from [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) on the Android phone. USB Android Auto and USB CarPlay do not require the companion.
 7. While parked, grant supported car permissions in the vehicle's system Settings, then **return to OpenAutoLink**. The process-owned VHAL source rechecks grants and adds newly authorized properties without restarting projection. Continue with [Wireless WPP setup](wireless-wpp.md) or USB.
 
 `CAR_ENERGY` and `CAR_SPEED` are dangerous permissions on inspected Android 14 / GM firmware; `CAR_INFO` is normal (normally install-granted), not a runtime dialog permission. Mileage, tires and dynamics can be privileged/signature-only and cannot be granted to a normal Play app. Firmware and HAL support vary; granting a permission does not guarantee the vehicle exposes its properties. OpenAutoLink does not repeatedly prompt for car permissions on resume.
 
 Late-grant refresh is an implementation attempt pending vehicle validation. If EV values remain absent after returning, check Diagnostics → VHAL Property Status. A force-stop and reopen remains a fallback workaround until the surviving-process behavior is confirmed on the vehicle; it is not the expected refresh path.
 
-If the app does not appear, confirm the vehicle uses the invited Google account and that the testing opt-in was accepted. Play propagation can take time.
+Existing original-app internal testers can keep their current installation and enrollment; no switch or uninstall is needed. Separate capacity-clone migrations receive separate instructions.
+
+If the app does not appear, confirm group membership was approved, the car uses that same Google account, and the testing opt-in was accepted. Play propagation can take time.
 
 ## Independent route: self-publish
 

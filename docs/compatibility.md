@@ -32,7 +32,7 @@ A build, Play installation, `CONNECTED` status, or process log is not proof of s
 
 If your Polestar or another vehicle runs Android Automotive OS but does not include Android Auto, the project wants to hear from you. Contact the maintainer through the [OpenAutoLink XDA thread](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) or [Reddit](https://www.reddit.com/user/IPickedThisUserID/).
 
-The maintainer can work with prospective testers on installation and evidence collection. If a Google Play invitation is appropriate, send the Google-account email used by the vehicle **privately**, never in a public comment. A place in the test group does not imply that an untested vehicle is compatible.
+The maintainer can work with prospective testers on installation and evidence collection. For Play test enrollment, request membership in [OpenAutoLink Testers](https://groups.google.com/g/openautolink-testers) using the Google account signed into the vehicle's Play Store. Requests are reviewed daily, not instantly. After approval, [opt into the Play test](https://play.google.com/apps/testing/com.openautolink.app), follow the download link on a PC or Mac, and select the vehicle. No private email DM or public email address is required. A place in the test group does not imply that an untested vehicle is compatible; contact the maintainer about non-GM installation and platform questions before changing an existing setup.
 
 ## Phone compatibility
 
