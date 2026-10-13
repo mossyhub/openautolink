@@ -41,6 +41,8 @@ class VehicleDataForwarderImpl(
 
         // Minimum interval between vehicle data sends (ms)
         private const val SEND_INTERVAL_MS = 500L
+        private const val EV_STATUS_READ_INTERVAL_MS = 5_000L
+        private val CARPLAY_EV_PROPERTIES = setOf("RANGE_REMAINING", "EV_BATTERY_LEVEL", "EV_CURRENT_BATTERY_CAPACITY")
 
         /** Hardcoded property IDs for GM AAOS runtimes that strip VehiclePropertyIds field names.
          *  Integer IDs are stable across all AAOS implementations (defined in HAL spec). */
@@ -99,6 +101,7 @@ class VehicleDataForwarderImpl(
     private val currentValues = ConcurrentHashMap<Int, Any>()
     // Guarded with the forwarder monitor, alongside value updates and batch snapshots.
     private val evObservationMetadata = mutableMapOf<String, VehiclePropertyObservation>()
+    private val propertyChangeModes = mutableMapOf<Int, Int>()
     private val observationSequence = AtomicLong()
     private data class BufferedSafetyObservation(
         val value: Any?,
@@ -119,6 +122,7 @@ class VehicleDataForwarderImpl(
     @Volatile private var latestMotorPowerSnapshot: MotorPowerSnapshot? = null
     @Volatile private var latestMotorTorqueNm: Float? = null
     private var historyPollerJob: kotlinx.coroutines.Job? = null
+    private var evStatusPollerJob: kotlinx.coroutines.Job? = null
 
     // Previous ignition state — used to detect ON transitions for wake signaling
     @Volatile
@@ -176,7 +180,7 @@ class VehicleDataForwarderImpl(
         var restartGeneration: Long? = null
         synchronized(this) {
             if (!desiredActive) return
-            if (requestedGrants != grants || (!startInFlight && staticInfoMissing())) {
+            if (requestedGrants != grants || (!startInFlight && (staticInfoMissing() || evStatusReadDue()))) {
                 // A grant epoch retries missing members of that group, including HALs
                 // that flattened an earlier permission failure to absent/rejected.
                 properties.filter { it.permission != null && requestedGrants?.get(it.permission) != grants[it.permission] }
@@ -687,6 +691,14 @@ class VehicleDataForwarderImpl(
                 synchronized(this) { if (current()) _propertyStatus[prop.fieldName] = "not_exposed" }
                 continue
             }
+            val changeMode = runCatching {
+                config.javaClass.getMethod("getChangeMode").invoke(config) as? Int
+            }.getOrNull()?.takeIf { it in 0..2 }
+            synchronized(this) {
+                if (!current()) return@synchronized
+                if (changeMode == null) propertyChangeModes.remove(propId)
+                else propertyChangeModes[propId] = changeMode
+            }
             // Initial values remain private until this exact subscription succeeds.
             val initial = runCatching {
                 pmClass.getMethod("getProperty", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
@@ -732,6 +744,8 @@ class VehicleDataForwarderImpl(
         DiagnosticLog.i("vhal", "Subscribed to $subscribed/${properties.size} vehicle properties")
         DiagnosticLog.i("vhal", "currentValues after subscription: ${currentValues.size} entries")
 
+        refreshEvStatusReads(pm, generation, lifecycle)
+
         synchronized(this) {
             if (current()) {
                 // Authorization can change after an earlier property's successful
@@ -756,6 +770,46 @@ class VehicleDataForwarderImpl(
                 DiagnosticLog.i("vhal", "VHAL refresh completed generation=$generation registeredAdded=$registeredAdditions total=${trackedPropertyIds.size} authorized=${subscribedNames.filter { _propertyStatus[it] == "subscribed" }} staticMissing=${staticInfoMissing()}")
             }
             return subscribedNames.filterTo(mutableSetOf()) { _propertyStatus[it] == "subscribed" }
+        }
+    }
+
+    /** AVAILABLE on-change callbacks are not a status heartbeat: Car API may omit status-only events. */
+    private fun evStatusReadDue(): Boolean = CARPLAY_EV_PROPERTIES.any { name ->
+        val id = VEHICLE_PROPERTY_ID_FALLBACK.getValue(name)
+        val observation = evObservationMetadata[name]
+        id in trackedPropertyIds && propertyChangeModes[id] in setOf(0, 1) &&
+            (observation == null || SystemClock.elapsedRealtime() - observation.receivedElapsedMs >= EV_STATUS_READ_INTERVAL_MS)
+    }
+
+    /** Called only on the serialized start/refresh lane. Never hold the monitor across Binder. */
+    private fun refreshEvStatusReads(manager: Any, generation: Long, lifecycle: Long) {
+        for (name in CARPLAY_EV_PROPERTIES) {
+            val id = VEHICLE_PROPERTY_ID_FALLBACK.getValue(name)
+            val sequence = synchronized(this) {
+                if (!isStartCurrent(lifecycle) || propertyManager !== manager || registrationGeneration != generation ||
+                    id !in trackedPropertyIds || !propertyPermitted(id) || propertyChangeModes[id] !in setOf(0, 1)) return@synchronized null
+                val previous = evObservationMetadata[name]
+                if (previous != null && SystemClock.elapsedRealtime() - previous.receivedElapsedMs < EV_STATUS_READ_INTERVAL_MS) return@synchronized null
+                previous?.sequence ?: -1L
+            } ?: continue
+            val read = runCatching {
+                manager.javaClass.getMethod("getProperty", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                    .invoke(manager, id, 0)
+            }.getOrNull()
+            synchronized(this) {
+                if (!isStartCurrent(lifecycle) || propertyManager !== manager || registrationGeneration != generation ||
+                    id !in trackedPropertyIds || !propertyPermitted(id) || (evObservationMetadata[name]?.sequence ?: -1L) != sequence) return@synchronized
+                // A newer callback/error always outranks an in-flight read, including read failure.
+                val observation = if (read != null) observationFrom(read, id, authoritative = true) else
+                    VehiclePropertyObservation(null, SystemClock.elapsedRealtime(), 1,
+                        registrationGeneration = generation, propertyId = id, subscriptionActive = true,
+                        sequence = observationSequence.incrementAndGet(), changeMode = propertyChangeModes[id])
+                val value = read?.let { runCatching { it.javaClass.getMethod("getValue").invoke(it) }.getOrNull() }
+                applySafetyObservation(id, value, observation)
+                // Publish this observation before the next Binder read can block. In particular,
+                // a known unavailable status must not leave the previous AVAILABLE StateFlow live.
+                publishImmediate()
+            }
         }
     }
 
@@ -976,6 +1030,7 @@ class VehicleDataForwarderImpl(
             propertyId = propertyId,
             subscriptionActive = authoritative,
             sequence = observationSequence.incrementAndGet(),
+            changeMode = propertyChangeModes[propertyId],
         )
     }
 
@@ -1000,11 +1055,15 @@ class VehicleDataForwarderImpl(
             VEHICLE_PROPERTY_ID_FALLBACK.entries.firstOrNull { it.value == propertyId }?.key?.let { name ->
                 evObservationMetadata[name] = observation
             }
-            if (value == null) return
+            val carPlayEv = CARPLAY_EV_PROPERTIES.any { VEHICLE_PROPERTY_ID_FALLBACK[it] == propertyId }
+            if (value == null) {
+                if (carPlayEv) publishImmediate() // Revoke even when there is no meaningful value to forward.
+                return
+            }
             DiagnosticLog.d("vhal", "prop 0x${propertyId.toString(16)}: $value")
             edgeLog(propertyId, value)
             currentValues[propertyId] = value
-            throttledSend()
+            if (carPlayEv) publishImmediate() else throttledSend()
         } catch (e: Throwable) {
             Log.w(TAG, "handleChangeEvent: ${e.rootCause().message}")
         }
@@ -1281,6 +1340,13 @@ class VehicleDataForwarderImpl(
      * See recon_dump/gm-aaos-recon.md §15 (Finding F.2).
      */
     private fun startHistoryPoller() {
+        evStatusPollerJob?.cancel()
+        evStatusPollerJob = scope.launch {
+            while (true) {
+                delay(EV_STATUS_READ_INTERVAL_MS)
+                requestSubscriptionRefresh("ev-status-read")
+            }
+        }
         historyPollerJob?.cancel()
         historyPollerJob = scope.launch {
             val available = try {
@@ -1339,6 +1405,8 @@ class VehicleDataForwarderImpl(
             isActive = false
             historyPollerJob?.cancel()
             historyPollerJob = null
+            evStatusPollerJob?.cancel()
+            evStatusPollerJob = null
             latestMotorPowerSnapshot = null
             latestMotorTorqueNm = null
             val objects = Triple(propertyManager, callbackProxy, carObject)
@@ -1350,6 +1418,7 @@ class VehicleDataForwarderImpl(
             currentValues.clear()
             _propertyStatus.clear()
             evObservationMetadata.clear()
+            propertyChangeModes.clear()
             callbackProxy = null
             carLifecycleProxy = null
             carObject = null

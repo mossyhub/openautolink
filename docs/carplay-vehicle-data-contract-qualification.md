@@ -18,11 +18,65 @@ One immutable capability snapshot feeds USB IdentificationInformation and its ac
 
 The runtime authenticates the exact link before replay; there is no pre-authentication source activation or write, no extra CSM reader, no cross-link queue and no global/latest-session target. Stops replace older starts, payload mutation cannot change retained commands, and runtime cancellation is a nonblocking fence independent of transport-write retirement. The immutable offer does not grow when a later source appears, nor shrink because a separate late factory sampled stale data; every actual update still passes current source admission.
 
-## Freshness: investigated, not loosened
+## EV source validity
 
-`VehicleDataForwarderImpl` exports source timestamp, receipt timestamp, VHAL status, subscription activity and registration generation. `VehiclePropertyObservation` does **not** export the property's change mode or a verified on-change validity/refresh contract. Initial reads can contain old source timestamps even when their receipts are recent. Active registration and AVAILABLE alone do not establish a universal source-age exemption, and receipt refresh does not rejuvenate the source sample.
+The 0.1.519 upload establishes a local admission defect: an AVAILABLE range sample
+with active, matching registration was rejected at source age **31295 ms**;
+current battery energy was then intermittently dropped, and the next session
+froze an empty EV offer. This proves filtering, not Apple Maps eligibility.
 
-Accordingly the adapter retains the existing 30-second source **and** receipt-age checks rather than blindly increasing TTL. New bounded per-property receipts distinguish absent/fuel/metadata/generation/source/inactive/status/timestamp/source_age/receipt_age/bounds/inconsistent from available. These diagnostics can establish the next property's actual validity evidence without disclosing values. Current usable capacity remains distinct from nominal/new capacity; no nominal replacement, fabricated SOC, inferred charging state or connector inventory is added.
+The production forwarder now carries the actual supported `CarPropertyConfig`
+change mode in each observation. Requested `SENSOR_RATE_ONCHANGE` is not evidence
+of HAL change mode. STATIC (0) and ONCHANGE (1) values may have old event timestamps
+because unchanged values do not need periodic change events. Their source age
+therefore is not a heartbeat deadline. CONTINUOUS (2), unknown/unreadable and
+invalid modes retain the **30-second source-age** limit.
+
+All modes still require a valid nonfuture source timestamp, AVAILABLE status,
+VHAL provenance, active subscription, matching positive registration generation,
+bounded numeric values, pure-electric fuel identification and a **30-second
+receipt-age** limit. That receipt must be an actual read/event, not a cached
+snapshot access or a batch publication. No TTL was increased.
+
+Because Android explicitly warns that status-only changes may omit callbacks,
+the existing process-owned registration/refresh lane performs real status/value
+reads of the three supported CarPlay EV properties every 5 seconds when their
+supported mode is STATIC/ONCHANGE. It does not add a second subscriber or poll
+continuous/unknown modes. Each completed read is published before the next
+property's Binder read can block. Read failures/unavailable/null observations revoke
+admission, and blocked reads expire at the unchanged receipt-age bound. Reads
+preserve the HAL event timestamp, never replace it with now. A callback/error
+arriving during a read outranks that read; manager, permission and registration
+checks fence late results after retirement. The poller is independent of the GM
+HistoryProvider and canceled during forwarder cleanup. EV availability callbacks
+publish promptly even without a numeric value, avoiding a retained AVAILABLE
+snapshot after a null/status failure.
+
+Per-property diagnostics keep the existing bounded reason/age schema. Actual
+usable capacity remains distinct from nominal/new capacity; no nominal
+replacement, fabricated SOC, inferred charging state or connector inventory is
+added. Host regression tests exercise the actual reflection registration/read
+path and production CarPlay adapter, not a replica. On-vehicle HAL behavior,
+phone consumption and Maps enrollment/recognition remain unverified.
+
+Actual supported runtime configuration is authoritative, not a property-name
+assumption: the current Android `VehiclePropertyIds` documentation labels range
+and battery level CONTINUOUS, and actual usable capacity ONCHANGE. The 519 archive
+does not export change mode, so it proves the old age rejection but not the
+vehicle's mode. The regression recreates the uploaded ages with a discovered
+ONCHANGE config; if the OEM reports CONTINUOUS, the conservative age gate remains
+and this change does not promise that vehicle's range/current will be admitted.
+
+API contract references:
+- https://developer.android.com/reference/android/car/VehiclePropertyIds
+- https://developer.android.com/reference/android/car/hardware/CarPropertyConfig
+- https://developer.android.com/reference/android/car/hardware/CarPropertyValue
+- https://developer.android.com/reference/android/car/hardware/property/CarPropertyManager
+
+The API defines timestamp as the event time on the elapsed-realtime clock,
+ONCHANGE as report-on-change, and warns callers not to rely on status-change
+callbacks. Successful registration plus AVAILABLE must be revalidated rather
+than treated as indefinite liveness.
 
 ## GNSS activation
 

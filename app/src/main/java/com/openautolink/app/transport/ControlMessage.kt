@@ -10,6 +10,8 @@ data class VehiclePropertyObservation(
     val propertyId: Int? = null,
     val subscriptionActive: Boolean = false,
     val sequence: Long = 0,
+    /** Discovered CarPropertyConfig mode (STATIC=0, ONCHANGE=1, CONTINUOUS=2), never requested rate. */
+    val changeMode: Int? = null,
 )
 
 /**

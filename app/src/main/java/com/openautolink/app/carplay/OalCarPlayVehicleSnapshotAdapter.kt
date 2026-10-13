@@ -14,7 +14,7 @@ class OalCarPlayVehicleSnapshotAdapter(
     private val lastDiagnostics = mutableMapOf<Pair<String,String>,Long>()
     fun snapshot(): OalEvSnapshot? = snapshot {}
 
-    /** Finite property metadata only. The existing freshness policy is not an on-change validity claim. */
+    /** Stable HAL modes describe value changes, not heartbeat cadence. Receipt liveness stays bounded. */
     @Synchronized fun snapshot(receipt: (String) -> Unit): OalEvSnapshot? {
         val data = source()?.value
         val now = elapsedMs()
@@ -31,7 +31,9 @@ class OalCarPlayVehicleSnapshotAdapter(
             if (observation.status != 0) return "status"
             val timestamp = observation.timestampElapsedNanos ?: return "timestamp"
             if (timestamp <= 0 || now < timestamp/1_000_000) return "timestamp"
-            if (now-timestamp/1_000_000 > 30_000) return "source_age"
+            // An old event time is legitimate for a confirmed unchanged value. Only an actual
+            // discovered STATIC/ONCHANGE config grants this exception; requested sample rate does not.
+            if (observation.changeMode !in setOf(0, 1) && now-timestamp/1_000_000 > 30_000) return "source_age"
             if (now < observation.receivedElapsedMs || observation.receivedElapsedMs < 0 || now-observation.receivedElapsedMs > 30_000) return "receipt_age"
             if (!raw.isFinite() || raw < 0 || raw.toDouble() > limit || (positive && raw <= 0)) return "bounds"
             return "available"

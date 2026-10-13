@@ -95,6 +95,7 @@ object CarPlayAudioDiagnostics {
         "media stage=audio-focus-change change=(-3|-2|-1|1) volumePercent=(0|20|100)",
         "media stage=media-control index=[1-5] outcome=(sent|failed)",
         "media stage=microphone-capture type=100 audioType=(default|telephony|speechrecognition) frames=$number nonzeroFrames=$number state=(1|3|unknown) ended=$bool",
+        "media stage=microphone-policy scope=own source=(MIC|VOICE_COMMUNICATION|VOICE_RECOGNITION) rate=(24000|48000) permission=(granted|denied|unknown) mute=(true|false|unknown) route=(builtin|wired|usb|bluetooth|other|none|unknown) silenced=(true|false|unknown) result=(ok|partial|unavailable)",
         "media stage=microphone-started type=100; uplink audibility unverified",
         "media stage=microphone-datagram-sent packets=$number; phone receipt unverified",
         "media stage=microphone-failed type=100 errorType=$failure",

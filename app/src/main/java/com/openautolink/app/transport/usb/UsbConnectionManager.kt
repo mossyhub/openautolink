@@ -149,6 +149,7 @@ class UsbConnectionManager(
     }
     @Synchronized private fun releaseSelection(token: UsbDispatchOwnership.Token): Boolean {
         if (!dispatchOwnership.release(token)) return false
+        clearPendingPermission(token.deviceName)
         val generation = admissionGeneration
         admissionGeneration = null
         if (generation != null) onAdmissionEnded(generation)
@@ -161,7 +162,10 @@ class UsbConnectionManager(
         rejectedDeviceNames.add(token.deviceName)
         closePipe()
         retirementPending.set(false) // Caller has awaited the exact session/runtime retirement.
-        releaseSelection(token)
+        if (releaseSelection(token)) {
+            _connectionState.value = UsbConnectionState.IDLE
+            _status.value = "Waiting for USB device..."
+        }
     }
     @Synchronized fun ownsTransport(pipe: AasdkTransportPipe, generation: Long): Boolean =
         currentAasdkPipe === pipe && admissionGeneration == generation &&
@@ -259,6 +263,14 @@ class UsbConnectionManager(
     private val pendingPermissionDevice =
         java.util.concurrent.atomic.AtomicReference<String?>(null)
 
+    private fun clearPendingPermission(deviceName: String) {
+        // UsbDevice parcel reconstruction creates equal but distinct Strings.
+        // Compare values, while leaving a different phone's request untouched.
+        pendingPermissionDevice.updateAndGet { current ->
+            if (current == deviceName) null else current
+        }
+    }
+
     @Volatile
     private var currentConnection: UsbDeviceConnection? = null
 
@@ -298,7 +310,7 @@ class UsbConnectionManager(
                     if (device == null || device.vendorId == 0x05ac) return
                     val token = dispatchOwnership.permission(device.deviceName,
                         intent.getLongExtra(EXTRA_PERMISSION_GENERATION, -1L)) ?: return
-                    pendingPermissionDevice.compareAndSet(device.deviceName, null)
+                    clearPendingPermission(device.deviceName)
                     if (granted && usbManager.hasPermission(device)) {
                         OalLog.i(TAG, "USB permission granted for: ${device.deviceName}")
                         onPermissionGranted(device)
@@ -564,7 +576,7 @@ class UsbConnectionManager(
         if (retiredState == null) {
             OalLog.i(TAG, "Ignoring detach for ${device.deviceName} — it does not own " +
                     "the active phone transport; any in-flight publication is tombstoned")
-            pendingPermissionDevice.compareAndSet(device.deviceName, null)
+            clearPendingPermission(device.deviceName)
             if (selected?.deviceName == device.deviceName && selected.retiring) {
                 releaseSelection(selected)
                 _connectionState.value = UsbConnectionState.IDLE
@@ -577,7 +589,7 @@ class UsbConnectionManager(
         closePipe()
         // closePipe clears ordinary ownership; retirement remains a separate
         // barrier until the native owner positively acknowledges its stop.
-        pendingPermissionDevice.compareAndSet(device.deviceName, null)
+        clearPendingPermission(device.deviceName)
         _connectionState.value = UsbConnectionState.IDLE
         _status.value = "USB device disconnected"
         if (detachedPipe != null) {
@@ -752,8 +764,10 @@ class UsbConnectionManager(
         val request = runCatching {
             val permissionIntent = PendingIntent.getBroadcast(
                 context, token.generation.toInt(),
+                // The registered receiver is action-only: a data URI would prevent
+                // Android from delivering both grant and denial callbacks. The
+                // request code and checked extra retain generation isolation.
                 Intent(ACTION_USB_PERMISSION).setPackage(context.packageName)
-                    .setData(android.net.Uri.parse("oal-usb:permission/${token.generation}"))
                     .putExtra(EXTRA_PERMISSION_GENERATION, token.generation),
                 PendingIntent.FLAG_MUTABLE,
             )

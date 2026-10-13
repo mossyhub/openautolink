@@ -48,9 +48,13 @@ class MicrophoneCaptureEvidenceTest {
                 val config=MicrophoneSupport.negotiate(cap,100,"speechRecognition",0x40L,peer.localPort,480,peer.localAddress,ByteArray(32))!!
                 sink.onMicrophoneStarted(MicrophoneStreamId(session,100,config.audioType,1),config)
                 repeat(2) { peer.receive(DatagramPacket(ByteArray(4096),4096)) }
+                val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+                while (lines.none { it.contains("microphone-policy") } && System.nanoTime() < deadline) Thread.sleep(5)
                 sink.close();assertTrue(sink.awaitRetired(3000))
                 assertTrue("successful datagrams cannot distinguish silent capture without aggregate PCM receipts",
                     lines.any { it=="media stage=microphone-capture type=100 audioType=speechrecognition frames=2 nonzeroFrames=1 state=1 ended=true" })
+                assertTrue("exact recorder input policy must be observable without dumping identities",
+                    lines.any { it.startsWith("media stage=microphone-policy scope=own source=VOICE_RECOGNITION rate=24000 permission=granted ") })
                 assertTrue(lines.filter { it.contains("microphone-capture") }.all {
                     it.matches(Regex("media stage=microphone-capture type=100 audioType=speechrecognition frames=[0-9]+ nonzeroFrames=[0-9]+ state=(1|3|unknown) ended=(true|false)"))
                 })

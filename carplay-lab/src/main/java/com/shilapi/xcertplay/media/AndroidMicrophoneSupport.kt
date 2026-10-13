@@ -86,6 +86,10 @@ object AndroidMicrophoneSupport {
         return valid && permissionGranted()
     }
 
+    internal fun policyDiagnostics(record: AudioRecord, source: MicrophoneSource, rate: Int,
+        report: (String) -> Unit): MicrophonePolicyDiagnostics =
+        MicrophonePolicyDiagnostics.forRecorder(checkNotNull(context), record, source, rate, report)
+
     internal fun recorder(source: MicrophoneSource, sampleRate: Int = 48000): AudioRecord {
         require(sampleRate in setOf(24000,48000))
         val app = checkNotNull(context)
