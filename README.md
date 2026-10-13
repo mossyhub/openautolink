@@ -29,7 +29,7 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 |---|---|---|---|
 | Android Auto, wireless | Bluetooth + car Wi-Fi (WPP) | **Yes**, for GM wireless | Use WPP for Android Auto 17.4+ |
 | Android Auto, USB | USB cable | **No** | GM requests USB permission on each connection |
-| CarPlay, USB | USB cable | **No iPhone companion** | Data-capable USB port/cable, authentication identity and USB/VPN consent required |
+| CarPlay, USB | USB cable; iPhone unpaired from vehicle Bluetooth | **No iPhone companion** | Music and calls use USB; data-capable port/cable, authentication identity and USB/VPN consent required |
 | CarPlay, wireless | Bluetooth + Wi-Fi | **No iPhone companion** | Available for development; not working in the maintainer's vehicle |
 | CarPlay, shared Wi-Fi | Existing Wi-Fi network | **No iPhone companion** | Advanced wireless network configuration; not a USB requirement |
 
