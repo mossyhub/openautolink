@@ -65,9 +65,9 @@ Projection does not require a paid vehicle data plan.
 
 ## USB asks every time
 
-GM AAOS re-requests USB permission after every connection even when **Always allow** or **Use by default** is selected. OpenAutoLink cannot repair that platform behavior.
+**Both USB Android Auto and USB CarPlay show two system USB access prompts on every connection on GM head units**, even if you check **Always open OpenAutoLink**, **Always allow** or **Use by default**, or save the choice. **Tap OK on both prompts each time.** This is a longstanding GM infotainment bug; OpenAutoLink cannot fix or bypass it.
 
-Two dialogs may appear during AOA re-enumeration: one from the OS and one from OpenAutoLink. Current releases suppress duplicate app requests, but the system dialog remains.
+The [example photo and setup warning](../README.md#gm-usb-prompts--android-auto-and-carplay) show an iPhone dialog with the checkbox already checked; USB Android Auto has the same limitation. These prompts are separate from OAL's **Switch / Stay here**, iPhone **Trust** and CarPlay local VPN consent. They are not evidence that your saved OAL settings were lost, and the warning does not apply to wireless projection.
 
 ## USB freezes or stalls
 

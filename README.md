@@ -28,8 +28,8 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 | Phone / mode | Connection | Companion needed? | Notes |
 |---|---|---|---|
 | Android Auto, wireless | Bluetooth + car Wi-Fi (WPP) | **Yes**, for GM wireless | Use WPP for Android Auto 17.4+ |
-| Android Auto, USB | USB cable | **No** | GM requests USB permission on each connection |
-| CarPlay, USB | USB cable; iPhone unpaired from vehicle Bluetooth | **No iPhone companion** | Music and calls use USB; data-capable port/cable, authentication identity and USB/VPN consent required |
+| Android Auto, USB | USB cable | **No** | GM shows [two USB access prompts on every connection](#gm-usb-prompts--android-auto-and-carplay), even with the choice saved |
+| CarPlay, USB | USB cable; iPhone unpaired from vehicle Bluetooth | **No iPhone companion** | Music and calls use USB; authentication identity and USB/VPN consent required; [two GM USB access prompts on every connection](#gm-usb-prompts--android-auto-and-carplay) |
 | CarPlay, wireless | Bluetooth + Wi-Fi | **No iPhone companion** | Available for development; not working in the maintainer's vehicle |
 | CarPlay, shared Wi-Fi | Existing Wi-Fi network | **No iPhone companion** | Advanced wireless network configuration; not a USB requirement |
 
@@ -121,7 +121,18 @@ For Android Auto 17.4 or newer:
 
 ### USB
 
-Select **USB** under **Android Auto connection** for normal wired use, then connect a data-capable cable. No companion is needed. GM asks for USB permission on every connection even when **Always allow** is selected. You can also leave normal AA mode set to Wireless and use the temporary USB switch below.
+Select **USB** under **Android Auto connection** for normal wired use, then connect a data-capable cable. No companion is needed. [Accept both GM USB access prompts every time](#gm-usb-prompts--android-auto-and-carplay), even with the choice saved. You can also leave normal AA mode set to Wireless and use the temporary USB switch below.
+
+### GM USB prompts — Android Auto and CarPlay
+
+**Every USB connection shows two system access prompts, even if you check “Always open OpenAutoLink” or save the choice. Tap OK on both prompts each time.** This applies to both **USB Android Auto** and **USB CarPlay** on GM head units. It is a longstanding GM infotainment bug; **OAL cannot fix or bypass it**.
+
+<p align="center">
+  <img src="docs/screenshots/GM-USB-Access-Prompt.jpg" alt="GM USB access dialog asking to allow OpenAutoLink to access an iPhone, with Always open OpenAutoLink already checked and OK and Cancel buttons" width="720">
+  <br><em>Example of one GM USB access prompt, shown for an iPhone with “Always open OpenAutoLink” already checked. Expect two prompts on every USB connection; USB Android Auto has the same limitation.</em>
+</p>
+
+These GM USB access prompts are separate from OAL's **Switch / Stay here** choice, the iPhone's **Trust** prompt and CarPlay's local VPN consent. This warning is for GM wired connections, not wireless projection.
 
 ### Temporary USB switch between phones
 
@@ -158,7 +169,7 @@ If you previously turned off iPhone projection, OAL retains that choice. Only in
 1. **Do not pair the iPhone to the vehicle's Bluetooth for USB CarPlay.** If it is already paired, forget/remove the pairing so it does not reconnect. With the iPhone connected to vehicle Bluetooth, GM's native Bluetooth playback control competes with CarPlay and music can constantly pause after pressing Play.
 2. Select **CarPlay connection → USB** and save.
 3. Connect the iPhone to a data-capable head-unit USB port with a data-capable cable. If another projection is active, choose **Switch** to attempt temporary USB takeover.
-4. Accept Android USB access and OAL's local VPN consent when requested. If the iPhone asks to trust the connection, unlock it and approve **Trust** on the iPhone itself.
+4. [Tap **OK** on both GM USB access prompts every time](#gm-usb-prompts--android-auto-and-carplay), even if you saved the choice. Accept OAL's separate local VPN consent when requested. If the iPhone asks to trust the connection, unlock it and approve **Trust** on the iPhone itself.
 
 **Music and calls work over USB without vehicle Bluetooth.** The maintainer confirmed music playback plus both outgoing and incoming CarPlay calls on the 2024 Chevrolet Blazer EV with the iPhone disconnected from vehicle Bluetooth. This is a setup correction, not a requirement to turn off the car's entire Bluetooth adapter. **Do not apply it to wireless Android Auto:** keep that Android phone's required Bluetooth pairing and **Phone calls** profile enabled.
 
