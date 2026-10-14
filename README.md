@@ -279,6 +279,14 @@ The walkthrough's original wireless setup predates Android Auto 17.4. Use the WP
 
 [![Android Auto on a 2027 Chevrolet Bolt](https://img.youtube.com/vi/xEYOxJroplQ/0.jpg)](https://www.youtube.com/watch?v=xEYOxJroplQ)
 
+## Microphone permission and privacy
+
+**Why does OAL ask to “record audio”?** Android uses that permission wording for any microphone access—even live passthrough. OAL needs it to pass the car's microphone to your phone through CarPlay or Android Auto for supported voice features.
+
+**OAL does not save microphone recordings or upload microphone audio to the developer or any external server.** Audio is passed live to your connected phone, not kept as a recording. Your phone handles voice services under its own privacy settings.
+
+Optional diagnostic-log uploads and EV-profile downloads are separate; see the [privacy policy](docs/privacy-policy.md).
+
 ## Diagnostics and useful test reports
 
 Enable OAL file logging **before** reproducing a problem, then use the configured log-upload control. Each app uploads **only its own logs**: the car upload does not collect companion or iPhone logs. Consecutive uploads can contain overlapping sessions.
