@@ -2,15 +2,15 @@
 
 GM production AAOS head units do not expose ADB and do not permit APK sideloading. The car app must arrive through Google Play.
 
-## Maintainer distribution: temporary waitlist only
+## Maintainer distribution: easiest route, currently a waitlist
 
-**New tester intake is paused because the current internal tests are full. Wider Community distribution is not ready.** You can still request membership in [OpenAutoLink Testers](https://groups.google.com/g/openautolink-testers) as a **waitlist** while the maintainer works out wider distribution. This is not an active Community installation route.
+**Joining my list is the easiest route to builds and updates I manage, but it is not the only way to install OAL.** New tester intake for my builds is paused because the current internal tests are full. Wider Community distribution is not ready. You can still request membership in [OpenAutoLink Testers](https://groups.google.com/g/openautolink-testers) as a **waitlist** while I work out wider distribution. This is not an active Community installation route. Alternatively, anyone can follow the [independent self-publishing route below](#independent-route-self-publish) using their own Google Play Developer account, subject to Google's requirements.
 
 1. On a PC or Mac, use the Google account signed into the vehicle's Play Store.
 2. Open [OpenAutoLink Testers](https://groups.google.com/g/openautolink-testers) and request membership. No DM or separate email collection is required; do not post your account email publicly.
-3. **Wait for the maintainer's announcement that wider distribution is ready.** Group approval alone does not grant Play access. **Do not attempt Community Play opt-in or installation yet.** Check the group's description and welcome panel for current guidance; a custom welcome email is not guaranteed.
+3. **Wait for my announcement that wider distribution is ready.** Group approval alone does not grant Play access. **Do not attempt Community Play opt-in or installation yet.** Check the group's description and welcome panel for current guidance; a custom welcome email is not guaranteed.
 
-The Community release (`com.openautolink.app`, version code 522) and Automotive form-factor opt-in have been submitted to Google Play, but **are not approved yet**. Community installation on a vehicle has **not been verified**. The maintainer hopes to sort out wider distribution in **about a week**, but there is no guaranteed date: Google's review and availability timing are outside the maintainer's control. Installation instructions will be announced when the route is ready.
+The Community release (`com.openautolink.app`, version code 522) and Automotive form-factor opt-in have been submitted to Google Play, but **are not approved yet**. Community installation on a vehicle has **not been verified**. I hope to sort out wider distribution in **about a week**, but there is no guaranteed date: Google's review and availability timing are outside my control. I will announce installation instructions when the route is ready.
 
 **Existing original-app and capacity-clone internal testers:** keep your current working installation and testing program. Continue updating your existing app through Google Play; **do not uninstall, switch packages or migrate now**. The waitlist does not change your enrollment. Give the car itself internet-connected Wi-Fi or its data connection for updates; a paid OnStar plan is not required with working Wi-Fi internet.
 
@@ -27,7 +27,11 @@ Late-grant refresh is an implementation attempt pending vehicle validation. If E
 
 ## Independent route: self-publish
 
-This is separate from the paused maintainer intake and Community waitlist. You operate your own Play Console app and testing track; Google's review and vehicle availability requirements still apply.
+Anyone can follow this guide to build OAL and publish/install it through their own **Google Play Developer account**. This is separate from my paused tester intake and Community waitlist: you operate your own Play Console app and testing track. Google's account verification, review and vehicle availability requirements still apply; neither this guide nor a successful build guarantees installation eligibility.
+
+**As I push changes, you must pull the upstream changes, rebuild and publish your own updates**, then update the app in the vehicle. My Play releases do not update your independently published app. The personal builder fetches current source when rerun, but publishing remains your responsibility; see [Updating later](#updating-later).
+
+Self-publishing does not include my private CarPlay authentication assets. Source builds require your own compatible files for CarPlay, subject to the [authentication/build policy](carplay-private-mfi-assets.md).
 
 The supported build path is the [one-command personal AAB builder](build-aab.md). On Linux or Windows WSL with Docker available, run:
 
@@ -186,9 +190,9 @@ When reaching out, include the make, model, model year, market, AAOS version, an
 
 ## Updating later
 
-For every update:
+As I push upstream changes, your independently published app stays on its installed version until you build and publish an update. For every update:
 
-1. Pull the desired source revision.
+1. Pull the upstream changes you want to use (or rerun the personal builder, which fetches current `main`).
 2. Keep the same application ID.
 3. Build with the same upload key and alias.
 4. Use a higher version code.

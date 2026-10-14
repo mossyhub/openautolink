@@ -2,6 +2,8 @@
 
 The supported self-build path requires **Docker only** on an x86-64 Linux host or x86-64 Windows with WSL. The builder handles source updates, Android tooling, native dependencies, package identity, signing, versioning, and AAB verification inside isolated containers.
 
+**Joining my list is the easiest route to builds and updates I manage, but it is not the only installation route.** My new tester intake is paused and wider Community delivery is not ready; anyone can instead use this builder and the [self-publishing guide](install-gm.md#independent-route-self-publish) to build OAL and publish/install through their own **Google Play Developer account**. Google's account verification, review and vehicle availability requirements still apply; a successful build does not guarantee installation eligibility. Source builds require your own compatible private files for CarPlay; see the [authentication/build policy](carplay-private-mfi-assets.md).
+
 ## Quick start
 
 ### Linux
@@ -57,6 +59,8 @@ curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/build-aa
 ```
 
 The builder remembers the package ID, signing identity, signing key, Gradle cache, native-dependency cache, and last successful local version. It ensures the pinned builder image is present, fetches current `main`, and creates the next signed AAB.
+
+**As I push changes, you must pull those upstream changes, rebuild and publish your own updates.** Rerunning the builder handles the source fetch and rebuild, not the Play upload or rollout. Upload each new AAB to your own Play Console app and testing track, then update the app in the vehicle; my Play releases do not update your independently published app.
 
 The version counter advances **only after** the AAB has built and passed verification. A failed build does not consume the next local version code.
 
