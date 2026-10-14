@@ -21,7 +21,7 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 [![Release](https://github.com/mossyhub/openautolink/actions/workflows/release-apk.yml/badge.svg)](https://github.com/mossyhub/openautolink/releases/latest)
 
 > [!IMPORTANT]
-> **Locked GM production vehicles require Google Play delivery.** They do not permit ADB installation or APK sideloading. New testers should [request membership in the OpenAutoLink Google Group](https://groups.google.com/g/openautolink-testers) using the Google account signed into the vehicle's Play Store, then opt in to the Play test **after approval**. Follow the [joining instructions below](#car-app-on-a-locked-gm-vehicle). No DM or separate email collection is required. Independent Play publishing is also available.
+> **Locked GM production vehicles require Google Play delivery.** They do not permit ADB installation or APK sideloading. **New tester intake is temporarily paused: the current internal tests are full, and wider Community distribution is not ready.** [Request membership in the OpenAutoLink Google Group](https://groups.google.com/g/openautolink-testers) using the Google account signed into the vehicle's Play Store to join the **waitlist**, then wait for the maintainer's readiness announcement. Group approval is **not** an instruction to opt into Play or install now. See the [waitlist details below](#car-app-on-a-locked-gm-vehicle). Independent Play publishing is also available.
 
 ## Choose your phone and connection
 
@@ -69,17 +69,16 @@ Check the notes for your installed build: internal Play builds can include chang
 
 ### Car app on a locked GM vehicle
 
-**Recommended for new testers:** request Google Group membership, wait for approval, then opt in to Google Play testing:
+**For new testers: join the temporary Google Group waitlist, not an active installation flow.** Current internal tests are full and new tester intake is paused while the maintainer works out wider distribution.
 
 1. On a **computer**, sign into the **same Google account used by the vehicle's Play Store**. Open the [OpenAutoLink testers Google Group](https://groups.google.com/g/openautolink-testers) and **request membership**.
-2. **Wait for membership approval before opening the Play opt-in link.** Requests are reviewed daily, not approved instantly; approval by a particular time or deadline is not guaranteed. Joining the group and opting in to Play testing are separate steps.
-3. **After approval**, open [the OpenAutoLink Play testing page](https://play.google.com/apps/testing/com.openautolink.app) with that same account and select **Become a tester**.
-4. Follow the testing page's **download link** to Google Play on the computer. In the installation device dropdown, **select your VEHICLE**, not your phone, and confirm installation. If the download link or app is not yet available, allow time for Play access to propagate, refresh, and check that you are using the correct account.
-5. Connect **the car itself** to Wi-Fi with working internet (or its own data service) so it can download the queued installation. **An OnStar data plan is not required.** Keep the car online long enough for installation, and reconnect it to internet-connected Wi-Fi regularly for Play updates; see [car internet and updates](#car-internet-no-onstar-data-plan-required).
+2. **Wait for the maintainer to announce that wider distribution is ready.** Even if group membership is approved, **do not attempt Community Play opt-in or installation yet**. Membership is a waitlist place, not Play access or a guaranteed installation date.
 
-**No DM or separate email collection is required to join.** Do not post your account email publicly. Use the Google Group's description and welcome panel for joining guidance; a separate custom welcome email is not guaranteed.
+The Community release (`com.openautolink.app`, version code 522) and Automotive form-factor opt-in have been submitted to Google Play, but **are not approved yet**. Community installation on a vehicle has **not been verified**. The maintainer hopes to have wider distribution sorted out in **about a week**, but this is an estimate, not a promise; Google's review and availability timing are outside the maintainer's control. Installation instructions will be announced when the route is ready.
 
-**Existing original internal testers:** your current enrollment and installed app remain unchanged; continue updating the existing app through Google Play. Any capacity-clone migration is handled separately with instructions for affected testers only—this is not a request for everyone to switch packages or uninstall.
+**No DM or separate email collection is required to request group membership.** Do not post your account email publicly. Check the Google Group's description and welcome panel for current guidance; a separate custom welcome email is not guaranteed.
+
+**Existing original-app and capacity-clone internal testers:** keep your current working installation and testing program, and continue updating that existing app through Google Play. **Do not uninstall, switch packages or migrate now.** The waitlist does not change your current enrollment. For installations and updates, the car itself needs internet-connected Wi-Fi or its data service; [an OnStar data plan is not required](#car-internet-no-onstar-data-plan-required).
 
 **Independent publishing:** use the [one-command personal AAB builder](docs/build-aab.md) and [GM installation guide](docs/install-gm.md). Preserve the builder's signing/state directory: later Play updates must use the same application ID and signing key.
 
@@ -303,7 +302,7 @@ Developer guides:
 
 Use [GitHub issues](https://github.com/mossyhub/openautolink/issues) for reproducible defects and [XDA](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) for setup and owner reports. Include exact builds, reproduction steps and logs.
 
-**Polestar and other non-GM AAOS testers are especially welcome.** Both Android and iPhone owners are welcome. For maintainer Play access, follow the [Google Group request, approval and Play opt-in instructions](#car-app-on-a-locked-gm-vehicle); no DM or separate email collection is required. Group membership does not establish vehicle compatibility. Public GitHub builds omit private CarPlay authentication assets; see the build policy before choosing that installation route.
+**Polestar and other non-GM AAOS testers are especially welcome.** Both Android and iPhone owners are welcome. For future maintainer Play access, join the [temporary Google Group waitlist](#car-app-on-a-locked-gm-vehicle) and wait for the readiness announcement; new intake is paused, and group approval does not enable Community installation now. No DM or separate email collection is required. Group membership does not establish vehicle compatibility. Public GitHub builds omit private CarPlay authentication assets; see the build policy before choosing that installation route.
 
 ## Acknowledgments
 
