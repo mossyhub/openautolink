@@ -88,7 +88,12 @@ The car APK on [GitHub Releases](https://github.com/mossyhub/openautolink/releas
 
 **You do not need an OnStar data subscription to install or use OAL.** Without a vehicle data plan, connect **the car itself** to a Wi-Fi network with working internet, such as your home Wi-Fi, to download OAL through Google Play. A local car hotspot used for wireless Android Auto is not, by itself, an internet connection for the car.
 
-**Connect your car to internet-connected Wi-Fi regularly**, even after installation. Google Play needs internet access to download updates for the car's apps—including OAL as new versions are released. Leave the car online long enough for downloads, and check the vehicle's Play Store for pending updates; update timing depends on its settings and vehicle software. This is useful routine maintenance for any connected car, not an OAL-only requirement.
+**Keep your car's apps updated—not just OAL.** Like your phone, the car has a Play Store and apps that receive regular updates. Without an OnStar data plan, give **the car itself** internet access regularly:
+
+- **At home:** save your home Wi-Fi in the car's network settings. When parked within range, leave the infotainment system on for a while so Google Play has time to download app updates.
+- **Away from home:** connect the car to your phone's Wi-Fi hotspot **at least once a week, or more often**. I turn on my phone's hotspot on most drives to give the car frequent opportunities to stay up to date. Hotspot use draws on your phone's data allowance.
+
+Enable automatic app updates in the car's Play Store and check for pending updates occasionally. Downloads depend on Play Store settings, connection quality and vehicle software; simply saving a Wi-Fi network does not guarantee updates while the car is off. This is routine care for all the car's Play Store apps, not an OAL-only requirement.
 
 OAL's phone-projection connection does not require a paid OnStar data plan. Online navigation, music and other phone-app services still need their own internet connection, normally your phone's mobile data.
 
