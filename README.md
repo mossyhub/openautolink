@@ -118,7 +118,7 @@ For Android Auto 17.4 or newer:
 
 1. Install matching current car and companion releases; enable the car's Wi-Fi access point.
 2. In **OAL → Settings → Connection → Android Auto connection**, select **Wireless** (WPP).
-3. Enter the AP SSID, password and BSSID, and select the interface serving that AP. The companion can [send SSID/BSSID over Bluetooth](docs/wireless-wpp.md#send-ssidbssid-from-the-phone-instead-of-typing-them).
+3. To avoid typing the AP name/BSSID, select the paired car under companion **Auto-Start → Select Devices**, tap **Start WPP config listener** in the car's WPP settings, then use companion **Send WPP WiFi to Car → Scan & Send to Car** and tap the car hotspot. [Full walkthrough and troubleshooting](docs/wireless-wpp.md#send-ssidbssid-from-the-phone-instead-of-typing-them). **Only SSID/BSSID are sent**: enter the hotspot password in the car app, verify the interface serving that AP, then tap **Save & Reconnect**. Manual SSID/BSSID entry is also available.
 4. For the WPP migration, pair the phone to the car again after updating. Keep Bluetooth **Phone calls** enabled; **Media audio** may be disabled.
 5. Remove any old **Car WiFi** entry in the companion so it does not compete with Android Auto for the radio.
 6. Select the car under companion **Auto-Start → Select Devices**, then save and reconnect.

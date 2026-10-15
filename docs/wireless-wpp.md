@@ -29,7 +29,9 @@ Open the vehicle's network/hotspot settings and enable its Wi-Fi access point. R
 - password;
 - access point BSSID—the AP's MAC address, not the phone's or the vehicle Bluetooth address.
 
-If the vehicle UI does not display the BSSID, connect the phone to the access point and read the BSSID from the phone's detailed Wi-Fi connection information or a Wi-Fi analyzer. It must have the form `aa:bb:cc:dd:ee:ff`; zero and broadcast addresses are invalid.
+You do not need to find or type the BSSID yourself: the companion's **Send WPP WiFi to Car** control can scan the hotspot and fill in the car's SSID/BSSID fields over Bluetooth. Follow the [phone-to-car walkthrough below](#send-ssidbssid-from-the-phone-instead-of-typing-them). You still enter the hotspot password in the car app.
+
+For manual setup, if the vehicle UI does not display the BSSID, connect the phone to the access point and read the BSSID from the phone's detailed Wi-Fi connection information or a Wi-Fi analyzer. It must have the form `aa:bb:cc:dd:ee:ff`; zero and broadcast addresses are invalid.
 
 No paid vehicle data plan is required for projection. OpenAutoLink uses the access point as a local network.
 
@@ -37,7 +39,7 @@ No paid vehicle data plan is required for projection. OpenAutoLink uses the acce
 
 In OpenAutoLink, open **Settings → Connection**:
 
-1. Under **Transport**, select **Wireless (WPP)**.
+1. Under **Android Auto connection**, select **Wireless** (WPP). Older builds label this **Transport → Wireless (WPP)**.
 2. Under **Wi-Fi details sent to the phone**, enter:
    - **Network name (SSID)**;
    - **Password**;
@@ -50,15 +52,27 @@ OpenAutoLink restricts WPP advertisement, companion discovery, and session traff
 
 #### Send SSID/BSSID from the phone instead of typing them
 
-With both components updated and the phone paired to the car:
+Use **Send WPP WiFi to Car** in the Android companion to avoid typing the hotspot name and its MAC address on the car screen. This is a setup helper, not a projection-start button. It sends the selected hotspot's **SSID and BSSID over Bluetooth**; the phone does not need to join the hotspot or have projection working first.
 
-1. On the phone, select the vehicle under **Auto-Start → Select Devices**.
-2. In the car's WPP settings, tap **Start WPP config listener**.
-3. On the phone, open **Send WPP WiFi to Car → Scan & Send to Car** and select the car's access point.
-4. Wait for the phone's confirmation, then check the SSID and BSSID shown in the car settings.
-5. Enter the Wi-Fi password manually, verify the WPP interface, and tap **Save & Reconnect**.
+Do this while parked, near the car, with current car and companion releases installed, the car hotspot enabled, and the phone paired to the vehicle. Turn on phone Wi-Fi and Bluetooth, grant the companion's requested nearby-device and Wi-Fi scan/location permissions, and enable phone Location if Android requires it for Wi-Fi scans.
 
-Only SSID and BSSID are transferred; the password and interface selection are unchanged. The listener is opt-in and stops after a successful transfer. Tap **Stop WPP config listener** to cancel it. If sending fails, restart the listener and retry, or use the manual fields above. The phone needs Wi-Fi scan/location permissions and Bluetooth enabled.
+1. **Phone:** open the companion. Under **Auto-Start → Select Devices**, select the vehicle's Bluetooth device. For this setup, select only the car you intend to configure; the send control uses that target list.
+2. **Car:** in OpenAutoLink, open **Settings → Connection**, select **Wireless** under **Android Auto connection**, then scroll through the WPP fields to **Start WPP config listener**. Tap it and wait for **Listening for companion SSID/BSSID config**. Leave these settings open.
+3. **Phone:** on the companion's main screen, scroll below **Auto-Start** to **Send WPP WiFi to Car**. Tap **Scan & Send to Car**.
+4. In **Select visible WiFi**, tap the **car hotspot's network name**. Each row also shows its BSSID, channel, band and signal strength. Choose the car's hotspot—not home Wi-Fi or the phone's own hotspot. If the car advertises both bands under the same name, use its 5 GHz entry where available; the list puts 5 GHz entries first. **Tapping the row sends it immediately**; there is no separate Send button in the picker.
+5. Wait for the phone to show **Sent … to … selected car Bluetooth device(s).** Then check that **Network name (SSID)** and **Access point BSSID** in the car settings match the selected row. The listener stops after applying the transfer; this does not mean projection has started.
+6. **Car:** enter or verify **Password** separately, and verify **WPP network interface**. On GM EVs the normal AP interface is `ap_br_swlan0`; use the interface actually serving your car hotspot. Leave **Hotspot frequency in MHz** blank unless the channel troubleshooting above applies. Tap **Save & Reconnect** to apply the completed WPP settings, then continue with companion setup below.
+
+**What this does not change:** the Wi-Fi password, WPP network interface and optional frequency are not transferred. It does not configure the companion's legacy **Car WiFi** auto-join list; leave that list empty on Android Auto 17.4+ so Android Auto owns Wi-Fi association. You do not need to repeat the transfer on every drive—use it for initial setup or if the hotspot's SSID/BSSID changes.
+
+**If the helper does not work:**
+
+- **Scan & Send to Car is disabled:** select the paired vehicle under **Auto-Start → Select Devices** first.
+- **No visible WiFi networks found, or the car hotspot is missing:** check that the hotspot and phone Wi-Fi are on, and scan/location permissions are granted. The picker uses Android's available scan results. Open the phone's system Wi-Fi list to let it refresh, then return to the companion and reopen **Scan & Send to Car**. Joining the hotspot is not required for the transfer.
+- **Send failed / no car acknowledged:** verify Bluetooth is enabled, the intended car is paired and selected, and the car shows **Listening for companion SSID/BSSID config** before retrying. Restart the listener if needed. Check the car's fields before retrying in case it applied the update but the acknowledgement was lost.
+- **Cancel:** tap **Close** in the phone's picker without choosing a row, or **Stop WPP config listener** on the car while it is listening.
+
+Manual SSID/BSSID entry remains available if the Bluetooth transfer cannot complete.
 
 ### 4. Configure the companion
 
