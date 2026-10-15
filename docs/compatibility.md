@@ -28,15 +28,17 @@ A build, Play installation, `CONNECTED` status, or process log is not proof of s
 | **Other GM AAOS EVs** | AAOS version, SoC, radio, and permissions can vary | **Testing encouraged** | Shared GM architecture makes broad compatibility plausible. Exact behavior still needs owner reports, but lack of a report is not evidence of incompatibility. |
 | **Non-GM AAOS vehicles** | Vendor-specific | **Experimental** | The app may install, but Play policy, sideloading, Bluetooth, Wi-Fi topology, VHAL permissions, cluster APIs, and display zones differ. |
 
-## Polestar and other AAOS testers wanted
+## Polestar and other AAOS platforms
 
-If your Polestar or another vehicle runs Android Automotive OS but does not include Android Auto, the project wants to hear from you. Contact the maintainer through the [OpenAutoLink XDA thread](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) or [Reddit](https://www.reddit.com/user/IPickedThisUserID/).
+Platform questions and owner reports are welcome through the [OpenAutoLink XDA thread](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) or [Reddit](https://www.reddit.com/user/IPickedThisUserID/).
 
-The maintainer welcomes platform questions and evidence collection, but **new tester intake is temporarily paused: the current internal tests are full and wider Community distribution is not ready**. Request membership in [OpenAutoLink Testers](https://groups.google.com/g/openautolink-testers) using the Google account signed into the vehicle's Play Store to join the **waitlist**, then wait for the maintainer's readiness announcement. **Even after group approval, do not attempt Community Play opt-in or installation yet.** No DM or separate email collection is required; do not post your account email publicly.
+To use OpenAutoLink, build the app and publish it through your own Google Play Console developer account. Locked GM vehicles require Google Play delivery; APK sideloading is not supported.
 
-The Community release (`com.openautolink.app`, version code 522) and Automotive form-factor opt-in have been submitted to Google Play, but **are not approved yet**; Community installation on a vehicle has **not been verified**. The maintainer hopes to sort out wider distribution in **about a week**, without a guaranteed date or control over Google's review timing. See the [current waitlist and installation guidance](install-gm.md).
+CarPlay requires compatible accessory authentication files that you are authorized to use. These are not included in the public build; building the app alone does not enable CarPlay.
 
-**Existing original-app and capacity-clone internal testers should keep their current working installations and testing programs; no uninstall, package switch or migration is requested now.** A place in the group does not imply that an untested vehicle is compatible; contact the maintainer about non-GM installation and platform questions before changing an existing setup.
+As I publish changes, you’ll need to pull the latest source, rebuild, and publish your own updates.
+
+Follow the [build guide](build-aab.md), [Play installation guide](install-gm.md), and [CarPlay authentication policy](carplay-private-mfi-assets.md). Building or publishing does not establish compatibility with an unverified vehicle.
 
 ## Phone compatibility
 

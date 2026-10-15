@@ -21,7 +21,13 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 [![Release](https://github.com/mossyhub/openautolink/actions/workflows/release-apk.yml/badge.svg)](https://github.com/mossyhub/openautolink/releases/latest)
 
 > [!IMPORTANT]
-> **Locked GM production vehicles require Google Play delivery.** They do not permit ADB installation or APK sideloading. **New tester intake is temporarily paused: the current internal tests are full, and wider Community distribution is not ready.** [Request membership in the OpenAutoLink Google Group](https://groups.google.com/g/openautolink-testers) using the Google account signed into the vehicle's Play Store to join the **waitlist**, then wait for the maintainer's readiness announcement. Group approval is **not** an instruction to opt into Play or install now. See the [waitlist details below](#car-app-on-a-locked-gm-vehicle). Independent Play publishing is also available.
+> To use OpenAutoLink, build the app and publish it through your own Google Play Console developer account. Locked GM vehicles require Google Play delivery; APK sideloading is not supported.
+>
+> CarPlay requires compatible accessory authentication files that you are authorized to use. These are not included in the public build; building the app alone does not enable CarPlay.
+>
+> As I publish changes, you’ll need to pull the latest source, rebuild, and publish your own updates.
+>
+> [Build guide](docs/build-aab.md) · [Installation guide](docs/install-gm.md) · [CarPlay authentication](docs/carplay-private-mfi-assets.md)
 
 ## Choose your phone and connection
 
@@ -33,7 +39,7 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 | CarPlay, wireless | Bluetooth + Wi-Fi | **No iPhone companion** | Available for development; not working in the maintainer's vehicle |
 | CarPlay, shared Wi-Fi | Existing Wi-Fi network | **No iPhone companion** | Advanced wireless network configuration; not a USB requirement |
 
-Check the notes for your installed build: internal Play builds can include changes not yet published in [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest). USB hot-plug handoff is implemented, but current vehicle validation is still pending.
+Check the source revision and release notes for your installed build. USB hot-plug handoff is implemented, but current vehicle validation is still pending.
 
 ## What OAL provides
 
@@ -69,18 +75,13 @@ Check the notes for your installed build: internal Play builds can include chang
 
 ### Car app on a locked GM vehicle
 
-**For new testers: join the temporary Google Group waitlist, not an active installation flow.** Current internal tests are full and new tester intake is paused while the maintainer works out wider distribution.
+To use OpenAutoLink, build the app and publish it through your own Google Play Console developer account. Locked GM vehicles require Google Play delivery; APK sideloading is not supported.
 
-1. On a **computer**, sign into the **same Google account used by the vehicle's Play Store**. Open the [OpenAutoLink testers Google Group](https://groups.google.com/g/openautolink-testers) and **request membership**.
-2. **Wait for the maintainer to announce that wider distribution is ready.** Even if group membership is approved, **do not attempt Community Play opt-in or installation yet**. Membership is a waitlist place, not Play access or a guaranteed installation date.
+CarPlay requires compatible accessory authentication files that you are authorized to use. These are not included in the public build; building the app alone does not enable CarPlay.
 
-The Community release (`com.openautolink.app`, version code 522) and Automotive form-factor opt-in have been submitted to Google Play, but **are not approved yet**. Community installation on a vehicle has **not been verified**. The maintainer hopes to have wider distribution sorted out in **about a week**, but this is an estimate, not a promise; Google's review and availability timing are outside the maintainer's control. Installation instructions will be announced when the route is ready.
+As I publish changes, you’ll need to pull the latest source, rebuild, and publish your own updates.
 
-**No DM or separate email collection is required to request group membership.** Do not post your account email publicly. Check the Google Group's description and welcome panel for current guidance; a separate custom welcome email is not guaranteed.
-
-**Existing original-app and capacity-clone internal testers:** keep your current working installation and testing program, and continue updating that existing app through Google Play. **Do not uninstall, switch packages or migrate now.** The waitlist does not change your current enrollment. For installations and updates, the car itself needs internet-connected Wi-Fi or its data service; [an OnStar data plan is not required](#car-internet-no-onstar-data-plan-required).
-
-**Independent publishing:** use the [one-command personal AAB builder](docs/build-aab.md) and [GM installation guide](docs/install-gm.md). Preserve the builder's signing/state directory: later Play updates must use the same application ID and signing key.
+Follow the [build guide](docs/build-aab.md) and [installation guide](docs/install-gm.md). See [CarPlay authentication](docs/carplay-private-mfi-assets.md) for the separate file requirement. Preserve your application ID and signing setup for later updates. The car itself needs internet-connected Wi-Fi or its data service; [an OnStar data plan is not required](#car-internet-no-onstar-data-plan-required).
 
 The car APK on [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) is for AAOS systems/emulators that permit APK installation. **It cannot be sideloaded onto a locked GM production head unit.**
 
@@ -103,11 +104,11 @@ For wireless Android Auto, install `openautolink-companion-vX.Y.Z.apk` from the 
 
 ### iPhone
 
-No OAL iPhone companion is required. For **USB**, connect a data-capable cable and **leave the iPhone unpaired from vehicle Bluetooth** to avoid GM Bluetooth competing with CarPlay and constantly pausing media. Music and calls work over USB; car Wi-Fi fields are not required for wired startup. For **wireless**, pair through the **car's system Bluetooth settings** and configure the wireless fields below. USB Trust approval is separate from Bluetooth pairing; maintainer Play builds include the required authentication files.
+No OAL iPhone companion is required. For **USB**, connect a data-capable cable and **leave the iPhone unpaired from vehicle Bluetooth** to avoid GM Bluetooth competing with CarPlay and constantly pausing media. Music and calls work over USB; car Wi-Fi fields are not required for wired startup. For **wireless**, pair through the **car's system Bluetooth settings** and configure the wireless fields below. USB Trust approval is separate from Bluetooth pairing. Supply the [required CarPlay authentication files](docs/carplay-private-mfi-assets.md) separately.
 
 ### Other AAOS systems
 
-Install the car APK only if the platform permits it. Bluetooth, networking, audio and vehicle integration vary by platform. **Polestar and other non-GM AAOS owners are wanted for testing**, especially vehicles without built-in phone projection.
+Install the car APK only if the platform permits it. Bluetooth, networking, audio and vehicle integration vary by platform. Reports from Polestar and other non-GM AAOS vehicles without built-in phone projection are welcome.
 
 ## Android Auto setup
 
@@ -163,7 +164,7 @@ Keep the vehicle parked while configuring. Disconnect the iPhone from any other 
 
 ### Common prerequisites
 
-1. Install a current OAL build with a valid accessory authentication identity. Maintainer Play builds provide the identity; public GitHub APKs and source builds require your own compatible files. See the [authentication/build policy](docs/carplay-private-mfi-assets.md).
+1. Install a current OAL build with a valid accessory authentication identity. Public GitHub APKs and source builds require your own compatible files. See the [authentication/build policy](docs/carplay-private-mfi-assets.md).
 2. Use **USB** under **OAL → Settings → Connection → CarPlay → CarPlay connection** for wired projection. Wireless remains a development option; CarPlay and Android Auto connection modes are independent.
 3. Apply any changes with **Save & Reconnect**. Keep file logging enabled for testing and upload results, including failed attempts.
 
@@ -187,7 +188,7 @@ Wireless CarPlay is still in development and is not working in the maintainer's 
 ### Video and display
 
 - New CarPlay settings default to **Automatic** resolution targeting a decoder-qualified **1440p-class** image and **Codec → Automatic (H.264 + qualified HEVC)**, with qualified lower-detail fallbacks. Saved video choices are retained. If you choose manual settings, open **OAL → Settings → Video → CarPlay**, select **Manual** under **Resolution / detail**, then choose **1440p** (recommended) or try **4K** if supported. **Fit to window (standard detail tiers)** keeps the selected detail tier at the available window aspect without stretching; custom resolutions retain their chosen aspect ratio. Tap **Save & Reconnect** to apply.
-- **Codec → Automatic (H.264 + qualified HEVC)** is the default for new CarPlay settings. If you choose manual video settings, we recommend this codec setting with **1440p** for the best balance of detail and performance. It offers HEVC only when the exact size/rate qualifies and retains H.264; it does **not** force the iPhone to use HEVC or change your resolution. Existing saved H.264 choices are preserved, so existing testers should select Automatic explicitly. If connection fails, select **H.264** and **Save & Reconnect**. 4K adds bandwidth and processing demand; return to 1440p if it stutters. Blurry video alone does not establish the negotiated resolution.
+- **Codec → Automatic (H.264 + qualified HEVC)** is the default for new CarPlay settings. If you choose manual video settings, we recommend this codec setting with **1440p** for the best balance of detail and performance. It offers HEVC only when the exact size/rate qualifies and retains H.264; it does **not** force the iPhone to use HEVC or change your resolution. Existing saved H.264 choices are preserved, so users with saved H.264 settings should select Automatic explicitly. If connection fails, select **H.264** and **Save & Reconnect**. 4K adds bandwidth and processing demand; return to 1440p if it stutters. Blurry video alone does not establish the negotiated resolution.
 - **For CarPlay on curved screens, we recommend Display → System UI Visible.** OAL starts in fullscreen mode by default, but CarPlay controls can be clipped by the physical screen curves in fullscreen.
 - In **Display → Calibrate safe controls**, adjust the safe rectangle to inset CarPlay controls as far from the edges as you prefer. This is manual adjustment, not automatic curve detection; without suitable insets, fullscreen can cut off parts of the UI. Confirm the calibration, then **Save & Reconnect**.
 - If you prefer fullscreen, **swipe down from the top edge of the screen to reveal the GM navigation bar** when you need the vehicle's system controls. This does not replace safe-control calibration.
@@ -195,7 +196,7 @@ Wireless CarPlay is still in development and is not working in the maintainer's 
 
 ### Authentication and source builds
 
-Maintainer Play builds include the CarPlay authentication files. Public GitHub APKs and source builds omit them and require your own compatible files. OAL is **not an Apple-certified CarPlay product**. Never publish authentication files or signing keys. See the [authentication and build policy](docs/carplay-private-mfi-assets.md) for requirements, provenance and redistribution limitations.
+Public GitHub APKs and source builds omit the CarPlay authentication files and require your own compatible files. OAL is **not an Apple-certified CarPlay product**. Never publish authentication files or signing keys. See the [authentication and build policy](docs/carplay-private-mfi-assets.md) for requirements, provenance and redistribution limitations.
 
 ## Adjust text, icons and UI size
 
@@ -326,7 +327,7 @@ Developer guides:
 
 Use [GitHub issues](https://github.com/mossyhub/openautolink/issues) for reproducible defects and [XDA](https://xdaforums.com/t/open-source-openautolink-wireless-android-auto-bridge-for-aaos-gm-evs.4785192/) for setup and owner reports. Include exact builds, reproduction steps and logs.
 
-**Polestar and other non-GM AAOS testers are especially welcome.** Both Android and iPhone owners are welcome. For future maintainer Play access, join the [temporary Google Group waitlist](#car-app-on-a-locked-gm-vehicle) and wait for the readiness announcement; new intake is paused, and group approval does not enable Community installation now. No DM or separate email collection is required. Group membership does not establish vehicle compatibility. Public GitHub builds omit private CarPlay authentication assets; see the build policy before choosing that installation route.
+Reports from Polestar and other non-GM AAOS vehicles are especially welcome, from both Android and iPhone owners. Follow the [build and installation guidance](#car-app-on-a-locked-gm-vehicle). Public GitHub builds omit private CarPlay authentication assets; see the build policy before choosing that installation route.
 
 ## Acknowledgments
 
