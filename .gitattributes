@@ -1,2 +1,10 @@
 # Force LF line endings for shell scripts — they run in WSL/Linux
 *.sh text eol=lf
+
+# Supplier notices are hash-verified verbatim, including original line endings.
+desktop-builder/packaging/licenses/** -text
+# Keep source snapshots identical across native packaging hosts.
+desktop-builder/**/*.py text eol=lf
+desktop-builder/**/*.md text eol=lf
+desktop-builder/**/*.json text eol=lf
+desktop-builder/requirements*.txt text eol=lf

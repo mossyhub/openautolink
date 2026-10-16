@@ -75,13 +75,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y binutils xvfb xauth libegl1 libgl1 libopengl0 libxkbcommon0 libdbus-1-3 libfontconfig1 libxcb-cursor0 libxcb-xinerama0 libxkbcommon-x11-0 libxcb-keysyms1 libxcb-icccm4 libxcb-image0 libxcb-render-util0 libxcb-xkb1 libxcb-glx0 libxcb-randr0 libxcb-shape0 libxcb-sync1 libxcb-render0 libxcb-shm0 libxcb-xfixes0 fonts-dejavu-core
       - name: Install pinned builder dependencies
-        run: python -m pip install -r requirements-dev.txt
+        # Keep locally; the collector projects only public wheel URLs/digests.
+        run: python -m pip install -r requirements-dev.txt --report pip-install-report.json
       - name: Unit and offscreen UI tests (no Android builds)
         run: python -m pytest tests -q
       - name: Smoke source entry point
         run: python -m oal_builder --smoke-test
       - name: Freeze, check embedded source and licenses, smoke actual native runtime
+        id: freeze
         run: python packaging/build.py --output dist
+      - name: Preserve allowlisted discovery diagnostics (NOT a qualified package)
+        id: discovery
+        # No artifact for unit/source-smoke failure or failures before inventory.
+        # The freeze remains failed: successful diagnostics never qualify payloads.
+        if: ${{ failure() && steps.freeze.outcome == 'failure' && hashFiles('desktop-builder/dist/native-payload-review.json') != '' }}
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+          RUNNER_LABEL: ${{ matrix.os }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: >-
+          python packaging/discovery_evidence.py
+          --inventory dist/native-payload-review.json
+          --pip-report pip-install-report.json
+          --output discovery/native-discovery-evidence.json
+          --expected-commit "$EXPECTED_COMMIT" --runner "$RUNNER_LABEL"
+          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+      - name: Upload diagnostic JSON only; never candidate executables or workspaces
+        if: ${{ !cancelled() && steps.discovery.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: UNQUALIFIED-native-discovery-${{ matrix.name }}-${{ github.sha }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 7
+          path: desktop-builder/discovery/native-discovery-evidence.json
       - name: Native Linux XCB startup under Xvfb (not offscreen)
         if: runner.os == 'Linux'
         env:

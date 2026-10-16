@@ -517,16 +517,87 @@ def test_failure_diagnostics_bound_unknown_and_noisy_output():
     assert len(recognized) <= e.MAX_DIAGNOSTIC_CHARS
 
 
-def test_workspace_lock_prevents_parallel_identity_changes(tmp_path):
+@pytest.mark.parametrize('existing_lock', [False, True])
+def test_workspace_lock_prevents_parallel_identity_changes(tmp_path, existing_lock):
+    if existing_lock:
+        e.managed_workspace(tmp_path)
+        (tmp_path / '.builder.lock').write_bytes(b'0')
     with e.workspace_lock(tmp_path):
         with pytest.raises(e.BuilderError, match='already'):
             with e.workspace_lock(tmp_path):
-                pass
+                pytest.fail('Contending builder entered the workspace')
+        # A failed contender must not release the owner's lock.
+        with pytest.raises(e.BuilderError, match='already'):
+            with e.workspace_lock(tmp_path):
+                pytest.fail('Contender released the owner lock')
+    with e.workspace_lock(tmp_path):
+        pass
 
 
-def test_build_pipeline_reserves_versions_verifies_and_keeps_signing_out_of_gradle(tmp_path, monkeypatch):
+def test_windows_workspace_lock_contender_never_reads_mandatory_locked_byte(tmp_path, monkeypatch):
+    """Replay Windows mandatory byte locks on every OS; native test above
+    additionally exercises the real kernel on Windows CI.
+    """
+    import os
+    import sys
+    from types import SimpleNamespace
+
+    owner = None
+    transitions = []
+    def locking(fd, mode, count):
+        nonlocal owner
+        assert os.lseek(fd, 0, os.SEEK_CUR) == 0 and count == 1
+        if mode == 1:
+            if owner is not None:
+                raise PermissionError('Locked byte')
+            owner = fd
+            transitions.append('acquired')
+        else:
+            assert owner == fd
+            owner = None
+            transitions.append('released')
+
+    original_open = Path.open
+    class MandatoryLockFile:
+        def __init__(self, handle):
+            self.handle = handle
+        def __getattr__(self, name):
+            return getattr(self.handle, name)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            self.handle.close()
+        def read(self, size):
+            if owner is not None and owner != self.handle.fileno():
+                raise PermissionError('Windows denies reading another handle\'s locked byte')
+            return self.handle.read(size)
+
+    def open_file(path, *args, **kwargs):
+        handle = original_open(path, *args, **kwargs)
+        return MandatoryLockFile(handle) if path.name == '.builder.lock' else handle
+
+    monkeypatch.setattr(Path, 'open', open_file)
+    monkeypatch.setattr(e, 'os', SimpleNamespace(**{**vars(os), 'name': 'nt'}))
+    monkeypatch.setitem(sys.modules, 'msvcrt', SimpleNamespace(locking=locking, LK_NBLCK=1, LK_UNLCK=2))
+    with e.workspace_lock(tmp_path):
+        first_owner = owner
+        with pytest.raises(e.BuilderError, match='already'):
+            with e.workspace_lock(tmp_path):
+                pytest.fail('Contending builder entered the workspace')
+        assert owner == first_owner
+    with e.workspace_lock(tmp_path):
+        pass
+    assert owner is None
+    assert transitions == ['acquired', 'released', 'acquired', 'released']
+
+
+@pytest.mark.parametrize('workspace_parent', ['', 'private/var/folders/ci', 'password/upload-key'])
+def test_build_pipeline_reserves_versions_verifies_and_keeps_signing_out_of_gradle(tmp_path, monkeypatch, workspace_parent):
     import zipfile
     from cryptography.hazmat.primitives import serialization
+    # macOS resolves its temporary directory beneath /private; these words
+    # in an ancestor directory are not signing credentials.
+    tmp_path = tmp_path / workspace_parent / 'workspace'
     commands = []
     class Tools:
         def __init__(self, workspace, progress, cancel):
@@ -546,12 +617,22 @@ def test_build_pipeline_reserves_versions_verifies_and_keeps_signing_out_of_grad
     def command(argv, cwd, env, cancel, progress, phase):
         argv = list(map(str, argv))
         commands.append(argv)
+        identity = tmp_path / 'private/identity'
+        password = (identity / 'password').read_text().strip()
+        # Check actual secret bytes for every child, including the signer.
+        assert password and not any(password in value for value in [*argv, *env.values()])
         if ':app:bundleRelease' in argv:
             assert '-PoalBuilderUnsigned=true' in argv
             assert '--no-build-cache' in argv and '--max-workers=2' in argv
             assert '--dependency-verification=strict' in argv
             assert not any('write-verification' in arg for arg in argv)
-            assert not any('password' in arg or 'upload-key' in arg or 'private' in arg for arg in argv)
+            assert not any(str(identity) in value for value in [*argv, *env.values()])
+            # Exclude only the independently checked executable path from the
+            # option-name checks, not arbitrary arguments containing paths.
+            wrapper = 'gradlew.bat' if e.os.name == 'nt' else 'gradlew'
+            assert argv[0] == str(tmp_path / 'source' / wrapper)
+            assert not any('password' in arg or 'upload-key' in arg or 'private' in arg
+                           for arg in argv[1:])
             built = tmp_path / 'source/app/build/outputs/bundle/release/app-release.aab'
             built.parent.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(built, 'w') as z:

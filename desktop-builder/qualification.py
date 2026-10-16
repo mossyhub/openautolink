@@ -13,6 +13,7 @@ import re
 import shutil
 import threading
 import time
+from enum import Enum
 from pathlib import Path
 
 from oal_builder.engine import BuildConfig, Builder, BuilderError, atomic_json, suggest_app_id, verify_bundle_entries
@@ -25,49 +26,111 @@ METADATA = ('applicationId', 'versionCode', 'versionName', 'sourceCommit',
             'carplayIncluded', 'sha256')
 
 
-def require(condition, message):
+class FailureCode(Enum):
+    SOURCE_COMMIT = 'source-commit-mismatch'
+    SOURCE_REF = 'source-ref-mismatch'
+    SOURCE_VERSION_NAME = 'source-version-name-mismatch'
+    RESULT_INCOMPLETE = 'build-result-incomplete'
+    APP_ID = 'application-id-mismatch'
+    VERSION_CODE = 'version-code-invalid'
+    OVERLAYS = 'source-overlays-invalid'
+    HASH_FORMAT = 'artifact-hash-invalid'
+    SIGNER_FORMAT = 'signing-fingerprint-invalid'
+    CARPLAY = 'carplay-not-absent'
+    ARTIFACT_PATH = 'artifact-path-invalid'
+    ARTIFACT_HASH = 'artifact-hash-mismatch'
+    BUNDLE_ENTRIES = 'bundle-entries-invalid'
+    SIDECARS = 'artifact-sidecars-invalid'
+    METADATA_READ = 'artifact-metadata-unreadable'
+    METADATA_TYPE = 'artifact-metadata-invalid'
+    METADATA_MATCH = 'artifact-metadata-mismatch'
+    CHECKSUM_MATCH = 'artifact-checksum-mismatch'
+    HOST_UNSUPPORTED = 'native-host-unsupported'
+    CI_CONSENT = 'ci-license-consent-required'
+    HOST_MISMATCH = 'native-host-mismatch'
+    BUILDER_COMMIT = 'builder-commit-invalid'
+    RUNNER_TEMP = 'runner-temp-required'
+    PATH_SYMLINK = 'qualification-path-symlink'
+    PATH_FRESH = 'qualification-path-not-fresh'
+    PATH_SEPARATE = 'export-path-not-separate'
+    PAIR_APP_ID = 'pair-application-id-mismatch'
+    PAIR_SIGNER = 'pair-signer-mismatch'
+    PAIR_SOURCE_COMMIT = 'pair-source-commit-mismatch'
+    PAIR_SOURCE_REF = 'pair-source-ref-mismatch'
+    PAIR_OVERLAYS = 'pair-source-overlays-mismatch'
+    PAIR_VERSION_NAME = 'pair-version-name-mismatch'
+    PAIR_VERSION = 'update-version-not-increased'
+    PAIR_PATH = 'pair-artifact-path-reused'
+    PAIR_HASH = 'pair-artifact-hash-reused'
+    MANIFEST_XML = 'manifest-xml-invalid'
+    MANIFEST_APP = 'manifest-application-mismatch'
+    MANIFEST_COMPONENTS = 'manifest-components-mismatch'
+    MANIFEST_AFFINITY = 'manifest-cluster-affinity-mismatch'
+    TOOL_PATH = 'verification-tool-not-managed'
+    TOOL_ENV = 'build-environment-not-managed'
+    TOOL_JDK = 'jdk-not-managed'
+    TOOL_PROVENANCE = 'managed-tool-provenance-invalid'
+    BUDGET_INVALID = 'time-budget-invalid'
+    BUDGET_EXCEEDED = 'time-budget-exceeded'
+    EXPORT_HASH = 'export-hash-mismatch'
+
+
+class QualificationError(BuilderError):
+    """Only enumerated harness failures may cross the report boundary."""
+    def __init__(self, code):
+        if not isinstance(code, FailureCode):
+            raise TypeError('Qualification diagnostic must be a fixed code')
+        self.code = code
+        super().__init__(code.value)
+
+
+def require(condition, code):
     if not condition:
-        raise BuilderError(message)
+        raise QualificationError(code)
 
 
 def native_platform():
     system = {'Linux': 'linux', 'Windows': 'windows', 'Darwin': 'macos'}.get(platform.system())
     arch = {'amd64': 'x86_64', 'x86_64': 'x86_64', 'arm64': 'arm64', 'aarch64': 'arm64'}.get(platform.machine().lower())
     name = f'{system}-{arch}'
-    require(name in {'linux-x86_64', 'windows-x86_64', 'macos-x86_64', 'macos-arm64'}, 'Unsupported native host')
+    require(name in {'linux-x86_64', 'windows-x86_64', 'macos-x86_64', 'macos-arm64'}, FailureCode.HOST_UNSUPPORTED)
     return name
 
 
 def prepare_ci(workspace, destination, *, accept_ci_android_licenses, expected_platform, builder_commit):
     require(os.environ.get('GITHUB_ACTIONS') == 'true' and accept_ci_android_licenses is True,
-            'Explicit CI-only Android license consent is required')
-    require(native_platform() == expected_platform, 'Native host architecture does not match matrix')
-    require(isinstance(builder_commit, str) and re.fullmatch('[0-9a-f]{40}', builder_commit), 'Exact builder commit required')
-    require(bool(os.environ.get('RUNNER_TEMP')), 'RUNNER_TEMP required')
+            FailureCode.CI_CONSENT)
+    require(native_platform() == expected_platform, FailureCode.HOST_MISMATCH)
+    require(isinstance(builder_commit, str) and re.fullmatch('[0-9a-f]{40}', builder_commit), FailureCode.BUILDER_COMMIT)
+    require(bool(os.environ.get('RUNNER_TEMP')), FailureCode.RUNNER_TEMP)
     root = Path(os.environ['RUNNER_TEMP']).resolve()
     paths = []
     for value in (workspace, destination):
         path = Path(value).absolute()
         require(not any(p.is_symlink() for p in (path, *path.parents) if p != root and root in p.parents),
-                'Symlink in qualification path')
+                FailureCode.PATH_SYMLINK)
         path = path.resolve()
         require(path != root and path.is_relative_to(root) and not path.exists(),
-                'Use fresh dedicated paths beneath RUNNER_TEMP')
+                FailureCode.PATH_FRESH)
         paths.append(path)
     workspace, destination = paths
     require(not workspace.is_relative_to(destination) and not destination.is_relative_to(workspace),
-            'Export must be separate from managed workspace')
+            FailureCode.PATH_SEPARATE)
     destination.mkdir(parents=True)
     return workspace, destination
 
 
 def validate_pair(first, update):
-    for key in ('applicationId', 'signingCertificateSha256', 'sourceCommit',
-                'sourceRef', 'sourceOverlays', 'versionName'):
-        require(first[key] == update[key], 'First/update identity or source changed')
-    require(update['versionCode'] > first['versionCode'], 'Update version did not increase')
-    require(first['artifact'] != update['artifact'] and first['sha256'] != update['sha256'],
-            'First/update artifacts were reused')
+    for key, code in (('applicationId', FailureCode.PAIR_APP_ID),
+                      ('signingCertificateSha256', FailureCode.PAIR_SIGNER),
+                      ('sourceCommit', FailureCode.PAIR_SOURCE_COMMIT),
+                      ('sourceRef', FailureCode.PAIR_SOURCE_REF),
+                      ('sourceOverlays', FailureCode.PAIR_OVERLAYS),
+                      ('versionName', FailureCode.PAIR_VERSION_NAME)):
+        require(first[key] == update[key], code)
+    require(update['versionCode'] > first['versionCode'], FailureCode.PAIR_VERSION)
+    require(first['artifact'] != update['artifact'], FailureCode.PAIR_PATH)
+    require(first['sha256'] != update['sha256'], FailureCode.PAIR_HASH)
 
 
 def validate_artifact(result, workspace, app_id):
@@ -76,55 +139,67 @@ def validate_artifact(result, workspace, app_id):
     Cryptographic signer and binary manifest verification is additionally run
     with the real Builder verifier by qualify(), not simulated here.
     """
-    require(all(key in result for key in (*METADATA, 'artifact')), 'Incomplete build result')
-    require(result['applicationId'] == app_id, 'Application ID changed')
+    require(isinstance(result, dict) and all(key in result for key in (*METADATA, 'artifact')),
+            FailureCode.RESULT_INCOMPLETE)
+    require(result['applicationId'] == app_id, FailureCode.APP_ID)
     require(type(result['versionCode']) is int and 1 <= result['versionCode'] <= 2100000000,
-            'Invalid version code')
-    require(result['sourceCommit'] == SOURCE_COMMIT and result['sourceRef'] == SOURCE_REF
-            and result['versionName'] == SOURCE_REF.removeprefix('v'), 'Unexpected source metadata')
+            FailureCode.VERSION_CODE)
+    require(result['sourceCommit'] == SOURCE_COMMIT, FailureCode.SOURCE_COMMIT)
+    require(result['sourceRef'] == SOURCE_REF, FailureCode.SOURCE_REF)
+    require(result['versionName'] == SOURCE_REF.removeprefix('v'), FailureCode.SOURCE_VERSION_NAME)
     overlays = result['sourceOverlays']
     require(isinstance(overlays, list) and all(isinstance(v, str) for v in overlays)
             and len(overlays) == len(set(overlays))
-            and set(overlays) <= {'personal-cluster-task-affinity', OVERLAY_ID}, 'Unexpected source overlays')
-    for key in ('sha256', 'signingCertificateSha256'):
-        require(isinstance(result[key], str) and re.fullmatch('[0-9a-f]{64}', result[key]), 'Invalid fingerprint or hash')
-    require(result['carplayIncluded'] is False, 'CarPlay must be absent')
+            and set(overlays) <= {'personal-cluster-task-affinity', OVERLAY_ID}, FailureCode.OVERLAYS)
+    for key, code in (('sha256', FailureCode.HASH_FORMAT), ('signingCertificateSha256', FailureCode.SIGNER_FORMAT)):
+        require(isinstance(result[key], str) and re.fullmatch('[0-9a-f]{64}', result[key]), code)
+    require(result['carplayIncluded'] is False, FailureCode.CARPLAY)
     path = Path(result['artifact'])
     output = Path(workspace).resolve() / 'output'
     require(not output.is_symlink() and not path.is_symlink()
             and path.resolve().parent == output and path.suffix == '.aab'
             and re.fullmatch('[A-Za-z0-9._-]+\\.aab', path.name)
-            and path.is_file() and path.stat().st_size > 0, 'Invalid artifact path')
-    require(file_digest(path) == result['sha256'], 'Artifact hash mismatch')
-    verify_bundle_entries(path, False)
+            and path.is_file() and path.stat().st_size > 0, FailureCode.ARTIFACT_PATH)
+    require(file_digest(path) == result['sha256'], FailureCode.ARTIFACT_HASH)
+    try:
+        verify_bundle_entries(path, False)
+    except Exception:
+        raise QualificationError(FailureCode.BUNDLE_ENTRIES) from None
     sidecar = path.with_suffix('.json')
     checksum = path.with_suffix('.aab.sha256')
     require(not sidecar.is_symlink() and not checksum.is_symlink()
             and sidecar.is_file() and checksum.is_file()
-            and sidecar.stat().st_size <= 65536 and checksum.stat().st_size <= 1024, 'Invalid artifact sidecars')
-    saved = json.loads(sidecar.read_text('utf-8'))
+            and sidecar.stat().st_size <= 65536 and checksum.stat().st_size <= 1024, FailureCode.SIDECARS)
+    try:
+        saved = json.loads(sidecar.read_text('utf-8'))
+    except (OSError, ValueError):
+        raise QualificationError(FailureCode.METADATA_READ) from None
+    require(isinstance(saved, dict), FailureCode.METADATA_TYPE)
     require(all(saved.get(key) == result[key] for key in METADATA)
-            and saved.get('artifact') == result['artifact'], 'Artifact metadata mismatch')
-    require(checksum.read_text('utf-8') == result['sha256'] + '  ' + path.name + '\n', 'Artifact checksum sidecar mismatch')
+            and saved.get('artifact') == result['artifact'], FailureCode.METADATA_MATCH)
+    require(checksum.read_text('utf-8') == result['sha256'] + '  ' + path.name + '\n', FailureCode.CHECKSUM_MATCH)
     return {**{key: result[key] for key in METADATA}, 'artifact': path.name,
             'sizeBytes': path.stat().st_size, 'abis': ['arm64-v8a', 'x86_64']}
 
 
 def validate_manifest(xml, app_id):
     import xml.etree.ElementTree as ET
-    root = ET.fromstring(xml)
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        raise QualificationError(FailureCode.MANIFEST_XML) from None
     ns = '{http://schemas.android.com/apk/res/android}'
     app = root.find('application')
     require(root.get('package') == app_id and app is not None
             and app.get(ns + 'name') == 'com.openautolink.app.OalApplication',
-            'Manifest implementation application class changed')
+            FailureCode.MANIFEST_APP)
     names = {node.get(ns + 'name') for node in app}
     require({'com.openautolink.app.MainActivity', 'com.openautolink.app.cluster.OalClusterService'} <= names,
-            'Manifest implementation component classes changed')
+            FailureCode.MANIFEST_COMPONENTS)
     cluster = [node for node in app.findall('activity')
                if node.get(ns + 'name') == 'androidx.car.app.activity.CarAppActivity']
     require(len(cluster) == 1 and cluster[0].get(ns + 'taskAffinity') == app_id + '.templates',
-            'Manifest cluster affinity is not personalized')
+            FailureCode.MANIFEST_AFFINITY)
 
 
 def validate_tools(tools, workspace):
@@ -135,26 +210,26 @@ def validate_tools(tools, workspace):
     for key in ('java', 'jarsigner', 'keytool', 'bundletool'):
         path = Path(tools[key])
         require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(root),
-                'Non-managed verification tool')
+                FailureCode.TOOL_PATH)
     env = tools['env']
     for key, expected in (('ANDROID_HOME', root / 'android-sdk'), ('ANDROID_SDK_ROOT', root / 'android-sdk'),
                           ('ANDROID_NDK_HOME', root / 'android-sdk/ndk/28.2.13676358'),
                           ('GRADLE_USER_HOME', workspace / 'cache/gradle')):
-        require(Path(env[key]).resolve() == expected, 'Non-managed build environment')
+        require(Path(env[key]).resolve() == expected, FailureCode.TOOL_ENV)
     java_home = Path(env['JAVA_HOME']).resolve()
     require(java_home.is_relative_to(root / 'jdk-17')
             and all(Path(tools[k]).resolve().parent == java_home / 'bin' for k in ('java', 'jarsigner', 'keytool')),
-            'Non-managed JDK')
+            FailureCode.TOOL_JDK)
     for directory in [root / 'jdk-17', *(root / 'android-sdk' / p.replace(';', '/') for p in SDK_PACKAGES)]:
         marker = directory / '.oal-archive-digest'
         require(directory.resolve().is_relative_to(root) and not marker.is_symlink()
                 and marker.is_file() and marker.stat().st_size <= 64
-                and re.fullmatch('[0-9a-f]{40}|[0-9a-f]{64}', marker.read_text()), 'Managed tool provenance missing')
+                and re.fullmatch('[0-9a-f]{40}|[0-9a-f]{64}', marker.read_text()), FailureCode.TOOL_PROVENANCE)
 
 
 def qualify(workspace, destination, *, accept_ci_android_licenses=False,
             expected_platform, builder_commit, timeout_seconds=9000):
-    require(type(timeout_seconds) is int and 1 <= timeout_seconds <= 9000, 'Invalid qualification time budget')
+    require(type(timeout_seconds) is int and 1 <= timeout_seconds <= 9000, FailureCode.BUDGET_INVALID)
     workspace, destination = prepare_ci(workspace, destination,
         accept_ci_android_licenses=accept_ci_android_licenses,
         expected_platform=expected_platform, builder_commit=builder_commit)
@@ -180,7 +255,7 @@ def qualify(workspace, destination, *, accept_ci_android_licenses=False,
         config = BuildConfig(workspace=workspace, app_id=suggest_app_id(), accept_licenses=True)
         results = []
         for _ in range(2):
-            require(not cancel.is_set(), 'Qualification time budget exceeded')
+            require(not cancel.is_set(), FailureCode.BUDGET_EXCEEDED)
             builder = Builder(config, progress=progress, cancel_event=cancel)
             result = builder.build()  # Real engine -> real Toolchain, no injection/fallback CLI.
             report['lastPhase'] = 'managed-toolchain-verification'
@@ -194,7 +269,7 @@ def qualify(workspace, destination, *, accept_ci_android_licenses=False,
                                 'dump', 'manifest', '--bundle=' + result['artifact'], '--module=base'], 'verify')
             validate_manifest(xml, config.app_id)
             clean['manifestChecks'] = 'personal-cluster-affinity-and-original-implementation-classes'
-            require(not cancel.is_set(), 'Qualification time budget exceeded')
+            require(not cancel.is_set(), FailureCode.BUDGET_EXCEEDED)
             results.append(result)
             report['builds'].append(clean)
         validate_pair(*report['builds'])
@@ -204,15 +279,17 @@ def qualify(workspace, destination, *, accept_ci_android_licenses=False,
         for result, clean, filename in zip(results, report['builds'], ('first.aab', 'update.aab')):
             target = destination / filename
             shutil.copyfile(result['artifact'], target)
-            require(file_digest(target) == clean['sha256'], 'Export hash mismatch')
+            require(file_digest(target) == clean['sha256'], FailureCode.EXPORT_HASH)
             clean['artifact'] = filename
-        require(not cancel.is_set(), 'Qualification time budget exceeded')
+        require(not cancel.is_set(), FailureCode.BUDGET_EXCEEDED)
         report.update(status='passed', lastPhase='complete')
-    except Exception:
+    except Exception as exc:
         for filename in ('first.aab', 'update.aab'):
             (destination / filename).unlink(missing_ok=True)
         # Fixed diagnostics only; do not turn exception strings into artifacts.
         reason = 'time-budget-exceeded' if cancel.is_set() else 'native-build-or-verification-failed'
+        if not cancel.is_set() and type(exc) is QualificationError and isinstance(exc.code, FailureCode):
+            reason = exc.code.value
         report.update(status='failed', reason=reason)
         raise BuilderError(reason) from None
     finally:

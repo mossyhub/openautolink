@@ -8,6 +8,9 @@ also checked against complete bytes. No mirror, trust wildcard or runtime
 checksum generation is used. URLs and sidecar values are retained for review.
 """
 
+# Bundled qualified source pin, shared by selection and this native overlay.
+# Advance this pair only with a newly reviewed and qualified desktop builder;
+# a newer upstream release must not change an existing builder's source.
 SOURCE_REF = 'v0.1.526'
 SOURCE_COMMIT = '580a68d772afc97e444019504178f1678731feb6'
 OVERLAY_ID = 'native-gradle-verification-v0.1.526'

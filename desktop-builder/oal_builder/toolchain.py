@@ -21,7 +21,7 @@ class BuilderError(RuntimeError):
 
 
 def archive_path(name):
-    if not name or '\\' in name or ':' in name or name.startswith('/') or '..' in PurePosixPath(name).parts:
+    if not name or '\x00' in name or '\\' in name or ':' in name or name.startswith('/') or '..' in PurePosixPath(name).parts:
         raise BuilderError('Unsafe archive path')
     return PurePosixPath(name)
 
@@ -43,7 +43,10 @@ def safe_extract(archive, destination, *, strip_root=False, allowed=None, allow_
         roots = set()
         total = 0
         for member in members:
-            name = member.filename if is_zip else member.name
+            # ZipInfo.filename has already normalized Windows backslashes.
+            # Validate the original name, before host-dependent normalization
+            # can conceal a forbidden archive path.
+            name = member.orig_filename if is_zip else member.name
             path = archive_path(name)
             roots.add(path.parts[0])
             mode = (member.external_attr >> 16) if is_zip else member.mode
@@ -386,13 +389,16 @@ class Toolchain:
         return {**executables, 'bundletool': str(jar), 'env': env}
 
     def prepare_source(self):
-        release = self.downloader.json(GITHUB + '/releases/latest')
-        if release.get('draft') or release.get('prerelease'):
-            raise BuilderError('Latest release is not a stable public release')
-        tag = release['tag_name']
-        if not isinstance(tag, str) or not re.fullmatch(r'v?[0-9][A-Za-z0-9._+-]{0,79}', tag):
-            raise BuilderError('Unsupported release version name')
+        """Resolve the bundled qualified pin, never a moving latest release."""
+        from .native_verification import SOURCE_REF, SOURCE_COMMIT
+        release = self.downloader.json(GITHUB + '/releases/tags/' + urllib.parse.quote(SOURCE_REF, safe=''))
+        if (not isinstance(release, dict) or release.get('tag_name') != SOURCE_REF
+                or release.get('draft') is not False or release.get('prerelease') is not False):
+            raise BuilderError('Qualified source release is not the expected stable public release; update the desktop builder')
+        tag = SOURCE_REF
         commit = commit_sha(self.downloader.json(GITHUB + '/commits/' + urllib.parse.quote(tag, safe=''))['sha'])
+        if commit != SOURCE_COMMIT:
+            raise BuilderError('Qualified source tag no longer matches its reviewed commit; update the desktop builder')
         tree = self.downloader.json(GITHUB + '/git/trees/' + commit + '?recursive=1')
         if tree.get('truncated'):
             raise BuilderError('GitHub source tree was truncated; cannot verify gitlink')

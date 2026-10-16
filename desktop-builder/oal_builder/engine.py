@@ -116,10 +116,9 @@ def workspace_lock(workspace):
     if path.is_symlink():
         raise BuilderError('Unsafe workspace lock')
     with path.open('a+b') as handle:
-        handle.seek(0)
-        if handle.read(1) == b'':
-            handle.write(b'0')
-            handle.flush()
+        # Windows byte locks are mandatory even for reads by a contender.
+        # _locking permits a range past EOF, so neither initialization nor
+        # reading a sentinel byte is needed before acquiring ownership.
         handle.seek(0)
         try:
             if os.name == 'nt':

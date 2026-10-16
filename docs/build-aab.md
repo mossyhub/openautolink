@@ -60,7 +60,7 @@ These are **not** your Android upload-signing key. The builder does not generate
 
 Start the build and keep the application open while it works. The desktop workflow:
 
-1. Resolves the stable OAL release to an exact source revision.
+1. Checks the qualified stable OAL source pin bundled with this builder against its exact release tag and source revision before downloading source or native dependencies.
 2. Downloads and checks its managed native tools and dependencies.
 3. Builds the car app with your application ID, without source edits.
 4. Signs the AAB with your saved upload key.
@@ -92,13 +92,13 @@ The desktop builder does not sign in to Google, create your developer account, a
 ## Later updates
 
 1. Open the builder with the **same managed folder**, or restore your latest identity backup first.
-2. Build the current stable release using the saved application ID and upload key. Reselect your authorized CarPlay pair if required.
+2. Build the qualified source selected by your installed builder using the saved application ID and upload key. Reselect your authorized CarPlay pair if required.
 3. Check that the new version code is higher than every code already uploaded to this Play app. If another computer or build system uploaded a newer code, reconcile that state before uploading; an old backup cannot know about later uploads.
 4. Back up the updated identity state.
 5. Upload the new `.aab` to the **same app's dedicated Android Automotive OS Internal Test**, then roll it out.
 6. Give the car internet access and confirm the update in its Play Store.
 
-There is no manual source pull or source edit in this workflow. Installing a newer desktop builder also does not update the car by itself.
+Each desktop builder bundles a qualified source pin, not an automatic “latest release” selector. This builder selects **v0.1.526** at `580a68d772afc97e444019504178f1678731feb6`; the source itself is downloaded into your managed folder. A newer desktop builder advances that pin after qualification. There is no source-ref field, manual source pull, or source edit in this workflow. Installing a newer desktop builder does not update the car by itself: build and upload its AAB using the same identity.
 
 ## If something goes wrong
 

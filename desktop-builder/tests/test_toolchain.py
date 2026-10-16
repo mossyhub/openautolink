@@ -108,18 +108,37 @@ def test_native_verification_overlay_is_idempotent(tmp_path):
     assert metadata.read_bytes() == before
 
 
-def test_safe_extraction_preserves_files_and_rejects_escape(tmp_path):
+def test_safe_extraction_preserves_files(tmp_path):
     good = tmp_path / 'good.zip'
     with zipfile.ZipFile(good, 'w') as z:
         z.writestr('root/bin/tool', b'hello')
     tc.safe_extract(good, tmp_path / 'out', strip_root=True)
     assert (tmp_path / 'out/bin/tool').read_bytes() == b'hello'
-    for name in ['../escape', '/absolute', 'C:/drive', 'root/../../escape', 'root\\evil']:
-        bad = tmp_path / 'bad.zip'
-        with zipfile.ZipFile(bad, 'w') as z:
-            z.writestr(name, b'bad')
-        with pytest.raises(tc.BuilderError, match='archive'):
-            tc.safe_extract(bad, tmp_path / 'reject')
+
+
+@pytest.mark.parametrize('separator', ['/', '\\'])
+@pytest.mark.parametrize('name', ['../escape', '/absolute', 'C:/drive', 'root/../../escape', 'root\\evil', 'root/file\x00hidden'])
+def test_safe_extraction_rejects_original_archive_paths(tmp_path, monkeypatch, separator, name):
+    from types import SimpleNamespace
+    # Use the real ZipInfo parser with both OS separator policies. Do not
+    # change global os.sep or pathlib's filesystem semantics.
+    monkeypatch.setattr(zipfile, 'os', SimpleNamespace(**{**vars(os), 'sep': separator}))
+    bad = tmp_path / 'bad.zip'
+    member = zipfile.ZipInfo('placeholder')
+    # ZipInfo(name) normalizes backslashes on Windows *while creating* a ZIP.
+    # Assign after construction to preserve the hostile name in the ZIP bytes.
+    member.filename = name
+    with zipfile.ZipFile(bad, 'w') as z:
+        z.writestr('root/valid', b'must not be extracted')
+        z.writestr(member, b'bad')
+    with zipfile.ZipFile(bad) as z:
+        parsed = z.infolist()[1]
+        assert parsed.orig_filename == name
+        if separator == '\\' and name == 'root\\evil':
+            assert parsed.filename == 'root/evil'
+    with pytest.raises(tc.BuilderError, match='archive'):
+        tc.safe_extract(bad, tmp_path / 'reject')
+    assert not list((tmp_path / 'reject').rglob('*'))
     assert not (tmp_path / 'escape').exists()
 
 
@@ -163,11 +182,14 @@ def test_download_verifies_cached_bytes_and_rejects_corruption(tmp_path, monkeyp
         dl.download('http://dl.google.com/tool.zip', digest)
 
 
-@pytest.mark.parametrize(('release_tag', 'commit'), [('v1.2.3', 'a' * 40), ('v0.1.526', '580a68d772afc97e444019504178f1678731feb6')])
-def test_source_release_is_commit_bound_and_native_gitlink_checked(tmp_path, release_tag, commit):
+@pytest.mark.parametrize('latest_tag', ['v0.1.526', 'v0.1.527', 'v1.2.3'])
+def test_source_qualified_release_ignores_latest_drift(tmp_path, latest_tag):
     import hashlib
     import threading
+    release_tag = 'v0.1.526'
+    commit = '580a68d772afc97e444019504178f1678731feb6'
     gitlink = 'b' * 40
+    requests = []
     source = tmp_path / 'source.zip'
     with zipfile.ZipFile(source, 'w') as z:
         z.writestr('repo/app/src/main/cpp/CMakeLists.txt', 'AASDK_SOURCE_DIR external/opencardev-aasdk')
@@ -191,13 +213,17 @@ def test_source_release_is_commit_bound_and_native_gitlink_checked(tmp_path, rel
         archives[digest] = archive
     class Network:
         def json(self, url):
-            if url.endswith('/releases/latest'):
-                return {'tag_name': release_tag, 'prerelease': False, 'draft': False}
-            if '/commits/' in url:
-                return {'sha': commit}
-            if '/git/trees/' in url:
-                return {'tree': [{'path': 'external/opencardev-aasdk', 'mode': '160000', 'sha': gitlink}], 'truncated': False}
-            return {'body': 'aasdk ' + gitlink, 'assets': assets}
+            requests.append(url)
+            responses = {
+                tc.GITHUB + '/releases/latest': {'tag_name': latest_tag, 'prerelease': False, 'draft': False},
+                tc.GITHUB + '/releases/tags/' + release_tag: {'tag_name': release_tag, 'prerelease': False, 'draft': False},
+                tc.GITHUB + '/commits/' + release_tag: {'sha': commit},
+                tc.GITHUB + '/commits/' + latest_tag: {'sha': commit if latest_tag == release_tag else 'a' * 40},
+                tc.GITHUB + '/git/trees/' + commit + '?recursive=1': {'tree': [{'path': 'external/opencardev-aasdk', 'mode': '160000', 'sha': gitlink}], 'truncated': False},
+                tc.GITHUB + '/releases/tags/native-deps': {'body': 'aasdk ' + gitlink, 'assets': assets},
+            }
+            assert url in responses, 'Unexpected metadata request: ' + url
+            return responses[url]
         def download(self, url, digest=None, **kw):
             if digest:
                 return archives[digest]
@@ -208,17 +234,57 @@ def test_source_release_is_commit_bound_and_native_gitlink_checked(tmp_path, rel
     manager = tc.Toolchain(tmp_path / 'work', lambda *_: None, threading.Event())
     manager.downloader = Network()
     result = manager.prepare_source()
+    assert requests[:2] == [tc.GITHUB + '/releases/tags/' + release_tag, tc.GITHUB + '/commits/' + release_tag]
+    assert tc.GITHUB + '/releases/latest' not in requests
+    assert result['sourceRef'] == release_tag
     assert result['sourceCommit'] == commit
     assert result['versionName'] == release_tag.removeprefix('v')
-    native_overlays = ['native-gradle-verification-v0.1.526'] if release_tag == 'v0.1.526' else []
-    assert result['sourceOverlays'] == ['personal-cluster-task-affinity', *native_overlays]
-    if native_overlays:
-        assert 'protoc-4.29.3-osx-aarch_64.exe' in (tmp_path / 'work/source/gradle/verification-metadata.xml').read_text()
+    assert result['sourceOverlays'] == ['personal-cluster-task-affinity', 'native-gradle-verification-v0.1.526']
+    assert 'protoc-4.29.3-osx-aarch_64.exe' in (tmp_path / 'work/source/gradle/verification-metadata.xml').read_text()
     assert (tmp_path / 'work/source/external/opencardev-aasdk/include/aasdk/header.h').is_file()
     assert (tmp_path / 'work/source/app/src/main/cpp/third_party/aasdk/arm64-v8a/lib/libaasdk.a').is_file()
     assets[0]['digest'] = None
     with pytest.raises(tc.BuilderError, match='SHA-256'):
         manager.prepare_source()
+
+
+@pytest.mark.parametrize(('release', 'commit'), [
+    ({'tag_name': 'v0.1.527', 'draft': False, 'prerelease': False}, '580a68d772afc97e444019504178f1678731feb6'),
+    ({'tag_name': 'v0.1.526', 'draft': True, 'prerelease': False}, '580a68d772afc97e444019504178f1678731feb6'),
+    ({'tag_name': 'v0.1.526', 'draft': False, 'prerelease': True}, '580a68d772afc97e444019504178f1678731feb6'),
+    ({'tag_name': 'v0.1.526', 'draft': False, 'prerelease': False}, 'a' * 40),
+    ({'tag_name': 'v0.1.526', 'draft': False, 'prerelease': False}, '580a68d'),
+    ({'tag_name': 'v0.1.526', 'draft': False, 'prerelease': False}, None),
+    ({'tag_name': 'v0.1.526'}, '580a68d772afc97e444019504178f1678731feb6'),
+    ({'draft': False, 'prerelease': False}, '580a68d772afc97e444019504178f1678731feb6'),
+    (None, '580a68d772afc97e444019504178f1678731feb6'),
+])
+def test_source_rejects_unqualified_metadata_before_downloads(tmp_path, release, commit):
+    import threading
+    requests = []
+    downloads = []
+    class Network:
+        def json(self, url):
+            requests.append(url)
+            if url == tc.GITHUB + '/releases/tags/v0.1.526':
+                return release
+            if url == tc.GITHUB + '/commits/v0.1.526':
+                return {'sha': commit}
+            pytest.fail('Unqualified source must fail before further metadata: ' + url)
+        def download(self, *args, **kwargs):
+            downloads.append(args)
+            pytest.fail('Unqualified source must not download archives')
+    manager = tc.Toolchain(tmp_path, lambda *_: None, threading.Event())
+    manager.downloader = Network()
+    source = tmp_path / 'source/keep.txt'
+    source.parent.mkdir()
+    source.write_text('previous source')
+    with pytest.raises(tc.BuilderError, match='[Qq]ualified|exact source commit'):
+        manager.prepare_source()
+    assert requests[0] == tc.GITHUB + '/releases/tags/v0.1.526'
+    assert downloads == []
+    assert source.read_text() == 'previous source'
+    assert not (tmp_path / 'source.preparing').exists()
 
 
 def test_tool_install_consent_and_child_only_environment(tmp_path, monkeypatch):

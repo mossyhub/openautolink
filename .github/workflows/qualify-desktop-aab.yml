@@ -90,8 +90,10 @@ jobs:
       # The timer cooperatively cancels Gradle/downloads; the step/job hard caps
       # remain authoritative for stuck extraction/network/native tools. A hard
       # kill may leave status=running or no report: neither is native proof.
+      # Skip upload when prerequisites failed and qualify never ran. If it did
+      # run, a missing report remains an error (including a hard-killed run).
       - name: Upload sanitized result only (including failure if produced)
-        if: always()
+        if: always() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure' || steps.qualify.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
         with:
           name: native-aab-result-${{ matrix.name }}-${{ github.run_attempt }}

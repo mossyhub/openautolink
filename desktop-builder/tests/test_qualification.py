@@ -53,8 +53,18 @@ def test_artifact_validation_reads_actual_files_and_only_exports_allowlist(tmp_p
     assert 'DO-NOT-EXPORT' not in json.dumps(clean)
 
 
-@pytest.mark.parametrize('mutation', ['hash', 'missing', 'carplay', 'abi', 'source', 'sidecar', 'version', 'app', 'overlay', 'signer'])
-def test_artifact_validation_rejects_bad_evidence(tmp_path, mutation):
+@pytest.mark.parametrize('mutation,reason', [
+    ('hash', 'artifact-hash-mismatch'), ('missing', 'artifact-path-invalid'),
+    ('carplay', 'bundle-entries-invalid'), ('abi', 'bundle-entries-invalid'),
+    ('source', 'source-commit-mismatch'), ('sidecar', 'artifact-metadata-mismatch'),
+    ('version', 'version-code-invalid'), ('app', 'application-id-mismatch'),
+    ('overlay', 'source-overlays-invalid'), ('signer', 'signing-fingerprint-invalid'),
+    ('hash-format', 'artifact-hash-invalid'), ('incomplete', 'build-result-incomplete'),
+    ('carplay-flag', 'carplay-not-absent'), ('sidecar-missing', 'artifact-sidecars-invalid'),
+    ('sidecar-json', 'artifact-metadata-unreadable'), ('sidecar-shape', 'artifact-metadata-invalid'),
+    ('checksum', 'artifact-checksum-mismatch'),
+])
+def test_artifact_validation_rejects_bad_evidence(tmp_path, mutation, reason):
     q = qualification()
     result = bundle_result(tmp_path)
     path = Path(result['artifact'])
@@ -79,8 +89,23 @@ def test_artifact_validation_rejects_bad_evidence(tmp_path, mutation):
         result['sourceOverlays'] = ['PRIVATE-FREEFORM-TEXT']
     elif mutation == 'signer':
         result['signingCertificateSha256'] = 'malformed'
-    with pytest.raises(q.BuilderError):
+    elif mutation == 'hash-format':
+        result['sha256'] = 'SECRET'
+    elif mutation == 'incomplete':
+        del result['sourceCommit']
+    elif mutation == 'carplay-flag':
+        result['carplayIncluded'] = True
+    elif mutation == 'sidecar-missing':
+        path.with_suffix('.json').unlink()
+    elif mutation == 'sidecar-json':
+        path.with_suffix('.json').write_text('SECRET invalid JSON')
+    elif mutation == 'sidecar-shape':
+        path.with_suffix('.json').write_text('[]')
+    elif mutation == 'checksum':
+        path.with_suffix('.aab.sha256').write_text('SECRET')
+    with pytest.raises(q.BuilderError) as caught:
         q.validate_artifact(result, tmp_path, 'com.example.qualification')
+    assert str(caught.value) == reason
 
 
 def test_pair_requires_same_identity_source_and_increasing_version(tmp_path):
@@ -89,11 +114,20 @@ def test_pair_requires_same_identity_source_and_increasing_version(tmp_path):
     first = q.validate_artifact(bundle_result(tmp_path, 1), tmp_path, 'com.example.qualification')
     second = q.validate_artifact(bundle_result(tmp_path, 2), tmp_path, 'com.example.qualification')
     q.validate_pair(first, second)
-    for changed in ({'versionCode': 1}, {'versionCode': 0}, {'applicationId': 'com.changed.app'},
-                    {'signingCertificateSha256': 'b' * 64}, {'sourceCommit': '0' * 40},
-                    {'sourceOverlays': []}, {'sha256': first['sha256']}, {'artifact': first['artifact']}):
-        with pytest.raises(q.BuilderError):
+    for changed, reason in (
+        ({'versionCode': 1}, 'update-version-not-increased'),
+        ({'applicationId': 'com.changed.app'}, 'pair-application-id-mismatch'),
+        ({'signingCertificateSha256': 'b' * 64}, 'pair-signer-mismatch'),
+        ({'sourceCommit': '0' * 40}, 'pair-source-commit-mismatch'),
+        ({'sourceRef': 'v0.1.527'}, 'pair-source-ref-mismatch'),
+        ({'sourceOverlays': []}, 'pair-source-overlays-mismatch'),
+        ({'versionName': '0.1.527'}, 'pair-version-name-mismatch'),
+        ({'sha256': first['sha256']}, 'pair-artifact-hash-reused'),
+        ({'artifact': first['artifact']}, 'pair-artifact-path-reused'),
+    ):
+        with pytest.raises(q.BuilderError) as caught:
             q.validate_pair(first, {**second, **changed})
+        assert str(caught.value) == reason
 
 
 def test_ci_consent_and_fresh_runner_temp_paths_are_mandatory(tmp_path, monkeypatch):
@@ -158,12 +192,16 @@ def test_actual_manifest_keeps_implementation_classes_and_personal_affinity():
     app_id = 'com.example.qualification'
     xml = manifest_fixture(app_id)
     q.validate_manifest(xml, app_id)
-    for changed in (xml.replace(app_id + '.templates', 'com.openautolink.app.templates'),
-                    xml.replace('com.openautolink.app.MainActivity', app_id + '.MainActivity'),
-                    xml.replace('com.openautolink.app.OalApplication', app_id + '.OalApplication'),
-                    xml.replace('com.openautolink.app.cluster.OalClusterService', app_id + '.cluster.OalClusterService')):
-        with pytest.raises(q.BuilderError):
+    for changed, reason in (
+        (xml.replace(app_id + '.templates', 'com.openautolink.app.templates'), 'manifest-cluster-affinity-mismatch'),
+        (xml.replace('com.openautolink.app.MainActivity', app_id + '.MainActivity'), 'manifest-components-mismatch'),
+        (xml.replace('com.openautolink.app.OalApplication', app_id + '.OalApplication'), 'manifest-application-mismatch'),
+        (xml.replace('com.openautolink.app.cluster.OalClusterService', app_id + '.cluster.OalClusterService'), 'manifest-components-mismatch'),
+        ('SECRET invalid XML', 'manifest-xml-invalid'),
+    ):
+        with pytest.raises(q.BuilderError) as caught:
             q.validate_manifest(changed, app_id)
+        assert str(caught.value) == reason
 
 
 def test_orchestration_builds_twice_reverifies_and_exports_no_identity(tmp_path, monkeypatch):
@@ -211,8 +249,48 @@ def test_orchestration_builds_twice_reverifies_and_exports_no_identity(tmp_path,
         assert build['sha256'] == hashlib.sha256((out / name).read_bytes()).hexdigest()
 
 
+@pytest.mark.parametrize('field,value,reason', [
+    ('sourceCommit', '10dc2286cb3944201edfca18ddb1c7251215ac64', 'source-commit-mismatch'),
+    ('sourceRef', 'v0.1.527', 'source-ref-mismatch'),
+    ('versionName', '0.1.527', 'source-version-name-mismatch'),
+])
+def test_post_build_source_failure_exports_exact_safe_reason(tmp_path, monkeypatch, capsys, field, value, reason):
+    q = qualification()
+    monkeypatch.setenv('GITHUB_ACTIONS', 'true')
+    monkeypatch.setenv('RUNNER_TEMP', str(tmp_path))
+    calls = []
+
+    class DriftBuilder:
+        def __init__(self, config, progress, cancel_event):
+            self.config, self.progress = config, progress
+            self.tools = tool_fixture(config.workspace)
+        def build(self):
+            calls.append('build')
+            result = bundle_result(self.config.workspace)
+            result.update(applicationId=self.config.app_id, password='SECRET /private/identity/password')
+            result[field] = value
+            self.progress('complete', 'SECRET /private/identity/password')
+            return result
+
+    monkeypatch.setattr(q, 'Builder', DriftBuilder)
+    out = tmp_path / 'export'
+    with pytest.raises(q.BuilderError) as caught:
+        q.qualify(tmp_path / 'work', out, accept_ci_android_licenses=True,
+                  expected_platform=q.native_platform(), builder_commit='1' * 40, timeout_seconds=60)
+    report = json.loads((out / 'result.json').read_text())
+    assert report['reason'] == reason
+    assert str(caught.value) == reason
+    assert report['status'] == 'failed'
+    assert report['lastPhase'] == 'artifact-metadata-verification'
+    assert report['builds'] == [] and calls == ['build']
+    assert {p.name for p in out.iterdir()} == {'result.json'}
+    assert 'SECRET' not in json.dumps(report) + capsys.readouterr().out
+    assert str(tmp_path) not in json.dumps(report)
+
+
 @pytest.mark.parametrize('timeout', [False, True])
-def test_failure_is_nonproof_and_no_raw_diagnostics_escape(tmp_path, monkeypatch, capsys, timeout):
+@pytest.mark.parametrize('error_kind', ['runtime', 'builder', 'spoofed-code'])
+def test_failure_is_nonproof_and_no_raw_diagnostics_escape(tmp_path, monkeypatch, capsys, timeout, error_kind):
     q = qualification()
     monkeypatch.setenv('GITHUB_ACTIONS', 'true')
     monkeypatch.setenv('RUNNER_TEMP', str(tmp_path))
@@ -223,7 +301,11 @@ def test_failure_is_nonproof_and_no_raw_diagnostics_escape(tmp_path, monkeypatch
         def build(self):
             if timeout:
                 assert self.cancel.wait(3), 'qualification timer did not fire'
-            raise RuntimeError('SECRET /private/identity/password')
+            error_type = RuntimeError if error_kind == 'runtime' else q.BuilderError
+            error = error_type('SECRET /private/identity/password')
+            if error_kind == 'spoofed-code':
+                error.code = q.FailureCode.SOURCE_COMMIT
+            raise error
     monkeypatch.setattr(q, 'Builder', FailingBuilder)
     out = tmp_path / 'export'
     with pytest.raises(q.BuilderError, match='time-budget' if timeout else 'native-build'):
@@ -233,8 +315,21 @@ def test_failure_is_nonproof_and_no_raw_diagnostics_escape(tmp_path, monkeypatch
     text = (out / 'result.json').read_text()
     report = json.loads(text)
     assert report['status'] == 'failed' and report['lastPhase'] == 'build'
+    assert report['reason'] == ('time-budget-exceeded' if timeout else 'native-build-or-verification-failed')
     assert not report['builds']
     assert 'SECRET' not in text + capsys.readouterr().out
+
+
+def test_diagnostic_type_rejects_raw_text_and_every_code_is_bounded():
+    import re
+    q = qualification()
+    with pytest.raises(TypeError, match='^Qualification diagnostic must be a fixed code$'):
+        q.QualificationError('SECRET /private/identity/password')
+    for code in q.FailureCode:
+        assert re.fullmatch('[a-z][a-z-]{0,63}', code.value)
+        with pytest.raises(q.QualificationError) as caught:
+            q.require(False, code)
+        assert caught.value.code is code and str(caught.value) == code.value
 
 
 def test_managed_tool_validation_rejects_host_paths_and_missing_provenance(tmp_path):
@@ -243,13 +338,22 @@ def test_managed_tool_validation_rejects_host_paths_and_missing_provenance(tmp_p
     q.validate_tools(tools, tmp_path)
     host = tmp_path / 'host-java'
     host.write_text('not managed')
-    with pytest.raises(q.BuilderError):
+    with pytest.raises(q.BuilderError, match='^verification-tool-not-managed$'):
         q.validate_tools({**tools, 'java': str(host)}, tmp_path)
-    with pytest.raises(q.BuilderError):
+    with pytest.raises(q.BuilderError, match='^build-environment-not-managed$'):
         q.validate_tools({**tools, 'env': {**tools['env'], 'ANDROID_HOME': '/host-sdk'}}, tmp_path)
     (tmp_path / 'tools/jdk-17/.oal-archive-digest').unlink()
-    with pytest.raises(q.BuilderError):
+    with pytest.raises(q.BuilderError, match='^managed-tool-provenance-invalid$'):
         q.validate_tools(tools, tmp_path)
+
+
+def test_every_harness_invariant_uses_an_enumerated_diagnostic():
+    import ast
+    tree = ast.parse((ROOT / 'qualification.py').read_text())
+    checks = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+              and isinstance(node.func, ast.Name) and node.func.id == 'require']
+    assert checks
+    assert not any(isinstance(node.args[1], ast.Constant) for node in checks)
 
 
 def test_cli_requires_consent_before_starting_build(tmp_path, monkeypatch, capsys):
@@ -285,7 +389,9 @@ def test_workflow_is_separate_exact_commit_four_host_gate_with_bounded_exports()
     assert 'pull_request_target' not in text
     assert 'secrets.' not in text
     assert text.count('uses: actions/upload-artifact@') == 2
-    assert 'if: always()' in text
+    report_step = text.split('- name: Upload sanitized result only', 1)[1].split('- name:', 1)[0]
+    assert "if: always() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure' || steps.qualify.outcome == 'cancelled')" in report_step
+    assert 'if-no-files-found: error' in report_step
     assert "if: success() && steps.qualify.outcome == 'success'" in text
     for filename in ('result.json', 'first.aab', 'update.aab'):
         assert f'${{{{ runner.temp }}}}/oal-aab-export/{filename}' in text
