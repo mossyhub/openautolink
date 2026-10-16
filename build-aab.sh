@@ -104,39 +104,40 @@ configure() {
             [ -n "$signer" ] || fail "OAL_SIGNER_NAME is required in non-interactive mode"
             [ -n "$country" ] || fail "OAL_COUNTRY is required in non-interactive mode"
             start_code="${start_code:-0}"
-        fi
+        else
 
-        [ -r /dev/tty ] || fail "first run needs a terminal, or set OAL_NONINTERACTIVE=1 with OAL_APP_ID, OAL_SIGNER_NAME, and OAL_COUNTRY"
-        say ""
-        say "┌──────────────────────────────────────────────────────────┐"
-        say "│ OpenAutoLink builder — one-time setup                   │"
-        say "└──────────────────────────────────────────────────────────┘"
-        say "The package ID becomes your app's permanent Google Play identity."
-        say "Use a unique lowercase value you control; do not use com.openautolink.app."
-        say ""
+            [ -r /dev/tty ] || fail "first run needs a terminal, or set OAL_NONINTERACTIVE=1 with OAL_APP_ID, OAL_SIGNER_NAME, and OAL_COUNTRY"
+            say ""
+            say "┌──────────────────────────────────────────────────────────┐"
+            say "│ OpenAutoLink builder — one-time setup                   │"
+            say "└──────────────────────────────────────────────────────────┘"
+            say "The package ID becomes your app's permanent Google Play identity."
+            say "Use a unique lowercase value you control; do not use com.openautolink.app."
+            say ""
 
-        while :; do
-            app_id="$(prompt_value "Unique package ID" "${app_id:-com.yourname.openautolink}")"
-            validate_app_id "$app_id" && break
-            say "Use at least two lowercase dot-separated segments; letters, digits, and underscores only."
-        done
-        if [ -z "$signer" ]; then
-            signer="$(trim_and_collapse "$(prompt_value "Signing identity/name" "OpenAutoLink Personal Build")")"
-            [ -n "$signer" ] || fail "signing identity cannot be empty"
-        fi
-        if [ -z "$country" ]; then
             while :; do
-                country="$(prompt_value "Two-letter country code" "US")"
-                validate_country "$country" && break
-                say "Country must be two uppercase letters, for example US or CA."
+                app_id="$(prompt_value "Unique package ID" "${app_id:-com.yourname.openautolink}")"
+                validate_app_id "$app_id" && break
+                say "Use at least two lowercase dot-separated segments; letters, digits, and underscores only."
             done
-        fi
-        if [ -z "$start_code" ]; then
-            while :; do
-                start_code="$(prompt_value "Highest version code already uploaded (0 for a new app)" "0")"
-                validate_version_code "$start_code" && break
-                say "Enter 0 or a non-negative Android version code."
-            done
+            if [ -z "$signer" ]; then
+                signer="$(trim_and_collapse "$(prompt_value "Signing identity/name" "OpenAutoLink Personal Build")")"
+                [ -n "$signer" ] || fail "signing identity cannot be empty"
+            fi
+            if [ -z "$country" ]; then
+                while :; do
+                    country="$(prompt_value "Two-letter country code" "US")"
+                    validate_country "$country" && break
+                    say "Country must be two uppercase letters, for example US or CA."
+                done
+            fi
+            if [ -z "$start_code" ]; then
+                while :; do
+                    start_code="$(prompt_value "Highest version code already uploaded (0 for a new app)" "0")"
+                    validate_version_code "$start_code" && break
+                    say "Enter 0 or a non-negative Android version code."
+                done
+            fi
         fi
     fi
 

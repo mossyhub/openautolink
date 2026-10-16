@@ -1,0 +1,1024 @@
+{
+  "schema": 1,
+  "purpose": "Pinned supplier inputs and notice supersets, not a coverage approval. Sources are downloaded to the evidence cache, not committed or required for permissive redistribution.",
+  "inputs": [
+    {
+      "path": "qtbase-everywhere-src-6.8.3.tar.xz",
+      "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz",
+      "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "qtbase-everywhere-src-6.8.3/.QT-ENTERPRISE-LICENSE-AGREEMENT",
+        "qtbase-everywhere-src-6.8.3/LICENSES/AFL-2.1.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/Apache-2.0.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/BSD-2-Clause.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/BSD-3-Clause.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/BSD-4-Clause.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/BSL-1.0.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/Bitstream-Vera.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/CC0-1.0.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/FTL.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/GFDL-1.3-no-invariants-only.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/GPL-2.0-only.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/GPL-2.0-or-later.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/GPL-3.0-only.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/HPND.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/IJG.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/IPL-1.0.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/Imlib2.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/LGPL-3.0-only.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/Libpng.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/LicenseRef-BSD-3-Clause-with-PCRE2-Binary-Like-Packages-Exception.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/LicenseRef-ICC-License.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/LicenseRef-Lcs-Telegraphics.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/LicenseRef-Qt-Commercial.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/LicenseRef-SHA1-Public-Domain.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/Linux-syscall-note.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/MIT-Khronos-old.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/MIT-open-group.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/MIT.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/MPL-2.0.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/Qt-GPL-exception-1.0.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/SPL-1.0.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/Unicode-3.0.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/X11.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/Xerox.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/Zlib.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/blessing.txt",
+        "qtbase-everywhere-src-6.8.3/LICENSES/libpng-2.0.txt",
+        "qtbase-everywhere-src-6.8.3/cmake/3rdparty/extra-cmake-modules/COPYING-CMAKE-SCRIPTS",
+        "qtbase-everywhere-src-6.8.3/cmake/3rdparty/extra-cmake-modules/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/cmake/3rdparty/kwin/COPYING-CMAKE-SCRIPTS",
+        "qtbase-everywhere-src-6.8.3/cmake/3rdparty/kwin/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/cmake/QtPublicSbomLicenseHelpers.cmake",
+        "qtbase-everywhere-src-6.8.3/coin/instructions/prepare_license_test.yaml",
+        "qtbase-everywhere-src-6.8.3/coin/instructions/run_license_check.yaml",
+        "qtbase-everywhere-src-6.8.3/examples/widgets/dialogs/licensewizard/licensewizard.cpp",
+        "qtbase-everywhere-src-6.8.3/examples/widgets/dialogs/licensewizard/licensewizard.h",
+        "qtbase-everywhere-src-6.8.3/examples/widgets/dialogs/licensewizard/licensewizard.pro",
+        "qtbase-everywhere-src-6.8.3/examples/widgets/dialogs/licensewizard/licensewizard.qrc",
+        "qtbase-everywhere-src-6.8.3/examples/widgets/doc/src/licensewizard.qdoc",
+        "qtbase-everywhere-src-6.8.3/licenseRule.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/D3D12MemoryAllocator/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/D3D12MemoryAllocator/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/VulkanMemoryAllocator/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/VulkanMemoryAllocator/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/android/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/android/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/blake2/COPYING",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/blake2/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/double-conversion/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/double-conversion/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/easing/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/easing/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/forkfd/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/forkfd/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/BDF-LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/PCF-LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/ZLIB-LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/src/tools/no-copyright",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/src/tools/update-copyright",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/src/tools/update-copyright-year",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/gradle/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/gradle/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/harfbuzz-ng/COPYING",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/harfbuzz-ng/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/iaccessible2/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/iaccessible2/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/icc/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/icc/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/libjpeg/COPYRIGHT.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/libjpeg/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/libjpeg/ijg-license.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/libjpeg/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/libpng/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/libpng/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/libpsl/PSL-LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/libpsl/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/libpsl/src/LICENSE.chromium",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/md4/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/md4c/LICENSE.md",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/md4c/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/md5/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/pcre2/LICENCE-SLJIT",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/pcre2/LICENCE.md",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/pcre2/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/pixman/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/pixman/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/rfc6234/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/rfc6234/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/sha1/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/sha3/BRG_ENDIAN_LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/sha3/CC0_LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/sha3/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/siphash/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/sqlite/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/tinycbor/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/tinycbor/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/wasm/DEJAVU-LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/wasm/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/wintab/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/xcb/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/xcb/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/zlib/LICENSE",
+        "qtbase-everywhere-src-6.8.3/src/3rdparty/zlib/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/corelib/kernel/QEVENTDISPATCHER_CF_LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/corelib/kernel/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/corelib/mimetypes/3rdparty/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/corelib/text/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/dbus/LIBDBUS-1-LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/dbus/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/gui/opengl/KHRONOS_LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/gui/opengl/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/gui/painting/QIMAGETRANSFORM_LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/gui/painting/XCONSORTIUM_LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/gui/painting/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/gui/rhi/MiniEngine_LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/gui/rhi/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/gui/text/AGLFN_LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/gui/text/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/gui/vulkan/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/gui/vulkan/licenseheader.h.in",
+        "qtbase-everywhere-src-6.8.3/src/gui/vulkan/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/plugins/platforms/cocoa/COCOA_LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/plugins/platforms/cocoa/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/testinternal/3rdparty/cmake/Copyright.txt",
+        "qtbase-everywhere-src-6.8.3/src/testinternal/3rdparty/cmake/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/testlib/3rdparty/catch2/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/testlib/3rdparty/catch2/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/testlib/3rdparty/cycle/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/testlib/3rdparty/cycle/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/testlib/3rdparty/linux/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/testlib/3rdparty/linux/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/testlib/3rdparty/valgrind/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/src/testlib/3rdparty/valgrind/qt_attribution.json",
+        "qtbase-everywhere-src-6.8.3/src/tools/moc/util/licenseheader.cpp.in",
+        "qtbase-everywhere-src-6.8.3/tests/auto/corelib/io/qfile/forCopying.txt",
+        "qtbase-everywhere-src-6.8.3/tests/auto/corelib/serialization/qxmlstream/XML-Test-Suite-LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/tests/manual/examples/widgets/tools/settingseditor/inifiles/licensepage.ini",
+        "qtbase-everywhere-src-6.8.3/tests/manual/rhi/shared/imgui/fonts/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/tests/manual/rhi/shared/imgui/imgui/LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/util/gradientgen/WEBGRADIENTS_LICENSE.txt",
+        "qtbase-everywhere-src-6.8.3/util/gradientgen/qt_attribution.json"
+      ]
+    },
+    {
+      "path": "pyside-setup-everywhere-src-6.8.3.tar.xz",
+      "url": "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.3-src/pyside-setup-everywhere-src-6.8.3.tar.xz",
+      "sha256": "d2c896f7f1a6a7ea4c9f98cfe317272fd139703ddf612b86999f09e48aeef0e6",
+      "digest_basis": "computed-from-HTTPS-retrieval",
+      "notice_members": [
+        "pyside-setup-everywhere-src-6.8.3/.QT-ENTERPRISE-LICENSE-AGREEMENT",
+        "pyside-setup-everywhere-src-6.8.3/LICENSES/LicenseRef-Qt-Commercial.txt",
+        "pyside-setup-everywhere-src-6.8.3/examples/datavisualization/graphgallery/data/license.txt",
+        "pyside-setup-everywhere-src-6.8.3/examples/demos/colorpaletteclient/icons/qt_attribution.json",
+        "pyside-setup-everywhere-src-6.8.3/examples/graphs/3d/widgetgraphgallery/data/license.txt",
+        "pyside-setup-everywhere-src-6.8.3/examples/webenginequick/nanobrowser/icons/3rdparty/COPYING",
+        "pyside-setup-everywhere-src-6.8.3/examples/webenginewidgets/markdowneditor/resources/3rdparty/MARKDOWN-LICENSE.txt",
+        "pyside-setup-everywhere-src-6.8.3/examples/webenginewidgets/markdowneditor/resources/3rdparty/MARKED-LICENSE.txt",
+        "pyside-setup-everywhere-src-6.8.3/examples/webenginewidgets/markdowneditor/resources/3rdparty/qt_attribution.json",
+        "pyside-setup-everywhere-src-6.8.3/examples/webenginewidgets/simplebrowser/data/3rdparty/COPYING",
+        "pyside-setup-everywhere-src-6.8.3/examples/webenginewidgets/simplebrowser/data/3rdparty/qt_attribution.json",
+        "pyside-setup-everywhere-src-6.8.3/examples/widgets/dialogs/licensewizard/doc/licensewizard.rst",
+        "pyside-setup-everywhere-src-6.8.3/examples/widgets/dialogs/licensewizard/licensewizard.py",
+        "pyside-setup-everywhere-src-6.8.3/examples/widgets/dialogs/licensewizard/licensewizard.pyproject",
+        "pyside-setup-everywhere-src-6.8.3/sources/pyside6/COPYING",
+        "pyside-setup-everywhere-src-6.8.3/sources/pyside6/PySide6/licensecomment.txt",
+        "pyside-setup-everywhere-src-6.8.3/sources/shiboken6/ApiExtractor/COPYING",
+        "pyside-setup-everywhere-src-6.8.3/sources/shiboken6/COPYING",
+        "pyside-setup-everywhere-src-6.8.3/sources/shiboken6/COPYING.libsample",
+        "pyside-setup-everywhere-src-6.8.3/sources/shiboken6/COPYING.libshiboken",
+        "pyside-setup-everywhere-src-6.8.3/sources/shiboken6/libshiboken/bufferprocs_py37.h",
+        "pyside-setup-everywhere-src-6.8.3/sources/shiboken6/libshiboken/embed/qt_python_license.txt",
+        "pyside-setup-everywhere-src-6.8.3/sources/shiboken6/libshiboken/qt_attribution.json",
+        "pyside-setup-everywhere-src-6.8.3/sources/shiboken6/shibokenmodule/files.dir/shibokensupport/signature/PSF-3.7.0.txt",
+        "pyside-setup-everywhere-src-6.8.3/sources/shiboken6/shibokenmodule/files.dir/shibokensupport/signature/qt_attribution.json",
+        "pyside-setup-everywhere-src-6.8.3/tools/license_check.py"
+      ]
+    },
+    {
+      "path": "Python-3.12.15.tar.xz",
+      "url": "https://www.python.org/ftp/python/3.12.15/Python-3.12.15.tar.xz",
+      "sha256": "c2c4321961fab0fb999d66e0cecf521c2ab3994c7992873ea99e306c1094fd5a",
+      "digest_basis": "computed-from-HTTPS-retrieval",
+      "notice_members": [
+        "Python-3.12.15/Doc/copyright.rst",
+        "Python-3.12.15/Doc/license.rst",
+        "Python-3.12.15/LICENSE",
+        "Python-3.12.15/Mac/BuildScript/resources/License.rtf",
+        "Python-3.12.15/Modules/_blake2/blake2b_impl.c",
+        "Python-3.12.15/Modules/_blake2/blake2module.c",
+        "Python-3.12.15/Modules/_blake2/blake2module.h",
+        "Python-3.12.15/Modules/_blake2/blake2s_impl.c",
+        "Python-3.12.15/Modules/_blake2/clinic/blake2b_impl.c.h",
+        "Python-3.12.15/Modules/_blake2/clinic/blake2s_impl.c.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2-config.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2-impl.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2b-load-sse2.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2b-load-sse41.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2b-ref.c",
+        "Python-3.12.15/Modules/_blake2/impl/blake2b-round.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2b.c",
+        "Python-3.12.15/Modules/_blake2/impl/blake2s-load-sse2.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2s-load-sse41.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2s-load-xop.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2s-ref.c",
+        "Python-3.12.15/Modules/_blake2/impl/blake2s-round.h",
+        "Python-3.12.15/Modules/_blake2/impl/blake2s.c",
+        "Python-3.12.15/Modules/_decimal/libmpdec/basearith.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/bits.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/constants.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/convolute.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/crt.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/difradix2.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/fnt.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/fourstep.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/io.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/mpalloc.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/mpdecimal.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/numbertheory.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/sixstep.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/transpose.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/typearith.h",
+        "Python-3.12.15/Modules/_decimal/libmpdec/umodarith.h",
+        "Python-3.12.15/Modules/_hacl/Hacl_Hash_MD5.c",
+        "Python-3.12.15/Modules/_hacl/Hacl_Hash_MD5.h",
+        "Python-3.12.15/Modules/_hacl/Hacl_Hash_SHA1.c",
+        "Python-3.12.15/Modules/_hacl/Hacl_Hash_SHA1.h",
+        "Python-3.12.15/Modules/_hacl/Hacl_Hash_SHA2.c",
+        "Python-3.12.15/Modules/_hacl/Hacl_Hash_SHA2.h",
+        "Python-3.12.15/Modules/_hacl/Hacl_Hash_SHA3.c",
+        "Python-3.12.15/Modules/_hacl/Hacl_Hash_SHA3.h",
+        "Python-3.12.15/Modules/_hacl/Hacl_Streaming_Types.h",
+        "Python-3.12.15/Modules/_hacl/include/krml/FStar_UInt128_Verified.h",
+        "Python-3.12.15/Modules/_hacl/include/krml/FStar_UInt_8_16_32_64.h",
+        "Python-3.12.15/Modules/_hacl/include/krml/fstar_uint128_struct_endianness.h",
+        "Python-3.12.15/Modules/_hacl/include/krml/internal/target.h",
+        "Python-3.12.15/Modules/_hacl/include/krml/lowstar_endianness.h",
+        "Python-3.12.15/Modules/_hacl/include/krml/types.h",
+        "Python-3.12.15/Modules/_hacl/internal/Hacl_Hash_MD5.h",
+        "Python-3.12.15/Modules/_hacl/internal/Hacl_Hash_SHA1.h",
+        "Python-3.12.15/Modules/_hacl/internal/Hacl_Hash_SHA2.h",
+        "Python-3.12.15/Modules/_hacl/internal/Hacl_Hash_SHA3.h",
+        "Python-3.12.15/Modules/_hacl/python_hacl_namespaces.h",
+        "Python-3.12.15/Modules/expat/COPYING",
+        "Python-3.12.15/PC/crtlicense.txt",
+        "Python-3.12.15/Python/getcopyright.c",
+        "Python-3.12.15/Python/pyhash.c",
+        "Python-3.12.15/Tools/msi/bundle/bootstrap/LICENSE.txt"
+      ]
+    },
+    {
+      "path": "ICU-LICENSE",
+      "url": "https://raw.githubusercontent.com/unicode-org/icu/release-73-2/icu4c/LICENSE",
+      "sha256": "f3005e195ff74d8812cc1f182a1c446fab678d70a10e3dada497585befee5416",
+      "digest_basis": "computed-from-HTTPS-retrieval",
+      "notice_members": [
+        "@file"
+      ]
+    },
+    {
+      "path": "pyinstaller-COPYING",
+      "url": "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.13.0/COPYING.txt",
+      "sha256": "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245",
+      "digest_basis": "computed-from-HTTPS-retrieval",
+      "notice_members": [
+        "@file"
+      ]
+    },
+    {
+      "path": "systemd.dsc",
+      "url": "https://deb.debian.org/debian/pool/main/s/systemd/systemd_257.13-1~deb13u1.dsc",
+      "sha256": "1b3405d671a82d1e20c9d99f52d4336aafe8543b28d04e91b7f1f586d3a667c7",
+      "digest_basis": "computed-from-HTTPS-retrieval",
+      "notice_members": []
+    },
+    {
+      "path": "glib.dsc",
+      "url": "https://deb.debian.org/debian/pool/main/g/glib2.0/glib2.0_2.84.4-3~deb13u5.dsc",
+      "sha256": "2587beb2f5b90511d0c88a7595c1d3b3ea7a5b7e6582713ecae3713864012858",
+      "digest_basis": "computed-from-HTTPS-retrieval",
+      "notice_members": []
+    },
+    {
+      "path": "keyutils.dsc",
+      "url": "https://deb.debian.org/debian/pool/main/k/keyutils/keyutils_1.6.3-6.dsc",
+      "sha256": "e63869474c390d5d5bdee8492f7b2f4d6034ff10d8190da18593620c0f35fbf8",
+      "digest_basis": "computed-from-HTTPS-retrieval",
+      "notice_members": []
+    },
+    {
+      "path": "dbus.dsc",
+      "url": "https://deb.debian.org/debian/pool/main/d/dbus/dbus_1.16.2-2.dsc",
+      "sha256": "4bc35ba286891589d8ed9368da3d81db2a4d387144919850e4ea8e9ae2cf0364",
+      "digest_basis": "computed-from-HTTPS-retrieval",
+      "notice_members": []
+    },
+    {
+      "path": "util-linux.dsc",
+      "url": "https://deb.debian.org/debian/pool/main/u/util-linux/util-linux_2.41.5-0+deb13u1.dsc",
+      "sha256": "43e9b2cbebd10fdc598c4ad10217c8202c28de53af6eafc892c8e9b5cbf3a3a5",
+      "digest_basis": "computed-from-HTTPS-retrieval",
+      "notice_members": []
+    },
+    {
+      "path": "cryptography-44.0.3.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/53/d6/1411ab4d6108ab167d06254c5be517681f1e331f90edf1379895bcb87020/cryptography-44.0.3.tar.gz",
+      "sha256": "fe19d8bc5536a91a24a8133328880a41831b6c5df54599a8417b62fe015d3053",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "cryptography-44.0.3/LICENSE",
+        "cryptography-44.0.3/LICENSE.APACHE",
+        "cryptography-44.0.3/LICENSE.BSD"
+      ]
+    },
+    {
+      "path": "pyinstaller-6.13.0.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/a8/b1/2949fe6d3874e961898ca5cfc1bf2cf13bdeea488b302e74a745bc28c8ba/pyinstaller-6.13.0.tar.gz",
+      "sha256": "38911feec2c5e215e5159a7e66fdb12400168bd116143b54a8a7a37f08733456",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "pyinstaller-6.13.0/COPYING.txt",
+        "pyinstaller-6.13.0/bootloader/waflib/LICENSE",
+        "pyinstaller-6.13.0/bootloader/zlib/LICENSE",
+        "pyinstaller-6.13.0/doc/license.rst",
+        "pyinstaller-6.13.0/scripts/update-copyright"
+      ]
+    },
+    {
+      "path": "cffi-2.1.1.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz",
+      "sha256": "dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "cffi-2.1.1/LICENSE"
+      ]
+    },
+    {
+      "path": "PySide6_Essentials-6.8.3-cp39-abi3-manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/f0/b2/3205336262bf88d57f01503df81ede2a0b1eecbb2a7d58978a5e5625f7c1/PySide6_Essentials-6.8.3-cp39-abi3-manylinux_2_28_x86_64.whl",
+      "sha256": "fd57fa0c886ef99b3844173322c0023ec77cc946a0c9a0cdfbc2ac5c511053c1",
+      "digest_basis": "supplier-published",
+      "notice_members": []
+    },
+    {
+      "path": "systemd_257.13.orig.tar.gz",
+      "url": "https://deb.debian.org/debian/pool/main/s/systemd/systemd_257.13.orig.tar.gz",
+      "sha256": "1eb7d5f9ff8a426ff880a3cded9ce819613ba8003ac5ddde9eca162f14ddabe7",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "systemd-257.13/LICENSE.GPL2",
+        "systemd-257.13/LICENSE.LGPL2.1"
+      ]
+    },
+    {
+      "path": "systemd_257.13-1~deb13u1.debian.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/s/systemd/systemd_257.13-1~deb13u1.debian.tar.xz",
+      "sha256": "9c6e435d613b996efcdb3b7dd9a4cebaa745333a3f64dc722f3fad646f1fdc1a",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "debian/copyright",
+        "debian/signing-template/copyright"
+      ]
+    },
+    {
+      "path": "glib2.0_2.84.4.orig-unicode-data.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/g/glib2.0/glib2.0_2.84.4.orig-unicode-data.tar.xz",
+      "sha256": "c1742461e8c0e9673a3453a3127671169de9cb0138493e5c916f1b989530efcd",
+      "digest_basis": "supplier-published",
+      "notice_members": []
+    },
+    {
+      "path": "glib2.0_2.84.4.orig.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/g/glib2.0/glib2.0_2.84.4.orig.tar.xz",
+      "sha256": "8a9ea10943c36fc117e253f80c91e477b673525ae45762942858aef57631bb90",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "glib-2.84.4/LICENSES/LicenseRef-old-glib-tests.txt",
+        "glib-2.84.4/docs/reference/COPYING",
+        "glib-2.84.4/subprojects/gvdb/COPYING"
+      ]
+    },
+    {
+      "path": "glib2.0_2.84.4-3~deb13u5.debian.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/g/glib2.0/glib2.0_2.84.4-3~deb13u5.debian.tar.xz",
+      "sha256": "d8e3603c3780d2cc883d762cf81db9199d8c4c492a82a1a791c117a6d402dbeb",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "debian/copyright"
+      ]
+    },
+    {
+      "path": "keyutils_1.6.3.orig.tar.gz",
+      "url": "https://deb.debian.org/debian/pool/main/k/keyutils/keyutils_1.6.3.orig.tar.gz",
+      "sha256": "a61d5706136ae4c05bd48f86186bcfdbd88dd8bd5107e3e195c924cfc1b39bb4",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "keyutils-1.6.3/LICENCE.GPL",
+        "keyutils-1.6.3/LICENCE.LGPL"
+      ]
+    },
+    {
+      "path": "keyutils_1.6.3-6.debian.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/k/keyutils/keyutils_1.6.3-6.debian.tar.xz",
+      "sha256": "6fc3c1217b8e92df9dff73e4919c45dff4ada5fd414ab57329af487f4476466a",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "debian/copyright"
+      ]
+    },
+    {
+      "path": "dbus_1.16.2.orig.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/d/dbus/dbus_1.16.2.orig.tar.xz",
+      "sha256": "0ba2a1a4b16afe7bceb2c07e9ce99a8c2c3508e5dec290dbb643384bd6beb7e2",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "dbus-1.16.2/COPYING",
+        "dbus-1.16.2/LICENSES/LicenseRef-CMakeScripts.txt",
+        "dbus-1.16.2/LICENSES/LicenseRef-GAP.txt",
+        "dbus-1.16.2/LICENSES/LicenseRef-pycrypto-orig.txt",
+        "dbus-1.16.2/test/data/invalid-messages/boolean-has-no-value.message-raw.license",
+        "dbus-1.16.2/test/data/invalid-messages/fixed-array-not-divisible.message-raw.license",
+        "dbus-1.16.2/test/data/invalid-messages/issue418.message-raw.license",
+        "dbus-1.16.2/test/data/invalid-messages/mis-nested-sig.message-raw.license",
+        "dbus-1.16.2/test/data/invalid-messages/truncated-variant-sig.message-raw.license",
+        "dbus-1.16.2/test/data/invalid-messages/zero-length-variant-sig.message-raw.license",
+        "dbus-1.16.2/test/data/valid-messages/byteswap-fd-index.message-raw.license",
+        "dbus-1.16.2/test/data/valid-messages/minimal.message-raw.license"
+      ]
+    },
+    {
+      "path": "dbus_1.16.2.orig.tar.xz.asc",
+      "url": "https://deb.debian.org/debian/pool/main/d/dbus/dbus_1.16.2.orig.tar.xz.asc",
+      "sha256": "108723e6bb2b0655abcb8ec7b06d27918bd7ac215f835ba086b45f9780cb529b",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "@file"
+      ]
+    },
+    {
+      "path": "dbus_1.16.2-2.debian.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/d/dbus/dbus_1.16.2-2.debian.tar.xz",
+      "sha256": "f774fe3bd1ac24265e17c70999bfa26a92a15f2fb72e1fb8c64fa5d436fb9119",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "debian/copyright"
+      ]
+    },
+    {
+      "path": "util-linux_2.41.5.orig.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/u/util-linux/util-linux_2.41.5.orig.tar.xz",
+      "sha256": "f586e35d320ff537aab3ffeca37e9ecd482ccbe013590db4429a414d8aa6a728",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "util-linux-2.41.5/COPYING",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.BSD-2-Clause",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.BSD-3-Clause",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.BSD-4-Clause-UC",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.EUPL-1.2",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.GPL-2.0-only",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.GPL-2.0-or-later",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.GPL-3.0-or-later",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.ISC",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.LGPL-2.1-or-later",
+        "util-linux-2.41.5/Documentation/licenses/COPYING.MIT",
+        "util-linux-2.41.5/libblkid/COPYING",
+        "util-linux-2.41.5/libfdisk/COPYING",
+        "util-linux-2.41.5/liblastlog2/COPYING",
+        "util-linux-2.41.5/libmount/COPYING",
+        "util-linux-2.41.5/libsmartcols/COPYING",
+        "util-linux-2.41.5/libuuid/COPYING",
+        "util-linux-2.41.5/pam_lastlog2/COPYING"
+      ]
+    },
+    {
+      "path": "util-linux_2.41.5-0+deb13u1.debian.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/u/util-linux/util-linux_2.41.5-0+deb13u1.debian.tar.xz",
+      "sha256": "5b327ccd22f0f4ed28a389870aa51d04ecedb8693e52a1d122850f2b3188cbf6",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "debian/copyright"
+      ]
+    },
+    {
+      "path": "asn1-0.20.0.crate",
+      "url": "https://static.crates.io/crates/asn1/asn1-0.20.0.crate",
+      "sha256": "2d8b84b4ea1de2bf1dcd2a759737ddb328fb6695b2a95eb7e44fed67e3406f32",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "asn1-0.20.0/LICENSE"
+      ]
+    },
+    {
+      "path": "asn1_derive-0.20.0.crate",
+      "url": "https://static.crates.io/crates/asn1_derive/asn1_derive-0.20.0.crate",
+      "sha256": "a200809d0138620b3dba989f1d08d0620e76248bc1e62a2ec1b2df5eb1ee08ad",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "asn1_derive-0.20.0/LICENSE"
+      ]
+    },
+    {
+      "path": "autocfg-1.4.0.crate",
+      "url": "https://static.crates.io/crates/autocfg/autocfg-1.4.0.crate",
+      "sha256": "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "autocfg-1.4.0/LICENSE-APACHE",
+        "autocfg-1.4.0/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "base64-0.22.1.crate",
+      "url": "https://static.crates.io/crates/base64/base64-0.22.1.crate",
+      "sha256": "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "base64-0.22.1/LICENSE-APACHE",
+        "base64-0.22.1/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "bitflags-2.6.0.crate",
+      "url": "https://static.crates.io/crates/bitflags/bitflags-2.6.0.crate",
+      "sha256": "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "bitflags-2.6.0/LICENSE-APACHE",
+        "bitflags-2.6.0/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "cc-1.2.1.crate",
+      "url": "https://static.crates.io/crates/cc/cc-1.2.1.crate",
+      "sha256": "fd9de9f2205d5ef3fd67e685b0df337994ddd4495e2a28d185500d0e1edfea47",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "cc-1.2.1/LICENSE-APACHE",
+        "cc-1.2.1/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "cfg-if-1.0.0.crate",
+      "url": "https://static.crates.io/crates/cfg-if/cfg-if-1.0.0.crate",
+      "sha256": "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "cfg-if-1.0.0/LICENSE-APACHE",
+        "cfg-if-1.0.0/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "foreign-types-0.3.2.crate",
+      "url": "https://static.crates.io/crates/foreign-types/foreign-types-0.3.2.crate",
+      "sha256": "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "foreign-types-0.3.2/LICENSE-APACHE",
+        "foreign-types-0.3.2/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "foreign-types-shared-0.1.1.crate",
+      "url": "https://static.crates.io/crates/foreign-types-shared/foreign-types-shared-0.1.1.crate",
+      "sha256": "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "foreign-types-shared-0.1.1/LICENSE-APACHE",
+        "foreign-types-shared-0.1.1/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "heck-0.5.0.crate",
+      "url": "https://static.crates.io/crates/heck/heck-0.5.0.crate",
+      "sha256": "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "heck-0.5.0/LICENSE-APACHE",
+        "heck-0.5.0/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "indoc-2.0.5.crate",
+      "url": "https://static.crates.io/crates/indoc/indoc-2.0.5.crate",
+      "sha256": "b248f5224d1d606005e02c97f5aa4e88eeb230488bcc03bc9ca4d7991399f2b5",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "indoc-2.0.5/LICENSE-APACHE",
+        "indoc-2.0.5/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "itoa-1.0.14.crate",
+      "url": "https://static.crates.io/crates/itoa/itoa-1.0.14.crate",
+      "sha256": "d75a2a4b1b190afb6f5425f10f6a8f959d2ea0b9c2b1d79553551850539e4674",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "itoa-1.0.14/LICENSE-APACHE",
+        "itoa-1.0.14/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "libc-0.2.166.crate",
+      "url": "https://static.crates.io/crates/libc/libc-0.2.166.crate",
+      "sha256": "c2ccc108bbc0b1331bd061864e7cd823c0cab660bbe6970e66e2c0614decde36",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "libc-0.2.166/LICENSE-APACHE",
+        "libc-0.2.166/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "memoffset-0.9.1.crate",
+      "url": "https://static.crates.io/crates/memoffset/memoffset-0.9.1.crate",
+      "sha256": "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "memoffset-0.9.1/LICENSE"
+      ]
+    },
+    {
+      "path": "once_cell-1.20.2.crate",
+      "url": "https://static.crates.io/crates/once_cell/once_cell-1.20.2.crate",
+      "sha256": "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "once_cell-1.20.2/LICENSE-APACHE",
+        "once_cell-1.20.2/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "openssl-0.10.68.crate",
+      "url": "https://static.crates.io/crates/openssl/openssl-0.10.68.crate",
+      "sha256": "6174bc48f102d208783c2c84bf931bb75927a617866870de8a4ea85597f871f5",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "openssl-0.10.68/LICENSE"
+      ]
+    },
+    {
+      "path": "openssl-macros-0.1.1.crate",
+      "url": "https://static.crates.io/crates/openssl-macros/openssl-macros-0.1.1.crate",
+      "sha256": "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "openssl-macros-0.1.1/LICENSE-APACHE",
+        "openssl-macros-0.1.1/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "openssl-sys-0.9.108.crate",
+      "url": "https://static.crates.io/crates/openssl-sys/openssl-sys-0.9.108.crate",
+      "sha256": "e145e1651e858e820e4860f7b9c5e169bc1d8ce1c86043be79fa7b7634821847",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "openssl-sys-0.9.108/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "pem-3.0.4.crate",
+      "url": "https://static.crates.io/crates/pem/pem-3.0.4.crate",
+      "sha256": "8e459365e590736a54c3fa561947c84837534b8e9af6fc5bf781307e82658fae",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "pem-3.0.4/LICENSE.md"
+      ]
+    },
+    {
+      "path": "pkg-config-0.3.31.crate",
+      "url": "https://static.crates.io/crates/pkg-config/pkg-config-0.3.31.crate",
+      "sha256": "953ec861398dccce10c670dfeaf3ec4911ca479e9c02154b3a215178c5f566f2",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "pkg-config-0.3.31/LICENSE-APACHE",
+        "pkg-config-0.3.31/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "portable-atomic-1.10.0.crate",
+      "url": "https://static.crates.io/crates/portable-atomic/portable-atomic-1.10.0.crate",
+      "sha256": "280dc24453071f1b63954171985a0b0d30058d287960968b9b2aca264c8d4ee6",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "portable-atomic-1.10.0/LICENSE-APACHE",
+        "portable-atomic-1.10.0/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "proc-macro2-1.0.92.crate",
+      "url": "https://static.crates.io/crates/proc-macro2/proc-macro2-1.0.92.crate",
+      "sha256": "37d3544b3f2748c54e147655edb5025752e2303145b5aefb3c3ea2c78b973bb0",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "proc-macro2-1.0.92/LICENSE-APACHE",
+        "proc-macro2-1.0.92/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "pyo3-0.23.5.crate",
+      "url": "https://static.crates.io/crates/pyo3/pyo3-0.23.5.crate",
+      "sha256": "7778bffd85cf38175ac1f545509665d0b9b92a198ca7941f131f85f7a4f9a872",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "pyo3-0.23.5/LICENSE-APACHE",
+        "pyo3-0.23.5/LICENSE-MIT",
+        "pyo3-0.23.5/pyo3-runtime/LICENSE-APACHE",
+        "pyo3-0.23.5/pyo3-runtime/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "pyo3-build-config-0.23.5.crate",
+      "url": "https://static.crates.io/crates/pyo3-build-config/pyo3-build-config-0.23.5.crate",
+      "sha256": "94f6cbe86ef3bf18998d9df6e0f3fc1050a8c5efa409bf712e661a4366e010fb",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "pyo3-build-config-0.23.5/LICENSE-APACHE",
+        "pyo3-build-config-0.23.5/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "pyo3-ffi-0.23.5.crate",
+      "url": "https://static.crates.io/crates/pyo3-ffi/pyo3-ffi-0.23.5.crate",
+      "sha256": "e9f1b4c431c0bb1c8fb0a338709859eed0d030ff6daa34368d3b152a63dfdd8d",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "pyo3-ffi-0.23.5/LICENSE-APACHE",
+        "pyo3-ffi-0.23.5/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "pyo3-macros-0.23.5.crate",
+      "url": "https://static.crates.io/crates/pyo3-macros/pyo3-macros-0.23.5.crate",
+      "sha256": "fbc2201328f63c4710f68abdf653c89d8dbc2858b88c5d88b0ff38a75288a9da",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "pyo3-macros-0.23.5/LICENSE-APACHE",
+        "pyo3-macros-0.23.5/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "pyo3-macros-backend-0.23.5.crate",
+      "url": "https://static.crates.io/crates/pyo3-macros-backend/pyo3-macros-backend-0.23.5.crate",
+      "sha256": "fca6726ad0f3da9c9de093d6f116a93c1a38e417ed73bf138472cf4064f72028",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "pyo3-macros-backend-0.23.5/LICENSE-APACHE",
+        "pyo3-macros-backend-0.23.5/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "quote-1.0.37.crate",
+      "url": "https://static.crates.io/crates/quote/quote-1.0.37.crate",
+      "sha256": "b5b9d34b8991d19d98081b46eacdd8eb58c6f2b201139f7c5f643cc155a633af",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "quote-1.0.37/LICENSE-APACHE",
+        "quote-1.0.37/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "self_cell-1.0.4.crate",
+      "url": "https://static.crates.io/crates/self_cell/self_cell-1.0.4.crate",
+      "sha256": "d369a96f978623eb3dc28807c4852d6cc617fed53da5d3c400feff1ef34a714a",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "self_cell-1.0.4/LICENSE"
+      ]
+    },
+    {
+      "path": "shlex-1.3.0.crate",
+      "url": "https://static.crates.io/crates/shlex/shlex-1.3.0.crate",
+      "sha256": "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "shlex-1.3.0/LICENSE-APACHE",
+        "shlex-1.3.0/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "syn-2.0.89.crate",
+      "url": "https://static.crates.io/crates/syn/syn-2.0.89.crate",
+      "sha256": "44d46482f1c1c87acd84dea20c1bf5ebff4c757009ed6bf19cfd36fb10e92c4e",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "syn-2.0.89/LICENSE-APACHE",
+        "syn-2.0.89/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "target-lexicon-0.12.16.crate",
+      "url": "https://static.crates.io/crates/target-lexicon/target-lexicon-0.12.16.crate",
+      "sha256": "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "target-lexicon-0.12.16/LICENSE"
+      ]
+    },
+    {
+      "path": "unicode-ident-1.0.14.crate",
+      "url": "https://static.crates.io/crates/unicode-ident/unicode-ident-1.0.14.crate",
+      "sha256": "adb9e6ca4f869e1180728b7950e35922a7fc6397f7b641499e8f3ef06e50dc83",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "unicode-ident-1.0.14/LICENSE-APACHE",
+        "unicode-ident-1.0.14/LICENSE-MIT",
+        "unicode-ident-1.0.14/LICENSE-UNICODE"
+      ]
+    },
+    {
+      "path": "unindent-0.2.3.crate",
+      "url": "https://static.crates.io/crates/unindent/unindent-0.2.3.crate",
+      "sha256": "c7de7d73e1754487cb58364ee906a499937a0dfabd86bcb980fa99ec8c8fa2ce",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "unindent-0.2.3/LICENSE-APACHE",
+        "unindent-0.2.3/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "vcpkg-0.2.15.crate",
+      "url": "https://static.crates.io/crates/vcpkg/vcpkg-0.2.15.crate",
+      "sha256": "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "vcpkg-0.2.15/LICENSE-APACHE",
+        "vcpkg-0.2.15/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "cryptography-44.0.3-cp39-abi3-manylinux_2_34_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/35/6e/dca39d553075980ccb631955c47b93d87d27f3596da8d48b1ae81463d915/cryptography-44.0.3-cp39-abi3-manylinux_2_34_x86_64.whl",
+      "sha256": "3bb0847e6363c037df8f6ede57d88eaf3410ca2267fb12275370a76f85786a6f",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "cryptography-44.0.3.dist-info/licenses/LICENSE",
+        "cryptography-44.0.3.dist-info/licenses/LICENSE.APACHE",
+        "cryptography-44.0.3.dist-info/licenses/LICENSE.BSD"
+      ]
+    },
+    {
+      "path": "cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/b1/db/dceb9dd5b231e1da801793f8acc9f3c52a7e1afe40bb1aae37e02b0faad5/cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "sha256": "c1453022f490d2459a11819d83ad1d586e9ff65a12ac3e705ffebd46d3685dcf",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "cffi-2.1.1.dist-info/licenses/LICENSE"
+      ]
+    },
+    {
+      "path": "pyinstaller-6.13.0-py3-none-manylinux2014_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/84/5b/08e0b305ba71e6d7cb247e27d714da7536895b0283132d74d249bf662366/pyinstaller-6.13.0-py3-none-manylinux2014_x86_64.whl",
+      "sha256": "bc09795f5954135dd4486c1535650958c8218acb954f43860e4b05fb515a21c0",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "pyinstaller-6.13.0.dist-info/COPYING.txt"
+      ]
+    },
+    {
+      "path": "shiboken6-6.8.3-cp39-abi3-manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/76/a1/f1958c9d00176044ab00464cd89b6969ef3a7d2ed12d316ff1eda3dec88f/shiboken6-6.8.3-cp39-abi3-manylinux_2_28_x86_64.whl",
+      "sha256": "295a003466ca2cccf6660e2f2ceb5e6cef4af192a48a196a32d46b6f0c9ec5cb",
+      "digest_basis": "supplier-published",
+      "notice_members": []
+    },
+    {
+      "path": "OpenSSL-3.4.1-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.4.1/LICENSE.txt",
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "notice_members": [
+        "@file"
+      ]
+    },
+    {
+      "path": "gcc-14_14.2.0.orig.tar.gz",
+      "url": "https://deb.debian.org/debian/pool/main/g/gcc-14/gcc-14_14.2.0.orig.tar.gz",
+      "sha256": "e162a5ef3f0077ecae598c6556908d2ab80841532df3398072a96a6df6e6aa29",
+      "digest_basis": "supplier-published",
+      "notice_members": []
+    },
+    {
+      "path": "gcc-14_14.2.0-19.debian.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/g/gcc-14/gcc-14_14.2.0-19.debian.tar.xz",
+      "sha256": "31cbab4bafa48aa1c540497bd8098cbcf98e673778f927651ed944709f687781",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "debian/copyright"
+      ]
+    },
+    {
+      "path": "gcc-14.dsc",
+      "url": "https://deb.debian.org/debian/pool/main/g/gcc-14/gcc-14_14.2.0-19.dsc",
+      "sha256": "7db1e202cce66617e9134a662c877a3a773de5b612fd52179815877e0ecfb847",
+      "digest_basis": "HTTPS retrieval SHA-256",
+      "notice_members": []
+    },
+    {
+      "path": "gcc-14.2.0-dfsg.tar.xz",
+      "sha256": "8a4a42c41cabb37b61de3a5ef3ef62b4e10b79decfb504705b5cefa092da765f",
+      "url": "https://deb.debian.org/debian/pool/main/g/gcc-14/gcc-14_14.2.0.orig.tar.gz",
+      "container": "gcc-14_14.2.0.orig.tar.gz",
+      "archive_member": "gcc-14-14.2.0/gcc-14.2.0-dfsg.tar.xz",
+      "digest_basis": "member of SHA-256-verified Debian orig archive",
+      "notice_members": [
+        "gcc-14.2.0/COPYING3",
+        "gcc-14.2.0/libstdc++-v3/include/pstl/LICENSE.txt",
+        "gcc-14.2.0/COPYING.RUNTIME"
+      ]
+    },
+    {
+      "path": "rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz",
+      "url": "https://static.rust-lang.org/dist/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "4438b809ce4a083af31ed17aeeedcc8fc60ccffc0625bef1926620751b6989d7",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "rustc-1.86.0-x86_64-unknown-linux-gnu/LICENSE-APACHE",
+        "rustc-1.86.0-x86_64-unknown-linux-gnu/COPYRIGHT",
+        "rustc-1.86.0-x86_64-unknown-linux-gnu/LICENSE-MIT",
+        "rustc-1.86.0-x86_64-unknown-linux-gnu/rustc/share/doc/rust/COPYRIGHT-library.html",
+        "rustc-1.86.0-x86_64-unknown-linux-gnu/rustc/share/doc/rust/COPYRIGHT.html"
+      ]
+    },
+    {
+      "path": "cffi-2.1.1-ci.yaml",
+      "url": "https://raw.githubusercontent.com/python-cffi/cffi/v2.1.1/.github/workflows/ci.yaml",
+      "sha256": "b1910ddbfc69d2fbe41f1493cb564658d0970522bfeb5e6fe93d3288c802736c",
+      "digest_basis": "HTTPS retrieval SHA-256",
+      "notice_members": [
+        "@file"
+      ]
+    },
+    {
+      "path": "libffi-3.4.6-LICENSE",
+      "url": "https://raw.githubusercontent.com/libffi/libffi/v3.4.6/LICENSE",
+      "sha256": "67894089811f93fca47a76f85e017da6f8582d4ba0905963c6e0f1ad6df7a195",
+      "digest_basis": "HTTPS retrieval SHA-256",
+      "notice_members": [
+        "@file"
+      ]
+    },
+    {
+      "path": "rust-1.86.0-library-std-Cargo.toml",
+      "url": "https://raw.githubusercontent.com/rust-lang/rust/05f9846f893b09a1be1fc8560e33fc3c815cfecb/library/std/Cargo.toml",
+      "sha256": "bc0fbb4fadf62659f21126fa4977a050c836a8925a2f8d7cf7ad0782637ab7db",
+      "digest_basis": "HTTPS retrieval SHA-256",
+      "notice_members": [
+        "@file"
+      ]
+    },
+    {
+      "path": "rust-1.86.0-library-Cargo.lock",
+      "url": "https://raw.githubusercontent.com/rust-lang/rust/05f9846f893b09a1be1fc8560e33fc3c815cfecb/library/Cargo.lock",
+      "sha256": "e8c3068d4ae2c6340a74545d48c1517533bea4f3b37bf2c56fc2e601a44b080f",
+      "digest_basis": "HTTPS retrieval SHA-256",
+      "notice_members": [
+        "@file"
+      ]
+    },
+    {
+      "path": "addr2line-0.24.2.crate",
+      "url": "https://static.crates.io/crates/addr2line/addr2line-0.24.2.crate",
+      "sha256": "dfbe277e56a376000877090da837660b4427aad530e3028d44e0bffe4f89a1c1",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "addr2line-0.24.2/LICENSE-APACHE",
+        "addr2line-0.24.2/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "adler2-2.0.0.crate",
+      "url": "https://static.crates.io/crates/adler2/adler2-2.0.0.crate",
+      "sha256": "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "adler2-2.0.0/LICENSE-0BSD",
+        "adler2-2.0.0/LICENSE-APACHE",
+        "adler2-2.0.0/LICENSE-MIT"
+      ]
+    },
+    {
+      "path": "miniz_oxide-0.8.3.crate",
+      "url": "https://static.crates.io/crates/miniz_oxide/miniz_oxide-0.8.3.crate",
+      "sha256": "b8402cab7aefae129c6977bb0ff1b8fd9a04eb5b51efc50a70bea51cda0c7924",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "miniz_oxide-0.8.3/LICENSE",
+        "miniz_oxide-0.8.3/LICENSE-APACHE.md",
+        "miniz_oxide-0.8.3/LICENSE-MIT.md",
+        "miniz_oxide-0.8.3/LICENSE-ZLIB.md"
+      ]
+    },
+    {
+      "path": "object-0.36.7.crate",
+      "url": "https://static.crates.io/crates/object/object-0.36.7.crate",
+      "sha256": "62948e14d923ea95ea2c7c86c71013138b66525b86bdc08d2dcc262bdb497b87",
+      "digest_basis": "supplier-published",
+      "notice_members": [
+        "object-0.36.7/LICENSE-APACHE",
+        "object-0.36.7/LICENSE-MIT"
+      ]
+    }
+  ]
+}

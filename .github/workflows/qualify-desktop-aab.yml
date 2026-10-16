@@ -1,0 +1,122 @@
+name: Qualify desktop builder native AABs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feat/**']
+    paths:
+      - 'desktop-builder/**'
+      - '.github/workflows/qualify-desktop-aab.yml'
+  pull_request:
+    paths:
+      - 'desktop-builder/**'
+      - '.github/workflows/qualify-desktop-aab.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualify-desktop-aab-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  # An immutable feature HEAD, not the PR merge ref or a moving branch name.
+  # Manual dispatch qualifies the exact commit selected by that dispatch.
+  BUILDER_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  native-aab:
+    name: Real first and update AAB (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    # Two real source builds plus fresh multi-GB managed-tool downloads per host.
+    # This is deliberately expensive, independent of the frozen-UI smoke job.
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            python-arch: x64
+          - name: windows-x86_64
+            os: windows-2022
+            python-arch: x64
+          - name: macos-x86_64
+            os: macos-15-intel
+            python-arch: x64
+          - name: macos-arm64
+            os: macos-15
+            python-arch: arm64
+    defaults:
+      run:
+        working-directory: desktop-builder
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.python-arch }}
+      - name: Assert exact checked-out feature commit
+        run: >-
+          python -c "import os,subprocess; actual=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(); assert actual == os.environ['BUILDER_COMMIT'], 'Checkout commit mismatch'"
+      - name: Install pinned Python test and builder dependencies only
+        run: python -m pip install -r requirements-dev.txt
+      - name: Unit tests (fixtures are not native qualification)
+        run: python -m pytest tests/test_qualification.py tests/test_engine.py tests/test_toolchain.py -q
+      # Do NOT set up JDK/SDK/NDK/Gradle or restore a workspace/tool cache.
+      # Builder -> real Toolchain owns all Android tools, downloads, and env.
+      # Native Apple Silicon SDK binaries may require pre-existing Rosetta.
+      # No Rosetta auto-install, x64 Python fallback, skip, or masked failure:
+      # absence/incompatibility is a failed native qualification, not a pass.
+      - name: Real managed first build and same-identity update
+        id: qualify
+        timeout-minutes: 155
+        run: >-
+          python qualification.py
+          --workspace "${{ runner.temp }}/oal-aab-managed"
+          --output "${{ runner.temp }}/oal-aab-export"
+          --expected-platform "${{ matrix.name }}"
+          --builder-commit "$BUILDER_COMMIT"
+          --accept-ci-android-licenses
+          --timeout-seconds 9000
+      # Consent above is explicit and CI-only; it changes no desktop UI default.
+      # The timer cooperatively cancels Gradle/downloads; the step/job hard caps
+      # remain authoritative for stuck extraction/network/native tools. A hard
+      # kill may leave status=running or no report: neither is native proof.
+      - name: Upload sanitized result only (including failure if produced)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-aab-result-${{ matrix.name }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/oal-aab-export/result.json
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 7
+      - name: Upload disposable AAB pair only after full qualification
+        if: success() && steps.qualify.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-aab-disposable-${{ matrix.name }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/oal-aab-export/first.aab
+            ${{ runner.temp }}/oal-aab-export/update.aab
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 0
+          retention-days: 7
+# Upload paths are individual allowlisted files, never directories/globs.
+# No identity, keystore, password, workspace, raw logs, source cache, or CarPlay
+# authentication files leave the ephemeral runner. AAB signer certificates are
+# public; each job's disposable private signing identity dies with its runner.
+# Gate proves native source-engine builds, NOT frozen-app invocation, notarization,
+# real-car behavior, Play acceptance, or end-user identity continuity. Do not
+# publish these randomly identified AABs. All four jobs must pass for qualification.
+# Latest-source drift from the reviewed v0.1.526 commit fails closed; no test fixture
+# or alternate/preinstalled toolchain can be selected from this workflow/CLI.

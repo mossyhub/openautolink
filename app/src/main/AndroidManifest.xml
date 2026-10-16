@@ -108,7 +108,7 @@
             android:name="androidx.car.app.activity.CarAppActivity"
             android:exported="false"
             android:launchMode="singleTask"
-            android:taskAffinity="com.openautolink.app.templates"
+            android:taskAffinity="${applicationId}.templates"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.OpenAutoLink.InvisibleActivity">
             <meta-data

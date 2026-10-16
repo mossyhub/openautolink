@@ -1,0 +1,261 @@
+name: Desktop builder
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feat/**']
+    paths:
+      - 'desktop-builder/**'
+      - '.github/workflows/build-desktop-builder.yml'
+      - 'LICENSE'
+      - 'THIRD_PARTY_LICENSES.md'
+      - 'docs/install-gm.md'
+  pull_request:
+    paths:
+      - 'desktop-builder/**'
+      - '.github/workflows/build-desktop-builder.yml'
+      - 'LICENSE'
+      - 'THIRD_PARTY_LICENSES.md'
+      - 'docs/install-gm.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-builder-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  # These are offline Qt smoke gates, not interactive desktop or AAB qualification.
+  QT_QPA_PLATFORM: offscreen
+
+jobs:
+  native-package:
+    name: Native package and frozen smoke (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            python-arch: x64
+            payload: OpenAutoLink-Builder
+          - name: windows-x86_64
+            os: windows-2022
+            python-arch: x64
+            payload: OpenAutoLink-Builder.exe
+          - name: macos-arm64
+            os: macos-15
+            python-arch: arm64
+            payload: OpenAutoLink-Builder-macos-arm64.runtime.tar.gz
+          - name: macos-x86_64
+            os: macos-15-intel
+            python-arch: x64
+            payload: OpenAutoLink-Builder-macos-x86_64.runtime.tar.gz
+    defaults:
+      run:
+        working-directory: desktop-builder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.python-arch }}
+          cache: pip
+          cache-dependency-path: desktop-builder/requirements*.txt
+      - name: Linux Qt system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils xvfb xauth libegl1 libgl1 libopengl0 libxkbcommon0 libdbus-1-3 libfontconfig1 libxcb-cursor0 libxcb-xinerama0 libxkbcommon-x11-0 libxcb-keysyms1 libxcb-icccm4 libxcb-image0 libxcb-render-util0 libxcb-xkb1 libxcb-glx0 libxcb-randr0 libxcb-shape0 libxcb-sync1 libxcb-render0 libxcb-shm0 libxcb-xfixes0 fonts-dejavu-core
+      - name: Install pinned builder dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Unit and offscreen UI tests (no Android builds)
+        run: python -m pytest tests -q
+      - name: Smoke source entry point
+        run: python -m oal_builder --smoke-test
+      - name: Freeze, check embedded source and licenses, smoke actual native runtime
+        run: python packaging/build.py --output dist
+      - name: Native Linux XCB startup under Xvfb (not offscreen)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: xcb
+        run: xvfb-run -a python packaging/build.py --smoke-linux-xcb dist
+      # Internal transport, never offered as the end-user Mac download. Tar preserves
+      # executable permissions and framework symlinks; aggregation uses safe extraction.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: INTERNAL-native-${{ matrix.name }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          path: |
+            desktop-builder/dist/${{ matrix.payload }}
+            desktop-builder/dist/OpenAutoLink-Builder-${{ matrix.name }}.json
+            desktop-builder/dist/smoke-${{ matrix.name }}.png
+            desktop-builder/dist/smoke-linux-xcb.png
+
+  combine-mac:
+    name: Assemble one dual-runtime Mac DMG
+    needs: native-package
+    runs-on: macos-15
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop-builder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: INTERNAL-native-macos-arm64
+          path: desktop-builder/incoming/arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: INTERNAL-native-macos-x86_64
+          path: desktop-builder/incoming/x86_64
+      - name: Check hashes and identical source, safely unpack, create and verify DMG
+        run: python packaging/build.py --combine-mac incoming --output combined
+      - uses: actions/upload-artifact@v4
+        with:
+          name: INTERNAL-macos-candidate
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          path: |
+            desktop-builder/combined/OpenAutoLink-Builder.dmg
+            desktop-builder/combined/OpenAutoLink-Builder-macos.json
+
+  smoke-final-mac:
+    name: Final DMG native smoke (${{ matrix.arch }})
+    needs: combine-mac
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            os: macos-15
+            python-arch: arm64
+          - arch: x86_64
+            os: macos-15-intel
+            python-arch: x64
+    defaults:
+      run:
+        working-directory: desktop-builder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.python-arch }}
+      # Deliberately NO pip install: the final app must contain its own runtime.
+      - uses: actions/download-artifact@v4
+        with:
+          name: INTERNAL-macos-candidate
+          path: desktop-builder/combined
+      - name: Mount exact final DMG, launch outer selector, verify child architecture and UI
+        run: python packaging/build.py --smoke-mac combined --expected-arch ${{ matrix.arch }} --output evidence
+      - uses: actions/upload-artifact@v4
+        with:
+          name: INTERNAL-macos-smoke-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            desktop-builder/evidence/smoke-macos-${{ matrix.arch }}.json
+            desktop-builder/evidence/smoke-macos-${{ matrix.arch }}.png
+
+  qualified-downloads:
+    name: Gate the three end-user downloads
+    needs: [native-package, smoke-final-mac]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: desktop-builder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: INTERNAL-native-windows-x86_64
+          path: desktop-builder/downloads/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: INTERNAL-native-linux-x86_64
+          path: desktop-builder/downloads/linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: INTERNAL-macos-candidate
+          path: desktop-builder/downloads/macos
+      - uses: actions/download-artifact@v4
+        with:
+          name: INTERNAL-macos-smoke-arm64
+          path: desktop-builder/evidence/arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: INTERNAL-macos-smoke-x86_64
+          path: desktop-builder/evidence/x86_64
+      - name: Require both native reports for these exact DMG bytes
+        run: python packaging/build.py --qualify-mac downloads/macos --evidence evidence
+      - name: Recheck direct executable manifests after artifact transport
+        run: |
+          python -c "import sys; sys.path.insert(0, 'packaging'); from build import read_manifest; from pathlib import Path; read_manifest(Path('downloads/windows/OpenAutoLink-Builder-windows-x86_64.json')); assert read_manifest(Path('downloads/linux/OpenAutoLink-Builder-linux-x86_64.json'))['nativePlatformSmoke'] == 'xcb-display-passed'"
+      # GitHub Actions transports artifacts as ZIPs; each named download below
+      # contains exactly ONE install/run file. No installer ZIP/tar is built by us.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenAutoLink-Builder-Windows
+          path: desktop-builder/downloads/windows/OpenAutoLink-Builder.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenAutoLink-Builder-Linux
+          path: desktop-builder/downloads/linux/OpenAutoLink-Builder
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenAutoLink-Builder-Mac
+          path: desktop-builder/downloads/macos/OpenAutoLink-Builder.dmg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenAutoLink-Builder-Verification
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            desktop-builder/downloads/windows/OpenAutoLink-Builder-windows-x86_64.json
+            desktop-builder/downloads/windows/smoke-windows-x86_64.png
+            desktop-builder/downloads/linux/OpenAutoLink-Builder-linux-x86_64.json
+            desktop-builder/downloads/linux/smoke-linux-x86_64.png
+            desktop-builder/downloads/linux/smoke-linux-xcb.png
+            desktop-builder/downloads/macos/OpenAutoLink-Builder-macos.json
+            desktop-builder/downloads/macos/smoke-macos-arm64.png
+            desktop-builder/downloads/macos/smoke-macos-x86_64.png
+# No release creation, store uploads, real signing credentials, or auto-publication.
+# macos-15 (ARM) and macos-15-intel (x64) are explicit supported runner labels:
+# https://github.com/actions/runner-images#available-images

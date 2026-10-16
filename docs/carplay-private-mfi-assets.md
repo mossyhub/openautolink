@@ -1,48 +1,64 @@
-# Private internal MFi asset bundling
+# CarPlay authentication files
 
-## Certification and provenance notice
+CarPlay requires a **compatible authentication key and certificate pair that you own or are authorized to use and include in your build**. Public OAL source and ordinary public builds do not supply these files. Building the app, generating an Android signing key, or paying for a Google Play developer account does not create a CarPlay identity.
 
-OAL's CarPlay receiver is not an Apple-certified product. Internal test builds reuse an existing accessory authentication identity, not a newly issued MFi identity for OAL. The upstream receiver describes its identity as recovered from public Carlinkit firmware; that is upstream's stated provenance, not an independent certification or redistribution grant. A bundled private key is extractable. Future iOS acceptance, reliability across head units and suitability for general distribution remain unresolved.
+**OAL is not an Apple-certified CarPlay product.** Local validation only checks the supplied pair; it does not establish Apple authorization, certification, redistribution rights, or acceptance by an iPhone. Future iOS compatibility and behavior across head units are not guaranteed.
 
-## Source and release policy
+## Select the pair in the desktop builder
 
-The Git repository and source archives exclude accessory credentials and Android signing keys. Tests use synthetic identities. Ordinary source/CI builds omit runtime identity assets; authorized local internal builds explicitly select an external asset directory. On first CarPlay use, the app validates and installs bundled credentials into backup-excluded storage without ADB, preserving existing valid credentials. Phone trust is established separately by the normal protocol exchange.
+In the [desktop builder](build-aab.md), use the two optional file pickers:
 
-Builders may obtain compatible runtime assets from an APK they already possess and are authorized to inspect. Extract `assets/offline-mfi/identity.pk8` and `assets/offline-mfi/certificate.p7b` into the external layout below. These are accessory authentication files, not the Android APK signing key. Extraction does not confer redistribution rights. Do not submit the files in issues, pull requests or source archives.
+| File | Required content |
+|---|---|
+| `identity.pk8` | P-256 private key in PKCS#8 format |
+| `certificate.p7b` | Matching single X.509 certificate, in supported DER or PKCS#7 form |
 
-Owner-authorized internal builds may set the exact Gradle property:
+Each must be a nonempty regular file, no larger than **16 KiB**. Supply both or neither. File extensions alone do not establish validity; the private key and certificate must match. Do not substitute an Android keystore, an APK signature, or an unrelated certificate.
 
-```sh
-./gradlew :app:assembleTabletDebug -PoalCarPlayMfiAssetsDir=/absolute/external/private-asset-root
-# Same property applies to :app:bundleRelease / :app:assembleRelease.
-```
+- **With an authorized compatible pair:** the builder can bundle it for your personal car app. Successful packaging is not proof that a phone will accept it.
+- **Without the pair:** build for Android Auto without bundled CarPlay authentication. CarPlay will not work merely because its controls are visible.
 
-The external root must contain **exactly**:
+Keep the originals in private storage outside the source checkout. Do not put credentials in issues, pull requests, public release attachments, or screenshots. This guide does not provide sources or acquisition instructions for authentication identities.
+
+## These are not your Android signing keys
+
+The desktop builder generates and preserves an **Android upload-signing key** for your Play submissions. Google Play App Signing manages the key used for the APKs delivered to the car. Those Android signing identities are separate from the two CarPlay authentication files.
+
+Back up the builder's upload identity using its encrypted backup action. Keep authorized CarPlay originals separately; do not assume an identity backup includes external files.
+
+## Bundling does not keep the pair secret
+
+**Anyone who obtains a credential-bearing APK or AAB can extract its bundled assets.** Git exclusion, a signed AAB, Play App Signing, and an encrypted desktop backup do not make embedded files confidential. Include a pair only if your authorization covers that use and exposure, including distribution to your Internal Test recipients.
+
+Keep credential-bearing outputs, build intermediates, and caches private. Do not use shared or remote build caches or upload verbose build archives containing those files. Removing the optional pair from a later build does not securely erase previous artifacts or caches; manage their retention yourself.
+
+## What happens on the car
+
+On first CarPlay use, OAL checks for an existing locally validated identity. If none is installed and a complete bundled pair is present, it validates and imports that pair into private, backup-excluded app storage. It preserves an existing valid identity rather than automatically replacing it with the bundled one.
+
+A partial, malformed, or mismatched pair is not treated as working authentication. Corrupt existing storage is not silently overwritten. Explicit replacement is available through the app's authentication import control while parked and disconnected, where the vehicle's document-provider support permits it.
+
+Importing the pair does not pair or trust an iPhone. Continue with the separate [CarPlay connection and permission setup](../README.md#carplay-setup) after installation.
+
+## Advanced: external Gradle input
+
+Desktop users do not need this section. For an authorized developer build, the existing Gradle property is **`oalCarPlayMfiAssetsDir`**. Point it at an absolute directory **outside the repository** with exactly this layout:
 
 ```text
 private-asset-root/
-  offline-mfi/
-    identity.pk8
-    certificate.p7b
+└── offline-mfi/
+    ├── identity.pk8
+    └── certificate.p7b
 ```
 
-Do not put these files in this repository, source assets, Gradle properties checked into Git, or generated source directories. The canonical root must be outside the repository; the two files must be nonempty regular files, each at most 16 KiB, with no symlinked offline-mfi directory or credential files. Partial, extra, absent or oversized specified inputs fail build configuration. Missing property is an ordinary unbundled build. Assets are supplied directly from the external directory; no source-tree staging task is used. Android build intermediates still contain copies in ignored build outputs.
+The root must contain only `offline-mfi/`, and that directory must contain only the two named files. The directory and files must not be symlinks. Empty, oversized, extra, or partial inputs fail configuration. Do not copy files into source assets or generated source directories.
 
-**Extractability:** APK/AAB assets are extractable by anyone with the artifact. This feature is not encryption, hardware-backed MFi storage, distribution permission or proof of iPhone acceptance. Owner-authorized internal test releases may contain these credentials; recipients can extract them. Ordinary source/CI builds omit them. This is not a claim of Apple certification or redistribution permission. Keep artifacts, intermediates and build caches private; do not use remote/shared build caches or verbose diagnostic uploads for private builds. Removing the property removes the bundle from subsequently merged assets, but does not securely erase old artifacts/caches. The owner must manage their retention. Only parent handles the real private input and device installation.
+For example, the Gradle argument is:
 
-## First use / preservation
+```text
+-PoalCarPlayMfiAssetsDir=/absolute/external/private-asset-root
+```
 
-`OalCarPlayRuntime` invokes `CarPlayMfiAssetBootstrap(context.noBackupFilesDir, openAsset).install()` immediately before `LocalMfiAuthenticationClient.load`, after normal network/password prerequisites. Asset listing is lazy, so existing valid private storage does not open/read the bundle. This runs on the runtime's existing worker, not a new application/main-thread initializer.
+This is an argument, not a standalone build command; it applies to `:app:bundleRelease` and APK build tasks. Omitting the property produces an ordinary unbundled build. Android build intermediates still contain copies, even though the input lives outside the checkout.
 
-Bootstrap shares `CarPlayCredentialImporter.LOCK` with SAF import. It preserves an existing validated identity, rejects corrupt existing storage rather than silently replacing it, and recovers an importer's prior whole-directory publication before considering fallback. On absent storage, it rejects partial assets and delegates bounded, fsync'd staged import and whole-directory publication to `CarPlayCredentialImporter`. Validation uses the existing P-256 certificate/key matching proof; a packaged pair is not trusted just because the build included it. Storage remains `noBackupFilesDir/offline-mfi`. No private bytes or provider/crypto exception messages are published via logs or StateFlow; only finite result enums leave the helper. SAF explicit replacement remains available.
-
-## Verified execution
-
-On lance-host, JDK17/Android SDK, shared `/mnt/Temp/Hermes_Work/.oal-gradle.lock`:
-
-- Executed assertion RED then GREEN for missing helper, preservation behavior, Gradle property wiring and runtime hook.
-- `:app:testTabletDebugUnitTest --tests '*CarPlayMfiAsset*Test' --tests '*CarPlayCredentialImport*Test'`: **16 tests, zero failures/errors**. Includes actual generated synthetic P-256 signing, missing/partial/malformed/mismatched/oversized assets, preservation/corruption, publication recovery, symlink rejection, stream cleanup and SAF regression coverage.
-- Actual Gradle synthetic external-input probe rejected a partial layout, merged both files in tabletDebug and release, then verified removing the property removed stale merged identity directories in both variants.
-- Compilation of runtime production and unit-test Kotlin succeeded. Existing carplay-lab targetSdk deprecation warning remains.
-
-No owner credentials read, copied or printed; no APK/AAB build, device install, upload or commit performed here. Parent still owns full-suite, package/device and physical-phone verification.
+The [advanced Docker fallback](manual-build.md) is a separate builder and does not expose the desktop's two-file picker. Do not assume passing this Gradle argument to its bootstrap enables private-asset bundling.

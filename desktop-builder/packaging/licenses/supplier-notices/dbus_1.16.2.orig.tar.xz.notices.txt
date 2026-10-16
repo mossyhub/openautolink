@@ -1,0 +1,117 @@
+Supplier: https://deb.debian.org/debian/pool/main/d/dbus/dbus_1.16.2.orig.tar.xz
+SHA-256: 0ba2a1a4b16afe7bceb2c07e9ce99a8c2c3508e5dec290dbb643384bd6beb7e2
+Notice superset; not an assertion all components are shipped.
+
+===== dbus-1.16.2/COPYING =====
+dbus is licensed to you under your choice of the Academic Free
+License version 2.1, or the GNU General Public License version 2
+(or, at your option any later version).
+The full text of these licenses can be found in LICENSES/AFL-2.1.txt
+and LICENSES/GPL-2.0-or-later.txt.
+
+Some source files are under more permissive BSD-/MIT-style licenses
+that are compatible with the AFL and GPL.
+
+When contributing new code, our preferred license for new code is the
+version of the MIT/X11 license used by the Expat library, referred to
+as "MIT" by SPDX, which can be found in LICENSES/MIT.txt.
+
+Some of the standalone binaries are under the GPL only; in particular,
+but not limited to, tools/dbus-cleanup-sockets.c and test/decode-gcov.c.
+
+Each source code file is marked with the proper copyright information -
+if you find a file that isn't marked please bring it to our attention.
+
+Some files contain a SPDX-License-Identifier marker. These markers
+indicate the license of that file, consistent with the SPDX and REUSE
+specifications: see <https://reuse.software/>. dbus is not yet fully
+REUSE-compliant, and not all files carry these markers.
+
+
+===== dbus-1.16.2/LICENSES/LicenseRef-CMakeScripts.txt =====
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. The name of the author may not be used to endorse or promote products
+   derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+(This is a variation of the BSD-3-Clause license, with slightly different
+wording.)
+
+
+===== dbus-1.16.2/LICENSES/LicenseRef-GAP.txt =====
+This file is free software; as a special exception the author gives
+unlimited permission to copy and/or distribute it, with or without
+modifications, as long as this notice is preserved.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
+implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+
+===== dbus-1.16.2/LICENSES/LicenseRef-pycrypto-orig.txt =====
+Distribute and use freely; there are no restrictions on further
+dissemination and usage except those imposed by the laws of your
+country of residence.
+
+
+===== dbus-1.16.2/test/data/invalid-messages/boolean-has-no-value.message-raw.license =====
+SPDX-FileCopyrightText: 2003 Red Hat, Inc.
+SPDX-License-Identifier: MIT
+
+
+===== dbus-1.16.2/test/data/invalid-messages/fixed-array-not-divisible.message-raw.license =====
+SPDX-FileCopyrightText: 2022 Evgeny Vereshchagin
+SPDX-FileCopyrightText: 2022 Collabora Ltd.
+SPDX-License-Identifier: MIT
+
+
+===== dbus-1.16.2/test/data/invalid-messages/issue418.message-raw.license =====
+SPDX-FileCopyrightText: 2022 Evgeny Vereshchagin
+SPDX-FileCopyrightText: 2022 Collabora Ltd.
+SPDX-License-Identifier: MIT
+
+
+===== dbus-1.16.2/test/data/invalid-messages/mis-nested-sig.message-raw.license =====
+SPDX-FileCopyrightText: 2022 Evgeny Vereshchagin
+SPDX-FileCopyrightText: 2022 Collabora Ltd.
+SPDX-License-Identifier: MIT
+
+
+===== dbus-1.16.2/test/data/invalid-messages/truncated-variant-sig.message-raw.license =====
+SPDX-FileCopyrightText: 2022 Collabora Ltd.
+SPDX-License-Identifier: MIT
+
+
+===== dbus-1.16.2/test/data/invalid-messages/zero-length-variant-sig.message-raw.license =====
+SPDX-FileCopyrightText: 2022 Collabora Ltd.
+SPDX-License-Identifier: MIT
+
+
+===== dbus-1.16.2/test/data/valid-messages/byteswap-fd-index.message-raw.license =====
+SPDX-FileCopyrightText: 2022 Evgeny Vereshchagin
+SPDX-FileCopyrightText: 2022 Collabora Ltd.
+SPDX-License-Identifier: MIT
+
+
+===== dbus-1.16.2/test/data/valid-messages/minimal.message-raw.license =====
+SPDX-FileCopyrightText: 2022 Collabora Ltd.
+SPDX-License-Identifier: MIT
+

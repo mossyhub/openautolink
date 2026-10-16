@@ -1,0 +1,1196 @@
+{
+  "status": "unqualified",
+  "artifactSha256": "bfe2504836fb0c78b4342a0529701482d51e27c57901661bf7a5fd8364873b43",
+  "payload": [
+    {
+      "path": "@bootloader",
+      "sha256": "879a520c4c01070bf60f667d93556dc0bc4c6a74054e310cef86151a09ea090c",
+      "size": 53961,
+      "kind": "bootloader",
+      "hash_scope": "ELF64-prefix-with-e_shoff-zeroed"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Core.so.6",
+      "sha256": "57ca362897ec9fe2b899ec5fec5e9d26677cdda8730df7299162d92bca4a8ac1",
+      "size": 7244416,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6DBus.so.6",
+      "sha256": "8e17fbe4600cb2b81ade8aef9f30d4a7a66745b29da830bcd0abd9afdf869251",
+      "size": 852968,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6EglFSDeviceIntegration.so.6",
+      "sha256": "5b210e3ac33c47f1bf00f6db883eca64ca3b4c7be401420313d4acd196364e03",
+      "size": 307352,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6EglFsKmsSupport.so.6",
+      "sha256": "0a28262639669f9ebe19ef4d58667918dd866b30ad440e4b8643155588faeafe",
+      "size": 162288,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Gui.so.6",
+      "sha256": "e66a6797eba766cb65d5d7ba032ab16bed43476877907ff7be9b75b2b0259915",
+      "size": 11098104,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Network.so.6",
+      "sha256": "f4eb6b919c66d3b164c61a5d3e9e7e2553c6577b68ccd5d4646a47f557ced221",
+      "size": 2158080,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6OpenGL.so.6",
+      "sha256": "96218145491945996ac4b0dca9775eb6e49ed0dfb04f6344912b8c9770e98884",
+      "size": 702568,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Pdf.so.6",
+      "sha256": "237b26962c29f0aa051c9aae18d8c0824d6ae7e3bb545d78cb43a8a5388c7acb",
+      "size": 5501720,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Qml.so.6",
+      "sha256": "f8f6206a13a5c1ed287364da117005c93ebb7728747c530ae581e773076dba6b",
+      "size": 6620288,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6QmlMeta.so.6",
+      "sha256": "e4ac2d1bac58843484ba19a0c8e3428b0f17c48c7a893f8c3bd3cc4a3345f434",
+      "size": 176488,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6QmlModels.so.6",
+      "sha256": "65c8f225d472d905c445c565525be675a675a26582c5e0e408c2568928635aac",
+      "size": 918888,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6QmlWorkerScript.so.6",
+      "sha256": "7ed6bfcb8129549d3c821c5e72005bd4cc5c1b8a3d04f9f2324328c4de8b6507",
+      "size": 89616,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Quick.so.6",
+      "sha256": "36fa19bae1928562f27f6aa749a8ac3655c8d1819ac59b276f18d950e47284c4",
+      "size": 7947928,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Svg.so.6",
+      "sha256": "29341db4f6a8a412ae525b9453913a67f0a12c29074afc4de345cf64a597e37c",
+      "size": 572392,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6VirtualKeyboard.so.6",
+      "sha256": "16db9ee28051810e73cc4a4d0defeed04db331b685b6b5fdc5a7a39eed1a3247",
+      "size": 586480,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6WaylandClient.so.6",
+      "sha256": "794b15348bf827f64ffd9a87ff05508fd6ea6c760de24479801155bdd86ed1a0",
+      "size": 1094320,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6WaylandEglClientHwIntegration.so.6",
+      "sha256": "0c77e5e1516c624ef61d6bb474b76c73f3afb98965aa4f4625bd0ac431aeec3d",
+      "size": 72192,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Widgets.so.6",
+      "sha256": "f384dc8eb83605f9890784b051e218505aaa9422c19a69098f5c0cc8d6474310",
+      "size": 8044512,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6WlShellIntegration.so.6",
+      "sha256": "f5b27fee953722c65a0937d9cb71ebd657703c59906e34053ef6ef738e2c4946",
+      "size": 150784,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6XcbQpa.so.6",
+      "sha256": "b783bcc92feb244e71c9833f1b2b4070bc4a54ea25b4d6781a924f87f7eaa0a2",
+      "size": 775624,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libicudata.so.73",
+      "sha256": "4d24b3a908dd838bea23414e16aa830d05a2a306c475246ab11ef0a00c3037e9",
+      "size": 32035888,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libicui18n.so.73",
+      "sha256": "ad5410f3e4eb4f01f91d10ddb3780cdbcbeb902ed04a3bc4d3f562b956578d52",
+      "size": 4477136,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libicuuc.so.73",
+      "sha256": "8ce3427af0d2bf566bb422ce80a12014137d12ed452fe2dd9ed481ee46181168",
+      "size": 2571736,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/egldeviceintegrations/libqeglfs-emu-integration.so",
+      "sha256": "1244e2880dee7f03d6cf571722528cb0b58438be7ddd99fbefeef2be37404e87",
+      "size": 39496,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/egldeviceintegrations/libqeglfs-kms-egldevice-integration.so",
+      "sha256": "e9cd14198af47b6d59b98aa683aa15239fbfdf20e49d3d98f53b11ab897d7504",
+      "size": 154192,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/egldeviceintegrations/libqeglfs-x11-integration.so",
+      "sha256": "db145963ed1100c96b289736a3d0bdbde73474731b0b796913625626427542f1",
+      "size": 31304,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/generic/libqevdevkeyboardplugin.so",
+      "sha256": "93302a8f853b8343f56db8b7deea06d8030fcb5788dfe98b0c45d13b530cb362",
+      "size": 80840,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/generic/libqevdevmouseplugin.so",
+      "sha256": "3a809f5cddf123c53ab51b79dc2a8df4ae0050a80a398943abca1c98c12666b3",
+      "size": 73152,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/generic/libqevdevtabletplugin.so",
+      "sha256": "ecdb9aaba6b7be804ebb76de414faa9a8e28f303630e2bf92a165718146340cf",
+      "size": 64456,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/generic/libqevdevtouchplugin.so",
+      "sha256": "20e156857ff6e0f184b4a4e664059a126d39f599ea6ab8721f3c9b4da3a12416",
+      "size": 134336,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/generic/libqtuiotouchplugin.so",
+      "sha256": "41c652f56fe2823d899bbac5c727cb92109cd4b1ba6ebc5179e58fe19512cbd1",
+      "size": 97088,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/iconengines/libqsvgicon.so",
+      "sha256": "c817505facbf894f4d298efd317978eb93d23c96b352751e7c26c26ea6953eac",
+      "size": 80440,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqgif.so",
+      "sha256": "31e450846f7d42ff32ceea333f7c041e713325337bb86c7499fd818a58747320",
+      "size": 47672,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqicns.so",
+      "sha256": "3cccc1e2002d8c90723cbf71df0a56aa579e04f8a3eabbcfe380a5d0d291f3c8",
+      "size": 55864,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqico.so",
+      "sha256": "3837919837caf6724d40e907521979913e73d8792c5a31d2c3b781871226b37d",
+      "size": 47672,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqjpeg.so",
+      "sha256": "3cbc6d3385a73f0be0bf3f228ce45bba1dd0ad334ae7a0f51ef50673776020ed",
+      "size": 531000,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqpdf.so",
+      "sha256": "c8628780896741fa48b6f82f7d17f56f8c3eb4900bebbe79cf60e2e0ea8adfaf",
+      "size": 39480,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqsvg.so",
+      "sha256": "335675476d1091d937d06269daef3debcae6bbc8c70dea839e481bff7cef1ff5",
+      "size": 35384,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqtga.so",
+      "sha256": "53ba201c9876278685e2987d214d43bc0acd82613e9a45f9dc8fa323a379e35a",
+      "size": 35384,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqtiff.so",
+      "sha256": "69102755eeab2022d1cc8fbeca76f0a98113316ce60f7422384886e91babc1a8",
+      "size": 514632,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqwbmp.so",
+      "sha256": "212cea7f3e97292eb2772952c27ba92e57ea810d7bf87dc297dd08d12562dbf0",
+      "size": 31288,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/imageformats/libqwebp.so",
+      "sha256": "7aebe8d3929659acaa0d23657f61860bab22ae471343f8ceac2e8bc20bde4726",
+      "size": 510712,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/networkinformation/libqglib.so",
+      "sha256": "b4bf64bbe55d438832252ddc155c607d588b68f8f47e93ae747045b92e9f43d9",
+      "size": 27320,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/networkinformation/libqnetworkmanager.so",
+      "sha256": "53d2d1f1e33b7f2fa2eea8dcaba758983031977873783de409748eb5859936a6",
+      "size": 81600,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforminputcontexts/libcomposeplatforminputcontextplugin.so",
+      "sha256": "f6323c4fa0e45ac2a166051efdc5da45b902d9e1c37d5f4dc8e75aee7dde7ad6",
+      "size": 35536,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforminputcontexts/libibusplatforminputcontextplugin.so",
+      "sha256": "4ebd89a120af1fdc09f32c756d25533076add9394c66248134f97638534d4320",
+      "size": 185296,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforminputcontexts/libqtvirtualkeyboardplugin.so",
+      "sha256": "466a56df3346c4ab67fbce48ecdf7439c6cbd6f25454f28aee03ae91312d1c0d",
+      "size": 31304,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqeglfs.so",
+      "sha256": "5b16744ef4e359066931ac00867b1c35039017ed9b9cd77ccd51274a6866d819",
+      "size": 23096,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqlinuxfb.so",
+      "sha256": "fc0f57488ec0da31ac05a1a48566f72f348e982793ea6b16ca737febd5286af7",
+      "size": 377400,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqminimal.so",
+      "sha256": "627051ccd5f3752e71b55debe79c012e1bdfe2b6f60842dfe9d233a317163677",
+      "size": 43576,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqminimalegl.so",
+      "sha256": "c8e36a3c1940d752bfbffcff9d4a7f077b802f8d7b03fa8a1250600911d4b2ab",
+      "size": 47680,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqoffscreen.so",
+      "sha256": "b588b802604403db49a9e1a433a3908da911db5dc7851e639f3da6c2113bca66",
+      "size": 125504,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqvkkhrdisplay.so",
+      "sha256": "a9cc22498da7515e768cd6ed5816dc5187fa61139a0952bd185b1dc4b132b108",
+      "size": 229184,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqvnc.so",
+      "sha256": "c42d32865aeccb1b204523a7b08bbfb4d88c00eb55845f00fec73befb46ed2f4",
+      "size": 130488,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqwayland-egl.so",
+      "sha256": "6927b1141b7e3506e237850e712a432656fe12679ffb859b0236953ce5c17071",
+      "size": 31296,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqwayland-generic.so",
+      "sha256": "a1096f45c8807690d26e5e8555cf90970c9953bebf7f38c2018d1ca5dc8204a6",
+      "size": 23104,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqxcb.so",
+      "sha256": "0cfeff7788c8545f90f098c93fd284687ed2c813b1a259aada7c509fb08b0f89",
+      "size": 23096,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platformthemes/libqgtk3.so",
+      "sha256": "d08a6956fef7570b647a7e0a524cc9307354f92946f04df16da06020a306dcaf",
+      "size": 287160,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platformthemes/libqxdgdesktopportal.so",
+      "sha256": "8c64e5d8f7e6b22b1634ff3a0b1daa8f069d364e1f0399bd1ef0187d0276f44d",
+      "size": 126784,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/tls/libqcertonlybackend.so",
+      "sha256": "4ec529320eff9424a3ac909180db6eb2f4c9ead374e56c33395704199eec329c",
+      "size": 105024,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/tls/libqopensslbackend.so",
+      "sha256": "20530f6ad73e236d855bb9e31c8fb1ed56256452d6f004c089735ae9ddde75a9",
+      "size": 387792,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-decoration-client/libadwaita.so",
+      "sha256": "a3f7364a1c44eec9096ce2fa717b2fbf959d5b50b7781772437822ce1bbce233",
+      "size": 122040,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-decoration-client/libbradient.so",
+      "sha256": "6b1b70ae8c98829c48222b58ce0f063f20a6058f44c23b59fe4a4df2e4396bbf",
+      "size": 51768,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-graphics-integration-client/libdmabuf-server.so",
+      "sha256": "11f9230693727e55a89dd63d26f1bca79a722b61f3e1d98220d04f0d0e8c4a34",
+      "size": 35472,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-graphics-integration-client/libdrm-egl-server.so",
+      "sha256": "38cd055547cfe9efc129be3a45ef8e6deecb465dba115c6133549ffdeff76d3d",
+      "size": 35456,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-graphics-integration-client/libqt-plugin-wayland-egl.so",
+      "sha256": "3376c9061c185ae76944ad24731308ccf0ec6bcbdea0b51748a1a5b7511f44eb",
+      "size": 23112,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-graphics-integration-client/libshm-emulation-server.so",
+      "sha256": "d1c4f9c3d872bec89c5863cd55339edcda485f83813ae953d0d6eb99a149c09d",
+      "size": 35464,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-graphics-integration-client/libvulkan-server.so",
+      "sha256": "c993e9aec8667b95ad9b58c9c77f0688b1b0d96f6f83ba7d2eeccfbd9f35f72c",
+      "size": 35456,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-shell-integration/libfullscreen-shell-v1.so",
+      "sha256": "f7a62af91e37a0bc4d45263e76525a64d92a85b52527bdefc110c68bf345aeb3",
+      "size": 43672,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-shell-integration/libivi-shell.so",
+      "sha256": "9559a85b391a206732791fc98e7331841249be06fa4e043e73dabb097ff81306",
+      "size": 68376,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-shell-integration/libqt-shell.so",
+      "sha256": "ad4b49a587c9d461afc5121db4eeb0356c2895db3fb2dd04052ad2eae27e9f1a",
+      "size": 55928,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-shell-integration/libwl-shell-plugin.so",
+      "sha256": "8e9876091d659cd32970a4ec40758bcc5bdd28fee617b43f263a9cfeef2ef8fb",
+      "size": 23104,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/wayland-shell-integration/libxdg-shell.so",
+      "sha256": "e06aa291e8d396492e1ead7bddb2dc01c61921292fed608fcd30b95601c5dbbd",
+      "size": 130376,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/xcbglintegrations/libqxcb-egl-integration.so",
+      "sha256": "8ea45cac455d97974107ff0e5f3e089d6c2f16a39cb0b58977ca9a95cc300e63",
+      "size": 59976,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/xcbglintegrations/libqxcb-glx-integration.so",
+      "sha256": "5f7b187477bc52f8f2f0f4e32fc200e8036d8dbd800d488cbd39607292b52a5c",
+      "size": 84584,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtCore.abi3.so",
+      "sha256": "7dd53cb74eafedf960da4337447876e59d01856c26461d781ef924ccc7366830",
+      "size": 4037288,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtDBus.abi3.so",
+      "sha256": "3bcad361a81ef5567c4c2c51b07249633014ccff9e57d2e8401092d8c5bc5069",
+      "size": 352424,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtGui.abi3.so",
+      "sha256": "9abe9520ec6aae9a0536bac50a59ab0f62adde58efd958e1cb101792d9696253",
+      "size": 4833576,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtNetwork.abi3.so",
+      "sha256": "2e476792c4f5a3da943591cb70a53b57189b1512352266188f17e14d5bb98eb1",
+      "size": 1273976,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtWidgets.abi3.so",
+      "sha256": "cd9a01af895e8c680b5645a897ee31bfab15212f4172535c48472607f6fa46b4",
+      "size": 6871640,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/libpyside6.abi3.so.6.8",
+      "sha256": "8f21561a13e334f6610e4a5720c5eae1c0bea03c7360f25e171ad3742aefb60a",
+      "size": 242408,
+      "kind": "binary"
+    },
+    {
+      "path": "_cffi_backend.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "9bc1d08072255a5ec2db10fc75df1dd9e73097a75cd9150cfe875ebd6712f17c",
+      "size": 348856,
+      "kind": "binary"
+    },
+    {
+      "path": "cryptography/hazmat/bindings/_rust.abi3.so",
+      "sha256": "a80089af52523b1fc91852d57785910dbb821648d551c12a4ab73c2d5312d657",
+      "size": 11545464,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_bisect.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "99e5c4ecc7cbf7769410f69e3c2b31860b7b2b327521b7473029a3adf5a1b4dc",
+      "size": 23416,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_blake2.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "490ba5f27570bd69e2d70e57ec838da02a24a1a969c24f1b58d9d58b48c5e782",
+      "size": 48632,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_bz2.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "af6446403db2e8fd0643feb3b4a9fd4dbf3f797b14ee52b8aabf3ac4aeb31d26",
+      "size": 27888,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_cn.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "be5dc886bba401b1836152e8913d1143ff01e357b623464486ec02663fd00074",
+      "size": 153976,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_hk.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "e1a40bb5c59f4751960ee9e041f144be254c55c5ae6eae8f884aa4b22847233b",
+      "size": 162200,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_iso2022.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "cfa0e2472581c653fb65398fe62c6d52eb71ae2ad789e05bd42e7a9874dc048a",
+      "size": 31128,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_jp.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "b45e699a15b48b932c8a0a0e521469df62f00e7ce7ea674b8cdd69db1dd25097",
+      "size": 268664,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_kr.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "4ba9682f6a61070fb8dd1d1814f72cd6fa2e5486ef570fc407b6b9813b5a0e94",
+      "size": 141688,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_tw.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "3340c578c42105d93f009de0208a3e709ad2fc48538158eac36031a23b238fc2",
+      "size": 113016,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_contextvars.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "8a5146382a14d3f892e3d9b74a90e1bdad246960afef500c823f95cbd53f926f",
+      "size": 14352,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_csv.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "acee243df244c5cca8636a524c2fb2fbfa11890548d69e7002917b0cb12f738d",
+      "size": 37472,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_datetime.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "1d0c3421db754a85c0a168fdc873d98a2ed2ddf3078f57629b05ed0ff1a0208b",
+      "size": 108912,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_decimal.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "9901847bb1c152f13b3205daf9671e82456291a5de422f8f06c819f4227b607c",
+      "size": 290448,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_elementtree.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "c6b51ba83831280f2e4302859f491e4b0f59dd4c2268e457b59fcddb028d8032",
+      "size": 80624,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_hashlib.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "fb0751d9c1d28f82f27bff1901df75dc598b5d456316fe4f491e89d65d464d87",
+      "size": 64184,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_heapq.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "e07188a1d60448678cf061e4135149509128039a5067f005c30edb0b3b719612",
+      "size": 26928,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_json.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "4448a535456a9dab93645194b6706b38c85ab2dc292bfab6935f4431616dab5c",
+      "size": 40688,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_lzma.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "b8a74cc9b0ef9553214871f77a0a7f40cedba073a006ee120f575f36db95eb78",
+      "size": 45000,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_md5.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "01c3e882403179083938f5507b263a0c3d487c9361e70780c4fdf28c20e01594",
+      "size": 23568,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_multibytecodec.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "eee48544d67695f0634f9d2428fa1ab78c8118651dd3d60af40b8ab7e249a3ff",
+      "size": 46272,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_opcode.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "bdbc4dd1dd0ac096b30e0715251561a3aa17574465e4efad5529cbd6cd42d139",
+      "size": 14744,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_pickle.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "c6a72dc947440f34197d8907660a48f54654f9e393b0f9fc6615cf2ca8e78bff",
+      "size": 124704,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_posixsubprocess.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "405368efb426b8b427daa857837acf4fea9c2bffce1e62adbe532d0fd0e882e4",
+      "size": 27240,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_random.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "218ab54eca95be57ee345a2271f3d1f01414df8c6f9fc61ecb496e1ec27efefb",
+      "size": 23232,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_sha1.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "6c6eac07ea58c0f7593fa1fc3d46c90c71a1943b216c66656dcbc0690160f0c2",
+      "size": 23568,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_sha2.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "a639ebb7c37d355c37c9f76b462a6324645cbcf92c611a5ac783001ac34daa91",
+      "size": 77712,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_sha3.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "0ca4f4b8842c9da6c1922783e2a024dae6999bb4f87543f3eadafad210885b94",
+      "size": 32944,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_socket.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "3eac65ca6bd75987f0aea2ad7fe43b6354a544f57117f1c2f716cf862f7d26ea",
+      "size": 104152,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_ssl.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "6891800dbb9144863d3e1fbcf812694035533c6872a29575f857d5163a8b5c7e",
+      "size": 212992,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_statistics.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "368ebed02bef81785c0975db085122cae8b61a70b601605c10258ae4c2e1bd48",
+      "size": 14504,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_struct.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "803ccc50e18ea2dec65bb6849c5a5279e047afd8f760a47d69b5495b7819391e",
+      "size": 54992,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/array.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "005b3be02a0b7a4deb23c34a007477433ef633058c22b69e39c356fa1e2178cb",
+      "size": 70560,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/binascii.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "c0c0c47864f092e5ccac8397a43d649e2dcf7cbfa3983b3e1e7114b3e03a6f35",
+      "size": 32216,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/fcntl.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "9dd396ef78b4d584b0dc3d060e6ba55c0cdbb5ffbb83b4b13b0d3f927f28de70",
+      "size": 22984,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/grp.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "ed38ef85625a6df22c4dbe577cf234280aaf3a66a168ae36939fe58fa87ff14e",
+      "size": 15216,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/math.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "38a702e96da7e7a9ebc8ec07ae41c39fef6207c9c518296d24b1cfa4dc57da26",
+      "size": 70424,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/pyexpat.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "0a74b850ea2a73ef2a9af8622d3c6c19523d579b553f04fc1ea6aefc3936eb87",
+      "size": 238664,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/resource.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "b83e224982441d56346787eb6b9b24a4594023bd8781d08717a200a4aa25a75b",
+      "size": 19264,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/select.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "4d28423a7bb3a98e4157c122573f671a787530926891a189b7abab64cbae34cc",
+      "size": 32768,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/termios.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "0b47d29722dfb03877aa4b3a1058b60ec2ccd7bb0d33a71e23b73212654a7a8f",
+      "size": 35360,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/unicodedata.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "59b963b53a37eb37eaa2266f1a0ccacf3b63c63ef37c0dc2edf77dcd253f8e20",
+      "size": 1131664,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/xxsubtype.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "3f8cae55edbee60d8090d936ec665032c2db3a21ae566bcc2f5fd95cc4b9ded0",
+      "size": 15872,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/zlib.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "93e46df50e17712a32a4ec2d548f5122df0ac2b634175e2d065669544ee625e8",
+      "size": 50192,
+      "kind": "binary"
+    },
+    {
+      "path": "libQt6Core.so.6",
+      "sha256": "ac7c90784421d4165aa53bb99661d1eae6e6ae5b7c8121617dfca49ee554b4ba",
+      "size": 31,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Core.so.6"
+    },
+    {
+      "path": "libQt6DBus.so.6",
+      "sha256": "20e303258b154f87be2fddbb30c965ecf6642fd47d328abbf46cbdb67cec1b32",
+      "size": 31,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6DBus.so.6"
+    },
+    {
+      "path": "libQt6EglFSDeviceIntegration.so.6",
+      "sha256": "a1526c189f7af56d214fe59c7ee16b62001603f347cbfefc983004fba4408e21",
+      "size": 49,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6EglFSDeviceIntegration.so.6"
+    },
+    {
+      "path": "libQt6EglFsKmsSupport.so.6",
+      "sha256": "af71b7b98c83d124e882c0924f97f8c786ee20082c7d0c426c6ca9845a349364",
+      "size": 42,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6EglFsKmsSupport.so.6"
+    },
+    {
+      "path": "libQt6Gui.so.6",
+      "sha256": "472794da5f4d886a4caca6f136dd4c998b43658a87b8f98cbf67458c34a6cf30",
+      "size": 30,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Gui.so.6"
+    },
+    {
+      "path": "libQt6Network.so.6",
+      "sha256": "a934e778e23331d24abcab48894e0624921f682759ec5dd9353376b51d80f9f9",
+      "size": 34,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Network.so.6"
+    },
+    {
+      "path": "libQt6OpenGL.so.6",
+      "sha256": "2e71ee15930b179c8fd3f1371442492816bca1aa10998334054738aa47be2b09",
+      "size": 33,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6OpenGL.so.6"
+    },
+    {
+      "path": "libQt6Pdf.so.6",
+      "sha256": "2d5e10607ff70eeba90176fe18c156619c03ee1502003b091d69ba97d17f55c9",
+      "size": 30,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Pdf.so.6"
+    },
+    {
+      "path": "libQt6Qml.so.6",
+      "sha256": "bd2a4c0f6d8bcdac19a0e86ac73a61d1ba35c5b68609eeaacff3a5a260c169ba",
+      "size": 30,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Qml.so.6"
+    },
+    {
+      "path": "libQt6QmlMeta.so.6",
+      "sha256": "b0f8cd5125d8241fda48e1ba58ecd47c66d49a5b8f7a5f49858d57c406e147be",
+      "size": 34,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6QmlMeta.so.6"
+    },
+    {
+      "path": "libQt6QmlModels.so.6",
+      "sha256": "131e16ea1afda86c0114bef6d3412c1c95caa3702edfee51b3407ba3b7b74ec5",
+      "size": 36,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6QmlModels.so.6"
+    },
+    {
+      "path": "libQt6QmlWorkerScript.so.6",
+      "sha256": "ebd28372292eae7842cef90897ad16ad747a16d91666da06d2be0581adbfeb00",
+      "size": 42,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6QmlWorkerScript.so.6"
+    },
+    {
+      "path": "libQt6Quick.so.6",
+      "sha256": "0b827563f29738ce2bac890902613524fbe682eff8c5d7f566bfc27080d6e553",
+      "size": 32,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Quick.so.6"
+    },
+    {
+      "path": "libQt6Svg.so.6",
+      "sha256": "47635ff90b043c040521801786e1dd8c062398590efea4d921e6a8006a3d69ed",
+      "size": 30,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Svg.so.6"
+    },
+    {
+      "path": "libQt6VirtualKeyboard.so.6",
+      "sha256": "e84b3dcc00c6e994673bab7f47a6cdb0aee9238e94fd8eb5979b9c78621f8015",
+      "size": 42,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6VirtualKeyboard.so.6"
+    },
+    {
+      "path": "libQt6WaylandClient.so.6",
+      "sha256": "2e84bc7dce1a159086121d7aeda90cb8ae9631759fb69b3ac5b8e37f5add5c4d",
+      "size": 40,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6WaylandClient.so.6"
+    },
+    {
+      "path": "libQt6WaylandEglClientHwIntegration.so.6",
+      "sha256": "c4c0d303507a61b4521f605e6a527b3c823dcc0df9674b8e9821bb51ee4bae5e",
+      "size": 56,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6WaylandEglClientHwIntegration.so.6"
+    },
+    {
+      "path": "libQt6Widgets.so.6",
+      "sha256": "6139fe150b13ed9d92d7c74ff9ddfd1ea787cc1640aa517e691894576a8e9668",
+      "size": 34,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Widgets.so.6"
+    },
+    {
+      "path": "libQt6WlShellIntegration.so.6",
+      "sha256": "ece8120a382ee170f05db75d0a87971b24b54facd03670f4d457688cc522a4e8",
+      "size": 45,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6WlShellIntegration.so.6"
+    },
+    {
+      "path": "libQt6XcbQpa.so.6",
+      "sha256": "eaca78a2d8631c70a37d7f31049fa5f93bac7ec4d284b6dcec54873c9755fa02",
+      "size": 33,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6XcbQpa.so.6"
+    },
+    {
+      "path": "libX11-xcb.so.1",
+      "sha256": "c73c2e98ad556a412dd6eef44b857dbd3cc02f191db8af30968084565f60f311",
+      "size": 13944,
+      "kind": "binary"
+    },
+    {
+      "path": "libX11.so.6",
+      "sha256": "b03e563b316b8b53c7988f0ee91d6656cc425538e00947a8b14482d179e80099",
+      "size": 1342984,
+      "kind": "binary"
+    },
+    {
+      "path": "libXau.so.6",
+      "sha256": "4275ec5b14bec21770c44447b3a52977e211c7ba08745008f3a1783878e091bb",
+      "size": 14472,
+      "kind": "binary"
+    },
+    {
+      "path": "libXdmcp.so.6",
+      "sha256": "761409b24c818719f8c8a2a64a61c8ac6a3067f3d8882485dca64a98d7500040",
+      "size": 26728,
+      "kind": "binary"
+    },
+    {
+      "path": "libatomic.so.1",
+      "sha256": "9558489f171274c220104894258f483055853ed8a23d4ff754c850ce55765aa2",
+      "size": 30848,
+      "kind": "binary"
+    },
+    {
+      "path": "libblkid.so.1",
+      "sha256": "116b712c143ac68bb59f6d8e32ed8e05e0772c730a9ba55ec544dd28916af58c",
+      "size": 396256,
+      "kind": "binary"
+    },
+    {
+      "path": "libbrotlicommon.so.1",
+      "sha256": "7b0b0de90d8d3d4f07b99738c0285c6a0dbb6611d774ca44e7ea53a19a01ea68",
+      "size": 141496,
+      "kind": "binary"
+    },
+    {
+      "path": "libbrotlidec.so.1",
+      "sha256": "06530583d5927000480f4214d80d0213fec3d34cc448527f932a6eceb50cefef",
+      "size": 51376,
+      "kind": "binary"
+    },
+    {
+      "path": "libbz2.so.1.0",
+      "sha256": "c630f057efedc12f848710d71f40283895591e5b4608539f387895c64e0553da",
+      "size": 74688,
+      "kind": "binary"
+    },
+    {
+      "path": "libcap.so.2",
+      "sha256": "41217b0af128444f66dee8adda52b2ceaf19da00e5b0b155e2b87b857671286b",
+      "size": 47288,
+      "kind": "binary"
+    },
+    {
+      "path": "libcom_err.so.2",
+      "sha256": "dc4828400674492839b630c001db424cd38e5cecfcf46dbf705a637647e04bea",
+      "size": 18344,
+      "kind": "binary"
+    },
+    {
+      "path": "libcrypto.so.3",
+      "sha256": "8ae56f0a9481280a68c19f59809cd242a07a91ad7142944d21a878221992244b",
+      "size": 6521408,
+      "kind": "binary"
+    },
+    {
+      "path": "libdbus-1.so.3",
+      "sha256": "f8c5475204730fa615547b10b642d7e27e5954ed1c12c47507743f2b486ba5a0",
+      "size": 350360,
+      "kind": "binary"
+    },
+    {
+      "path": "libexpat.so.1",
+      "sha256": "0fd7d092bd0bf5dcc29f31daaba2bad993b0d18a1ab771fb844e0a6dfa8efe18",
+      "size": 186520,
+      "kind": "binary"
+    },
+    {
+      "path": "libffi.so.8",
+      "sha256": "922024ec5a23f7de1095b1cff2f6cbfb377b5d58cd51fd0ec2e8fe35427653e2",
+      "size": 47576,
+      "kind": "binary"
+    },
+    {
+      "path": "libfontconfig.so.1",
+      "sha256": "d6344f71a0cfd5fcb154278f0be706021f75f79d1fcc973fc4ddb1dff40ab0ee",
+      "size": 317360,
+      "kind": "binary"
+    },
+    {
+      "path": "libfreetype.so.6",
+      "sha256": "9e376992a91e92d86809893a3b9eea22a4e27849db1686f6ca58032f79cdafb5",
+      "size": 845736,
+      "kind": "binary"
+    },
+    {
+      "path": "libgcc_s.so.1",
+      "sha256": "30c61ab012a4241bed033725a09b61f5fdd3bb7df95ee852d0b096520524c7af",
+      "size": 182856,
+      "kind": "binary"
+    },
+    {
+      "path": "libgio-2.0.so.0",
+      "sha256": "ada55aa768da50c23a114736ac39dd8d8c62f77a5519747f99e8836e86a1fd35",
+      "size": 2051320,
+      "kind": "binary"
+    },
+    {
+      "path": "libglib-2.0.so.0",
+      "sha256": "980ab64e995225de1543779e3bafafac9d705904d42ca3b5eb76e7a336cc5e1d",
+      "size": 1404320,
+      "kind": "binary"
+    },
+    {
+      "path": "libgmodule-2.0.so.0",
+      "sha256": "cb391dc09732706a0b2b9e2bf44ebe5539708cdeb8e8dd9c4ba910a958b78bb4",
+      "size": 22584,
+      "kind": "binary"
+    },
+    {
+      "path": "libgobject-2.0.so.0",
+      "sha256": "ea1b3b14267d075022abfb2a8ab1c61d568124ebba97553d7b45a4f6444abebe",
+      "size": 403680,
+      "kind": "binary"
+    },
+    {
+      "path": "libgssapi_krb5.so.2",
+      "sha256": "c290f761873ebeac539911010526e1c5db86218bfcb29672760da46841741de0",
+      "size": 346904,
+      "kind": "binary"
+    },
+    {
+      "path": "libgthread-2.0.so.0",
+      "sha256": "673907ae4a625ae4185c45c3ba40e363562fe94f533c3c4a1085868dbc492ec7",
+      "size": 14336,
+      "kind": "binary"
+    },
+    {
+      "path": "libicudata.so.73",
+      "sha256": "e47db053641465bb2e3307ddfaa1752c20e5556a084f49d784f00b50ecf97379",
+      "size": 32,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libicudata.so.73"
+    },
+    {
+      "path": "libicui18n.so.73",
+      "sha256": "44773248c50f532541276b741c1b60464937997b610bb61d806f11e6c29cda84",
+      "size": 32,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libicui18n.so.73"
+    },
+    {
+      "path": "libicuuc.so.73",
+      "sha256": "c795f4ee54e4a2f26ca1358604e89650ece992a8853b8f64edda1cae80a989b0",
+      "size": 30,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libicuuc.so.73"
+    },
+    {
+      "path": "libk5crypto.so.3",
+      "sha256": "c4c3221d0350f882cee0430b58d5fb289a5776c684d3156964864c8a9719dff1",
+      "size": 187144,
+      "kind": "binary"
+    },
+    {
+      "path": "libkeyutils.so.1",
+      "sha256": "e5d5a7450d08eff7d4bbcaac75ef2b94d3447c81a1b2ddf3ab85d2de4709a9a8",
+      "size": 22448,
+      "kind": "binary"
+    },
+    {
+      "path": "libkrb5.so.3",
+      "sha256": "c4ab64e6bc2874a83e649e4439be752465da027a0041e2bb5343f81c80f0882d",
+      "size": 883984,
+      "kind": "binary"
+    },
+    {
+      "path": "libkrb5support.so.0",
+      "sha256": "f559f051ee5d39f151a57d79f2cde475c484030098b0c73f9f7035b421b187c4",
+      "size": 52208,
+      "kind": "binary"
+    },
+    {
+      "path": "liblzma.so.5",
+      "sha256": "01e05a4b5268805a10a2414a8904fb1fb45c60626dce53b5ea19c1d491049b99",
+      "size": 198832,
+      "kind": "binary"
+    },
+    {
+      "path": "libmount.so.1",
+      "sha256": "1654d2cf948e3608cc0d38340807d4ddac1114315a3a77f7b274c4c859cb2181",
+      "size": 502512,
+      "kind": "binary"
+    },
+    {
+      "path": "libpcre2-8.so.0",
+      "sha256": "8dde125b341abfdf4a596d2974cd3048e350cbc8d2d77acd54ea044f7815ca77",
+      "size": 711216,
+      "kind": "binary"
+    },
+    {
+      "path": "libpng16.so.16",
+      "sha256": "56485ea502d222fa8b0d99f899470c1bacdca815a958d83c1b349d4e8f605255",
+      "size": 231416,
+      "kind": "binary"
+    },
+    {
+      "path": "libpyside6.abi3.so.6.8",
+      "sha256": "541ccf1f5b3e3829d1386e6436a3768100e2414fbc4bff821917382f960ece44",
+      "size": 31,
+      "kind": "symlink",
+      "target": "PySide6/libpyside6.abi3.so.6.8"
+    },
+    {
+      "path": "libpython3.12.so.1.0",
+      "sha256": "1d9d1e7fff7469ddc86e31f41e65e998599cfdc910978c71c3c99f72506e6d78",
+      "size": 6634768,
+      "kind": "binary"
+    },
+    {
+      "path": "libselinux.so.1",
+      "sha256": "5cb5293b4e7590463b94f7b23152d54807a6a2ccaf8cac9e343908c6692c086c",
+      "size": 202984,
+      "kind": "binary"
+    },
+    {
+      "path": "libshiboken6.abi3.so.6.8",
+      "sha256": "2143ced145e8e3b4b34db063bdcfedc56256a93ee8262367abd8cbaca1723254",
+      "size": 35,
+      "kind": "symlink",
+      "target": "shiboken6/libshiboken6.abi3.so.6.8"
+    },
+    {
+      "path": "libssl.so.3",
+      "sha256": "9592038e92d1f41affcbb625334d0b6e788714c889104fa6d5b107cf9fd657f2",
+      "size": 1109952,
+      "kind": "binary"
+    },
+    {
+      "path": "libstdc++.so.6",
+      "sha256": "972bb2a18b71140dab0240f8a1f68ab3fb1d56bcd4c4f824a91b70888faf5a00",
+      "size": 2497768,
+      "kind": "binary"
+    },
+    {
+      "path": "libsystemd.so.0",
+      "sha256": "c59f9015342de9c2dcb2decccb3d83218849fe3e4388c723a6528254fd7606f0",
+      "size": 1131784,
+      "kind": "binary"
+    },
+    {
+      "path": "libxkbcommon.so.0",
+      "sha256": "9f26c41577e0e036cbf42352e85b13db6bce953fb730555b4fc7de5362dc93bb",
+      "size": 301760,
+      "kind": "binary"
+    },
+    {
+      "path": "libz.so.1",
+      "sha256": "85590dd58edf5445e18bc7193e5ebc01ac5841f1ae187e97705a662e90c6421e",
+      "size": 125376,
+      "kind": "binary"
+    },
+    {
+      "path": "libzstd.so.1",
+      "sha256": "27f07c9a49c2c956bcfb64cd4712976586a66facbf15fc7f09bc37413b5f2b21",
+      "size": 825336,
+      "kind": "binary"
+    },
+    {
+      "path": "shiboken6/Shiboken.abi3.so",
+      "sha256": "61d7d3bbd7d01b4d2c9f76b9caf951ce8f963866c7fd7c3b55012191483f0a2f",
+      "size": 23728,
+      "kind": "binary"
+    },
+    {
+      "path": "shiboken6/libshiboken6.abi3.so.6.8",
+      "sha256": "f248c2b05cecc75b7ab808b84c45be93292107e994182797b3a1d20f87c7bd58",
+      "size": 433520,
+      "kind": "binary"
+    }
+  ]
+}

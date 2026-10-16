@@ -1,0 +1,2159 @@
+{
+  "status": "BLOCKED - inventory and observed provenance only; NOT approved native coverage",
+  "artifactSha256": "068cbc30bbb862c2ef7c3d5660624a1fe409ac62f779ec80b2c9665d018edb48",
+  "builderSourceSha256": "0b14451540f836094973feef4212982c16bf3cbc2adf2390507cc3b802e10ab5",
+  "payload": [
+    {
+      "path": "@bootloader",
+      "sha256": "879a520c4c01070bf60f667d93556dc0bc4c6a74054e310cef86151a09ea090c",
+      "size": 53961,
+      "kind": "bootloader",
+      "hash_scope": "ELF64-prefix-with-e_shoff-zeroed"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Core.so.6",
+      "sha256": "57ca362897ec9fe2b899ec5fec5e9d26677cdda8730df7299162d92bca4a8ac1",
+      "size": 7244416,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6DBus.so.6",
+      "sha256": "8e17fbe4600cb2b81ade8aef9f30d4a7a66745b29da830bcd0abd9afdf869251",
+      "size": 852968,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Gui.so.6",
+      "sha256": "e66a6797eba766cb65d5d7ba032ab16bed43476877907ff7be9b75b2b0259915",
+      "size": 11098104,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Network.so.6",
+      "sha256": "f4eb6b919c66d3b164c61a5d3e9e7e2553c6577b68ccd5d4646a47f557ced221",
+      "size": 2158080,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6Widgets.so.6",
+      "sha256": "f384dc8eb83605f9890784b051e218505aaa9422c19a69098f5c0cc8d6474310",
+      "size": 8044512,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libQt6XcbQpa.so.6",
+      "sha256": "b783bcc92feb244e71c9833f1b2b4070bc4a54ea25b4d6781a924f87f7eaa0a2",
+      "size": 775624,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libicudata.so.73",
+      "sha256": "4d24b3a908dd838bea23414e16aa830d05a2a306c475246ab11ef0a00c3037e9",
+      "size": 32035888,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libicui18n.so.73",
+      "sha256": "ad5410f3e4eb4f01f91d10ddb3780cdbcbeb902ed04a3bc4d3f562b956578d52",
+      "size": 4477136,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/lib/libicuuc.so.73",
+      "sha256": "8ce3427af0d2bf566bb422ce80a12014137d12ed452fe2dd9ed481ee46181168",
+      "size": 2571736,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/networkinformation/libqglib.so",
+      "sha256": "b4bf64bbe55d438832252ddc155c607d588b68f8f47e93ae747045b92e9f43d9",
+      "size": 27320,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/networkinformation/libqnetworkmanager.so",
+      "sha256": "53d2d1f1e33b7f2fa2eea8dcaba758983031977873783de409748eb5859936a6",
+      "size": 81600,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqoffscreen.so",
+      "sha256": "b588b802604403db49a9e1a433a3908da911db5dc7851e639f3da6c2113bca66",
+      "size": 125504,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/platforms/libqxcb.so",
+      "sha256": "0cfeff7788c8545f90f098c93fd284687ed2c813b1a259aada7c509fb08b0f89",
+      "size": 23096,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/tls/libqcertonlybackend.so",
+      "sha256": "4ec529320eff9424a3ac909180db6eb2f4c9ead374e56c33395704199eec329c",
+      "size": 105024,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt/plugins/tls/libqopensslbackend.so",
+      "sha256": "20530f6ad73e236d855bb9e31c8fb1ed56256452d6f004c089735ae9ddde75a9",
+      "size": 387792,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtCore.abi3.so",
+      "sha256": "7dd53cb74eafedf960da4337447876e59d01856c26461d781ef924ccc7366830",
+      "size": 4037288,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtDBus.abi3.so",
+      "sha256": "3bcad361a81ef5567c4c2c51b07249633014ccff9e57d2e8401092d8c5bc5069",
+      "size": 352424,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtGui.abi3.so",
+      "sha256": "9abe9520ec6aae9a0536bac50a59ab0f62adde58efd958e1cb101792d9696253",
+      "size": 4833576,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtNetwork.abi3.so",
+      "sha256": "2e476792c4f5a3da943591cb70a53b57189b1512352266188f17e14d5bb98eb1",
+      "size": 1273976,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtWidgets.abi3.so",
+      "sha256": "cd9a01af895e8c680b5645a897ee31bfab15212f4172535c48472607f6fa46b4",
+      "size": 6871640,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/libpyside6.abi3.so.6.8",
+      "sha256": "8f21561a13e334f6610e4a5720c5eae1c0bea03c7360f25e171ad3742aefb60a",
+      "size": 242408,
+      "kind": "binary"
+    },
+    {
+      "path": "_cffi_backend.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "9bc1d08072255a5ec2db10fc75df1dd9e73097a75cd9150cfe875ebd6712f17c",
+      "size": 348856,
+      "kind": "binary"
+    },
+    {
+      "path": "cryptography/hazmat/bindings/_rust.abi3.so",
+      "sha256": "a80089af52523b1fc91852d57785910dbb821648d551c12a4ab73c2d5312d657",
+      "size": 11545464,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_bisect.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "99e5c4ecc7cbf7769410f69e3c2b31860b7b2b327521b7473029a3adf5a1b4dc",
+      "size": 23416,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_blake2.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "490ba5f27570bd69e2d70e57ec838da02a24a1a969c24f1b58d9d58b48c5e782",
+      "size": 48632,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_bz2.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "af6446403db2e8fd0643feb3b4a9fd4dbf3f797b14ee52b8aabf3ac4aeb31d26",
+      "size": 27888,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_cn.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "be5dc886bba401b1836152e8913d1143ff01e357b623464486ec02663fd00074",
+      "size": 153976,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_hk.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "e1a40bb5c59f4751960ee9e041f144be254c55c5ae6eae8f884aa4b22847233b",
+      "size": 162200,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_iso2022.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "cfa0e2472581c653fb65398fe62c6d52eb71ae2ad789e05bd42e7a9874dc048a",
+      "size": 31128,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_jp.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "b45e699a15b48b932c8a0a0e521469df62f00e7ce7ea674b8cdd69db1dd25097",
+      "size": 268664,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_kr.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "4ba9682f6a61070fb8dd1d1814f72cd6fa2e5486ef570fc407b6b9813b5a0e94",
+      "size": 141688,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_codecs_tw.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "3340c578c42105d93f009de0208a3e709ad2fc48538158eac36031a23b238fc2",
+      "size": 113016,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_contextvars.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "8a5146382a14d3f892e3d9b74a90e1bdad246960afef500c823f95cbd53f926f",
+      "size": 14352,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_csv.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "acee243df244c5cca8636a524c2fb2fbfa11890548d69e7002917b0cb12f738d",
+      "size": 37472,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_datetime.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "1d0c3421db754a85c0a168fdc873d98a2ed2ddf3078f57629b05ed0ff1a0208b",
+      "size": 108912,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_decimal.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "9901847bb1c152f13b3205daf9671e82456291a5de422f8f06c819f4227b607c",
+      "size": 290448,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_elementtree.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "c6b51ba83831280f2e4302859f491e4b0f59dd4c2268e457b59fcddb028d8032",
+      "size": 80624,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_hashlib.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "fb0751d9c1d28f82f27bff1901df75dc598b5d456316fe4f491e89d65d464d87",
+      "size": 64184,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_heapq.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "e07188a1d60448678cf061e4135149509128039a5067f005c30edb0b3b719612",
+      "size": 26928,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_json.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "4448a535456a9dab93645194b6706b38c85ab2dc292bfab6935f4431616dab5c",
+      "size": 40688,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_lzma.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "b8a74cc9b0ef9553214871f77a0a7f40cedba073a006ee120f575f36db95eb78",
+      "size": 45000,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_md5.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "01c3e882403179083938f5507b263a0c3d487c9361e70780c4fdf28c20e01594",
+      "size": 23568,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_multibytecodec.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "eee48544d67695f0634f9d2428fa1ab78c8118651dd3d60af40b8ab7e249a3ff",
+      "size": 46272,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_opcode.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "bdbc4dd1dd0ac096b30e0715251561a3aa17574465e4efad5529cbd6cd42d139",
+      "size": 14744,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_pickle.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "c6a72dc947440f34197d8907660a48f54654f9e393b0f9fc6615cf2ca8e78bff",
+      "size": 124704,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_posixsubprocess.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "405368efb426b8b427daa857837acf4fea9c2bffce1e62adbe532d0fd0e882e4",
+      "size": 27240,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_random.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "218ab54eca95be57ee345a2271f3d1f01414df8c6f9fc61ecb496e1ec27efefb",
+      "size": 23232,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_sha1.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "6c6eac07ea58c0f7593fa1fc3d46c90c71a1943b216c66656dcbc0690160f0c2",
+      "size": 23568,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_sha2.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "a639ebb7c37d355c37c9f76b462a6324645cbcf92c611a5ac783001ac34daa91",
+      "size": 77712,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_sha3.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "0ca4f4b8842c9da6c1922783e2a024dae6999bb4f87543f3eadafad210885b94",
+      "size": 32944,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_socket.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "3eac65ca6bd75987f0aea2ad7fe43b6354a544f57117f1c2f716cf862f7d26ea",
+      "size": 104152,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_ssl.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "6891800dbb9144863d3e1fbcf812694035533c6872a29575f857d5163a8b5c7e",
+      "size": 212992,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_statistics.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "368ebed02bef81785c0975db085122cae8b61a70b601605c10258ae4c2e1bd48",
+      "size": 14504,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/_struct.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "803ccc50e18ea2dec65bb6849c5a5279e047afd8f760a47d69b5495b7819391e",
+      "size": 54992,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/array.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "005b3be02a0b7a4deb23c34a007477433ef633058c22b69e39c356fa1e2178cb",
+      "size": 70560,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/binascii.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "c0c0c47864f092e5ccac8397a43d649e2dcf7cbfa3983b3e1e7114b3e03a6f35",
+      "size": 32216,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/fcntl.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "9dd396ef78b4d584b0dc3d060e6ba55c0cdbb5ffbb83b4b13b0d3f927f28de70",
+      "size": 22984,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/grp.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "ed38ef85625a6df22c4dbe577cf234280aaf3a66a168ae36939fe58fa87ff14e",
+      "size": 15216,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/math.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "38a702e96da7e7a9ebc8ec07ae41c39fef6207c9c518296d24b1cfa4dc57da26",
+      "size": 70424,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/pyexpat.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "0a74b850ea2a73ef2a9af8622d3c6c19523d579b553f04fc1ea6aefc3936eb87",
+      "size": 238664,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/resource.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "b83e224982441d56346787eb6b9b24a4594023bd8781d08717a200a4aa25a75b",
+      "size": 19264,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/select.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "4d28423a7bb3a98e4157c122573f671a787530926891a189b7abab64cbae34cc",
+      "size": 32768,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/termios.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "0b47d29722dfb03877aa4b3a1058b60ec2ccd7bb0d33a71e23b73212654a7a8f",
+      "size": 35360,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/unicodedata.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "59b963b53a37eb37eaa2266f1a0ccacf3b63c63ef37c0dc2edf77dcd253f8e20",
+      "size": 1131664,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/xxsubtype.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "3f8cae55edbee60d8090d936ec665032c2db3a21ae566bcc2f5fd95cc4b9ded0",
+      "size": 15872,
+      "kind": "binary"
+    },
+    {
+      "path": "lib-dynload/zlib.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "93e46df50e17712a32a4ec2d548f5122df0ac2b634175e2d065669544ee625e8",
+      "size": 50192,
+      "kind": "binary"
+    },
+    {
+      "path": "libQt6Core.so.6",
+      "sha256": "ac7c90784421d4165aa53bb99661d1eae6e6ae5b7c8121617dfca49ee554b4ba",
+      "size": 31,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Core.so.6"
+    },
+    {
+      "path": "libQt6DBus.so.6",
+      "sha256": "20e303258b154f87be2fddbb30c965ecf6642fd47d328abbf46cbdb67cec1b32",
+      "size": 31,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6DBus.so.6"
+    },
+    {
+      "path": "libQt6Gui.so.6",
+      "sha256": "472794da5f4d886a4caca6f136dd4c998b43658a87b8f98cbf67458c34a6cf30",
+      "size": 30,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Gui.so.6"
+    },
+    {
+      "path": "libQt6Network.so.6",
+      "sha256": "a934e778e23331d24abcab48894e0624921f682759ec5dd9353376b51d80f9f9",
+      "size": 34,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Network.so.6"
+    },
+    {
+      "path": "libQt6Widgets.so.6",
+      "sha256": "6139fe150b13ed9d92d7c74ff9ddfd1ea787cc1640aa517e691894576a8e9668",
+      "size": 34,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6Widgets.so.6"
+    },
+    {
+      "path": "libQt6XcbQpa.so.6",
+      "sha256": "eaca78a2d8631c70a37d7f31049fa5f93bac7ec4d284b6dcec54873c9755fa02",
+      "size": 33,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libQt6XcbQpa.so.6"
+    },
+    {
+      "path": "libX11-xcb.so.1",
+      "sha256": "c73c2e98ad556a412dd6eef44b857dbd3cc02f191db8af30968084565f60f311",
+      "size": 13944,
+      "kind": "binary"
+    },
+    {
+      "path": "libX11.so.6",
+      "sha256": "b03e563b316b8b53c7988f0ee91d6656cc425538e00947a8b14482d179e80099",
+      "size": 1342984,
+      "kind": "binary"
+    },
+    {
+      "path": "libXau.so.6",
+      "sha256": "4275ec5b14bec21770c44447b3a52977e211c7ba08745008f3a1783878e091bb",
+      "size": 14472,
+      "kind": "binary"
+    },
+    {
+      "path": "libXdmcp.so.6",
+      "sha256": "761409b24c818719f8c8a2a64a61c8ac6a3067f3d8882485dca64a98d7500040",
+      "size": 26728,
+      "kind": "binary"
+    },
+    {
+      "path": "libatomic.so.1",
+      "sha256": "9558489f171274c220104894258f483055853ed8a23d4ff754c850ce55765aa2",
+      "size": 30848,
+      "kind": "binary"
+    },
+    {
+      "path": "libblkid.so.1",
+      "sha256": "116b712c143ac68bb59f6d8e32ed8e05e0772c730a9ba55ec544dd28916af58c",
+      "size": 396256,
+      "kind": "binary"
+    },
+    {
+      "path": "libbrotlicommon.so.1",
+      "sha256": "7b0b0de90d8d3d4f07b99738c0285c6a0dbb6611d774ca44e7ea53a19a01ea68",
+      "size": 141496,
+      "kind": "binary"
+    },
+    {
+      "path": "libbrotlidec.so.1",
+      "sha256": "06530583d5927000480f4214d80d0213fec3d34cc448527f932a6eceb50cefef",
+      "size": 51376,
+      "kind": "binary"
+    },
+    {
+      "path": "libbz2.so.1.0",
+      "sha256": "c630f057efedc12f848710d71f40283895591e5b4608539f387895c64e0553da",
+      "size": 74688,
+      "kind": "binary"
+    },
+    {
+      "path": "libcap.so.2",
+      "sha256": "41217b0af128444f66dee8adda52b2ceaf19da00e5b0b155e2b87b857671286b",
+      "size": 47288,
+      "kind": "binary"
+    },
+    {
+      "path": "libcom_err.so.2",
+      "sha256": "dc4828400674492839b630c001db424cd38e5cecfcf46dbf705a637647e04bea",
+      "size": 18344,
+      "kind": "binary"
+    },
+    {
+      "path": "libcrypto.so.3",
+      "sha256": "8ae56f0a9481280a68c19f59809cd242a07a91ad7142944d21a878221992244b",
+      "size": 6521408,
+      "kind": "binary"
+    },
+    {
+      "path": "libdbus-1.so.3",
+      "sha256": "f8c5475204730fa615547b10b642d7e27e5954ed1c12c47507743f2b486ba5a0",
+      "size": 350360,
+      "kind": "binary"
+    },
+    {
+      "path": "libexpat.so.1",
+      "sha256": "0fd7d092bd0bf5dcc29f31daaba2bad993b0d18a1ab771fb844e0a6dfa8efe18",
+      "size": 186520,
+      "kind": "binary"
+    },
+    {
+      "path": "libffi.so.8",
+      "sha256": "922024ec5a23f7de1095b1cff2f6cbfb377b5d58cd51fd0ec2e8fe35427653e2",
+      "size": 47576,
+      "kind": "binary"
+    },
+    {
+      "path": "libfontconfig.so.1",
+      "sha256": "d6344f71a0cfd5fcb154278f0be706021f75f79d1fcc973fc4ddb1dff40ab0ee",
+      "size": 317360,
+      "kind": "binary"
+    },
+    {
+      "path": "libfreetype.so.6",
+      "sha256": "9e376992a91e92d86809893a3b9eea22a4e27849db1686f6ca58032f79cdafb5",
+      "size": 845736,
+      "kind": "binary"
+    },
+    {
+      "path": "libgcc_s.so.1",
+      "sha256": "30c61ab012a4241bed033725a09b61f5fdd3bb7df95ee852d0b096520524c7af",
+      "size": 182856,
+      "kind": "binary"
+    },
+    {
+      "path": "libgio-2.0.so.0",
+      "sha256": "ada55aa768da50c23a114736ac39dd8d8c62f77a5519747f99e8836e86a1fd35",
+      "size": 2051320,
+      "kind": "binary"
+    },
+    {
+      "path": "libglib-2.0.so.0",
+      "sha256": "980ab64e995225de1543779e3bafafac9d705904d42ca3b5eb76e7a336cc5e1d",
+      "size": 1404320,
+      "kind": "binary"
+    },
+    {
+      "path": "libgmodule-2.0.so.0",
+      "sha256": "cb391dc09732706a0b2b9e2bf44ebe5539708cdeb8e8dd9c4ba910a958b78bb4",
+      "size": 22584,
+      "kind": "binary"
+    },
+    {
+      "path": "libgobject-2.0.so.0",
+      "sha256": "ea1b3b14267d075022abfb2a8ab1c61d568124ebba97553d7b45a4f6444abebe",
+      "size": 403680,
+      "kind": "binary"
+    },
+    {
+      "path": "libgssapi_krb5.so.2",
+      "sha256": "c290f761873ebeac539911010526e1c5db86218bfcb29672760da46841741de0",
+      "size": 346904,
+      "kind": "binary"
+    },
+    {
+      "path": "libgthread-2.0.so.0",
+      "sha256": "673907ae4a625ae4185c45c3ba40e363562fe94f533c3c4a1085868dbc492ec7",
+      "size": 14336,
+      "kind": "binary"
+    },
+    {
+      "path": "libicudata.so.73",
+      "sha256": "e47db053641465bb2e3307ddfaa1752c20e5556a084f49d784f00b50ecf97379",
+      "size": 32,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libicudata.so.73"
+    },
+    {
+      "path": "libicui18n.so.73",
+      "sha256": "44773248c50f532541276b741c1b60464937997b610bb61d806f11e6c29cda84",
+      "size": 32,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libicui18n.so.73"
+    },
+    {
+      "path": "libicuuc.so.73",
+      "sha256": "c795f4ee54e4a2f26ca1358604e89650ece992a8853b8f64edda1cae80a989b0",
+      "size": 30,
+      "kind": "symlink",
+      "target": "PySide6/Qt/lib/libicuuc.so.73"
+    },
+    {
+      "path": "libk5crypto.so.3",
+      "sha256": "c4c3221d0350f882cee0430b58d5fb289a5776c684d3156964864c8a9719dff1",
+      "size": 187144,
+      "kind": "binary"
+    },
+    {
+      "path": "libkeyutils.so.1",
+      "sha256": "e5d5a7450d08eff7d4bbcaac75ef2b94d3447c81a1b2ddf3ab85d2de4709a9a8",
+      "size": 22448,
+      "kind": "binary"
+    },
+    {
+      "path": "libkrb5.so.3",
+      "sha256": "c4ab64e6bc2874a83e649e4439be752465da027a0041e2bb5343f81c80f0882d",
+      "size": 883984,
+      "kind": "binary"
+    },
+    {
+      "path": "libkrb5support.so.0",
+      "sha256": "f559f051ee5d39f151a57d79f2cde475c484030098b0c73f9f7035b421b187c4",
+      "size": 52208,
+      "kind": "binary"
+    },
+    {
+      "path": "liblzma.so.5",
+      "sha256": "01e05a4b5268805a10a2414a8904fb1fb45c60626dce53b5ea19c1d491049b99",
+      "size": 198832,
+      "kind": "binary"
+    },
+    {
+      "path": "libmount.so.1",
+      "sha256": "1654d2cf948e3608cc0d38340807d4ddac1114315a3a77f7b274c4c859cb2181",
+      "size": 502512,
+      "kind": "binary"
+    },
+    {
+      "path": "libpcre2-8.so.0",
+      "sha256": "8dde125b341abfdf4a596d2974cd3048e350cbc8d2d77acd54ea044f7815ca77",
+      "size": 711216,
+      "kind": "binary"
+    },
+    {
+      "path": "libpng16.so.16",
+      "sha256": "56485ea502d222fa8b0d99f899470c1bacdca815a958d83c1b349d4e8f605255",
+      "size": 231416,
+      "kind": "binary"
+    },
+    {
+      "path": "libpyside6.abi3.so.6.8",
+      "sha256": "541ccf1f5b3e3829d1386e6436a3768100e2414fbc4bff821917382f960ece44",
+      "size": 31,
+      "kind": "symlink",
+      "target": "PySide6/libpyside6.abi3.so.6.8"
+    },
+    {
+      "path": "libpython3.12.so.1.0",
+      "sha256": "1d9d1e7fff7469ddc86e31f41e65e998599cfdc910978c71c3c99f72506e6d78",
+      "size": 6634768,
+      "kind": "binary"
+    },
+    {
+      "path": "libselinux.so.1",
+      "sha256": "5cb5293b4e7590463b94f7b23152d54807a6a2ccaf8cac9e343908c6692c086c",
+      "size": 202984,
+      "kind": "binary"
+    },
+    {
+      "path": "libshiboken6.abi3.so.6.8",
+      "sha256": "2143ced145e8e3b4b34db063bdcfedc56256a93ee8262367abd8cbaca1723254",
+      "size": 35,
+      "kind": "symlink",
+      "target": "shiboken6/libshiboken6.abi3.so.6.8"
+    },
+    {
+      "path": "libssl.so.3",
+      "sha256": "9592038e92d1f41affcbb625334d0b6e788714c889104fa6d5b107cf9fd657f2",
+      "size": 1109952,
+      "kind": "binary"
+    },
+    {
+      "path": "libstdc++.so.6",
+      "sha256": "972bb2a18b71140dab0240f8a1f68ab3fb1d56bcd4c4f824a91b70888faf5a00",
+      "size": 2497768,
+      "kind": "binary"
+    },
+    {
+      "path": "libsystemd.so.0",
+      "sha256": "c59f9015342de9c2dcb2decccb3d83218849fe3e4388c723a6528254fd7606f0",
+      "size": 1131784,
+      "kind": "binary"
+    },
+    {
+      "path": "libxkbcommon.so.0",
+      "sha256": "9f26c41577e0e036cbf42352e85b13db6bce953fb730555b4fc7de5362dc93bb",
+      "size": 301760,
+      "kind": "binary"
+    },
+    {
+      "path": "libz.so.1",
+      "sha256": "85590dd58edf5445e18bc7193e5ebc01ac5841f1ae187e97705a662e90c6421e",
+      "size": 125376,
+      "kind": "binary"
+    },
+    {
+      "path": "libzstd.so.1",
+      "sha256": "27f07c9a49c2c956bcfb64cd4712976586a66facbf15fc7f09bc37413b5f2b21",
+      "size": 825336,
+      "kind": "binary"
+    },
+    {
+      "path": "shiboken6/Shiboken.abi3.so",
+      "sha256": "61d7d3bbd7d01b4d2c9f76b9caf951ce8f963866c7fd7c3b55012191483f0a2f",
+      "size": 23728,
+      "kind": "binary"
+    },
+    {
+      "path": "shiboken6/libshiboken6.abi3.so.6.8",
+      "sha256": "f248c2b05cecc75b7ab808b84c45be93292107e994182797b3a1d20f87c7bd58",
+      "size": 433520,
+      "kind": "binary"
+    }
+  ],
+  "provenance": {
+    "libatomic.so.1": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "212b399aae2f7299203d261a57e49372e09565a9a5ea971905f94a3960366c05",
+        "binaryPackage": "libatomic1",
+        "binaryVersion": "14.2.0-19",
+        "sourcePackage": "gcc-14",
+        "sourceVersion": "14.2.0-19",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/gcc-14/14.2.0-19/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libatomic.so.1.2.0",
+        "sha256": "9558489f171274c220104894258f483055853ed8a23d4ff754c850ce55765aa2"
+      }
+    ],
+    "libbrotlicommon.so.1": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db",
+        "binaryPackage": "libbrotli1",
+        "binaryVersion": "1.1.0-2+b7",
+        "sourcePackage": "brotli",
+        "sourceVersion": "1.1.0-2",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/brotli/1.1.0-2/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libbrotli1-1.1.0-2+b7.copyright",
+          "sha256": "24a64e5bb83d0960d1835696a1e23c0896ad6055b0ca47c66ab0eb9a766324b1"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libbrotlicommon.so.1.1.0",
+        "sha256": "7b0b0de90d8d3d4f07b99738c0285c6a0dbb6611d774ca44e7ea53a19a01ea68"
+      },
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libbrotlicommon.so.1.1.0",
+        "binaryPackage": "libbrotli1",
+        "binaryVersion": "1.1.0-2+b7",
+        "sourcePackage": "brotli",
+        "sourceVersion": "1.1.0-2",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/brotli/1.1.0-2/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libbrotli1-1.1.0-2+b7.copyright",
+          "sha256": "24a64e5bb83d0960d1835696a1e23c0896ad6055b0ca47c66ab0eb9a766324b1"
+        },
+        "sha256": "7b0b0de90d8d3d4f07b99738c0285c6a0dbb6611d774ca44e7ea53a19a01ea68"
+      }
+    ],
+    "libbrotlidec.so.1": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db",
+        "binaryPackage": "libbrotli1",
+        "binaryVersion": "1.1.0-2+b7",
+        "sourcePackage": "brotli",
+        "sourceVersion": "1.1.0-2",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/brotli/1.1.0-2/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libbrotli1-1.1.0-2+b7.copyright",
+          "sha256": "24a64e5bb83d0960d1835696a1e23c0896ad6055b0ca47c66ab0eb9a766324b1"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libbrotlidec.so.1.1.0",
+        "sha256": "06530583d5927000480f4214d80d0213fec3d34cc448527f932a6eceb50cefef"
+      },
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libbrotlidec.so.1.1.0",
+        "binaryPackage": "libbrotli1",
+        "binaryVersion": "1.1.0-2+b7",
+        "sourcePackage": "brotli",
+        "sourceVersion": "1.1.0-2",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/brotli/1.1.0-2/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libbrotli1-1.1.0-2+b7.copyright",
+          "sha256": "24a64e5bb83d0960d1835696a1e23c0896ad6055b0ca47c66ab0eb9a766324b1"
+        },
+        "sha256": "06530583d5927000480f4214d80d0213fec3d34cc448527f932a6eceb50cefef"
+      }
+    ],
+    "libcap.so.2": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "89fc4d34fc7a28ad6f0fcd0c561ab253b9dedf6f77f5a000b47c276c8295bf67",
+        "binaryPackage": "libcap2",
+        "binaryVersion": "1:2.75-10+deb13u1+b3",
+        "sourcePackage": "libcap2",
+        "sourceVersion": "1:2.75-10+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libcap2/1%3A2.75-10%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libcap2-1_2.75-10+deb13u1+b3.copyright",
+          "sha256": "04f9fb974e10f6ca0cd226811f72b3855f8383daad0e5de7adac8d5b0b7796c3"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libcap.so.2.75",
+        "sha256": "41217b0af128444f66dee8adda52b2ceaf19da00e5b0b155e2b87b857671286b"
+      },
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libcap.so.2.75",
+        "binaryPackage": "libcap2",
+        "binaryVersion": "1:2.75-10+deb13u1+b3",
+        "sourcePackage": "libcap2",
+        "sourceVersion": "1:2.75-10+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libcap2/1%3A2.75-10%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libcap2-1_2.75-10+deb13u1+b3.copyright",
+          "sha256": "04f9fb974e10f6ca0cd226811f72b3855f8383daad0e5de7adac8d5b0b7796c3"
+        },
+        "sha256": "41217b0af128444f66dee8adda52b2ceaf19da00e5b0b155e2b87b857671286b"
+      }
+    ],
+    "libdbus-1.so.3": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "bbcb711daff7e104b5f80f9b05475b6142674bfe65518a36a56e96a91068a3f5",
+        "binaryPackage": "libdbus-1-3",
+        "binaryVersion": "1.16.2-2",
+        "sourcePackage": "dbus",
+        "sourceVersion": "1.16.2-2",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/dbus/1.16.2-2/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libdbus-1-3-1.16.2-2.copyright",
+          "sha256": "f5fd0bfcceb21f4c23a517368abcbfe8a4c1cfb3b521757b50fae4898840fe35"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libdbus-1.so.3.38.3",
+        "sha256": "f8c5475204730fa615547b10b642d7e27e5954ed1c12c47507743f2b486ba5a0"
+      }
+    ],
+    "libexpat.so.1": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "38abe0e710a07688e9c149d74536e67cfee0364bdb64dd6d644c32a1cfad389f",
+        "binaryPackage": "libexpat1",
+        "binaryVersion": "2.8.3-1~deb13u1",
+        "sourcePackage": "expat",
+        "sourceVersion": "2.8.3-1~deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/expat/2.8.3-1~deb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libexpat1-2.8.3-1~deb13u1.copyright",
+          "sha256": "60919fe1a156395ff14511bb6ff79756c50ade2fff59ac60c9bae1d8a7fe6292"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libexpat.so.1.12.3",
+        "sha256": "0fd7d092bd0bf5dcc29f31daaba2bad993b0d18a1ab771fb844e0a6dfa8efe18"
+      },
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libexpat.so.1.12.3",
+        "binaryPackage": "libexpat1",
+        "binaryVersion": "2.8.3-1~deb13u1",
+        "sourcePackage": "expat",
+        "sourceVersion": "2.8.3-1~deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/expat/2.8.3-1~deb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libexpat1-2.8.3-1~deb13u1.copyright",
+          "sha256": "60919fe1a156395ff14511bb6ff79756c50ade2fff59ac60c9bae1d8a7fe6292"
+        },
+        "sha256": "0fd7d092bd0bf5dcc29f31daaba2bad993b0d18a1ab771fb844e0a6dfa8efe18"
+      }
+    ],
+    "libffi.so.8": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "0ebdc340de33333639c3c63874cd4b15ac2e83dfa1ef3053b7eefaf4919f4f68",
+        "binaryPackage": "libffi8",
+        "binaryVersion": "3.4.8-2",
+        "sourcePackage": "libffi",
+        "sourceVersion": "3.4.8-2",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libffi/3.4.8-2/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libffi8-3.4.8-2.copyright",
+          "sha256": "25ee86cfccc2b7eb9a156a127f1e1b38c46c231f516ff201912223eaf62ee186"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libffi.so.8.1.4",
+        "sha256": "922024ec5a23f7de1095b1cff2f6cbfb377b5d58cd51fd0ec2e8fe35427653e2"
+      },
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libffi.so.8.1.4",
+        "binaryPackage": "libffi8",
+        "binaryVersion": "3.4.8-2",
+        "sourcePackage": "libffi",
+        "sourceVersion": "3.4.8-2",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libffi/3.4.8-2/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libffi8-3.4.8-2.copyright",
+          "sha256": "25ee86cfccc2b7eb9a156a127f1e1b38c46c231f516ff201912223eaf62ee186"
+        },
+        "sha256": "922024ec5a23f7de1095b1cff2f6cbfb377b5d58cd51fd0ec2e8fe35427653e2"
+      }
+    ],
+    "libfontconfig.so.1": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "7ae91ec59857cc8e375eb2bdd371a4a69daea38f7787d06d474a847867d852b1",
+        "binaryPackage": "libfontconfig1",
+        "binaryVersion": "2.15.0-2.3",
+        "sourcePackage": "fontconfig",
+        "sourceVersion": "2.15.0-2.3",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/fontconfig/2.15.0-2.3/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libfontconfig1-2.15.0-2.3.copyright",
+          "sha256": "b215a61cdd3e62b5b17cc28b1852c78acb3dd38be0fb30706f7efc050dba91db"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libfontconfig.so.1.12.1",
+        "sha256": "d6344f71a0cfd5fcb154278f0be706021f75f79d1fcc973fc4ddb1dff40ab0ee"
+      }
+    ],
+    "libfreetype.so.6": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "e4947f3291528f03d574f2b01d5c5fc45c58c47480f32888a5cdf0f231ab584e",
+        "binaryPackage": "libfreetype6",
+        "binaryVersion": "2.13.3+dfsg-1+deb13u1",
+        "sourcePackage": "freetype",
+        "sourceVersion": "2.13.3+dfsg-1+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/freetype/2.13.3%2Bdfsg-1%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libfreetype6-2.13.3+dfsg-1+deb13u1.copyright",
+          "sha256": "acdab1506824347784d2cc0a634cfa17dbf525c0d5b4902b4ac9d0d4e1fed6c7"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libfreetype.so.6.20.2",
+        "sha256": "9e376992a91e92d86809893a3b9eea22a4e27849db1686f6ca58032f79cdafb5"
+      }
+    ],
+    "libgio-2.0.so.0": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "e2baf92c57d1db1753e5781a61450d9a01e7833c7bd2dfe87776a6811c11ecc2",
+        "binaryPackage": "libglib2.0-0t64",
+        "binaryVersion": "2.84.4-3~deb13u5",
+        "sourcePackage": "glib2.0",
+        "sourceVersion": "2.84.4-3~deb13u5",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/glib2.0/2.84.4-3~deb13u5/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libglib2.0-0t64-2.84.4-3~deb13u5.copyright",
+          "sha256": "b9fe78c8a0720c051c9ac8e8c6f25663b54f228e501d24fc0ba89c66cec7f7c1"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libgio-2.0.so.0.8400.4",
+        "sha256": "ada55aa768da50c23a114736ac39dd8d8c62f77a5519747f99e8836e86a1fd35"
+      }
+    ],
+    "libglib-2.0.so.0": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "e2baf92c57d1db1753e5781a61450d9a01e7833c7bd2dfe87776a6811c11ecc2",
+        "binaryPackage": "libglib2.0-0t64",
+        "binaryVersion": "2.84.4-3~deb13u5",
+        "sourcePackage": "glib2.0",
+        "sourceVersion": "2.84.4-3~deb13u5",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/glib2.0/2.84.4-3~deb13u5/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libglib2.0-0t64-2.84.4-3~deb13u5.copyright",
+          "sha256": "b9fe78c8a0720c051c9ac8e8c6f25663b54f228e501d24fc0ba89c66cec7f7c1"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libglib-2.0.so.0.8400.4",
+        "sha256": "980ab64e995225de1543779e3bafafac9d705904d42ca3b5eb76e7a336cc5e1d"
+      }
+    ],
+    "libgmodule-2.0.so.0": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "e2baf92c57d1db1753e5781a61450d9a01e7833c7bd2dfe87776a6811c11ecc2",
+        "binaryPackage": "libglib2.0-0t64",
+        "binaryVersion": "2.84.4-3~deb13u5",
+        "sourcePackage": "glib2.0",
+        "sourceVersion": "2.84.4-3~deb13u5",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/glib2.0/2.84.4-3~deb13u5/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libglib2.0-0t64-2.84.4-3~deb13u5.copyright",
+          "sha256": "b9fe78c8a0720c051c9ac8e8c6f25663b54f228e501d24fc0ba89c66cec7f7c1"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libgmodule-2.0.so.0.8400.4",
+        "sha256": "cb391dc09732706a0b2b9e2bf44ebe5539708cdeb8e8dd9c4ba910a958b78bb4"
+      }
+    ],
+    "libgobject-2.0.so.0": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "e2baf92c57d1db1753e5781a61450d9a01e7833c7bd2dfe87776a6811c11ecc2",
+        "binaryPackage": "libglib2.0-0t64",
+        "binaryVersion": "2.84.4-3~deb13u5",
+        "sourcePackage": "glib2.0",
+        "sourceVersion": "2.84.4-3~deb13u5",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/glib2.0/2.84.4-3~deb13u5/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libglib2.0-0t64-2.84.4-3~deb13u5.copyright",
+          "sha256": "b9fe78c8a0720c051c9ac8e8c6f25663b54f228e501d24fc0ba89c66cec7f7c1"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libgobject-2.0.so.0.8400.4",
+        "sha256": "ea1b3b14267d075022abfb2a8ab1c61d568124ebba97553d7b45a4f6444abebe"
+      }
+    ],
+    "libgthread-2.0.so.0": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "e2baf92c57d1db1753e5781a61450d9a01e7833c7bd2dfe87776a6811c11ecc2",
+        "binaryPackage": "libglib2.0-0t64",
+        "binaryVersion": "2.84.4-3~deb13u5",
+        "sourcePackage": "glib2.0",
+        "sourceVersion": "2.84.4-3~deb13u5",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/glib2.0/2.84.4-3~deb13u5/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libglib2.0-0t64-2.84.4-3~deb13u5.copyright",
+          "sha256": "b9fe78c8a0720c051c9ac8e8c6f25663b54f228e501d24fc0ba89c66cec7f7c1"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libgthread-2.0.so.0.8400.4",
+        "sha256": "673907ae4a625ae4185c45c3ba40e363562fe94f533c3c4a1085868dbc492ec7"
+      }
+    ],
+    "libpcre2-8.so.0": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "1252b96a5bc44bb5db982bef8eb18e54f5047cede2aff641bce4f8e1edb91c3e",
+        "binaryPackage": "libpcre2-8-0",
+        "binaryVersion": "10.46-1~deb13u2",
+        "sourcePackage": "pcre2",
+        "sourceVersion": "10.46-1~deb13u2",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/pcre2/10.46-1~deb13u2/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libpcre2-8-0-10.46-1~deb13u2.copyright",
+          "sha256": "e915cde4251f96ec6af107ecd2e194440a4e69440893b0c982802f8a1e4ae40a"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libpcre2-8.so.0.14.0",
+        "sha256": "8dde125b341abfdf4a596d2974cd3048e350cbc8d2d77acd54ea044f7815ca77"
+      }
+    ],
+    "libpng16.so.16": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "2465b4e9fa85cff54dc10a6da3e64074d8d9292c86e4a8f989b809d6b158e97e",
+        "binaryPackage": "libpng16-16t64",
+        "binaryVersion": "1.6.48-1+deb13u5",
+        "sourcePackage": "libpng1.6",
+        "sourceVersion": "1.6.48-1+deb13u5",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libpng1.6/1.6.48-1%2Bdeb13u5/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libpng16-16t64-1.6.48-1+deb13u5.copyright",
+          "sha256": "7e729164c60950b2b57f1712d82a051c9ba54f421c9b69815d9e4686ddc5709b"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libpng16.so.16.48.0",
+        "sha256": "56485ea502d222fa8b0d99f899470c1bacdca815a958d83c1b349d4e8f605255"
+      }
+    ],
+    "libsystemd.so.0": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "ab0d4127b5e46e6f8c015a1db15a62ba9ae274cdefa150083adf90ada0600ea1",
+        "binaryPackage": "libsystemd0",
+        "binaryVersion": "257.13-1~deb13u1",
+        "sourcePackage": "systemd",
+        "sourceVersion": "257.13-1~deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/systemd/257.13-1~deb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libsystemd0-257.13-1~deb13u1.copyright",
+          "sha256": "a79e4b379cabbd960bb44f6cc1a069081a3778c59a25ee529b68df5a2cb7d27d"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libsystemd.so.0.40.0",
+        "sha256": "c59f9015342de9c2dcb2decccb3d83218849fe3e4388c723a6528254fd7606f0"
+      },
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libsystemd.so.0.40.0",
+        "binaryPackage": "libsystemd0",
+        "binaryVersion": "257.13-1~deb13u1",
+        "sourcePackage": "systemd",
+        "sourceVersion": "257.13-1~deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/systemd/257.13-1~deb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libsystemd0-257.13-1~deb13u1.copyright",
+          "sha256": "a79e4b379cabbd960bb44f6cc1a069081a3778c59a25ee529b68df5a2cb7d27d"
+        },
+        "sha256": "c59f9015342de9c2dcb2decccb3d83218849fe3e4388c723a6528254fd7606f0"
+      }
+    ],
+    "libX11.so.6": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "b5a3fd3bf8c8fd0364bfb9bea00dcba7fc301229bd02dded084632d31f5b0fb3",
+        "binaryPackage": "libx11-6",
+        "binaryVersion": "2:1.8.12-1",
+        "sourcePackage": "libx11",
+        "sourceVersion": "2:1.8.12-1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libx11/2%3A1.8.12-1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libx11-6-2_1.8.12-1.copyright",
+          "sha256": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libX11.so.6.4.0",
+        "sha256": "b03e563b316b8b53c7988f0ee91d6656cc425538e00947a8b14482d179e80099"
+      }
+    ],
+    "libX11-xcb.so.1": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "e05f94d21a932fba5b09b9b13d99df776b155d3bc792c0e294451df9ffe1ba25",
+        "binaryPackage": "libx11-xcb1",
+        "binaryVersion": "2:1.8.12-1",
+        "sourcePackage": "libx11",
+        "sourceVersion": "2:1.8.12-1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libx11/2%3A1.8.12-1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libx11-xcb1-2_1.8.12-1.copyright",
+          "sha256": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libX11-xcb.so.1.0.0",
+        "sha256": "c73c2e98ad556a412dd6eef44b857dbd3cc02f191db8af30968084565f60f311"
+      }
+    ],
+    "libXau.so.6": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "689a9f0e0ba3e2c65431f864871e303ee904de69dd28abfc462663fae030227f",
+        "binaryPackage": "libxau6",
+        "binaryVersion": "1:1.0.11-1",
+        "sourcePackage": "libxau",
+        "sourceVersion": "1:1.0.11-1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libxau/1%3A1.0.11-1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libxau6-1_1.0.11-1.copyright",
+          "sha256": "118dd263a7b91c8f21c489f949bf13281dff9e766deea92b829dac4dce66601a"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libXau.so.6.0.0",
+        "sha256": "4275ec5b14bec21770c44447b3a52977e211c7ba08745008f3a1783878e091bb"
+      }
+    ],
+    "libXdmcp.so.6": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "0740dc760916b2008b45417a42a8fd7dd5de370fb57d31373f15034cda8acf0b",
+        "binaryPackage": "libxdmcp6",
+        "binaryVersion": "1:1.1.5-1",
+        "sourcePackage": "libxdmcp",
+        "sourceVersion": "1:1.1.5-1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libxdmcp/1%3A1.1.5-1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libxdmcp6-1_1.1.5-1.copyright",
+          "sha256": "1bcbb50f8603fe8b86d330bfa460b772ea04fbd3c70e4499f0768b5340b9fd6e"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libXdmcp.so.6.0.0",
+        "sha256": "761409b24c818719f8c8a2a64a61c8ac6a3067f3d8882485dca64a98d7500040"
+      }
+    ],
+    "libxkbcommon.so.0": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "f75ee544f55acc6a271debfab3ea4ae0458afc89d81cfe1a71137e07d4895b86",
+        "binaryPackage": "libxkbcommon0",
+        "binaryVersion": "1.7.0-2",
+        "sourcePackage": "libxkbcommon",
+        "sourceVersion": "1.7.0-2",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libxkbcommon/1.7.0-2/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libxkbcommon0-1.7.0-2.copyright",
+          "sha256": "5eeaeb1b6e029a0274e1573765bb0bae2926ef96a3679203faa4fd00fdaeaa88"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libxkbcommon.so.0.0.0",
+        "sha256": "9f26c41577e0e036cbf42352e85b13db6bce953fb730555b4fc7de5362dc93bb"
+      }
+    ],
+    "libzstd.so.1": [
+      {
+        "method": "exact binary SHA-256 match inside Debian package",
+        "debSha256": "2f6a2aeacfc925eba8b00ac9139bc4bfccf8cacb09eb93de067074b26948eef9",
+        "binaryPackage": "libzstd1",
+        "binaryVersion": "1.5.7+dfsg-1",
+        "sourcePackage": "libzstd",
+        "sourceVersion": "1.5.7+dfsg-1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libzstd/1.5.7%2Bdfsg-1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libzstd1-1.5.7+dfsg-1.copyright",
+          "sha256": "5cec9fef4d3fa7e0371fbef4ec3fc416e0105dc2a9922117f84e825cb11f50f8"
+        },
+        "packageMember": "./usr/lib/x86_64-linux-gnu/libzstd.so.1.5.7",
+        "sha256": "27f07c9a49c2c956bcfb64cd4712976586a66facbf15fc7f09bc37413b5f2b21"
+      },
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.7",
+        "binaryPackage": "libzstd1",
+        "binaryVersion": "1.5.7+dfsg-1",
+        "sourcePackage": "libzstd",
+        "sourceVersion": "1.5.7+dfsg-1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libzstd/1.5.7%2Bdfsg-1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libzstd1-1.5.7+dfsg-1.copyright",
+          "sha256": "5cec9fef4d3fa7e0371fbef4ec3fc416e0105dc2a9922117f84e825cb11f50f8"
+        },
+        "sha256": "27f07c9a49c2c956bcfb64cd4712976586a66facbf15fc7f09bc37413b5f2b21"
+      }
+    ],
+    "libblkid.so.1": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libblkid.so.1.1.0",
+        "binaryPackage": "libblkid1",
+        "binaryVersion": "2.41.5-0+deb13u1",
+        "sourcePackage": "util-linux",
+        "sourceVersion": "2.41.5-0+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/util-linux/2.41.5-0%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libblkid1-2.41.5-0+deb13u1.copyright",
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6"
+        },
+        "sha256": "116b712c143ac68bb59f6d8e32ed8e05e0772c730a9ba55ec544dd28916af58c"
+      }
+    ],
+    "libbz2.so.1.0": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libbz2.so.1.0.4",
+        "binaryPackage": "libbz2-1.0",
+        "binaryVersion": "1.0.8-6",
+        "sourcePackage": "bzip2",
+        "sourceVersion": "1.0.8-6",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/bzip2/1.0.8-6/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libbz2-1.0-1.0.8-6.copyright",
+          "sha256": "832ed535ff3c3d025a8d2348eb1b697b89addcf2eaadbc17650262040b9145e2"
+        },
+        "sha256": "c630f057efedc12f848710d71f40283895591e5b4608539f387895c64e0553da"
+      }
+    ],
+    "libcom_err.so.2": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libcom_err.so.2.1",
+        "binaryPackage": "libcom-err2",
+        "binaryVersion": "1.47.2-3+b12",
+        "sourcePackage": "e2fsprogs",
+        "sourceVersion": "1.47.2-3",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/e2fsprogs/1.47.2-3/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libcom-err2-1.47.2-3+b12.copyright",
+          "sha256": "2041b5febdc110151ca3372d01b16b85dda1888e33f3f60fce0f59940eed7d19"
+        },
+        "sha256": "dc4828400674492839b630c001db424cd38e5cecfcf46dbf705a637647e04bea"
+      }
+    ],
+    "libcrypto.so.3": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+        "binaryPackage": "libssl3t64",
+        "binaryVersion": "3.5.7-1~deb13u3",
+        "sourcePackage": "openssl",
+        "sourceVersion": "3.5.7-1~deb13u3",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/openssl/3.5.7-1~deb13u3/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libssl3t64-3.5.7-1~deb13u3.copyright",
+          "sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35"
+        },
+        "sha256": "8ae56f0a9481280a68c19f59809cd242a07a91ad7142944d21a878221992244b"
+      }
+    ],
+    "libgcc_s.so.1": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+        "binaryPackage": "libgcc-s1",
+        "binaryVersion": "14.2.0-19",
+        "sourcePackage": "gcc-14",
+        "sourceVersion": "14.2.0-19",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/gcc-14/14.2.0-19/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libgcc-s1-14.2.0-19.copyright",
+          "sha256": "20390f8a6f3b1e4d7cb45dd8652dabb259bbef688cbad839bcdb0b9ba7252f79"
+        },
+        "sha256": "30c61ab012a4241bed033725a09b61f5fdd3bb7df95ee852d0b096520524c7af"
+      }
+    ],
+    "libgssapi_krb5.so.2": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libgssapi_krb5.so.2.2",
+        "binaryPackage": "libgssapi-krb5-2",
+        "binaryVersion": "1.21.3-5+deb13u1",
+        "sourcePackage": "krb5",
+        "sourceVersion": "1.21.3-5+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/krb5/1.21.3-5%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libgssapi-krb5-2-1.21.3-5+deb13u1.copyright",
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+        },
+        "sha256": "c290f761873ebeac539911010526e1c5db86218bfcb29672760da46841741de0"
+      }
+    ],
+    "libk5crypto.so.3": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libk5crypto.so.3.1",
+        "binaryPackage": "libk5crypto3",
+        "binaryVersion": "1.21.3-5+deb13u1",
+        "sourcePackage": "krb5",
+        "sourceVersion": "1.21.3-5+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/krb5/1.21.3-5%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libk5crypto3-1.21.3-5+deb13u1.copyright",
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+        },
+        "sha256": "c4c3221d0350f882cee0430b58d5fb289a5776c684d3156964864c8a9719dff1"
+      }
+    ],
+    "libkeyutils.so.1": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libkeyutils.so.1.10",
+        "binaryPackage": "libkeyutils1",
+        "binaryVersion": "1.6.3-6",
+        "sourcePackage": "keyutils",
+        "sourceVersion": "1.6.3-6",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/keyutils/1.6.3-6/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libkeyutils1-1.6.3-6.copyright",
+          "sha256": "73f5682b0466f41cea2b9b7f1ff8a8052464f6c09fb29eeac4490512af09bd50"
+        },
+        "sha256": "e5d5a7450d08eff7d4bbcaac75ef2b94d3447c81a1b2ddf3ab85d2de4709a9a8"
+      }
+    ],
+    "libkrb5.so.3": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libkrb5.so.3.3",
+        "binaryPackage": "libkrb5-3",
+        "binaryVersion": "1.21.3-5+deb13u1",
+        "sourcePackage": "krb5",
+        "sourceVersion": "1.21.3-5+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/krb5/1.21.3-5%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libkrb5-3-1.21.3-5+deb13u1.copyright",
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+        },
+        "sha256": "c4ab64e6bc2874a83e649e4439be752465da027a0041e2bb5343f81c80f0882d"
+      }
+    ],
+    "libkrb5support.so.0": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libkrb5support.so.0.1",
+        "binaryPackage": "libkrb5support0",
+        "binaryVersion": "1.21.3-5+deb13u1",
+        "sourcePackage": "krb5",
+        "sourceVersion": "1.21.3-5+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/krb5/1.21.3-5%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libkrb5support0-1.21.3-5+deb13u1.copyright",
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+        },
+        "sha256": "f559f051ee5d39f151a57d79f2cde475c484030098b0c73f9f7035b421b187c4"
+      }
+    ],
+    "liblzma.so.5": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/liblzma.so.5.8.1",
+        "binaryPackage": "liblzma5",
+        "binaryVersion": "5.8.1-1+deb13u1",
+        "sourcePackage": "xz-utils",
+        "sourceVersion": "5.8.1-1+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/xz-utils/5.8.1-1%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/liblzma5-5.8.1-1+deb13u1.copyright",
+          "sha256": "d755588e2d89d7845d0d4e718ac45d49ae9fc53cec4540af105963c20598f9d7"
+        },
+        "sha256": "01e05a4b5268805a10a2414a8904fb1fb45c60626dce53b5ea19c1d491049b99"
+      }
+    ],
+    "libmount.so.1": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libmount.so.1.1.0",
+        "binaryPackage": "libmount1",
+        "binaryVersion": "2.41.5-0+deb13u1",
+        "sourcePackage": "util-linux",
+        "sourceVersion": "2.41.5-0+deb13u1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/util-linux/2.41.5-0%2Bdeb13u1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libmount1-2.41.5-0+deb13u1.copyright",
+          "sha256": "56b67e2eb8bac5a15d91e261d558d73f1f029113cced229753138194997366b6"
+        },
+        "sha256": "1654d2cf948e3608cc0d38340807d4ddac1114315a3a77f7b274c4c859cb2181"
+      }
+    ],
+    "libselinux.so.1": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libselinux.so.1",
+        "binaryPackage": "libselinux1",
+        "binaryVersion": "3.8.1-1",
+        "sourcePackage": "libselinux",
+        "sourceVersion": "3.8.1-1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/libselinux/3.8.1-1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libselinux1-3.8.1-1.copyright",
+          "sha256": "864f1bb189f609075d580b8c4aada16d85a44546884f1687989e1cacc8c56751"
+        },
+        "sha256": "5cb5293b4e7590463b94f7b23152d54807a6a2ccaf8cac9e343908c6692c086c"
+      }
+    ],
+    "libssl.so.3": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libssl.so.3",
+        "binaryPackage": "libssl3t64",
+        "binaryVersion": "3.5.7-1~deb13u3",
+        "sourcePackage": "openssl",
+        "sourceVersion": "3.5.7-1~deb13u3",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/openssl/3.5.7-1~deb13u3/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libssl3t64-3.5.7-1~deb13u3.copyright",
+          "sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35"
+        },
+        "sha256": "9592038e92d1f41affcbb625334d0b6e788714c889104fa6d5b107cf9fd657f2"
+      }
+    ],
+    "libstdc++.so.6": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33",
+        "binaryPackage": "libstdc++6",
+        "binaryVersion": "14.2.0-19",
+        "sourcePackage": "gcc-14",
+        "sourceVersion": "14.2.0-19",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/gcc-14/14.2.0-19/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/libstdc++6-14.2.0-19.copyright",
+          "sha256": "20390f8a6f3b1e4d7cb45dd8652dabb259bbef688cbad839bcdb0b9ba7252f79"
+        },
+        "sha256": "972bb2a18b71140dab0240f8a1f68ab3fb1d56bcd4c4f824a91b70888faf5a00"
+      }
+    ],
+    "libz.so.1": [
+      {
+        "method": "exact artifact hash match to installed dpkg-owned file (not package archive verification)",
+        "installedFile": "/usr/lib/x86_64-linux-gnu/libz.so.1.3.1",
+        "binaryPackage": "zlib1g",
+        "binaryVersion": "1:1.3.dfsg+really1.3.1-1+b1",
+        "sourcePackage": "zlib",
+        "sourceVersion": "1:1.3.dfsg+really1.3.1-1",
+        "exactVersionSourceLocator": "https://snapshot.debian.org/package/zlib/1%3A1.3.dfsg%2Breally1.3.1-1/",
+        "sourceLocatorStatus": "version-specific locator; source downloads and correspondence not yet verified",
+        "notice": {
+          "path": "licenses/native-linux-observed/zlib1g-1_1.3.dfsg+really1.3.1-1+b1.copyright",
+          "sha256": "9e5b96d63773a5d177ba264254390f792be07e41748ebd94730981c6cac31cc6"
+        },
+        "sha256": "85590dd58edf5445e18bc7193e5ebc01ac5841f1ae187e97705a662e90c6421e"
+      }
+    ],
+    "PySide6/Qt/lib/libQt6Core.so.6": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/lib/libQt6Core.so.6",
+        "sha256": "57ca362897ec9fe2b899ec5fec5e9d26677cdda8730df7299162d92bca4a8ac1"
+      }
+    ],
+    "PySide6/Qt/lib/libQt6DBus.so.6": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/lib/libQt6DBus.so.6",
+        "sha256": "8e17fbe4600cb2b81ade8aef9f30d4a7a66745b29da830bcd0abd9afdf869251"
+      }
+    ],
+    "PySide6/Qt/lib/libQt6Gui.so.6": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/lib/libQt6Gui.so.6",
+        "sha256": "e66a6797eba766cb65d5d7ba032ab16bed43476877907ff7be9b75b2b0259915"
+      }
+    ],
+    "PySide6/Qt/lib/libQt6Network.so.6": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/lib/libQt6Network.so.6",
+        "sha256": "f4eb6b919c66d3b164c61a5d3e9e7e2553c6577b68ccd5d4646a47f557ced221"
+      }
+    ],
+    "PySide6/Qt/lib/libQt6Widgets.so.6": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/lib/libQt6Widgets.so.6",
+        "sha256": "f384dc8eb83605f9890784b051e218505aaa9422c19a69098f5c0cc8d6474310"
+      }
+    ],
+    "PySide6/Qt/lib/libQt6XcbQpa.so.6": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/lib/libQt6XcbQpa.so.6",
+        "sha256": "b783bcc92feb244e71c9833f1b2b4070bc4a54ea25b4d6781a924f87f7eaa0a2"
+      }
+    ],
+    "PySide6/Qt/lib/libicudata.so.73": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/lib/libicudata.so.73",
+        "sha256": "4d24b3a908dd838bea23414e16aa830d05a2a306c475246ab11ef0a00c3037e9"
+      }
+    ],
+    "PySide6/Qt/lib/libicui18n.so.73": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/lib/libicui18n.so.73",
+        "sha256": "ad5410f3e4eb4f01f91d10ddb3780cdbcbeb902ed04a3bc4d3f562b956578d52"
+      }
+    ],
+    "PySide6/Qt/lib/libicuuc.so.73": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/lib/libicuuc.so.73",
+        "sha256": "8ce3427af0d2bf566bb422ce80a12014137d12ed452fe2dd9ed481ee46181168"
+      }
+    ],
+    "PySide6/Qt/plugins/networkinformation/libqglib.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/plugins/networkinformation/libqglib.so",
+        "sha256": "b4bf64bbe55d438832252ddc155c607d588b68f8f47e93ae747045b92e9f43d9"
+      }
+    ],
+    "PySide6/Qt/plugins/networkinformation/libqnetworkmanager.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/plugins/networkinformation/libqnetworkmanager.so",
+        "sha256": "53d2d1f1e33b7f2fa2eea8dcaba758983031977873783de409748eb5859936a6"
+      }
+    ],
+    "PySide6/Qt/plugins/platforms/libqoffscreen.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/plugins/platforms/libqoffscreen.so",
+        "sha256": "b588b802604403db49a9e1a433a3908da911db5dc7851e639f3da6c2113bca66"
+      }
+    ],
+    "PySide6/Qt/plugins/platforms/libqxcb.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/plugins/platforms/libqxcb.so",
+        "sha256": "0cfeff7788c8545f90f098c93fd284687ed2c813b1a259aada7c509fb08b0f89"
+      }
+    ],
+    "PySide6/Qt/plugins/tls/libqcertonlybackend.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/plugins/tls/libqcertonlybackend.so",
+        "sha256": "4ec529320eff9424a3ac909180db6eb2f4c9ead374e56c33395704199eec329c"
+      }
+    ],
+    "PySide6/Qt/plugins/tls/libqopensslbackend.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/Qt/plugins/tls/libqopensslbackend.so",
+        "sha256": "20530f6ad73e236d855bb9e31c8fb1ed56256452d6f004c089735ae9ddde75a9"
+      }
+    ],
+    "PySide6/QtCore.abi3.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/QtCore.abi3.so",
+        "sha256": "7dd53cb74eafedf960da4337447876e59d01856c26461d781ef924ccc7366830"
+      }
+    ],
+    "PySide6/QtDBus.abi3.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/QtDBus.abi3.so",
+        "sha256": "3bcad361a81ef5567c4c2c51b07249633014ccff9e57d2e8401092d8c5bc5069"
+      }
+    ],
+    "PySide6/QtGui.abi3.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/QtGui.abi3.so",
+        "sha256": "9abe9520ec6aae9a0536bac50a59ab0f62adde58efd958e1cb101792d9696253"
+      }
+    ],
+    "PySide6/QtNetwork.abi3.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/QtNetwork.abi3.so",
+        "sha256": "2e476792c4f5a3da943591cb70a53b57189b1512352266188f17e14d5bb98eb1"
+      }
+    ],
+    "PySide6/QtWidgets.abi3.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/QtWidgets.abi3.so",
+        "sha256": "cd9a01af895e8c680b5645a897ee31bfab15212f4172535c48472607f6fa46b4"
+      }
+    ],
+    "PySide6/libpyside6.abi3.so.6.8": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "PySide6-Essentials",
+        "version": "6.8.3",
+        "distributionMember": "PySide6/libpyside6.abi3.so.6.8",
+        "sha256": "8f21561a13e334f6610e4a5720c5eae1c0bea03c7360f25e171ad3742aefb60a"
+      }
+    ],
+    "shiboken6/Shiboken.abi3.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "shiboken6",
+        "version": "6.8.3",
+        "distributionMember": "shiboken6/Shiboken.abi3.so",
+        "sha256": "61d7d3bbd7d01b4d2c9f76b9caf951ce8f963866c7fd7c3b55012191483f0a2f"
+      }
+    ],
+    "shiboken6/libshiboken6.abi3.so.6.8": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "shiboken6",
+        "version": "6.8.3",
+        "distributionMember": "shiboken6/libshiboken6.abi3.so.6.8",
+        "sha256": "f248c2b05cecc75b7ab808b84c45be93292107e994182797b3a1d20f87c7bd58"
+      }
+    ],
+    "cryptography/hazmat/bindings/_rust.abi3.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "cryptography",
+        "version": "44.0.3",
+        "distributionMember": "cryptography/hazmat/bindings/_rust.abi3.so",
+        "sha256": "a80089af52523b1fc91852d57785910dbb821648d551c12a4ab73c2d5312d657"
+      }
+    ],
+    "_cffi_backend.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact installed distribution file hash match (wheel build provenance still requires review)",
+        "distribution": "cffi",
+        "version": "2.1.1",
+        "distributionMember": "_cffi_backend.cpython-312-x86_64-linux-gnu.so",
+        "sha256": "9bc1d08072255a5ec2db10fc75df1dd9e73097a75cd9150cfe875ebd6712f17c"
+      }
+    ],
+    "lib-dynload/_ssl.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_ssl.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "6891800dbb9144863d3e1fbcf812694035533c6872a29575f857d5163a8b5c7e"
+      }
+    ],
+    "lib-dynload/_codecs_jp.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_codecs_jp.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "b45e699a15b48b932c8a0a0e521469df62f00e7ce7ea674b8cdd69db1dd25097"
+      }
+    ],
+    "lib-dynload/_bisect.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_bisect.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "99e5c4ecc7cbf7769410f69e3c2b31860b7b2b327521b7473029a3adf5a1b4dc"
+      }
+    ],
+    "lib-dynload/_opcode.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_opcode.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "bdbc4dd1dd0ac096b30e0715251561a3aa17574465e4efad5529cbd6cd42d139"
+      }
+    ],
+    "lib-dynload/_md5.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_md5.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "01c3e882403179083938f5507b263a0c3d487c9361e70780c4fdf28c20e01594"
+      }
+    ],
+    "lib-dynload/_elementtree.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_elementtree.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "c6b51ba83831280f2e4302859f491e4b0f59dd4c2268e457b59fcddb028d8032"
+      }
+    ],
+    "lib-dynload/resource.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/resource.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "b83e224982441d56346787eb6b9b24a4594023bd8781d08717a200a4aa25a75b"
+      }
+    ],
+    "lib-dynload/_statistics.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_statistics.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "368ebed02bef81785c0975db085122cae8b61a70b601605c10258ae4c2e1bd48"
+      }
+    ],
+    "lib-dynload/_sha2.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_sha2.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "a639ebb7c37d355c37c9f76b462a6324645cbcf92c611a5ac783001ac34daa91"
+      }
+    ],
+    "lib-dynload/_codecs_iso2022.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_codecs_iso2022.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "cfa0e2472581c653fb65398fe62c6d52eb71ae2ad789e05bd42e7a9874dc048a"
+      }
+    ],
+    "lib-dynload/_posixsubprocess.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_posixsubprocess.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "405368efb426b8b427daa857837acf4fea9c2bffce1e62adbe532d0fd0e882e4"
+      }
+    ],
+    "lib-dynload/_csv.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_csv.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "acee243df244c5cca8636a524c2fb2fbfa11890548d69e7002917b0cb12f738d"
+      }
+    ],
+    "lib-dynload/array.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/array.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "005b3be02a0b7a4deb23c34a007477433ef633058c22b69e39c356fa1e2178cb"
+      }
+    ],
+    "lib-dynload/_contextvars.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_contextvars.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "8a5146382a14d3f892e3d9b74a90e1bdad246960afef500c823f95cbd53f926f"
+      }
+    ],
+    "lib-dynload/binascii.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/binascii.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "c0c0c47864f092e5ccac8397a43d649e2dcf7cbfa3983b3e1e7114b3e03a6f35"
+      }
+    ],
+    "lib-dynload/fcntl.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/fcntl.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "9dd396ef78b4d584b0dc3d060e6ba55c0cdbb5ffbb83b4b13b0d3f927f28de70"
+      }
+    ],
+    "lib-dynload/_sha1.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_sha1.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "6c6eac07ea58c0f7593fa1fc3d46c90c71a1943b216c66656dcbc0690160f0c2"
+      }
+    ],
+    "lib-dynload/_decimal.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_decimal.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "9901847bb1c152f13b3205daf9671e82456291a5de422f8f06c819f4227b607c"
+      }
+    ],
+    "lib-dynload/_codecs_tw.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_codecs_tw.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "3340c578c42105d93f009de0208a3e709ad2fc48538158eac36031a23b238fc2"
+      }
+    ],
+    "lib-dynload/_codecs_cn.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_codecs_cn.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "be5dc886bba401b1836152e8913d1143ff01e357b623464486ec02663fd00074"
+      }
+    ],
+    "lib-dynload/_heapq.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_heapq.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "e07188a1d60448678cf061e4135149509128039a5067f005c30edb0b3b719612"
+      }
+    ],
+    "lib-dynload/select.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/select.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "4d28423a7bb3a98e4157c122573f671a787530926891a189b7abab64cbae34cc"
+      }
+    ],
+    "lib-dynload/_multibytecodec.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_multibytecodec.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "eee48544d67695f0634f9d2428fa1ab78c8118651dd3d60af40b8ab7e249a3ff"
+      }
+    ],
+    "lib-dynload/unicodedata.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/unicodedata.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "59b963b53a37eb37eaa2266f1a0ccacf3b63c63ef37c0dc2edf77dcd253f8e20"
+      }
+    ],
+    "lib-dynload/termios.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/termios.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "0b47d29722dfb03877aa4b3a1058b60ec2ccd7bb0d33a71e23b73212654a7a8f"
+      }
+    ],
+    "lib-dynload/_random.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_random.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "218ab54eca95be57ee345a2271f3d1f01414df8c6f9fc61ecb496e1ec27efefb"
+      }
+    ],
+    "lib-dynload/_datetime.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_datetime.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "1d0c3421db754a85c0a168fdc873d98a2ed2ddf3078f57629b05ed0ff1a0208b"
+      }
+    ],
+    "lib-dynload/_struct.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_struct.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "803ccc50e18ea2dec65bb6849c5a5279e047afd8f760a47d69b5495b7819391e"
+      }
+    ],
+    "lib-dynload/_bz2.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_bz2.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "af6446403db2e8fd0643feb3b4a9fd4dbf3f797b14ee52b8aabf3ac4aeb31d26"
+      }
+    ],
+    "lib-dynload/pyexpat.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/pyexpat.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "0a74b850ea2a73ef2a9af8622d3c6c19523d579b553f04fc1ea6aefc3936eb87"
+      }
+    ],
+    "lib-dynload/_sha3.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_sha3.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "0ca4f4b8842c9da6c1922783e2a024dae6999bb4f87543f3eadafad210885b94"
+      }
+    ],
+    "lib-dynload/_json.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_json.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "4448a535456a9dab93645194b6706b38c85ab2dc292bfab6935f4431616dab5c"
+      }
+    ],
+    "lib-dynload/xxsubtype.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/xxsubtype.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "3f8cae55edbee60d8090d936ec665032c2db3a21ae566bcc2f5fd95cc4b9ded0"
+      }
+    ],
+    "lib-dynload/grp.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/grp.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "ed38ef85625a6df22c4dbe577cf234280aaf3a66a168ae36939fe58fa87ff14e"
+      }
+    ],
+    "lib-dynload/_socket.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_socket.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "3eac65ca6bd75987f0aea2ad7fe43b6354a544f57117f1c2f716cf862f7d26ea"
+      }
+    ],
+    "lib-dynload/zlib.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/zlib.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "93e46df50e17712a32a4ec2d548f5122df0ac2b634175e2d065669544ee625e8"
+      }
+    ],
+    "lib-dynload/_codecs_kr.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_codecs_kr.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "4ba9682f6a61070fb8dd1d1814f72cd6fa2e5486ef570fc407b6b9813b5a0e94"
+      }
+    ],
+    "lib-dynload/_hashlib.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_hashlib.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "fb0751d9c1d28f82f27bff1901df75dc598b5d456316fe4f491e89d65d464d87"
+      }
+    ],
+    "lib-dynload/_codecs_hk.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_codecs_hk.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "e1a40bb5c59f4751960ee9e041f144be254c55c5ae6eae8f884aa4b22847233b"
+      }
+    ],
+    "lib-dynload/_pickle.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_pickle.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "c6a72dc947440f34197d8907660a48f54654f9e393b0f9fc6615cf2ca8e78bff"
+      }
+    ],
+    "lib-dynload/math.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/math.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "38a702e96da7e7a9ebc8ec07ae41c39fef6207c9c518296d24b1cfa4dc57da26"
+      }
+    ],
+    "lib-dynload/_lzma.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_lzma.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "b8a74cc9b0ef9553214871f77a0a7f40cedba073a006ee120f575f36db95eb78"
+      }
+    ],
+    "lib-dynload/_blake2.cpython-312-x86_64-linux-gnu.so": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/python3.12/lib-dynload/_blake2.cpython-312-x86_64-linux-gnu.so",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "490ba5f27570bd69e2d70e57ec838da02a24a1a969c24f1b58d9d58b48c5e782"
+      }
+    ],
+    "libpython3.12.so.1.0": [
+      {
+        "method": "exact local CPython binary hash match; no supplier build/source attestation available",
+        "installedFile": "/usr/local/lib/libpython3.12.so.1.0",
+        "runtimeVersion": "3.12.15",
+        "correspondingSourceStatus": "BLOCKED: upstream version alone is not exact-build provenance",
+        "sha256": "1d9d1e7fff7469ddc86e31f41e65e998599cfdc910978c71c3c99f72506e6d78"
+      }
+    ]
+  },
+  "unmatchedNativeFiles": [
+    "@bootloader"
+  ],
+  "blockers": [
+    "No reviewed exact-source archive set/build recipes or static dependency closure supplied.",
+    "Qt/ICU wheel binary version is not a supplier corresponding-source attestation.",
+    "CPython is a custom /usr/local build; source/build recipe provenance is unresolved.",
+    "cryptography includes statically linked OpenSSL 3.4.1 and Rust dependencies; dynamic libssl is a distinct component.",
+    "No native Windows/macOS payload provenance is available; those platforms remain fail-closed."
+  ]
+}
