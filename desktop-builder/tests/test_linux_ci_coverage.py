@@ -165,6 +165,111 @@ def test_discovery_supplier_matches_cover_actual_binary_entries():
             assert e['sha256'] == approved['sha256']
 
 
+THIRD_CI_UPDATES = {
+    'libX11-xcb.so.1': ('ubuntu-libx11-xcb1', '2:1.7.5-1ubuntu0.4',
+                      'd7f9e86161421311a1023c44295a88b4a00b6ecbd20c416fc71895f43e358a0a'),
+    'libX11.so.6': ('ubuntu-libx11-6', '2:1.7.5-1ubuntu0.4',
+                  'e23ed094eaf0a74a822a6d9d14eee628ab9f7ec08aecbf20ffd803f019ff6e98'),
+    'libfreetype.so.6': ('ubuntu-libfreetype6', '2.11.1+dfsg-1ubuntu0.4',
+                       'c338538f8d90eb85217e8525ab363e68e79b46d3c8acc0b6824190e032687e5f'),
+    'libpng16.so.16': ('ubuntu-libpng16-16', '1.6.37-3ubuntu0.7',
+                     '0c55d5776d3382cb7859ff48fcf813e0c3b27f33c46f9364633748830246c723'),
+}
+
+
+def canonical_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def test_third_ci_exact_security_update_mappings():
+    review = json.loads((BASE / 'provenance/linux-ci-reviewed.json').read_text())
+    entries = {e['path']: (c, e) for c in review['components'] for e in c['payload']}
+    for path, (component, version, sha256) in THIRD_CI_UPDATES.items():
+        c, e = entries[path]
+        assert (c['id'], c['version'], e['sha256']) == (component, version, sha256)
+
+
+def test_third_ci_supplier_proof_preserves_other_mappings_and_source_obligations():
+    module = load_module()
+    review = json.loads((BASE / 'provenance/linux-ci-reviewed.json').read_text())
+    evidence = json.loads((BASE / 'provenance/linux-ci/supplier-updates-run38953744570.json').read_text())
+    assert evidence['identity']['runId'] == '38953744570'
+    assert evidence['discovery_sha256'] == review['discovery_sha256']
+    assert evidence['discovery_sha256'] == '654031e73e9e799604ac9c5cbe11a3c40499e1bc1a0d127b9ceef6b4dbe37b9e'
+    payload = [e for c in review['components'] for e in c['payload']]
+    assert canonical_digest(sorted(payload, key=lambda e: e['path'])) == evidence['payload_records_sha256']
+    changed_ids = {v[0] for v in THIRD_CI_UPDATES.values()}
+    unchanged = [c for c in review['components'] if c['id'] not in changed_ids]
+    assert canonical_digest(unchanged) == evidence['unchanged_components_sha256']
+    assert hashlib.sha256((BASE / 'provenance/linux-ci/ubuntu-sources.lock.json').read_bytes()).hexdigest() == evidence['retained_source_lock_sha256']
+    approved = {e['path']: e for e in payload}
+    updates = evidence['packages']
+    assert len(updates) == len(THIRD_CI_UPDATES)
+    assert {m['payload'] for p in updates for m in p['nativeMatches']} == set(THIRD_CI_UPDATES)
+    assert module.check_payload({'payload': payload}, review) == payload
+    for package in updates:
+        assert package['version'] != package['previousVersion']
+        assert package['sourceVersion'] == package['version']
+        assert package['architecture'] == 'amd64'
+        archive = package['archive']
+        assert archive['url'].startswith('https://archive.ubuntu.com/ubuntu/pool/main/')
+        assert re.fullmatch('[0-9a-f]{64}', archive['sha256'])
+        assert archive['size'] > 0
+        notice = package['notice']
+        assert notice['unchanged'] is True
+        assert hashlib.sha256((BASE / notice['path']).read_bytes()).hexdigest() == notice['sha256']
+        for match in package['nativeMatches']:
+            entry = approved[match['payload']]
+            assert (match['sha256'], match['size']) == (entry['sha256'], entry['size'])
+            assert match['member'] == match['symlinkChain'][-1]
+            # Approval replaces only this reviewed version, not a wildcard or
+            # a growing list that quietly accepts stale supplier bytes.
+            old = [{**e, 'sha256': match['previousSha256']} if e['path'] == match['payload'] else e
+                   for e in payload]
+            with pytest.raises(ValueError, match='payload'):
+                module.check_payload({'payload': old}, review)
+
+
+def test_third_ci_official_deb_bytes_when_supplied():
+    """Opt-in replay against downloaded artifacts, never substitute fixture bytes."""
+    import io
+    import os
+    import tarfile
+
+    cache = os.environ.get('OAL_LINUX_SUPPLIER_CACHE')
+    if not cache:
+        pytest.skip('Set OAL_LINUX_SUPPLIER_CACHE to replay the four official Ubuntu .deb files')
+    evidence = json.loads((BASE / 'provenance/linux-ci/supplier-updates-run38953744570.json').read_text())
+    for package in evidence['packages']:
+        archive = package['archive']
+        deb = Path(cache) / archive['url'].rsplit('/', 1)[-1]
+        data = deb.read_bytes()
+        assert (hashlib.sha256(data).hexdigest(), len(data)) == (archive['sha256'], archive['size'])
+        control = subprocess.check_output(
+            ['dpkg-deb', '-f', str(deb), 'Package', 'Version', 'Architecture', 'Source'], text=True)
+        fields = dict(line.split(': ', 1) for line in control.splitlines())
+        assert fields == {'Package': package['package'].split(':')[0], 'Version': package['version'],
+                          'Architecture': package['architecture'], 'Source': package['sourcePackage']}
+        data_tar = subprocess.check_output(['dpkg-deb', '--fsys-tarfile', str(deb)])
+        with tarfile.open(fileobj=io.BytesIO(data_tar)) as tar:
+            for match in package['nativeMatches']:
+                chain = match['symlinkChain']
+                for source, target in zip(chain, chain[1:]):
+                    link = tar.getmember(source)
+                    assert link.issym()
+                    assert './' + str(Path(source).parent / link.linkname) == target
+                member = tar.getmember(match['member'])
+                assert member.isfile()
+                blob = tar.extractfile(member).read()
+                assert (hashlib.sha256(blob).hexdigest(), len(blob)) == (match['sha256'], match['size'])
+            notice = package['notice']
+            member = tar.getmember(notice['member'])
+            assert member.isfile()
+            blob = tar.extractfile(member).read()
+            assert hashlib.sha256(blob).hexdigest() == notice['sha256']
+            assert blob == (BASE / notice['path']).read_bytes()
+
+
 def test_composite_routes_are_notice_bound_not_generic_aliases():
     policy = json.loads((BASE / 'provenance/linux-ci/license-policy.json').read_text())['scoped_notices']
     review = json.loads((BASE / 'provenance/linux-ci-reviewed.json').read_text())

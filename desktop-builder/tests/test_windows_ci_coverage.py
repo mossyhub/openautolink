@@ -64,6 +64,129 @@ class WindowsCoverageTests(unittest.TestCase):
             self.assertEqual(analysis.binaries, rows[1:])
             self.assertIn(rows[1:], exe.call_args.args)
 
+    @staticmethod
+    def resource_relocation_pair():
+        """Non-runnable structural fixture, not Windows resource API evidence."""
+        import struct
+        original = bytearray(WindowsCoverageTests.minimal_pe() + bytes(512))
+        struct.pack_into("<H", original, 134, 2)
+        struct.pack_into("<I", original, 152 + 8, 512)
+        struct.pack_into("<I", original, 152 + 56, 12288)
+        struct.pack_into("<8sIIIIIIHHI", original, 432, b".reloc", 32, 8192, 512,
+                         1024, 0, 0, 0, 0, 0x42000040)
+        struct.pack_into("<II", original, 152 + 112 + 5 * 8, 8200, 16)
+        original[1024:1056] = bytes(range(32))
+        changed = bytearray(original + bytes(512))
+        changed[1536:2048] = original[1024:1536]
+        changed[1024:1536] = bytes(512)
+        struct.pack_into("<H", changed, 134, 3)
+        struct.pack_into("<I", changed, 152 + 8, 1024)
+        struct.pack_into("<I", changed, 152 + 56, 16384)
+        struct.pack_into("<I", changed, 432 + 12, 12288)
+        struct.pack_into("<I", changed, 432 + 20, 1536)
+        struct.pack_into("<8sIIIIIIHHI", changed, 472, b".rsrc", 64, 8192, 512,
+                         1024, 0, 0, 0, 0, 0x40000040)
+        struct.pack_into("<II", changed, 152 + 112 + 2 * 8, 8192, 64)
+        struct.pack_into("<II", changed, 152 + 112 + 5 * 8, 12296, 16)
+        return bytes(changed), bytes(original)
+
+    @unittest.skipUnless(importlib.util.find_spec("pefile"), "PE parser dependency")
+    def test_resource_insertion_moves_only_identical_relocation_section(self):
+        module = load_module()
+        changed, original = self.resource_relocation_pair()
+        result = module.compare_pe_loader(changed, original)
+        self.assertEqual([s["name"] for s in result["sections"]], [".text", ".reloc"])
+        self.assertEqual(result["sections"][1]["rva"], 12288)
+        self.assertEqual(result["sections"][1]["raw_offset"], 1536)
+        self.assertEqual(len(result["resourceSections"]), 1)
+
+    def assert_resource_movement_negative_controls(self, module, changed, supplier):
+        """Keep section bytes intact when testing movement, not just corruption."""
+        import pefile
+        import struct
+        with pefile.PE(data=changed, fast_load=True) as pe:
+            sections = {s.Name.rstrip(b"\0").decode(): s for s in pe.sections}
+            reloc, resource, code = sections[".reloc"], sections[".rsrc"], sections[".text"]
+            directory = pe.OPTIONAL_HEADER.DATA_DIRECTORY[5].get_file_offset()
+            mutations = {
+                "changed-reloc-byte": (reloc.PointerToRawData, None),
+                "changed-code-byte": (code.PointerToRawData, None),
+                "moved-code-rva": (code.get_field_absolute_offset("VirtualAddress"), 0x100000),
+                "changed-reloc-attributes": (reloc.get_field_absolute_offset("Characteristics"), reloc.Characteristics ^ 0x80000000),
+                "changed-reloc-virtual-size": (reloc.get_field_absolute_offset("Misc_VirtualSize"), reloc.Misc_VirtualSize + 1),
+                "changed-reloc-raw-size": (reloc.get_field_absolute_offset("SizeOfRawData"), reloc.SizeOfRawData - 1),
+                "wrong-reloc-directory-offset": (directory, pe.OPTIONAL_HEADER.DATA_DIRECTORY[5].VirtualAddress + 1),
+                "wrong-reloc-directory-size": (directory + 4, pe.OPTIONAL_HEADER.DATA_DIRECTORY[5].Size + 1),
+                "reloc-directory-outside": (directory, reloc.VirtualAddress + reloc.SizeOfRawData),
+                "reloc-directory-left-behind": (directory, resource.VirtualAddress),
+                "empty-reloc-directory": (directory + 4, 0),
+                "overlap-reloc-raw": (reloc.get_field_absolute_offset("PointerToRawData"), resource.PointerToRawData),
+                "overlap-reloc-rva": (reloc.get_field_absolute_offset("VirtualAddress"), resource.VirtualAddress),
+                "overlap-resource-raw": (resource.get_field_absolute_offset("PointerToRawData"), code.PointerToRawData),
+                "overlap-resource-rva": (resource.get_field_absolute_offset("VirtualAddress"), code.VirtualAddress),
+                "executable-resource": (resource.get_field_absolute_offset("Characteristics"), resource.Characteristics | 0x20000000),
+                "empty-resource-directory": (pe.OPTIONAL_HEADER.DATA_DIRECTORY[2].get_file_offset() + 4, 0),
+                "bad-file-alignment": (pe.OPTIONAL_HEADER.get_field_absolute_offset("FileAlignment"), 0),
+                "bad-section-alignment": (pe.OPTIONAL_HEADER.get_field_absolute_offset("SectionAlignment"), 513),
+                "changed-entrypoint": (pe.OPTIONAL_HEADER.get_field_absolute_offset("AddressOfEntryPoint"), 1),
+                "changed-import-directory": (pe.OPTIONAL_HEADER.DATA_DIRECTORY[1].get_file_offset(), 1),
+                "wrong-image-size": (pe.OPTIONAL_HEADER.get_field_absolute_offset("SizeOfImage"), pe.OPTIONAL_HEADER.SizeOfImage + 4096),
+                "wrong-initialized-size": (pe.OPTIONAL_HEADER.get_field_absolute_offset("SizeOfInitializedData"), pe.OPTIONAL_HEADER.SizeOfInitializedData + 512),
+                "moved-resource-not-at-old-reloc": (resource.get_field_absolute_offset("VirtualAddress"), resource.VirtualAddress - 4096),
+            }
+            if ".rdata" in sections:
+                data = sections[".rdata"]
+                mutations["changed-data-byte"] = (data.PointerToRawData, None)
+                mutations["moved-data-rva"] = (data.get_field_absolute_offset("VirtualAddress"), 0x200000)
+            for label, (offset, value) in mutations.items():
+                mutated = bytearray(changed)
+                if value is None:
+                    mutated[offset] ^= 1
+                else:
+                    struct.pack_into("<I", mutated, offset, value)
+                with self.subTest(mutation=label), self.assertRaises(ValueError):
+                    module.compare_pe_loader(bytes(mutated), supplier)
+            # Raw movement retains the complete bytes of the section, and the
+            # relocation RVA controls also update directory 5 consistently.
+            for label, section, delta in [("moved-code-raw", code, 512),
+                                           ("reloc-raw-gap", reloc, 512),
+                                           ("reloc-raw-misaligned", reloc, 1)]:
+                offset = ((len(changed) + 511) // 512) * 512 + delta
+                mutated = bytearray(changed + bytes(offset + section.SizeOfRawData - len(changed)))
+                mutated[offset:offset + section.SizeOfRawData] = changed[section.PointerToRawData:section.PointerToRawData + section.SizeOfRawData]
+                struct.pack_into("<I", mutated, section.get_field_absolute_offset("PointerToRawData"), offset)
+                with self.subTest(mutation=label), self.assertRaises(ValueError):
+                    module.compare_pe_loader(bytes(mutated), supplier)
+            for delta in (1, pe.OPTIONAL_HEADER.SectionAlignment):
+                mutated = bytearray(changed)
+                struct.pack_into("<I", mutated, reloc.get_field_absolute_offset("VirtualAddress"), reloc.VirtualAddress + delta)
+                struct.pack_into("<I", mutated, directory, pe.OPTIONAL_HEADER.DATA_DIRECTORY[5].VirtualAddress + delta)
+                with self.subTest(relocation_rva_delta=delta), self.assertRaises(ValueError):
+                    module.compare_pe_loader(bytes(mutated), supplier)
+
+    @unittest.skipUnless(importlib.util.find_spec("pefile"), "PE parser dependency")
+    def test_resource_insertion_negative_controls(self):
+        changed, supplier = self.resource_relocation_pair()
+        self.assert_resource_movement_negative_controls(load_module(), changed, supplier)
+
+    @unittest.skipUnless(importlib.util.find_spec("pefile"), "PE parser dependency")
+    def test_resource_insertion_preserves_other_headers_and_section_attributes(self):
+        import pefile
+        module = load_module()
+        changed, supplier = self.resource_relocation_pair()
+        with pefile.PE(data=changed, fast_load=True) as pe:
+            for owner, field in [(pe.OPTIONAL_HEADER, key) for key in (
+                    "SizeOfHeaders", "SizeOfCode", "BaseOfCode", "SizeOfUninitializedData",
+                    "SizeOfImage", "SizeOfInitializedData",
+                    "MajorImageVersion", "MinorImageVersion", "MajorLinkerVersion", "MinorLinkerVersion", "Reserved1")
+                    ] + [(pe.FILE_HEADER, key) for key in ("PointerToSymbolTable", "NumberOfSymbols")
+                    ] + [(next(s for s in pe.sections if s.Name.rstrip(b"\0") == b".reloc"), key) for key in (
+                    "PointerToRelocations", "PointerToLinenumbers", "NumberOfRelocations", "NumberOfLinenumbers")]:
+                mutated = bytearray(changed)
+                mutated[owner.get_field_absolute_offset(field)] ^= 1
+                with self.subTest(header=field), self.assertRaises(ValueError):
+                    module.compare_pe_loader(bytes(mutated), supplier)
+
     @unittest.skipUnless(importlib.util.find_spec("pefile"), "PE parser dependency")
     def test_pe_probe_rejects_relocated_raw_code_layout(self):
         import struct
@@ -215,6 +338,87 @@ class WindowsCoverageTests(unittest.TestCase):
                     self.assertEqual(diagnostic["directoryDifferences"], [1])
                 else:
                     self.assertEqual(diagnostic["sectionDifferences"][0]["name"], ".rdata")
+
+    @unittest.skipUnless(importlib.util.find_spec("pefile"), "PE parser dependency")
+    def test_native_resource_insertion_diagnostic_with_official_loader(self):
+        """Replay native structural evidence, NOT the absent frozen EXE/resources."""
+        import hashlib
+        import os
+        import pefile
+        import struct
+        import zipfile
+        wheel_path = os.environ.get("OAL_WINDOWS_SUPPLIER_WHEEL")
+        diagnostic_path = os.environ.get("OAL_WINDOWS_PE_DIAGNOSTIC")
+        if not wheel_path or not diagnostic_path:
+            self.skipTest("Set OAL_WINDOWS_SUPPLIER_WHEEL and OAL_WINDOWS_PE_DIAGNOSTIC")
+        diagnostic_bytes = Path(diagnostic_path).read_bytes()
+        self.assertEqual(hashlib.sha256(diagnostic_bytes).hexdigest(),
+                         "d89bc85f17130e089636239326abc9801844e1080a22d224ce786a589f3fcdb4")
+        evidence = json.loads(diagnostic_bytes)
+        self.assertEqual(evidence["identity"]["runId"], "38955553640")
+        self.assertEqual(evidence["identity"]["checkoutCommit"],
+                         "53508c1617a5c28cdc44a707f120cfdea7659f86")
+        wheel = Path(wheel_path)
+        self.assertEqual(hashlib.sha256(wheel.read_bytes()).hexdigest(), evidence["supplierWheelSha256"])
+        with zipfile.ZipFile(wheel) as archive:
+            supplier = archive.read(evidence["supplierMember"])
+        comparison = evidence["comparison"]
+        self.assertEqual(hashlib.sha256(supplier).hexdigest(), comparison["supplierPrefixSha256"])
+        self.assertEqual(comparison["sectionDifferences"],
+                         [{"name": ".reloc", "changedFields": ["raw_offset", "rva"]}])
+        self.assertEqual(comparison["headerDifferences"], [])
+        self.assertEqual(comparison["directoryDifferences"], [5])
+        module = load_module()
+        candidate = comparison["candidate"]
+        rows = candidate["sections"]
+        changed = bytearray(max(r["raw_offset"] + r["raw_size"] for r in rows))
+        with pefile.PE(data=supplier, fast_load=True) as pe:
+            changed[:pe.OPTIONAL_HEADER.SizeOfHeaders] = supplier[:pe.OPTIONAL_HEADER.SizeOfHeaders]
+            for key, value in candidate["headers"].items():
+                owner = pe.FILE_HEADER if key in {"Machine", "NumberOfSections", "Characteristics"} else pe.OPTIONAL_HEADER
+                setattr(owner, key, value)
+            for index, address, size in candidate["directories"]:
+                pe.OPTIONAL_HEADER.DATA_DIRECTORY[index].VirtualAddress = address
+                pe.OPTIONAL_HEADER.DATA_DIRECTORY[index].Size = size
+            rewritten = pe.write()
+            changed[:pe.OPTIONAL_HEADER.SizeOfHeaders] = rewritten[:pe.OPTIONAL_HEADER.SizeOfHeaders]
+            old_sections = {s.Name.rstrip(b"\0").decode(): s for s in pe.sections}
+            table = pe.sections[0].get_file_offset()
+            for index, row in enumerate(rows):
+                # Resource bytes were deliberately not retained by diagnostics.
+                # Zero placeholders replay layout only; never assert their hash.
+                if row["name"] != ".rsrc":
+                    old = old_sections[row["name"]]
+                    changed[row["raw_offset"]:row["raw_offset"] + row["raw_size"]] = (
+                        supplier[old.PointerToRawData:old.PointerToRawData + old.SizeOfRawData])
+                struct.pack_into("<8sIIIIIIHHI", changed, table + index * 40,
+                                 row["name"].encode(), row["virtual_size"], row["rva"], row["raw_size"],
+                                 row["raw_offset"], 0, 0, 0, 0, row["characteristics"])
+        # Independently bind every retained header/directory/section to the native
+        # diagnostic. Only .rsrc bytes and whole-prefix hashes are not replayed.
+        for blob, summary in [(supplier, comparison["supplier"]), (bytes(changed), candidate)]:
+            normalized = module.normalize_pe_build_metadata(blob)
+            with pefile.PE(data=normalized, fast_load=True) as pe:
+                for key, value in summary["headers"].items():
+                    owner = pe.FILE_HEADER if key in {"Machine", "NumberOfSections", "Characteristics"} else pe.OPTIONAL_HEADER
+                    self.assertEqual(getattr(owner, key), value, key)
+                self.assertEqual([[i, d.VirtualAddress, d.Size] for i, d in enumerate(pe.OPTIONAL_HEADER.DATA_DIRECTORY)],
+                                 summary["directories"])
+                self.assertFalse(summary["sectionsTruncated"])
+                self.assertEqual(len(pe.sections), summary["sectionCount"])
+                observed = {s.Name.rstrip(b"\0").decode(): s for s in pe.sections}
+                for row in summary["sections"]:
+                    section = observed[row["name"]]
+                    actual = {"name": row["name"], "rva": section.VirtualAddress,
+                              "virtual_size": section.Misc_VirtualSize, "raw_size": section.SizeOfRawData,
+                              "raw_offset": section.PointerToRawData, "characteristics": section.Characteristics,
+                              "sha256": hashlib.sha256(section.get_data()).hexdigest()}
+                    self.assertEqual({k: v for k, v in actual.items() if k != "sha256" or row["name"] != ".rsrc"},
+                                     {k: v for k, v in row.items() if k != "sha256" or row["name"] != ".rsrc"})
+        result = module.compare_pe_loader(bytes(changed), supplier)
+        self.assertEqual(result["sections"], [r for r in rows if r["name"] != ".rsrc"])
+        self.assertNotEqual(hashlib.sha256(changed).hexdigest(), comparison["candidatePrefixSha256"])
+        self.assert_resource_movement_negative_controls(module, bytes(changed), supplier)
 
     def test_fetch_selects_required_sources_and_only_official_loader_wheel(self):
         module = load_module()

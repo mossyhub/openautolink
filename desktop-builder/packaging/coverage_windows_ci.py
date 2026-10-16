@@ -257,9 +257,11 @@ def compare_pe_loader(frozen, supplier):
     """Compare real PE loader sections, not the self-referential prefix hash.
 
     Resource addition, COFF/DEBUG timestamp and checksum updates are packaging edits.
-    No code, data, import, relocation, entry-point or executable-section changes
-    are permitted. This is scoped evidence for the embedded-loader exception,
-    not a substitute for notices or native frozen execution.
+    Only an identical trailing .reloc may move immediately after an inserted
+    non-executable .rsrc, with directory 5 retaining its section-relative span.
+    All other code/data layout, relocation bytes and critical headers stay fixed.
+    This is scoped evidence for the embedded-loader exception, not a substitute
+    for notices or native frozen execution.
     """
     import hashlib
     import pefile
@@ -305,9 +307,17 @@ def compare_pe_loader(frozen, supplier):
                   "MajorOperatingSystemVersion", "MinorOperatingSystemVersion", "MajorSubsystemVersion",
                   "MinorSubsystemVersion", "Subsystem", "DllCharacteristics", "SizeOfStackReserve",
                   "SizeOfStackCommit", "SizeOfHeapReserve", "SizeOfHeapCommit", "LoaderFlags",
-                  "NumberOfRvaAndSizes"]
+                  "NumberOfRvaAndSizes", "SizeOfHeaders", "SizeOfCode", "SizeOfUninitializedData",
+                  "BaseOfCode", "MajorImageVersion", "MinorImageVersion", "MajorLinkerVersion",
+                  "MinorLinkerVersion", "Reserved1"]
         headers = {key: getattr(pe.OPTIONAL_HEADER, key) for key in fields}
-        headers["Characteristics"] = pe.FILE_HEADER.Characteristics
+        headers.update({key: getattr(pe.FILE_HEADER, key) for key in (
+            "Characteristics", "PointerToSymbolTable", "NumberOfSymbols", "SizeOfOptionalHeader")})
+        for section in pe.sections:
+            name = section.Name.rstrip(b"\0").decode("ascii")
+            if name != ".rsrc":
+                for key in ("PointerToRelocations", "PointerToLinenumbers", "NumberOfRelocations", "NumberOfLinenumbers"):
+                    headers[name + "." + key] = getattr(section, key)
         directories = [(i, d.VirtualAddress, d.Size) for i, d in enumerate(pe.OPTIONAL_HEADER.DATA_DIRECTORY)
                        if i != 2]  # IMAGE_DIRECTORY_ENTRY_RESOURCE only.
         resource_dir = pe.OPTIONAL_HEADER.DATA_DIRECTORY[2]
@@ -330,11 +340,66 @@ def compare_pe_loader(frozen, supplier):
         return sections, headers, directories, resources, summary, blob
 
     actual, headers, directories, resources, actual_summary, actual_blob = image(frozen)
-    expected, expected_headers, expected_directories, _, expected_summary, expected_blob = image(supplier)
-    if actual != expected or headers != expected_headers or directories != expected_directories:
-        # Windows resource updates can rewrite on-disk layout. Until a native
-        # before/after pair proves the exact transformation, retain strict raw
-        # offsets/sizes and hashes, and expose what failed instead of guessing.
+    expected, expected_headers, expected_directories, expected_resources, expected_summary, expected_blob = image(supplier)
+
+    def resource_insertion_moves_relocations():
+        # Native Windows run 38955553640 (53508c16) retained identical .reloc
+        # bytes/sizes/attributes, with a new .rsrc occupying its old position.
+        # Permit that one transformation, not arbitrary section movement.
+        a, e = actual.get(".reloc"), expected.get(".reloc")
+        if (a is None or e is None or expected_resources or len(resources) != 1
+                or set(actual) != set(expected)
+                or a["characteristics"] & 0x20000000
+                or any(a[k] != e[k] for k in e if k not in {"rva", "raw_offset"})):
+            return False
+        resource = resources[0]
+        file_alignment = headers["FileAlignment"]
+        section_alignment = headers["SectionAlignment"]
+        if (not 512 <= file_alignment <= 65536 or file_alignment & (file_alignment - 1)
+                or section_alignment < file_alignment or section_alignment & (section_alignment - 1)
+                or not resource["virtual_size"] or not resource["raw_size"]):
+            return False
+        for start, size, alignment in (("raw_offset", "raw_size", file_alignment),
+                                       ("rva", "virtual_size", section_alignment)):
+            extent = max(resource["virtual_size"], resource["raw_size"]) if start == "rva" else resource[size]
+            aligned_end = ((resource[start] + extent + alignment - 1) // alignment) * alignment
+            if (resource[start] != e[start] or resource[start] % alignment
+                    or a[start] != aligned_end or a[start] <= e[start]
+                    or any(s[start] + (max(s["virtual_size"], s["raw_size"]) if start == "rva" else s[size]) > e[start]
+                           for name, s in expected.items() if name != ".reloc")):
+                return False
+        if resource["raw_size"] % file_alignment or a["raw_size"] % file_alignment:
+            return False
+        # EndUpdateResource recomputed these aggregates in the retained native
+        # evidence; do not turn the movement exception into a header wildcard.
+        end = a["rva"] + max(a["virtual_size"], a["raw_size"])
+        image_size = ((end + section_alignment - 1) // section_alignment) * section_alignment
+        initialized_size = sum(s["raw_size"] for s in [*actual.values(), resource]
+                               if s["characteristics"] & 0x40)
+        if (actual_summary["headers"]["SizeOfImage"] != image_size
+                or actual_summary["headers"]["SizeOfInitializedData"] != initialized_size):
+            return False
+        old_directory = next(d for d in expected_directories if d[0] == 5)
+        new_directory = next(d for d in directories if d[0] == 5)
+        relative = old_directory[1] - e["rva"]
+        if (old_directory[2] <= 0 or relative < 0
+                or relative + old_directory[2] > min(e["virtual_size"], e["raw_size"])
+                or new_directory != (5, a["rva"] + relative, old_directory[2])):
+            return False
+        # Resource directory must describe file-backed bytes in the insertion.
+        _, address, size = actual_summary["directories"][2]
+        return (size > 0 and resource["rva"] <= address
+                and address + size <= resource["rva"] + min(resource["virtual_size"], resource["raw_size"]))
+
+    comparable = actual
+    comparable_directories = directories
+    if resource_insertion_moves_relocations():
+        comparable = {**actual, ".reloc": {**actual[".reloc"],
+                       "rva": expected[".reloc"]["rva"], "raw_offset": expected[".reloc"]["raw_offset"]}}
+        comparable_directories = [e if a[0] == 5 else a for a, e in zip(directories, expected_directories)]
+    if comparable != expected or headers != expected_headers or comparable_directories != expected_directories:
+        # Diagnostics retain actual coordinates, including rejected movement;
+        # the narrowly permitted transformation above never mutates evidence.
         names = sorted(set(actual) | set(expected))
         changed_names = [name for name in names if actual.get(name) != expected.get(name)]
         differences = []
@@ -363,7 +428,8 @@ def compare_pe_loader(frozen, supplier):
                       "sectionDifferenceCount": len(changed_names),
                       "sectionDifferences": differences,
                       "sectionDifferencesTruncated": len(changed_names) > 16,
-                      "headerDifferences": sorted(key for key in headers if headers[key] != expected_headers[key]),
+                      "headerDifferences": sorted(key for key in set(headers) | set(expected_headers)
+                                                  if headers.get(key) != expected_headers.get(key)),
                       "directoryDifferences": [a[0] for a, e in zip(directories, expected_directories) if a != e]}
         error = ValueError("PE loader section bytes/layout changed" if actual != expected else
                            "PE loader entry point/header/directory changed")

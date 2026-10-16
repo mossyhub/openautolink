@@ -1,11 +1,11 @@
 {
-  "discovery_sha256": "7f4a65c9e3747d7e35018c61ae1459c0bc4fabca44d62370fbd16e7ba47c6fd3",
+  "discovery_sha256": "654031e73e9e799604ac9c5cbe11a3c40499e1bc1a0d127b9ceef6b4dbe37b9e",
   "identity": {
-    "checkoutCommit": "40c10a5f68f6e7ecb17e95053da075df944314ba",
-    "expectedCommit": "40c10a5f68f6e7ecb17e95053da075df944314ba",
+    "checkoutCommit": "656b4b2556b82748cec2e29c97d0a4b762acd6ec",
+    "expectedCommit": "656b4b2556b82748cec2e29c97d0a4b762acd6ec",
     "trackedCheckoutDirty": false,
     "runner": "ubuntu-22.04",
-    "runId": "38861042629",
+    "runId": "38953744570",
     "runAttempt": "1"
   },
   "wheelDownloads": [
@@ -605,14 +605,14 @@
   "linuxPackages": [
     {
       "package": "libx11-xcb1:amd64",
-      "version": "2:1.7.5-1ubuntu0.3",
+      "version": "2:1.7.5-1ubuntu0.4",
       "sourcePackage": "libx11",
-      "sourceVersion": "2:1.7.5-1ubuntu0.3",
+      "sourceVersion": "2:1.7.5-1ubuntu0.4",
       "architecture": "amd64",
       "nativeCandidates": [
         {
           "member": "usr/lib/x86_64-linux-gnu/libX11-xcb.so.1",
-          "sha256": "2526f9d1ca41ce2df4750d2d083bb9d335aa4430955faf66435ec038ea88e473",
+          "sha256": "d7f9e86161421311a1023c44295a88b4a00b6ecbd20c416fc71895f43e358a0a",
           "size": 14048,
           "matches": [
             "libX11-xcb.so.1"
@@ -628,14 +628,14 @@
     },
     {
       "package": "libx11-6:amd64",
-      "version": "2:1.7.5-1ubuntu0.3",
+      "version": "2:1.7.5-1ubuntu0.4",
       "sourcePackage": "libx11",
-      "sourceVersion": "2:1.7.5-1ubuntu0.3",
+      "sourceVersion": "2:1.7.5-1ubuntu0.4",
       "architecture": "amd64",
       "nativeCandidates": [
         {
           "member": "usr/lib/x86_64-linux-gnu/libX11.so.6",
-          "sha256": "34b7869a1ba702462a1aa862fc0afe5b2608a7d5a09552c07796802fcf0c684b",
+          "sha256": "e23ed094eaf0a74a822a6d9d14eee628ab9f7ec08aecbf20ffd803f019ff6e98",
           "size": 1306280,
           "matches": [
             "libX11.so.6"
@@ -966,14 +966,14 @@
     },
     {
       "package": "libfreetype6:amd64",
-      "version": "2.11.1+dfsg-1ubuntu0.3",
+      "version": "2.11.1+dfsg-1ubuntu0.4",
       "sourcePackage": "freetype",
-      "sourceVersion": "2.11.1+dfsg-1ubuntu0.3",
+      "sourceVersion": "2.11.1+dfsg-1ubuntu0.4",
       "architecture": "amd64",
       "nativeCandidates": [
         {
           "member": "usr/lib/x86_64-linux-gnu/libfreetype.so.6",
-          "sha256": "ef8908dd08eb7072dd1da355277b069048a86512122592d56b5051796ba62ee2",
+          "sha256": "c338538f8d90eb85217e8525ab363e68e79b46d3c8acc0b6824190e032687e5f",
           "size": 813128,
           "matches": [
             "libfreetype.so.6"
@@ -1366,14 +1366,14 @@
     },
     {
       "package": "libpng16-16:amd64",
-      "version": "1.6.37-3ubuntu0.6",
+      "version": "1.6.37-3ubuntu0.7",
       "sourcePackage": "libpng1.6",
-      "sourceVersion": "1.6.37-3ubuntu0.6",
+      "sourceVersion": "1.6.37-3ubuntu0.7",
       "architecture": "amd64",
       "nativeCandidates": [
         {
           "member": "usr/lib/x86_64-linux-gnu/libpng16.so.16",
-          "sha256": "ca1306d319d9e6a904fe4b0fa21e41952db2b2f2f5384f70a1301fa713300f5b",
+          "sha256": "0c55d5776d3382cb7859ff48fcf813e0c3b27f33c46f9364633748830246c723",
           "size": 235592,
           "matches": [
             "libpng16.so.16"

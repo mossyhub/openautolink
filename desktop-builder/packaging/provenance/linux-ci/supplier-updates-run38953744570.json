@@ -1,0 +1,149 @@
+{
+  "schema": 1,
+  "scope": "Only four changed native records from the exact third CI discovery; not a new native launch or reproducible-build qualification.",
+  "identity": {
+    "checkoutCommit": "656b4b2556b82748cec2e29c97d0a4b762acd6ec",
+    "expectedCommit": "656b4b2556b82748cec2e29c97d0a4b762acd6ec",
+    "trackedCheckoutDirty": false,
+    "runner": "ubuntu-22.04",
+    "runId": "38953744570",
+    "runAttempt": "1"
+  },
+  "discovery_sha256": "654031e73e9e799604ac9c5cbe11a3c40499e1bc1a0d127b9ceef6b4dbe37b9e",
+  "previous_discovery_sha256": "7f4a65c9e3747d7e35018c61ae1459c0bc4fabca44d62370fbd16e7ba47c6fd3",
+  "previous_review_sha256": "92123c2b72c3ecfe2274f23846b97112715538d2768ea84e966f06cfcff68e80",
+  "payload_records_sha256": "e9cb137f00572014c2f97114d5d472cc5ff30d617af07238a01d0ff96f274c17",
+  "unchanged_components_sha256": "b9e72a77fd9c105bc089d146f387499418e4f783e7e1e7845d6b0ec78d3c22e7",
+  "retained_source_lock_sha256": "146dbfbbbce04503d46b3a625a12a91cadc63eda76e49fe600bb7fea4262419d",
+  "verification": "Official Ubuntu HTTPS .deb downloads; SHA-256 and size of downloaded archive retained. dpkg-deb control package/version/source/architecture checked; data tar regular members match exact discovery SHA-256 and size after resolving recorded SONAME symlinks; copyright bytes match both discovery and retained notice. No package installed, supplier code executed, or new OpenPGP verification asserted.",
+  "packages": [
+    {
+      "package": "libx11-xcb1:amd64",
+      "version": "2:1.7.5-1ubuntu0.4",
+      "sourcePackage": "libx11",
+      "sourceVersion": "2:1.7.5-1ubuntu0.4",
+      "architecture": "amd64",
+      "previousVersion": "2:1.7.5-1ubuntu0.3",
+      "archive": {
+        "url": "https://archive.ubuntu.com/ubuntu/pool/main/libx/libx11/libx11-xcb1_1.7.5-1ubuntu0.4_amd64.deb",
+        "sha256": "00260321d5b74fb472e830f5a5feeb521f43917948f1511a5bfb2ffead06e1ae",
+        "size": 7792
+      },
+      "nativeMatches": [
+        {
+          "payload": "libX11-xcb.so.1",
+          "member": "./usr/lib/x86_64-linux-gnu/libX11-xcb.so.1.0.0",
+          "symlinkChain": [
+            "./usr/lib/x86_64-linux-gnu/libX11-xcb.so.1",
+            "./usr/lib/x86_64-linux-gnu/libX11-xcb.so.1.0.0"
+          ],
+          "sha256": "d7f9e86161421311a1023c44295a88b4a00b6ecbd20c416fc71895f43e358a0a",
+          "size": 14048,
+          "previousSha256": "2526f9d1ca41ce2df4750d2d083bb9d335aa4430955faf66435ec038ea88e473"
+        }
+      ],
+      "notice": {
+        "member": "./usr/share/doc/libx11-xcb1/copyright",
+        "path": "licenses/linux-ci/libx11-xcb1-0.copyright",
+        "sha256": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e",
+        "unchanged": true
+      }
+    },
+    {
+      "package": "libx11-6:amd64",
+      "version": "2:1.7.5-1ubuntu0.4",
+      "sourcePackage": "libx11",
+      "sourceVersion": "2:1.7.5-1ubuntu0.4",
+      "architecture": "amd64",
+      "previousVersion": "2:1.7.5-1ubuntu0.3",
+      "archive": {
+        "url": "https://archive.ubuntu.com/ubuntu/pool/main/libx/libx11/libx11-6_1.7.5-1ubuntu0.4_amd64.deb",
+        "sha256": "6fcad3c4020a87caad67cc4141a82372ed474c050e6eeb9d434594590760430e",
+        "size": 667500
+      },
+      "nativeMatches": [
+        {
+          "payload": "libX11.so.6",
+          "member": "./usr/lib/x86_64-linux-gnu/libX11.so.6.4.0",
+          "symlinkChain": [
+            "./usr/lib/x86_64-linux-gnu/libX11.so.6",
+            "./usr/lib/x86_64-linux-gnu/libX11.so.6.4.0"
+          ],
+          "sha256": "e23ed094eaf0a74a822a6d9d14eee628ab9f7ec08aecbf20ffd803f019ff6e98",
+          "size": 1306280,
+          "previousSha256": "34b7869a1ba702462a1aa862fc0afe5b2608a7d5a09552c07796802fcf0c684b"
+        }
+      ],
+      "notice": {
+        "member": "./usr/share/doc/libx11-6/copyright",
+        "path": "licenses/linux-ci/libx11-6-0.copyright",
+        "sha256": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e",
+        "unchanged": true
+      }
+    },
+    {
+      "package": "libfreetype6:amd64",
+      "version": "2.11.1+dfsg-1ubuntu0.4",
+      "sourcePackage": "freetype",
+      "sourceVersion": "2.11.1+dfsg-1ubuntu0.4",
+      "architecture": "amd64",
+      "previousVersion": "2.11.1+dfsg-1ubuntu0.3",
+      "archive": {
+        "url": "https://archive.ubuntu.com/ubuntu/pool/main/f/freetype/libfreetype6_2.11.1+dfsg-1ubuntu0.4_amd64.deb",
+        "sha256": "3728210ef44a7a51b3824d5c499f6fbd428584a42a65aee15794a4264c8c173a",
+        "size": 388210
+      },
+      "nativeMatches": [
+        {
+          "payload": "libfreetype.so.6",
+          "member": "./usr/lib/x86_64-linux-gnu/libfreetype.so.6.18.1",
+          "symlinkChain": [
+            "./usr/lib/x86_64-linux-gnu/libfreetype.so.6",
+            "./usr/lib/x86_64-linux-gnu/libfreetype.so.6.18.1"
+          ],
+          "sha256": "c338538f8d90eb85217e8525ab363e68e79b46d3c8acc0b6824190e032687e5f",
+          "size": 813128,
+          "previousSha256": "ef8908dd08eb7072dd1da355277b069048a86512122592d56b5051796ba62ee2"
+        }
+      ],
+      "notice": {
+        "member": "./usr/share/doc/libfreetype6/copyright",
+        "path": "licenses/linux-ci/libfreetype6-0.copyright",
+        "sha256": "992b869abf2c114288dafb51c37f19c0afc3455477b9d589371d45ad214a8b07",
+        "unchanged": true
+      }
+    },
+    {
+      "package": "libpng16-16:amd64",
+      "version": "1.6.37-3ubuntu0.7",
+      "sourcePackage": "libpng1.6",
+      "sourceVersion": "1.6.37-3ubuntu0.7",
+      "architecture": "amd64",
+      "previousVersion": "1.6.37-3ubuntu0.6",
+      "archive": {
+        "url": "https://archive.ubuntu.com/ubuntu/pool/main/libp/libpng1.6/libpng16-16_1.6.37-3ubuntu0.7_amd64.deb",
+        "sha256": "f0e18c46205e6b1bf9eb20ed97037c128f03cf27c1ff818f442a9cc173f8a002",
+        "size": 192392
+      },
+      "nativeMatches": [
+        {
+          "payload": "libpng16.so.16",
+          "member": "./usr/lib/x86_64-linux-gnu/libpng16.so.16.37.0",
+          "symlinkChain": [
+            "./usr/lib/x86_64-linux-gnu/libpng16.so.16",
+            "./usr/lib/x86_64-linux-gnu/libpng16.so.16.37.0"
+          ],
+          "sha256": "0c55d5776d3382cb7859ff48fcf813e0c3b27f33c46f9364633748830246c723",
+          "size": 235592,
+          "previousSha256": "ca1306d319d9e6a904fe4b0fa21e41952db2b2f2f5384f70a1301fa713300f5b"
+        }
+      ],
+      "notice": {
+        "member": "./usr/share/doc/libpng16-16/copyright",
+        "path": "licenses/linux-ci/libpng16-16-0.copyright",
+        "sha256": "b2d88c45221e2016a5a0bb98406b45faf911f1aff87242eec12af05abae1de0a",
+        "unchanged": true
+      }
+    }
+  ]
+}

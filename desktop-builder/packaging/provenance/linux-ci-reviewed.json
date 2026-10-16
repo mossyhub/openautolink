@@ -3,7 +3,7 @@
   "system": "Linux",
   "architecture": "x86_64",
   "review_scope": "Exact Ubuntu 22.04 amd64 CI discovery; unchanged wheel closure reused only after byte equality. Distro sources/notices newly reviewed. No native execution/recombination qualification asserted. Composite notice routes require generic policy integration; never relabel to force acceptance.",
-  "discovery_sha256": "7f4a65c9e3747d7e35018c61ae1459c0bc4fabca44d62370fbd16e7ba47c6fd3",
+  "discovery_sha256": "654031e73e9e799604ac9c5cbe11a3c40499e1bc1a0d127b9ceef6b4dbe37b9e",
   "components": [
     {
       "id": "qt-static-blake2",
@@ -3460,13 +3460,13 @@
     },
     {
       "id": "ubuntu-libx11-xcb1",
-      "version": "2:1.7.5-1ubuntu0.3",
+      "version": "2:1.7.5-1ubuntu0.4",
       "license": "LicenseRef-Ubuntu-libX11-1.7.5",
-      "provenance": "Ubuntu 22.04 amd64 libx11-xcb1:amd64 2:1.7.5-1ubuntu0.3; source libx11 2:1.7.5-1ubuntu0.3. Exact installed nativeCandidates hashes match discovery payload; package notice SHA-256 checked. See provenance/linux-ci/supplier-matches.json.",
+      "provenance": "Ubuntu 22.04 amd64 libx11-xcb1:amd64 2:1.7.5-1ubuntu0.4; source libx11 2:1.7.5-1ubuntu0.4. Official Ubuntu .deb regular-member bytes match run 38953744570 discovery hashes and sizes; exact copyright bytes are unchanged. See provenance/linux-ci/supplier-updates-run38953744570.json and supplier-matches.json. Prior license/static/source obligations retained.",
       "payload": [
         {
           "path": "libX11-xcb.so.1",
-          "sha256": "2526f9d1ca41ce2df4750d2d083bb9d335aa4430955faf66435ec038ea88e473",
+          "sha256": "d7f9e86161421311a1023c44295a88b4a00b6ecbd20c416fc71895f43e358a0a",
           "size": 14048,
           "kind": "binary"
         }
@@ -3479,6 +3479,10 @@
         {
           "path": "provenance/linux-ci/REVIEW.md",
           "sha256": "554e53f34bc8bad749a0450348fb66bb2c98add5fea51a5bea192b009974ac6d"
+        },
+        {
+          "path": "provenance/linux-ci/supplier-updates-run38953744570.json",
+          "sha256": "974664aa3baff92c1a9f04a2111411859d30a2b68c014979ea2ff51ea6447a54"
         }
       ],
       "statically_linked": [],
@@ -3486,13 +3490,13 @@
     },
     {
       "id": "ubuntu-libx11-6",
-      "version": "2:1.7.5-1ubuntu0.3",
+      "version": "2:1.7.5-1ubuntu0.4",
       "license": "LicenseRef-Ubuntu-libX11-1.7.5",
-      "provenance": "Ubuntu 22.04 amd64 libx11-6:amd64 2:1.7.5-1ubuntu0.3; source libx11 2:1.7.5-1ubuntu0.3. Exact installed nativeCandidates hashes match discovery payload; package notice SHA-256 checked. See provenance/linux-ci/supplier-matches.json.",
+      "provenance": "Ubuntu 22.04 amd64 libx11-6:amd64 2:1.7.5-1ubuntu0.4; source libx11 2:1.7.5-1ubuntu0.4. Official Ubuntu .deb regular-member bytes match run 38953744570 discovery hashes and sizes; exact copyright bytes are unchanged. See provenance/linux-ci/supplier-updates-run38953744570.json and supplier-matches.json. Prior license/static/source obligations retained.",
       "payload": [
         {
           "path": "libX11.so.6",
-          "sha256": "34b7869a1ba702462a1aa862fc0afe5b2608a7d5a09552c07796802fcf0c684b",
+          "sha256": "e23ed094eaf0a74a822a6d9d14eee628ab9f7ec08aecbf20ffd803f019ff6e98",
           "size": 1306280,
           "kind": "binary"
         }
@@ -3505,6 +3509,10 @@
         {
           "path": "provenance/linux-ci/REVIEW.md",
           "sha256": "554e53f34bc8bad749a0450348fb66bb2c98add5fea51a5bea192b009974ac6d"
+        },
+        {
+          "path": "provenance/linux-ci/supplier-updates-run38953744570.json",
+          "sha256": "974664aa3baff92c1a9f04a2111411859d30a2b68c014979ea2ff51ea6447a54"
         }
       ],
       "statically_linked": [],
@@ -3986,13 +3994,13 @@
     },
     {
       "id": "ubuntu-libfreetype6",
-      "version": "2.11.1+dfsg-1ubuntu0.3",
+      "version": "2.11.1+dfsg-1ubuntu0.4",
       "license": "FTL AND MIT AND MIT-open-group AND Zlib",
-      "provenance": "Ubuntu 22.04 amd64 libfreetype6:amd64 2.11.1+dfsg-1ubuntu0.3; source freetype 2.11.1+dfsg-1ubuntu0.3. Exact installed nativeCandidates hashes match discovery payload; package notice SHA-256 checked. See provenance/linux-ci/supplier-matches.json.",
+      "provenance": "Ubuntu 22.04 amd64 libfreetype6:amd64 2.11.1+dfsg-1ubuntu0.4; source freetype 2.11.1+dfsg-1ubuntu0.4. Official Ubuntu .deb regular-member bytes match run 38953744570 discovery hashes and sizes; exact copyright bytes are unchanged. See provenance/linux-ci/supplier-updates-run38953744570.json and supplier-matches.json. Prior license/static/source obligations retained.",
       "payload": [
         {
           "path": "libfreetype.so.6",
-          "sha256": "ef8908dd08eb7072dd1da355277b069048a86512122592d56b5051796ba62ee2",
+          "sha256": "c338538f8d90eb85217e8525ab363e68e79b46d3c8acc0b6824190e032687e5f",
           "size": 813128,
           "kind": "binary"
         }
@@ -4005,6 +4013,10 @@
         {
           "path": "provenance/linux-ci/REVIEW.md",
           "sha256": "554e53f34bc8bad749a0450348fb66bb2c98add5fea51a5bea192b009974ac6d"
+        },
+        {
+          "path": "provenance/linux-ci/supplier-updates-run38953744570.json",
+          "sha256": "974664aa3baff92c1a9f04a2111411859d30a2b68c014979ea2ff51ea6447a54"
         }
       ],
       "statically_linked": [],
@@ -4787,13 +4799,13 @@
     },
     {
       "id": "ubuntu-libpng16-16",
-      "version": "1.6.37-3ubuntu0.6",
+      "version": "1.6.37-3ubuntu0.7",
       "license": "libpng-2.0",
-      "provenance": "Ubuntu 22.04 amd64 libpng16-16:amd64 1.6.37-3ubuntu0.6; source libpng1.6 1.6.37-3ubuntu0.6. Exact installed nativeCandidates hashes match discovery payload; package notice SHA-256 checked. See provenance/linux-ci/supplier-matches.json.",
+      "provenance": "Ubuntu 22.04 amd64 libpng16-16:amd64 1.6.37-3ubuntu0.7; source libpng1.6 1.6.37-3ubuntu0.7. Official Ubuntu .deb regular-member bytes match run 38953744570 discovery hashes and sizes; exact copyright bytes are unchanged. See provenance/linux-ci/supplier-updates-run38953744570.json and supplier-matches.json. Prior license/static/source obligations retained.",
       "payload": [
         {
           "path": "libpng16.so.16",
-          "sha256": "ca1306d319d9e6a904fe4b0fa21e41952db2b2f2f5384f70a1301fa713300f5b",
+          "sha256": "0c55d5776d3382cb7859ff48fcf813e0c3b27f33c46f9364633748830246c723",
           "size": 235592,
           "kind": "binary"
         }
@@ -4806,6 +4818,10 @@
         {
           "path": "provenance/linux-ci/REVIEW.md",
           "sha256": "554e53f34bc8bad749a0450348fb66bb2c98add5fea51a5bea192b009974ac6d"
+        },
+        {
+          "path": "provenance/linux-ci/supplier-updates-run38953744570.json",
+          "sha256": "974664aa3baff92c1a9f04a2111411859d30a2b68c014979ea2ff51ea6447a54"
         }
       ],
       "statically_linked": [],
