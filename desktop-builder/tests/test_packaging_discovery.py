@@ -42,6 +42,18 @@ def test_inventory_is_retained_without_unrelated_dist_files(tmp_path):
     assert "workspace" not in json.dumps(result)
 
 
+def test_windows_normalized_loader_scope_is_retained(tmp_path):
+    module = load_helper()
+    source, data = inventory(tmp_path)
+    data["payload"][0]["hash_scope"] = "PE-prefix-with-build-timestamps-and-checksum-zeroed"
+    source.write_text(json.dumps(data), encoding="utf-8")
+    assert module.read_inventory(source) == data
+    data["payload"][0]["hash_scope"] = "PE-arbitrary-code-zeroed"
+    source.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="hash scope"):
+        module.read_inventory(source)
+
+
 def test_supplier_projection_preserves_notices_and_matches_real_bytes(tmp_path):
     from importlib.metadata import Distribution
     module = load_helper()

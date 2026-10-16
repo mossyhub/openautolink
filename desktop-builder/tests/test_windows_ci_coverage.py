@@ -76,6 +76,146 @@ class WindowsCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "layout"):
             module.compare_pe_loader(bytes(moved), original)
 
+    @unittest.skipUnless(importlib.util.find_spec("pefile"), "PE parser dependency")
+    def test_pe_rejection_diagnostics_distinguish_bytes_layout_and_headers(self):
+        import hashlib
+        import struct
+        module = load_module()
+        original = self.minimal_pe()
+        changed = bytearray(original)
+        changed[512] ^= 1
+        changed[152 + 16] ^= 1
+        with self.assertRaises(ValueError) as caught:
+            module.compare_pe_loader(bytes(changed), original)
+        diagnostic = caught.exception.diagnostics
+        self.assertEqual(diagnostic["supplierPrefixSha256"], hashlib.sha256(original).hexdigest())
+        self.assertEqual(diagnostic["candidatePrefixSha256"], hashlib.sha256(changed).hexdigest())
+        self.assertEqual(diagnostic["sectionDifferences"][0]["changedFields"], ["sha256"])
+        self.assertEqual(diagnostic["sectionDifferences"][0]["firstDifferingOffsets"], [0])
+        self.assertEqual(diagnostic["headerDifferences"], ["AddressOfEntryPoint"])
+        self.assertEqual(diagnostic["candidate"]["headers"]["SizeOfHeaders"], 512)
+        self.assertEqual(diagnostic["candidate"]["sections"][0]["raw_offset"], 512)
+        self.assertEqual(diagnostic["supplier"]["sections"][0]["raw_offset"], 512)
+        moved = bytearray(original + bytes(512))
+        moved[1024:1536], moved[512:1024] = original[512:1024], bytes(512)
+        struct.pack_into("<I", moved, 392 + 20, 1024)
+        with self.assertRaises(ValueError) as caught:
+            module.compare_pe_loader(bytes(moved), original)
+        difference = caught.exception.diagnostics["sectionDifferences"][0]
+        self.assertEqual(difference["changedFields"], ["raw_offset"])
+        self.assertNotIn("firstDifferingOffsets", difference)
+
+    @unittest.skipUnless(importlib.util.find_spec("pefile"), "PE parser dependency")
+    def test_pe_rejection_diagnostics_are_bounded_without_ignoring_extra_sections(self):
+        import struct
+        module = load_module()
+        # Twenty distinct nonoverlapping sections, all with changed bytes.
+        original = bytearray(self.minimal_pe()[:512] + bytes(1536 + 20 * 512 - 512))
+        struct.pack_into("<H", original, 134, 20)
+        struct.pack_into("<II", original, 152 + 56, 21 * 4096, 1536)
+        for index in range(20):
+            struct.pack_into("<8sIIIIIIHHI", original, 392 + index * 40,
+                             f".s{index:02}".encode(), 512, (index + 1) * 4096, 512,
+                             1536 + index * 512, 0, 0, 0, 0, 0x60000020)
+        changed = bytearray(original)
+        changed[1536:] = b"x" * (20 * 512)
+        with self.assertRaises(ValueError) as caught:
+            module.compare_pe_loader(bytes(changed), bytes(original))
+        diagnostic = caught.exception.diagnostics
+        self.assertEqual(diagnostic["sectionDifferenceCount"], 20)
+        self.assertEqual(len(diagnostic["sectionDifferences"]), 16)
+        self.assertTrue(diagnostic["sectionDifferencesTruncated"])
+        self.assertEqual(len(diagnostic["candidate"]["sections"]), 16)
+        self.assertTrue(diagnostic["candidate"]["sectionsTruncated"])
+        for difference in diagnostic["sectionDifferences"]:
+            self.assertEqual(difference["firstDifferingOffsets"], list(range(8)))
+            self.assertEqual(difference["comparedPrefixBytes"], 8)
+            self.assertTrue(difference["byteScanLimited"])
+        # The seventeenth changed section must still reject, even though it is
+        # outside the bounded section summary.
+        changed = bytearray(original)
+        changed[1536 + 16 * 512] ^= 1
+        with self.assertRaises(ValueError) as caught:
+            module.compare_pe_loader(bytes(changed), bytes(original))
+        self.assertEqual(caught.exception.diagnostics["sectionDifferences"][0]["name"], ".s16")
+
+    @unittest.skipUnless(importlib.util.find_spec("pefile"), "PE parser dependency")
+    def test_pe_rejects_code_change_beyond_diagnostic_byte_scan(self):
+        import struct
+        module = load_module()
+        size = 1024 * 1024 + 512
+        original = bytearray(self.minimal_pe()[:1024] + bytes(size - 512))
+        struct.pack_into("<I", original, 152 + 56, size + 8192)
+        struct.pack_into("<I", original, 392 + 8, size)
+        struct.pack_into("<I", original, 392 + 16, size)
+        changed = bytearray(original)
+        changed[-1] ^= 1
+        with self.assertRaises(ValueError) as caught:
+            module.compare_pe_loader(bytes(changed), bytes(original))
+        difference = caught.exception.diagnostics["sectionDifferences"][0]
+        self.assertEqual(difference["changedFields"], ["sha256"])
+        self.assertEqual(difference["firstDifferingOffsets"], [])
+        self.assertEqual(difference["comparedPrefixBytes"], 1024 * 1024)
+        self.assertTrue(difference["byteScanLimited"])
+
+    @unittest.skipUnless(importlib.util.find_spec("pefile"), "PE parser dependency")
+    def test_official_supplier_pe_metadata_replay_and_negative_controls(self):
+        """Opt-in real pinned PE bytes; no Windows resource API/native execution."""
+        import hashlib
+        import os
+        import pefile
+        import zipfile
+        wheel_path = os.environ.get("OAL_WINDOWS_SUPPLIER_WHEEL")
+        if not wheel_path:
+            self.skipTest("Set OAL_WINDOWS_SUPPLIER_WHEEL for offline pinned supplier replay")
+        module = load_module()
+        wheel = Path(wheel_path)
+        review = json.loads(module.REVIEW.read_text())
+        pinned = next(e for e in review["supplier_inputs"] if e["path"] == wheel.name)
+        self.assertEqual(hashlib.sha256(wheel.read_bytes()).hexdigest(), pinned["sha256"])
+        with zipfile.ZipFile(wheel) as archive:
+            supplier = archive.read("PyInstaller/bootloader/Windows-64bit-intel/runw.exe")
+            winutils_source = archive.read("PyInstaller/utils/win32/winutils.py")
+        self.assertEqual(len(module.compare_pe_loader(supplier, supplier)["sections"]), 6)
+        # Execute the pinned supplier's actual timestamp routine, which is
+        # platform-independent. No executable is launched and no app is built.
+        winutils = {}
+        exec(compile(winutils_source, "pinned-wheel/winutils.py", "exec"), winutils)
+        with tempfile.TemporaryDirectory() as temp:
+            exe = Path(temp) / "metadata-replay.exe"
+            exe.write_bytes(supplier)
+            winutils["set_exe_build_timestamp"](str(exe), 1700000000)
+            with pefile.PE(str(exe)) as pe:
+                pe.OPTIONAL_HEADER.CheckSum = pe.generate_checksum()
+                changed = pe.write()
+            self.assertNotEqual(changed, supplier)
+            self.assertEqual(module.normalize_pe_build_metadata(changed),
+                             module.normalize_pe_build_metadata(supplier))
+            self.assertEqual(len(module.compare_pe_loader(changed, supplier)["sections"]), 6)
+        with pefile.PE(data=supplier) as pe:
+            text = next(s for s in pe.sections if s.Name.rstrip(b"\0") == b".text")
+            mutations = {
+                "code": text.PointerToRawData,
+                "entrypoint": pe.OPTIONAL_HEADER.get_field_absolute_offset("AddressOfEntryPoint"),
+                "import-directory": pe.OPTIONAL_HEADER.DATA_DIRECTORY[1].get_field_absolute_offset("VirtualAddress"),
+                "debug-pointer": pe.DIRECTORY_ENTRY_DEBUG[0].struct.get_field_absolute_offset("PointerToRawData"),
+            }
+        for label, offset in mutations.items():
+            with self.subTest(mutation=label):
+                changed = bytearray(supplier)
+                changed[offset] ^= 1
+                with self.assertRaises(ValueError) as caught:
+                    module.compare_pe_loader(bytes(changed), supplier)
+                diagnostic = caught.exception.diagnostics
+                if label == "code":
+                    self.assertEqual(diagnostic["sectionDifferences"][0]["name"], ".text")
+                elif label == "entrypoint":
+                    self.assertEqual(diagnostic["headerDifferences"], ["AddressOfEntryPoint"])
+                elif label == "import-directory":
+                    self.assertEqual(diagnostic["directoryDifferences"], [1])
+                else:
+                    self.assertEqual(diagnostic["sectionDifferences"][0]["name"], ".rdata")
+
     def test_fetch_selects_required_sources_and_only_official_loader_wheel(self):
         module = load_module()
         review = json.loads(module.REVIEW.read_text())
@@ -230,8 +370,19 @@ class WindowsCoverageTests(unittest.TestCase):
                 changed[512] ^= 1
                 exe.write_bytes(changed + pkg.read_bytes())
                 inventory.update(artifactSha256=build.sha256(exe), payload=build.native_inventory(exe))
-                with self.assertRaisesRegex(ValueError, "section"):
+                import io
+                diagnostic_log = io.StringIO()
+                with mock.patch("sys.stderr", diagnostic_log), self.assertRaisesRegex(ValueError, "section"):
                     module.probe_native_loader(exe, inventory, review, root)
+                diagnostic = json.loads(diagnostic_log.getvalue())
+                self.assertEqual(diagnostic["event"], "PE_LOADER_COMPARISON_REJECTED")
+                self.assertEqual(diagnostic["status"], "rejected")
+                self.assertTrue(diagnostic["notQualification"])
+                self.assertEqual(diagnostic["artifactSha256"], inventory["artifactSha256"])
+                self.assertEqual(diagnostic["supplierWheelSha256"], review["supplier_inputs"][0]["sha256"])
+                self.assertEqual(diagnostic["comparison"]["sectionDifferences"][0]["changedFields"], ["sha256"])
+                self.assertNotIn("parser-test-only", diagnostic_log.getvalue())
+                self.assertNotIn(str(root), diagnostic_log.getvalue())
                 wheel.write_bytes(b"changed wheel")
                 with self.assertRaisesRegex(ValueError, "changed"):
                     module.probe_native_loader(exe, inventory, review, root)

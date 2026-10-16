@@ -698,7 +698,7 @@ def combine_mac(incoming: Path, output: Path):
                 raise ValueError(f"Mismatched or untested {architecture} runtime stage")
             extract_runtime(folder / manifest["artifact"], work / architecture)
             runtime = work / architecture / NAME
-            run("lipo", "-verify_arch", architecture, runtime / NAME)
+            run("lipo", runtime / NAME, "-verify_arch", architecture)
             runtimes[architecture], stages[architecture] = runtime, manifest
         stage = work / "distribution"
         assemble_mac_app(runtimes, stage)
@@ -921,7 +921,7 @@ def main(argv=None):
         screenshot = output / f"smoke-{os_name}-{architecture}.png"
         if system == "Darwin":
             executable = stage / NAME / NAME
-            run("lipo", "-verify_arch", architecture, executable)
+            run("lipo", executable, "-verify_arch", architecture)
             smoke_artifact(executable, screenshot, source_sha)
             package = output / f"{stem}.runtime.tar.gz"
             with tarfile.open(package, "w:gz") as archive:

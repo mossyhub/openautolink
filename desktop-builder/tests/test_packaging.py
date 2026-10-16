@@ -1030,7 +1030,28 @@ def test_combine_mac_verifies_stages_and_creates_only_one_dmg(tmp_path, monkeypa
     assert manifest["artifact"] == build.NAME + ".dmg"
     assert set(manifest["files"]) == {build.NAME + ".dmg"}
     assert len(list(output.glob("*.dmg"))) == 1
-    assert len([c for c in commands if c[:2] == ("lipo", "-verify_arch")]) == 2
+    lipo_commands = [c for c in commands if c[0] == "lipo"]
+    assert len(lipo_commands) == 2
+    for command in lipo_commands:
+        # lipo's -verify_arch consumes all subsequent arguments as architectures.
+        assert len(command) == 4
+        assert Path(command[1]).name == build.NAME
+        assert command[2] == "-verify_arch"
+        assert command[3] in {"arm64", "x86_64"}
+
+
+def test_all_lipo_architecture_checks_put_input_before_variadic_option():
+    import ast
+    tree = ast.parse((ROOT / "packaging/build.py").read_text())
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name) and node.func.id == "run"
+             and node.args and isinstance(node.args[0], ast.Constant)
+             and node.args[0].value == "lipo"]
+    assert len(calls) == 2
+    for call in calls:
+        assert isinstance(call.args[2], ast.Constant)
+        assert call.args[2].value == "-verify_arch"
+        assert len(call.args) == 4
 
 
 @pytest.mark.parametrize("mutation", ["bytes", "source", "architecture", "traversal"])

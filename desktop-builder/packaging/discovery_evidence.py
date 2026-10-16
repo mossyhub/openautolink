@@ -52,7 +52,9 @@ def read_inventory(path):
             target = item["target"]
             if not isinstance(target, str) or target.startswith("/") or ":" in target or "\\" in target or any(ord(c) < 32 for c in target):
                 raise ValueError("Unsafe symlink description")
-        if "hash_scope" in item and item["hash_scope"] not in ("prefix-bytes", "ELF64-prefix-with-e_shoff-zeroed"):
+        if "hash_scope" in item and item["hash_scope"] not in (
+                "prefix-bytes", "ELF64-prefix-with-e_shoff-zeroed",
+                "PE-prefix-with-build-timestamps-and-checksum-zeroed"):
             raise ValueError("Unexpected bootloader hash scope")
     return data
 

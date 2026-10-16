@@ -315,15 +315,60 @@ def compare_pe_loader(frozen, supplier):
                 and resource_dir.VirtualAddress + resource_dir.Size <= r["rva"] + max(r["virtual_size"], r["raw_size"])
                 for r in resources):
             raise ValueError("Resource directory outside resource section")
+        # Diagnostic-only fields: never broaden the comparison's allowlist.
+        diagnostic_headers = {**headers, **{key: getattr(pe.OPTIONAL_HEADER, key) for key in (
+            "SizeOfHeaders", "SizeOfImage", "SizeOfCode", "SizeOfInitializedData",
+            "SizeOfUninitializedData", "BaseOfCode")},
+            "Machine": pe.FILE_HEADER.Machine, "NumberOfSections": pe.FILE_HEADER.NumberOfSections}
+        summary = {"headers": diagnostic_headers,
+                   "directories": [(i, d.VirtualAddress, d.Size)
+                                   for i, d in enumerate(pe.OPTIONAL_HEADER.DATA_DIRECTORY)],
+                   "sectionCount": len(pe.sections),
+                   "sections": (list(sections.values()) + resources)[:16],
+                   "sectionsTruncated": len(pe.sections) > 16}
         pe.close()
-        return sections, headers, directories, resources
+        return sections, headers, directories, resources, summary, blob
 
-    actual, headers, directories, resources = image(frozen)
-    expected, expected_headers, expected_directories, _ = image(supplier)
-    if actual != expected:
-        raise ValueError("PE loader section bytes/layout changed")
-    if headers != expected_headers or directories != expected_directories:
-        raise ValueError("PE loader entry point/header/directory changed")
+    actual, headers, directories, resources, actual_summary, actual_blob = image(frozen)
+    expected, expected_headers, expected_directories, _, expected_summary, expected_blob = image(supplier)
+    if actual != expected or headers != expected_headers or directories != expected_directories:
+        # Windows resource updates can rewrite on-disk layout. Until a native
+        # before/after pair proves the exact transformation, retain strict raw
+        # offsets/sizes and hashes, and expose what failed instead of guessing.
+        names = sorted(set(actual) | set(expected))
+        changed_names = [name for name in names if actual.get(name) != expected.get(name)]
+        differences = []
+        for name in changed_names[:16]:
+            a, e = actual.get(name), expected.get(name)
+            difference = {"name": name, "changedFields": sorted(
+                key for key in set(a or {}) | set(e or {}) if (a or {}).get(key) != (e or {}).get(key))}
+            if a is not None and e is not None and a["sha256"] != e["sha256"]:
+                # Relative offsets, not payload bytes. Bound both scanning work
+                # and output; size/hash differences remain visible beyond the cap.
+                size = min(a["raw_size"], e["raw_size"], 1024 * 1024)
+                offsets = []
+                scanned = 0
+                for offset in range(size):
+                    scanned = offset + 1
+                    if actual_blob[a["raw_offset"] + offset] != expected_blob[e["raw_offset"] + offset]:
+                        offsets.append(offset)
+                        if len(offsets) == 8:
+                            break
+                difference.update(firstDifferingOffsets=offsets, comparedPrefixBytes=scanned,
+                                  byteScanLimited=scanned < min(a["raw_size"], e["raw_size"]))
+            differences.append(difference)
+        diagnostic = {"candidatePrefixSha256": hashlib.sha256(frozen).hexdigest(),
+                      "supplierPrefixSha256": hashlib.sha256(supplier).hexdigest(),
+                      "candidate": actual_summary, "supplier": expected_summary,
+                      "sectionDifferenceCount": len(changed_names),
+                      "sectionDifferences": differences,
+                      "sectionDifferencesTruncated": len(changed_names) > 16,
+                      "headerDifferences": sorted(key for key in headers if headers[key] != expected_headers[key]),
+                      "directoryDifferences": [a[0] for a, e in zip(directories, expected_directories) if a != e]}
+        error = ValueError("PE loader section bytes/layout changed" if actual != expected else
+                           "PE loader entry point/header/directory changed")
+        error.diagnostics = diagnostic
+        raise error
     return {"scope": "nonresource-PE-sections-with-debug-timestamps-zeroed-and-critical-headers",
             "supplierSha256": hashlib.sha256(supplier).hexdigest(),
             "sections": list(actual.values()), "resourceSections": resources}
@@ -409,7 +454,24 @@ def probe_native_loader(executable, inventory, review, cache):
     member = "PyInstaller/bootloader/Windows-64bit-intel/runw.exe"
     with zipfile.ZipFile(wheel) as archive:
         supplier = archive.read(member)
-    result = compare_pe_loader(prefix, supplier)
+    try:
+        result = compare_pe_loader(prefix, supplier)
+    except ValueError as error:
+        # build.py deliberately deletes unqualified executables and does not
+        # retain a failed return value. Emit bounded, hash-bound diagnostics to
+        # the native job log BEFORE re-raising; never turn rejection into evidence
+        # accepted by minimal_review, and never export executable bytes/paths.
+        import sys
+        diagnostic = {"schema": 1, "event": "PE_LOADER_COMPARISON_REJECTED",
+                      "status": "rejected", "notQualification": True,
+                      "artifactSha256": payload["artifactSha256"],
+                      "loaderSha256": loader["sha256"], "loaderHashScope": scope,
+                      "builderSourceSha256": payload.get("builderSourceSha256"),
+                      "supplierWheelSha256": inputs[0]["sha256"], "supplierMember": member,
+                      "identity": identity, "error": str(error)[:512],
+                      "comparison": getattr(error, "diagnostics", None)}
+        print(json.dumps(diagnostic, indent=2), file=sys.stderr, flush=True)
+        raise
     result.update({"schema": 1, "status": "evidence-only", "system": "Windows", "architecture": "x86_64",
                    "artifactSha256": payload["artifactSha256"], "loaderSha256": loader["sha256"],
                    "loaderHashScope": scope, "builderSourceSha256": payload.get("builderSourceSha256"),
