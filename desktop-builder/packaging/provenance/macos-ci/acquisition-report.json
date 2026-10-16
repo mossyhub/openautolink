@@ -1,0 +1,124 @@
+{
+  "status": "evidence-only",
+  "inputs": [
+    {
+      "path": "cryptography-44.0.3-cp39-abi3-macosx_10_9_universal2.whl",
+      "sha256": "5639c2b16764c6f76eedf722dbad9a0914960d3489c0cc38694ddf9464f1bb2f",
+      "url": "https://files.pythonhosted.org/packages/34/a3/ad08e0bcc34ad436013458d7528e83ac29910943cea42ad7dd4141a27bbb/cryptography-44.0.3-cp39-abi3-macosx_10_9_universal2.whl"
+    },
+    {
+      "path": "pyinstaller-6.13.0-py3-none-macosx_10_13_universal2.whl",
+      "sha256": "aa404f0b02cd57948098055e76ee190b8e65ccf7a2a3f048e5000f668317069f",
+      "url": "https://files.pythonhosted.org/packages/b4/02/d1a347d35b1b627da1e148159e617576555619ac3bb8bbd5fed661fc7bb5/pyinstaller-6.13.0-py3-none-macosx_10_13_universal2.whl"
+    },
+    {
+      "path": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "sha256": "aa56c135db924ecfaf50088baf32f737d28027419ca5fee67c0c7141b29184e3",
+      "url": "https://files.pythonhosted.org/packages/ad/74/082381f996baea3d6716d542c2184cb031e63f1cb6d4edca871fe82dd787/PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl"
+    },
+    {
+      "path": "shiboken6-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "sha256": "483efc7dd53c69147b8a8ade71f7619c79ffc683efcb1dc4f4cb6c40bb23d29b",
+      "url": "https://files.pythonhosted.org/packages/e5/89/162c763f2799786e16f9045aa599dcf126e0f5f6a517f1e0251ba0be17e6/shiboken6-6.8.3-cp39-abi3-macosx_12_0_universal2.whl"
+    },
+    {
+      "path": "cffi-2.1.1-cp312-cp312-macosx_11_0_arm64.whl",
+      "sha256": "f81b3b8f3d4e343550fa4baa0e479bba9f2d29ce9c2e9b51d1ce1718d7442fcf",
+      "url": "https://files.pythonhosted.org/packages/54/7d/16e5a096677b5e313ca80cd5e5170efa3ea44624a82bb111925522da64b1/cffi-2.1.1-cp312-cp312-macosx_11_0_arm64.whl"
+    },
+    {
+      "path": "cffi-2.1.1-cp312-cp312-macosx_10_15_x86_64.whl",
+      "sha256": "c8c69575568085ba0b1b10c0249d779a214aea6f6522e949a0fc9fb0fcb449d0",
+      "url": "https://files.pythonhosted.org/packages/10/69/43965eccfdead3b9220015fd1320e117be8c6ed01a62ffab76eeb752f5d5/cffi-2.1.1-cp312-cp312-macosx_10_15_x86_64.whl"
+    },
+    {
+      "path": "Python-3.12.10.tar.xz",
+      "sha256": "07ab697474595e06f06647417d3c7fa97ded07afc1a7e4454c5639919b46eaea",
+      "url": "https://www.python.org/ftp/python/3.12.10/Python-3.12.10.tar.xz"
+    },
+    {
+      "path": "OpenSSL-3.0.16-LICENSE.txt",
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "url": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.16/LICENSE.txt"
+    },
+    {
+      "path": "XZ-5.2.3-COPYING.txt",
+      "sha256": "c4f8e14fafe458d84808a4cd8b69f94673ebe2bf8fc992291629a69ac12218f8",
+      "url": "https://raw.githubusercontent.com/tukaani-project/xz/v5.2.3/COPYING"
+    },
+    {
+      "path": "pyinstaller-6.13.0-osx.py",
+      "sha256": "3e0863494374b4703f2703c405ce1038a84b942aebed291d91eebf385abc605b",
+      "url": "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.13.0/PyInstaller/utils/osx.py"
+    },
+    {
+      "path": "qtbase-everywhere-src-6.8.3.tar.xz",
+      "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+      "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz"
+    },
+    {
+      "path": "pyside-setup-everywhere-src-6.8.3.tar.xz",
+      "sha256": "d2c896f7f1a6a7ea4c9f98cfe317272fd139703ddf612b86999f09e48aeef0e6",
+      "url": "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.3-src/pyside-setup-everywhere-src-6.8.3.tar.xz"
+    },
+    {
+      "path": "python-3.12.10-macos11.pkg",
+      "sha256": "8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4",
+      "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg"
+    }
+  ],
+  "notices": [
+    {
+      "path": "cryptography-44.0.3-cp39-abi3-macosx_10_9_universal2.whl.notices.txt",
+      "sha256": "9c0c816e22cde90b04f3dd9ab0e9340304b326401c2316808e1eacbb1347396d",
+      "input": "cryptography-44.0.3-cp39-abi3-macosx_10_9_universal2.whl"
+    },
+    {
+      "path": "pyinstaller-6.13.0-py3-none-macosx_10_13_universal2.whl.notices.txt",
+      "sha256": "6b1cfe4c890a8cf587eddee10bcbf7f85bb3930c8d56b2135b87d2a47b90f3f5",
+      "input": "pyinstaller-6.13.0-py3-none-macosx_10_13_universal2.whl"
+    },
+    {
+      "path": "cffi-2.1.1-cp312-cp312-macosx_11_0_arm64.whl.notices.txt",
+      "sha256": "b684dae9ca87ae7eed83ba82640cf70285597b497ff8eb83355fb4b7e4f3aaaf",
+      "input": "cffi-2.1.1-cp312-cp312-macosx_11_0_arm64.whl"
+    },
+    {
+      "path": "cffi-2.1.1-cp312-cp312-macosx_10_15_x86_64.whl.notices.txt",
+      "sha256": "e4015130630b5b1a3ff43eead6e318477d70c301779c9bc301ff56eb56ce81a8",
+      "input": "cffi-2.1.1-cp312-cp312-macosx_10_15_x86_64.whl"
+    },
+    {
+      "path": "Python-3.12.10.tar.xz.notices.txt",
+      "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f",
+      "input": "Python-3.12.10.tar.xz"
+    },
+    {
+      "path": "OpenSSL-3.0.16-LICENSE.txt.notices.txt",
+      "sha256": "2fd66b39e2f33ce36ffea9888c5a6ae952eb2d79f5e6498c22f1fb3038af63d2",
+      "input": "OpenSSL-3.0.16-LICENSE.txt"
+    },
+    {
+      "path": "XZ-5.2.3-COPYING.txt.notices.txt",
+      "sha256": "fea1a2d89f381c4b392c7cef6ace8318649863b309ddea9cfd81d0a504ca83fb",
+      "input": "XZ-5.2.3-COPYING.txt"
+    },
+    {
+      "path": "pyinstaller-6.13.0-osx.py.notices.txt",
+      "sha256": "586694e26601049537ca389201db36aef031e4cfda5875e0ea0c98da4e92c592",
+      "input": "pyinstaller-6.13.0-osx.py"
+    },
+    {
+      "path": "qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+      "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a",
+      "input": "qtbase-everywhere-src-6.8.3.tar.xz"
+    },
+    {
+      "path": "pyside-setup-everywhere-src-6.8.3.tar.xz.notices.txt",
+      "sha256": "ac71dd412cdaf692176393339dbb8a6b3725cc68eda9486fcb699011e992b496",
+      "input": "pyside-setup-everywhere-src-6.8.3.tar.xz"
+    }
+  ],
+  "matches": [],
+  "unmatched": []
+}

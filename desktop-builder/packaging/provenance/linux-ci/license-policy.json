@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "purpose": "Exact-notice-bound notice-only routes requiring parent integration into generic schema-2 validator, not an override of that validator.",
+  "scoped_notices": {
+    "LicenseRef-Ubuntu-libX11-1.7.5": {
+      "notice_sha256": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e",
+      "license_scope": "libX11 and libX11-xcb only. Original X/Open Group, X Consortium, legacy no-endorsement and variant grants retained in the complete exact supplier notice. Not a blanket MIT alias.",
+      "notice_path": "licenses/linux-ci/libx11-6-0.copyright"
+    },
+    "LicenseRef-Ubuntu-libbsd-0.11.5": {
+      "notice_sha256": "3761714adb9c45fa588b77b372d6e75dcc9e6822cc2d6baa712007241aec714e",
+      "license_scope": "The shared library only, including BSD-2/3, ISC, MIT, Beerware and public-domain source grants. Advertising-clause and Peter Wemm 5-clause entries are manpages, not shipped library code. Full notice is nevertheless retained.",
+      "notice_path": "licenses/linux-ci/libbsd0-0.copyright"
+    },
+    "LicenseRef-Ubuntu-com-err-1.46.5": {
+      "notice_sha256": "9e3a4384b6d8d2358d44103f62bcd948328b3f8a63a1a6baa66abeb43302d581",
+      "license_scope": "Only libcom_err, under the MIT SIPB historic permission/no-endorsement grant in this exact package notice, not GPL filesystem utilities.",
+      "notice_path": "licenses/linux-ci/libcom-err2-0.copyright"
+    },
+    "LicenseRef-Ubuntu-Kerberos-1.19.2": {
+      "notice_sha256": "4a2d321ab57260e8de4b67bde8cff76c07d28be69c2d8b22dfc2bfa42f5c41b9",
+      "license_scope": "Only libkrb5, libkrb5support, libk5crypto and libgssapi_krb5. Complete composite supplier grants retained, including attribution, no endorsement, export and modified-version conditions; not a generic MIT classification or inclusion of unshipped tools/plugins.",
+      "notice_path": "licenses/linux-ci/libkrb5support0-0.copyright"
+    },
+    "LicenseRef-Ubuntu-liblzma-5.2.5": {
+      "notice_sha256": "a2dc8fac0f496e1c58aff67018cf0c6b88336316afa5642f9335b71642e28aa8",
+      "license_scope": "Only liblzma: public-domain upstream liblzma implementation with retained permissive helper grants; GPL/LGPL utilities, tests and build tools are not the shipped library. Full source-package notice retained, not relabelled 0BSD.",
+      "notice_path": "licenses/linux-ci/liblzma5-0.copyright"
+    },
+    "LicenseRef-Ubuntu-libmd-1.0.4": {
+      "notice_sha256": "4365ef6255ad553fce69dd4bc0e093472c5d0e41b8ea493a545cc926ce171aa6",
+      "license_scope": "The shared digest library only: BSD-2/3 and public-domain MD4/MD5/SHA1 plus Beerware helper.c; Beerware notice is retained, not renamed BSD. Manual-page ISC notice also retained conservatively.",
+      "notice_path": "licenses/linux-ci/libmd0-0.copyright"
+    }
+  }
+}

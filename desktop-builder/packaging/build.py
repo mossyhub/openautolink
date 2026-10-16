@@ -19,6 +19,89 @@ REPOSITORY = ROOT.parent
 NAME = "OpenAutoLink-Builder"
 
 
+def windows_support():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("windows_packaging_support", Path(__file__).with_name("coverage_windows_ci.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def windows_spec(frozen_root: Path, work: Path, compliance: Path) -> Path:
+    """Generate a real onefile spec and filter only before EXE construction."""
+    from PyInstaller.building.makespec import main as makespec
+    spec = Path(makespec([str(frozen_root / "oal_builder/__main__.py")], name=NAME,
+        onefile=True, console=False, noupx=True, specpath=str(work), shorthand_manifest=None,
+        pathex=[str(frozen_root)], hiddenimports=["oal_builder.engine"],
+        datas=[(str(compliance), ".")], runtime_hooks=[str(frozen_root / "packaging/runtime_hook.py")],
+        hookspath=[str(frozen_root / "packaging")], excludes=["tkinter"]))
+    text = spec.read_text(encoding="utf-8")
+    anchor = "pyz = PYZ("
+    if text.count(anchor) != 1:
+        raise ValueError("Unsupported PyInstaller spec layout")
+    support = str(frozen_root / "packaging/coverage_windows_ci.py")
+    injection = ("import runpy\n"
+                 f"a.binaries = runpy.run_path({support!r})['windows10_runtime_binaries'](a.binaries)\n\n")
+    spec.write_text(text.replace(anchor, injection + anchor), encoding="utf-8")
+    return spec
+
+
+def windows_candidate_coverage(candidate, discovery, cache, work, output, coverage_file=None):
+    """Probe the private actual candidate BEFORE fail-closed coverage cleanup."""
+    windows = windows_support()
+    review = json.loads(windows.REVIEW.read_text(encoding="utf-8"))
+    policy = json.loads((windows.BASE / "provenance/windows-ci-minimal-policy.json").read_text(encoding="utf-8"))
+    report = {"schema": 1, "status": "UNQUALIFIED-DISCOVERY-ONLY", "notQualification": True,
+              "artifactSha256": discovery["artifactSha256"],
+              "builderSourceSha256": discovery["builderSourceSha256"]}
+    path = output / "windows-candidate-review.json"
+    try:
+        report["loaderProbe"] = windows.probe_native_loader(candidate, discovery, review, cache)
+        minimal = windows.minimal_review(discovery, review, policy, report["loaderProbe"])
+        report["coverage"] = {"status": minimal["status"], "blockers": minimal["blockers"],
+                              "payload_count": len(discovery["payload"]),
+                              "component_count": len(minimal["components"])}
+        report["candidateSmoke"] = windows.probe_candidate_ui(candidate, work)
+    except (ValueError, OSError, KeyError, subprocess.SubprocessError):
+        report["collectionError"] = "WINDOWS_CANDIDATE_PROBE_OR_POLICY_FAILED"
+        raise
+    finally:
+        path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    # Explicit later coverage may add reviewed conditions, but cannot relabel
+    # Microsoft as MIT, omit translations' sources or discard static closure.
+    if coverage_file is not None:
+        supplied = json.loads(coverage_file.read_text(encoding="utf-8"))
+        fields = ("id", "version", "license", "payload", "statically_linked", "notices",
+                  "sources", "build_instructions", "license_scope")
+        def obligations(components):
+            return sorted([{field: c.get(field) for field in fields} for c in components], key=lambda c: c["id"])
+        if obligations(supplied.get("components", [])) != obligations(minimal["components"]):
+            raise ValueError("Windows coverage override changed exact reviewed obligations")
+        if windows.audit(discovery, supplied)["status"] != "reviewed":
+            raise ValueError("Windows coverage override is not reviewed")
+        return coverage_file
+    return windows.materialize(discovery, minimal, windows.BASE, work / "windows-coverage", cache=cache)
+
+
+def required_source_inputs(review: dict, lock: dict) -> dict:
+    """Select exact corresponding-source inputs, not unrelated supplier wheels.
+
+    This selection is for the Mac lock (no nested source containers). Ubuntu's
+    lock already includes its required .dsc/container closure and is used whole.
+    """
+    selected = []
+    for component in review["components"]:
+        for source in component.get("sources", []):
+            matches = [entry for entry in lock["inputs"]
+                       if entry["path"] == Path(source["path"]).name
+                       and entry["sha256"] == source["sha256"] and entry["url"] == source["url"]]
+            if len(matches) != 1 or matches[0].get("container"):
+                raise ValueError("Missing, changed or nested required source input")
+            if matches[0] not in selected:
+                selected.append(matches[0])
+    return {"schema": lock["schema"], "inputs": [entry for entry in lock["inputs"] if entry in selected]}
+
+
 def coverage_asset(base: Path, asset: dict) -> Path:
     """Only explicit, hash-bound, nonempty local evidence; no network at build time."""
     from pathlib import PurePosixPath
@@ -83,12 +166,55 @@ def validate_native_coverage(payload: list[dict], coverage: dict, base: Path):
             "LicenseRef-Kerberos-1.21.3": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816",
             "LicenseRef-libX11-1.8.12": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e",
             "LicenseRef-com-err-1.47.2": "2041b5febdc110151ca3372d01b16b85dda1888e33f3f60fce0f59940eed7d19",
+            # Ubuntu CI: provenance/linux-ci/license-policy.json records the
+            # library-only selections; these do not approve adjacent tools.
+            "LicenseRef-Ubuntu-libX11-1.7.5": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e",
+            "LicenseRef-Ubuntu-libbsd-0.11.5": "3761714adb9c45fa588b77b372d6e75dcc9e6822cc2d6baa712007241aec714e",
+            "LicenseRef-Ubuntu-com-err-1.46.5": "9e3a4384b6d8d2358d44103f62bcd948328b3f8a63a1a6baa66abeb43302d581",
+            "LicenseRef-Ubuntu-Kerberos-1.19.2": "4a2d321ab57260e8de4b67bde8cff76c07d28be69c2d8b22dfc2bfa42f5c41b9",
+            "LicenseRef-Ubuntu-liblzma-5.2.5": "a2dc8fac0f496e1c58aff67018cf0c6b88336316afa5642f9335b71642e28aa8",
+            "LicenseRef-Ubuntu-libmd-1.0.4": "4365ef6255ad553fce69dd4bc0e093472c5d0e41b8ea493a545cc926ce171aa6",
         }
         if coverage.get("schema") == 2 and component.get("license") in scoped_notices:
             if (scoped_notices[component["license"]] not in {a.get("sha256") for a in component.get("notices", [])}
                     or not isinstance(component.get("license_scope"), str) or not component["license_scope"].strip()):
                 raise ValueError("Composite terms require exact reviewed notice and library scope")
             notice_only = True
+        if coverage.get("schema") == 2 and component.get("license") == "LicenseRef-XZ-5.2.3-Public-Domain":
+            # Mirror the reviewed Mac supplier selection, never a grant for xz
+            # tools or other liblzma versions. Generic asset checks below verify
+            # the pinned notice bytes, including when exported from a package.
+            if (component.get("id") != "cpython-static-xz" or component.get("version") != "5.2.3"
+                    or component.get("license_scope") != "Only embedded liblzma in _lzma; not xz tools, getopt_long, scripts, build tools or documentation."
+                    or component.get("payload") != [] or component.get("statically_linked") != []
+                    or component.get("sources")
+                    or "fea1a2d89f381c4b392c7cef6ace8318649863b309ddea9cfd81d0a504ca83fb"
+                    not in {a.get("sha256") for a in component.get("notices", [])}):
+                raise ValueError("XZ requires exact liblzma-only scope and supplier notice")
+            notice_only = True
+        windows_notices = {
+            "LicenseRef-Lcs-Telegraphics": (
+                "qt-static-wintab", "bundled Qt 6.8.3",
+                "Only the Wintab headers embedded in the Qt 6.8.3 Windows platform plugin.",
+                "65ce9e044e1ecb061ad9ff417fa38503e24a8317f80b990272623f41e1d5250b"),
+            "LicenseRef-XZ-5.2.5-liblzma-Public-Domain": (
+                "cpython-static-liblzma", "5.2.5",
+                "Only embedded liblzma 5.2.5 in CPython _lzma; not xz tools, scripts or build tools.",
+                "bcb02973ef6e87ea73d331b3a80df7748407f17efdb784b61b47e0e610d3bb5c"),
+        }
+        if coverage.get("schema") == 2 and component.get("license") in windows_notices:
+            component_id, version, scope, digest = windows_notices[component["license"]]
+            if (component.get("id") != component_id or component.get("version") != version
+                    or component.get("license_scope") != scope or component.get("payload") != []
+                    or component.get("statically_linked") != [] or component.get("sources")
+                    or digest not in {a.get("sha256") for a in component.get("notices", [])}):
+                raise ValueError("Windows static notice requires exact supplier, scope and notice")
+            notice_only = True
+        if component.get("license", "").startswith("LicenseRef-Microsoft-"):
+            # Do not invent proprietary-source obligations or a paid-VS rule.
+            # The Python downstream grant is conditional; the package still
+            # needs a reviewed, Microsoft-only assent/distribution mechanism.
+            raise ValueError("Microsoft runtime downstream protective terms and supplier-specific distribution route remain unresolved")
         if coverage.get("schema") == 2 and component.get("license") == "GPL-3.0-or-later WITH GCC-exception-3.1":
             if not isinstance(component.get("exception_basis"), str) or not component["exception_basis"].strip():
                 raise ValueError("GCC exception requires runtime/eligible-compilation basis")
@@ -152,6 +278,32 @@ def validate_native_coverage(payload: list[dict], coverage: dict, base: Path):
     return coverage
 
 
+# Shared across all recursively visited ZIPs, not reset for each member.
+ZIP_MAX_BYTES = 512 * 1024 * 1024
+ZIP_MAX_MEMBERS = 20000
+ZIP_MAX_DEPTH = 4
+ZIP_MAX_RATIO = 1000
+
+
+def safe_zip_members(archive):
+    """Reject raw-name aliases before reading even a single ZIP member."""
+    import stat
+    seen = set()
+    members = archive.infolist()
+    for entry in members:
+        name = entry.orig_filename
+        parts = name.rstrip("/").split("/")
+        key = name.rstrip("/").casefold()
+        mode = entry.external_attr >> 16
+        if (not name or name.startswith("/") or "\\" in name or ":" in name
+                or "!" in name or any(ord(c) < 32 for c in name)
+                or any(p in {"", ".", ".."} for p in parts) or key in seen
+                or stat.S_ISLNK(mode) or entry.flag_bits & 1):
+            raise ValueError("Unsafe or duplicate ZIP member")
+        seen.add(key)
+    return members
+
+
 def native_inventory(executable: Path) -> list[dict]:
     """Hash actual frozen native bytes, not installed packages or filename guesses.
 
@@ -160,6 +312,7 @@ def native_inventory(executable: Path) -> list[dict]:
     The bootloader prefix is separate from its self-referential appended archive.
     """
     from PyInstaller.archive.readers import CArchiveReader
+    import io
     import os
 
     magic = (b"\x7fELF", b"MZ", b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",
@@ -173,6 +326,48 @@ def native_inventory(executable: Path) -> list[dict]:
             raise ValueError(f"Duplicate frozen native path: {name}")
         result[name] = {"path": name, "sha256": hashlib.sha256(data).hexdigest(),
                         "size": len(data), "kind": kind, **metadata}
+    budget = {"bytes": 0, "members": 0}
+    def inspect(name, data, depth=0):
+        is_zip = zipfile.is_zipfile(io.BytesIO(data))
+        if data.startswith(magic):
+            add(name, data, "binary")
+        if not is_zip:
+            if data.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")) or name.lower().endswith(".zip"):
+                raise ValueError("Malformed ZIP container")
+            return
+        if depth >= ZIP_MAX_DEPTH:
+            raise ValueError("ZIP depth limit exceeded")
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                members = safe_zip_members(archive)
+                if name == "builder-compliance.zip" and depth == 0:
+                    # Evidence/source is not executable runtime. Its exact bytes
+                    # are verified separately against the staged/exported ZIP,
+                    # with source hashes and native assets checked by that gate.
+                    names = {e.filename for e in members}
+                    if (not {"builder-source.zip", "licenses/LICENSE", "licenses/runtime-versions.json"} <= names
+                            or any(n != "builder-source.zip" and n not in {"native/payload.json", "native/coverage.json"}
+                                   and not n.startswith(("licenses/", "native/files/")) for n in names)):
+                        raise ValueError("Invalid dedicated compliance ZIP layout")
+                    return
+                budget["members"] += len(members)
+                if budget["members"] > ZIP_MAX_MEMBERS:
+                    raise ValueError("ZIP member limit exceeded")
+                for entry in members:
+                    if entry.is_dir():
+                        continue
+                    budget["bytes"] += entry.file_size
+                    if (budget["bytes"] > ZIP_MAX_BYTES
+                            or entry.file_size > max(1, entry.compress_size) * ZIP_MAX_RATIO):
+                        raise ValueError("ZIP expansion limit exceeded")
+                    with archive.open(entry) as stream:
+                        content = stream.read(min(entry.file_size, ZIP_MAX_BYTES) + 1)
+                    if len(content) != entry.file_size:
+                        raise ValueError("ZIP member size mismatch")
+                    inspect(name + "!/" + entry.filename, content, depth + 1)
+        except (zipfile.BadZipFile, RuntimeError, NotImplementedError) as exc:
+            raise ValueError("Invalid ZIP container") from exc
+
     with executable.open("rb") as stream:
         prefix = stream.read(reader._start_offset)
     if not prefix.startswith(magic):
@@ -184,6 +379,10 @@ def native_inventory(executable: Path) -> list[dict]:
         # Normalize ONLY ELF64 e_shoff; every other prefix byte remains bound.
         prefix = prefix[:40] + b"\0" * 8 + prefix[48:]
         loader_scope = "ELF64-prefix-with-e_shoff-zeroed"
+    if prefix.startswith(b"MZ"):
+        windows = windows_support()
+        prefix = windows.normalize_pe_build_metadata(prefix)
+        loader_scope = windows.PE_PREFIX_SCOPE
     add("@bootloader", prefix, "bootloader", hash_scope=loader_scope)
     for name, entry in sorted(reader.toc.items()):
         if entry[-1] == "d":
@@ -191,8 +390,8 @@ def native_inventory(executable: Path) -> list[dict]:
         data = reader.extract(name)
         if entry[-1] == "n":
             add(name, data, "symlink", target=data.rstrip(b"\0").decode("utf-8").replace("\\", "/"))
-        elif entry[-1] == "b" or data.startswith(magic):
-            add(name, data, "binary")
+        else:
+            inspect(name.replace("\\", "/"), data)
     internal = executable.parent / "_internal"
     if internal.is_dir():
         for path in sorted(internal.rglob("*")):
@@ -203,11 +402,27 @@ def native_inventory(executable: Path) -> list[dict]:
                 target = os.readlink(path)
                 add(name, target.encode("utf-8") + b"\0", "symlink", target=target)
             elif path.is_file():
-                with path.open("rb") as stream:
-                    header = stream.read(4)
-                if header.startswith(magic):
-                    add(name, path.read_bytes(), "binary")
+                inspect(name, path.read_bytes())
     return sorted(result.values(), key=lambda entry: entry["path"])
+
+
+def verify_embedded_compliance(executable: Path, archive_path: Path):
+    """Bind dedicated evidence to the actual frozen file, not an export claim."""
+    from PyInstaller.archive.readers import CArchiveReader
+    reader = CArchiveReader(str(executable))
+    matches = [name for name in reader.toc if name.replace("\\", "/") == "builder-compliance.zip"]
+    if matches:
+        if len(matches) != 1:
+            raise ValueError("Duplicate embedded compliance ZIP")
+        data = reader.extract(matches[0])
+        digest = hashlib.sha256(data).hexdigest()
+    else:
+        target = executable.parent / "_internal/builder-compliance.zip"
+        if target.is_symlink() or not target.is_file():
+            raise ValueError("Missing embedded compliance ZIP")
+        digest = sha256(target)
+    if digest != sha256(archive_path):
+        raise ValueError("Changed embedded compliance ZIP")
 
 
 def add_native_compliance(archive_path: Path, payload: list[dict], coverage_file: Path | None):
@@ -296,7 +511,9 @@ def collect_licenses(destination: Path):
 def source_archive(target: Path):
     """Explicit source allowlist: no work folders, credentials, venvs or build output."""
     sources = [REPOSITORY / "LICENSE", REPOSITORY / "THIRD_PARTY_LICENSES.md"]
-    for pattern in ("oal_builder/*.py", "tests/test_*.py", "requirements*.txt", "packaging/*.py", "packaging/*.md", "packaging/provenance/*.json", "packaging/licenses/**/*"):
+    for pattern in ("oal_builder/*.py", "tests/test_*.py", "requirements*.txt", "packaging/*.py",
+                    "packaging/*.md", "packaging/provenance/**/*.json", "packaging/provenance/**/*.md",
+                    "packaging/macos-ci/*.md", "packaging/licenses/**/*"):
         sources.extend(ROOT.glob(pattern))
     workflow = REPOSITORY / ".github/workflows/build-desktop-builder.yml"
     if workflow.is_file():
@@ -422,6 +639,7 @@ def smoke_artifact(executable: Path, screenshot: Path, source_sha256: str):
             raise ValueError("Wrong frozen runtime architecture or operating system")
         exported = work / "compliance.zip"
         subprocess.run([str(executable), "--export-compliance", str(exported)], check=True, timeout=120)
+        verify_embedded_compliance(inventory_target(executable), exported)
         verify_native_compliance(inventory_target(executable), exported)
         with zipfile.ZipFile(exported) as archive:
             source = archive.read("builder-source.zip")
@@ -496,6 +714,9 @@ def combine_mac(incoming: Path, output: Path):
 
 
 def smoke_mac(package_dir: Path, output: Path, expected_arch: str):
+    import os
+    if os.environ.get("QT_QPA_PLATFORM") != "cocoa":
+        raise ValueError("Final Mac native smoke requires QT_QPA_PLATFORM=cocoa")
     if platform.system() != "Darwin" or platform.machine() != expected_arch or expected_arch not in ("arm64", "x86_64"):
         raise ValueError("Final Mac smoke requires the expected native Mac runner")
     manifest = read_manifest(package_dir / f"{NAME}-macos.json")
@@ -520,7 +741,8 @@ def smoke_mac(package_dir: Path, output: Path, expected_arch: str):
             run("hdiutil", "detach", mount)
     write_manifest(output, report.stem, screenshot, [screenshot], architecture=expected_arch,
                    packageSha256=manifest["sha256"], builderSourceSha256=manifest["builderSourceSha256"],
-                   frozenSmokeTest="passed", scope="combined-dmg-launcher-native-runtime-and-ui")
+                   frozenSmokeTest="passed", nativePlatformSmoke="cocoa-passed",
+                   scope="combined-dmg-launcher-native-runtime-and-ui")
 
 
 def qualify_mac(package_dir: Path, evidence: Path):
@@ -533,6 +755,7 @@ def qualify_mac(package_dir: Path, evidence: Path):
         report = read_manifest(evidence / architecture / f"smoke-macos-{architecture}.json")
         if (report.get("architecture") != architecture or report.get("frozenSmokeTest") != "passed"
                 or report.get("scope") != "combined-dmg-launcher-native-runtime-and-ui"
+                or report.get("nativePlatformSmoke") != "cocoa-passed"
                 or report.get("packageSha256") != manifest["sha256"]
                 or report.get("builderSourceSha256") != manifest["builderSourceSha256"]
                 or report["artifact"] != f"smoke-macos-{architecture}.png"):
@@ -564,15 +787,34 @@ def smoke_linux_xcb(package_dir: Path):
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
+def smoke_windows_qwindows(package_dir: Path):
+    import os
+    if (platform.system() != "Windows" or platform.machine().lower() not in {"amd64", "x86_64"}
+            or os.environ.get("QT_QPA_PLATFORM") != "windows"):
+        raise ValueError("Native qwindows smoke requires Windows x64 and QT_QPA_PLATFORM=windows")
+    path = package_dir / f"{NAME}-windows-x86_64.json"
+    manifest = read_manifest(path)
+    if (manifest.get("system") != "Windows" or manifest.get("architecture") != "x86_64"
+            or manifest.get("kind") != "direct-executable" or manifest["artifact"] != NAME + ".exe"):
+        raise ValueError("Expected the direct Windows executable")
+    screenshot = package_dir / "smoke-windows-qwindows.png"
+    smoke_artifact(package_dir / manifest["artifact"], screenshot, manifest["builderSourceSha256"])
+    manifest["nativePlatformSmoke"] = "qwindows-passed"
+    manifest["files"][screenshot.name] = sha256(screenshot)
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "dist", help="Directory for native packages")
     parser.add_argument("--native-coverage", type=Path, help="License-specific exact-native-byte coverage JSON and notice/source assets (required to offer a package)")
     parser.add_argument("--audit-native", type=Path, help="Read a frozen executable into an UNQUALIFIED inventory; do not build or approve it")
+    parser.add_argument("--windows-ci-cache", type=Path, help="Pinned Windows supplier/source cache; required for actual candidate loader probe before coverage")
     parser.add_argument("--mac-arch", choices=("native", "x86_64", "arm64"), default="native",
                         help="Native Mac runtime stage (not a standalone Mac download)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--smoke-linux-xcb", type=Path, metavar="PACKAGE_DIR", help="Verify the direct Linux executable under a real/Xvfb XCB display")
+    mode.add_argument("--smoke-windows-qwindows", type=Path, metavar="PACKAGE_DIR", help="Verify the direct Windows executable with QT_QPA_PLATFORM=windows")
     mode.add_argument("--combine-mac", type=Path, metavar="STAGES", help="Combine arm64/ and x86_64/ stages into one DMG (macOS only)")
     mode.add_argument("--smoke-mac", type=Path, metavar="PACKAGE_DIR", help="Mount and smoke the final combined DMG (macOS only)")
     mode.add_argument("--qualify-mac", type=Path, metavar="PACKAGE_DIR", help="Attach both native smoke reports to the exact DMG manifest")
@@ -586,6 +828,9 @@ def main(argv=None):
         report = {"status": "unqualified", "artifactSha256": sha256(executable),
                   "payload": native_inventory(executable)}
         (output / "native-payload-review.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        return 0
+    if args.smoke_windows_qwindows:
+        smoke_windows_qwindows(args.smoke_windows_qwindows.resolve())
         return 0
     if args.smoke_linux_xcb:
         smoke_linux_xcb(args.smoke_linux_xcb.resolve())
@@ -612,6 +857,10 @@ def main(argv=None):
     if system not in ("Linux", "Windows", "Darwin"):
         raise SystemExit(f"Unsupported packaging OS: {system}")
     architecture = platform.machine().lower().replace("amd64", "x86_64")
+    if system == "Windows" and args.windows_ci_cache is None:
+        raise ValueError("Windows packaging requires --windows-ci-cache for the actual candidate loader probe")
+    if system != "Windows" and args.windows_ci_cache is not None:
+        raise ValueError("--windows-ci-cache requires native Windows")
     if system == "Darwin" and args.mac_arch not in ("native", architecture):
         raise SystemExit("Build and smoke each Mac runtime on its own native architecture")
     if architecture not in (("arm64", "x86_64") if system == "Darwin" else ("x86_64",)):
@@ -642,19 +891,31 @@ def main(argv=None):
             if system == "Windows":
                 command += ["--windowed"]
         command.append(str(frozen_root / "oal_builder" / "__main__.py"))
+        if system == "Windows":
+            spec = windows_spec(frozen_root, work, compliance)
+            command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
+                       "--distpath", str(stage), "--workpath", str(work / "pyinstaller"), str(spec)]
         run(*command)
         filename = f"{NAME}.exe" if system == "Windows" else NAME
         candidate = stage / NAME / NAME if system == "Darwin" else stage / filename
+        verify_embedded_compliance(candidate, compliance)
         payload = native_inventory(candidate)
         report_path = output / "native-payload-review.json"
-        report_path.write_text(json.dumps({"status": "unqualified", "artifactSha256": sha256(candidate),
-                                          "builderSourceSha256": source_sha, "payload": payload}, indent=2) + "\n", encoding="utf-8")
-        add_native_compliance(compliance, payload, args.native_coverage.resolve() if args.native_coverage else None)
+        discovery = {"status": "unqualified", "artifactSha256": sha256(candidate),
+                     "builderSourceSha256": source_sha, "payload": payload}
+        report_path.write_text(json.dumps(discovery, indent=2) + "\n", encoding="utf-8")
+        coverage = args.native_coverage.resolve() if args.native_coverage else None
+        if system == "Windows":
+            coverage = windows_candidate_coverage(candidate, discovery, args.windows_ci_cache.resolve(),
+                                                  work, output, coverage)
+        add_native_compliance(compliance, payload, coverage)
         # Freeze again from the SAME source snapshot with the now-complete evidence.
         # The final native payload must remain byte-identical; drift fails closed.
         run(*command)
+        verify_embedded_compliance(candidate, compliance)
         verify_native_compliance(candidate, compliance)
         report_path.unlink()
+        (output / "windows-candidate-review.json").unlink(missing_ok=True)
         os_name = "macos" if system == "Darwin" else system.lower()
         stem = f"{NAME}-{os_name}-{architecture}"
         screenshot = output / f"smoke-{os_name}-{architecture}.png"

@@ -1,0 +1,3512 @@
+{
+  "schema": 2,
+  "system": "Darwin",
+  "architecture": "arm64",
+  "review_scope": "Exact observed CI payload; supplier provenance and conservative license/source closure, not native release qualification or binary-source equivalence. See macos-ci/REVIEW.md.",
+  "discovery_identity": {
+    "checkoutCommit": "40c10a5f68f6e7ecb17e95053da075df944314ba",
+    "expectedCommit": "40c10a5f68f6e7ecb17e95053da075df944314ba",
+    "trackedCheckoutDirty": false,
+    "runner": "macos-15",
+    "runId": "38861042629",
+    "runAttempt": "1"
+  },
+  "discovery_sha256": "40d4a6d5c73da7260b0fc1d42d92c892f72826bed544633a22d87558d6dd4f4e",
+  "discovery_artifact_sha256": "4b4f7956844f0f8dfcc332ba70f76d864856e02bc97019c63b8357b39c5be941",
+  "discovery_builder_source_sha256": "94b668599c8768e97f434bbbaf5b2ee30b70aa4476c4ed153a6657a5a43bca18",
+  "hash_policy": "Verbatim frozen payload including Mach-O load commands and ad-hoc signatures; symlink UTF-8 target bytes plus one NUL; bootloader observed prefix scope. No native-byte normalization.",
+  "qualification_status": "native-final-freeze-and-recombination-outstanding",
+  "components": [
+    {
+      "id": "qt-static-blake2",
+      "version": "ed1974ea83433eba7b2d95c5dcd9ac33cb847913",
+      "license": "Apache-2.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/blake2/qt_attribution.json; Used in Qt Core (QCryptographicHash). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QCryptographicHash)."
+    },
+    {
+      "id": "qt-static-doubleconversion",
+      "version": "3.3.0",
+      "license": "BSD-3-Clause",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/double-conversion/qt_attribution.json; Used in Qt Core. Configure with -system-doubleconversion or -no-doubleconversion to avoid. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core. Configure with -system-doubleconversion or -no-doubleconversion to avoid."
+    },
+    {
+      "id": "qt-static-easing",
+      "version": "bundled with Qt 6.8.3",
+      "license": "BSD-3-Clause",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/easing/qt_attribution.json; Used in Qt Core (QEasingCurve). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QEasingCurve)."
+    },
+    {
+      "id": "qt-static-forkfd",
+      "version": "bundled with Qt 6.8.3",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/forkfd/qt_attribution.json; Used on most Unix platforms in Qt Core. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used on most Unix platforms in Qt Core."
+    },
+    {
+      "id": "qt-static-md4",
+      "version": "bundled with Qt 6.8.3",
+      "license": "CC0-1.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/md4/qt_attribution.json; Used in Qt Core (QCryptographicHash). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QCryptographicHash)."
+    },
+    {
+      "id": "qt-static-md5",
+      "version": "bundled with Qt 6.8.3",
+      "license": "CC0-1.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/md5/qt_attribution.json; Used in Qt Core (QCryptographicHash). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QCryptographicHash)."
+    },
+    {
+      "id": "qt-static-pcre2",
+      "version": "10.45",
+      "license": "LicenseRef-BSD-3-Clause-with-PCRE2-Binary-Like-Packages-Exception",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/pcre2/qt_attribution.json; Optionally used in Qt Core (QRegularExpression). Configure with -system-pcre or -no-pcre to avoid. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Optionally used in Qt Core (QRegularExpression). Configure with -system-pcre or -no-pcre to avoid."
+    },
+    {
+      "id": "qt-static-pcre2-sljit",
+      "version": "10.45",
+      "license": "BSD-2-Clause",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/pcre2/qt_attribution.json; Optionally used in Qt Core (QRegularExpression). Configure with -system-pcre or -no-pcre to avoid. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Optionally used in Qt Core (QRegularExpression). Configure with -system-pcre or -no-pcre to avoid."
+    },
+    {
+      "id": "qt-static-rfc6234",
+      "version": "bundled with Qt 6.8.3",
+      "license": "BSD-3-Clause",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/rfc6234/qt_attribution.json; Used in Qt Core (QCryptographicHash and QMessageAuthenticationCode) Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QCryptographicHash and QMessageAuthenticationCode)"
+    },
+    {
+      "id": "qt-static-sha1",
+      "version": "bundled with Qt 6.8.3",
+      "license": "LicenseRef-SHA1-Public-Domain",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/sha1/qt_attribution.json; Used in Qt Core (QCryptographicHash). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QCryptographicHash)."
+    },
+    {
+      "id": "qt-static-sha3_endian",
+      "version": "4b9e13ead2c5b5e41ca27c65de4dd69ae0bac228",
+      "license": "BSD-2-Clause",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/sha3/qt_attribution.json; Used in Qt Core (QCryptographicHash). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QCryptographicHash)."
+    },
+    {
+      "id": "qt-static-sha3_keccak",
+      "version": "3.2",
+      "license": "CC0-1.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/sha3/qt_attribution.json; Used in Qt Core (QCryptographicHash). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QCryptographicHash)."
+    },
+    {
+      "id": "qt-static-siphash",
+      "version": "bundled with Qt 6.8.3",
+      "license": "CC0-1.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/siphash/qt_attribution.json; Used in Qt Core (QHash) Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QHash)"
+    },
+    {
+      "id": "qt-static-tinycbor",
+      "version": "0.6.1",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/tinycbor/qt_attribution.json; Used for QCborStreamReader and QCborStreamWriter. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used for QCborStreamReader and QCborStreamWriter."
+    },
+    {
+      "id": "qt-static-zlib",
+      "version": "1.3.1",
+      "license": "Zlib",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/zlib/qt_attribution.json; Optionally used in Qt Core and development tools. Configure with -system-zlib to avoid. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Optionally used in Qt Core and development tools. Configure with -system-zlib to avoid."
+    },
+    {
+      "id": "qt-static-tika-mimetypes",
+      "version": "5101bc7fb090ed7deffe56837d7633c9485a1e5d",
+      "license": "Apache-2.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/corelib/mimetypes/3rdparty/qt_attribution.json; Qt Core uses a copy of the Apache Tika MimeType Definitions if shared-mime-info isn't installed on the system. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Qt Core uses a copy of the Apache Tika MimeType Definitions if shared-mime-info isn't installed on the system."
+    },
+    {
+      "id": "qt-static-unicode-character-database",
+      "version": "34",
+      "license": "Unicode-3.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/corelib/text/qt_attribution.json; Qt Core uses data obtained from UCD files for working with characters and strings. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Qt Core uses data obtained from UCD files for working with characters and strings."
+    },
+    {
+      "id": "qt-static-unicode-cldr",
+      "version": "v46.1",
+      "license": "Unicode-3.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/corelib/text/qt_attribution.json; Used in Qt Core (QTimeZone, QLocale). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Core (QTimeZone, QLocale)."
+    },
+    {
+      "id": "qt-Core",
+      "version": "6.8.3",
+      "license": "LGPL-3.0-only",
+      "provenance": "Observed exact Darwin frozen paths assigned to installed PySide6 Essentials/Shiboken 6.8.3 candidates. Official universal2 wheel members verified separately; thinning, load-command rewriting and signing prevent raw wheel/frozen equality. See macos-ci/REVIEW.md.",
+      "payload": [
+        {
+          "path": "PySide6/Qt/lib/QtCore.framework/QtCore",
+          "sha256": "31f3337258591bbd32f46a8a165fa4c9a27ec5a391e2d4314ad72044696e840d",
+          "size": 24,
+          "kind": "symlink",
+          "target": "Versions/Current/QtCore"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtCore.framework/Resources",
+          "sha256": "7271140e2b16015909edfeec5281cb52e209dab77e9c2d7ade63ceb43f8abddd",
+          "size": 27,
+          "kind": "symlink",
+          "target": "Versions/Current/Resources"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtCore.framework/Versions/A/QtCore",
+          "sha256": "4341ef5ff2be0e50f8236e86265da0ad0fad7f50948fd986b646f94934790de8",
+          "size": 5733024,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtCore.framework/Versions/Current",
+          "sha256": "e61c21ca716b3b1aefb7d1198f83679c4ca4d596e5792275dd6203b49216237d",
+          "size": 2,
+          "kind": "symlink",
+          "target": "A"
+        },
+        {
+          "path": "QtCore",
+          "sha256": "ddefdd1bab1e96badbc4a45277762d29b78f00844233238c38093b31dcde420c",
+          "size": 50,
+          "kind": "symlink",
+          "target": "PySide6/Qt/lib/QtCore.framework/Versions/A/QtCore"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "licenses/LGPL-3.0.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+        },
+        {
+          "path": "licenses/GPL-3.0.txt",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [
+        "qt-static-blake2",
+        "qt-static-doubleconversion",
+        "qt-static-easing",
+        "qt-static-forkfd",
+        "qt-static-md4",
+        "qt-static-md5",
+        "qt-static-pcre2",
+        "qt-static-pcre2-sljit",
+        "qt-static-rfc6234",
+        "qt-static-sha1",
+        "qt-static-sha3_endian",
+        "qt-static-sha3_keccak",
+        "qt-static-siphash",
+        "qt-static-tinycbor",
+        "qt-static-zlib",
+        "qt-static-tika-mimetypes",
+        "qt-static-unicode-character-database",
+        "qt-static-unicode-cldr",
+        "qt-static-qeventdispatcher_cf"
+      ],
+      "sources": [
+        {
+          "path": "sources/qtbase-everywhere-src-6.8.3.tar.xz",
+          "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+          "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz"
+        }
+      ],
+      "source_basis": "Supplier Qt Company 6.8.3 source release and matching package version; complete Qt Base or PySide source including build scripts supplied. No exact-build or frozen-byte/source equivalence is asserted.",
+      "build_instructions": {
+        "path": "macos-ci/REBUILD.md",
+        "sha256": "f62b2caa6c7cc35f4853f7f66e44f285b15a4795b4526bd9e42a5c22ab0d3b96"
+      }
+    },
+    {
+      "id": "qt-static-vulkanmemoryallocator",
+      "version": "3.0.1",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/VulkanMemoryAllocator/qt_attribution.json; Memory management for the Vulkan backend of QRhi. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Memory management for the Vulkan backend of QRhi."
+    },
+    {
+      "id": "qt-static-freetype",
+      "version": "2.13.3",
+      "license": "FTL",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/qt_attribution.json; Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid."
+    },
+    {
+      "id": "qt-static-freetype-zlib",
+      "version": "bundled with Qt 6.8.3",
+      "license": "Zlib",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/qt_attribution.json; Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid."
+    },
+    {
+      "id": "qt-static-freetype-bdf",
+      "version": "bundled with Qt 6.8.3",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/qt_attribution.json; Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid."
+    },
+    {
+      "id": "qt-static-freetype-pcf",
+      "version": "bundled with Qt 6.8.3",
+      "license": "MIT AND MIT-open-group",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/freetype/qt_attribution.json; Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid."
+    },
+    {
+      "id": "qt-static-harfbuzz-ng",
+      "version": "10.4.0",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/harfbuzz-ng/qt_attribution.json; Optionally used in Qt GUI. Configure with -system-harfbuzz to force the use of the system library, or -qt-harfbuzz to link statically to the library that is bundled with your Qt version. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Optionally used in Qt GUI. Configure with -system-harfbuzz to force the use of the system library, or -qt-harfbuzz to link statically to the library that is bundled with your Qt version."
+    },
+    {
+      "id": "qt-static-icc-srgb-color-profile",
+      "version": "bundled with Qt 6.8.3",
+      "license": "LicenseRef-ICC-License",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/icc/qt_attribution.json; Used in Qt Gui (Embedded into PDF/A-1b files generated by QPrinter/QPdfWriter). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Gui (Embedded into PDF/A-1b files generated by QPrinter/QPdfWriter)."
+    },
+    {
+      "id": "qt-static-libpng",
+      "version": "1.6.47",
+      "license": "libpng-2.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/libpng/qt_attribution.json; Used in the qpng image plugin. Configure with -system-libpng or -no-libpng to avoid. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in the qpng image plugin. Configure with -system-libpng or -no-libpng to avoid."
+    },
+    {
+      "id": "qt-static-md4c",
+      "version": "0.5.2",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/md4c/qt_attribution.json; Optionally used in QTextDocument if configured with textmarkdownreader. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Optionally used in QTextDocument if configured with textmarkdownreader."
+    },
+    {
+      "id": "qt-static-opengl-headers",
+      "version": "Revision 27684",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/gui/opengl/qt_attribution.json; Used on Windows and Linux in the OpenGL related headers of Qt GUI. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used on Windows and Linux in the OpenGL related headers of Qt GUI."
+    },
+    {
+      "id": "qt-static-opengl-es2-headers",
+      "version": "Revision 27673",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/gui/opengl/qt_attribution.json; Used on Windows and Linux in the OpenGL related headers of Qt GUI. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used on Windows and Linux in the OpenGL related headers of Qt GUI."
+    },
+    {
+      "id": "qt-static-grayraster",
+      "version": "bundled with Qt 6.8.3",
+      "license": "FTL",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/gui/painting/qt_attribution.json; Used in Qt GUI. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt GUI."
+    },
+    {
+      "id": "qt-static-smooth-scaling-algorithm",
+      "version": "bundled with Qt 6.8.3",
+      "license": "BSD-2-Clause AND Imlib2",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/gui/painting/qt_attribution.json; Used in Qt Gui (QImage::transformed() functions). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt Gui (QImage::transformed() functions)."
+    },
+    {
+      "id": "qt-static-xserverhelper",
+      "version": "bundled with Qt 6.8.3",
+      "license": "X11 AND HPND",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/gui/painting/qt_attribution.json; Used in Qt GUI (QRegion). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt GUI (QRegion)."
+    },
+    {
+      "id": "qt-static-aglfn",
+      "version": "1.7",
+      "license": "BSD-3-Clause",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/gui/text/qt_attribution.json; Used by PDF generator to make it easier for reader applications to resolve  the original contents of rendered text. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used by PDF generator to make it easier for reader applications to resolve  the original contents of rendered text."
+    },
+    {
+      "id": "qt-static-vulkan-xml-spec",
+      "version": "1.3.223",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/gui/vulkan/qt_attribution.json; Used to dynamically generate the sources for the QVulkan(Device)Functions classes. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used to dynamically generate the sources for the QVulkan(Device)Functions classes."
+    },
+    {
+      "id": "qt-static-webgradients",
+      "version": "bundled with Qt 6.8.3",
+      "license": "MIT",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/util/gradientgen/qt_attribution.json; Used in Qt GUI to provide presets for QGradient. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used in Qt GUI to provide presets for QGradient."
+    },
+    {
+      "id": "qt-Gui",
+      "version": "6.8.3",
+      "license": "LGPL-3.0-only",
+      "provenance": "Observed exact Darwin frozen paths assigned to installed PySide6 Essentials/Shiboken 6.8.3 candidates. Official universal2 wheel members verified separately; thinning, load-command rewriting and signing prevent raw wheel/frozen equality. See macos-ci/REVIEW.md.",
+      "payload": [
+        {
+          "path": "PySide6/Qt/lib/QtGui.framework/QtGui",
+          "sha256": "fd8ba95e9371133a0110af413a31171035dc0e0aadbe09d4729862eb12c08101",
+          "size": 23,
+          "kind": "symlink",
+          "target": "Versions/Current/QtGui"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtGui.framework/Resources",
+          "sha256": "7271140e2b16015909edfeec5281cb52e209dab77e9c2d7ade63ceb43f8abddd",
+          "size": 27,
+          "kind": "symlink",
+          "target": "Versions/Current/Resources"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtGui.framework/Versions/A/QtGui",
+          "sha256": "8dbe39ac5af2f2b9632060c9d08358de04a8ea67075834ea744467b8e6a37854",
+          "size": 8427360,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtGui.framework/Versions/Current",
+          "sha256": "e61c21ca716b3b1aefb7d1198f83679c4ca4d596e5792275dd6203b49216237d",
+          "size": 2,
+          "kind": "symlink",
+          "target": "A"
+        },
+        {
+          "path": "QtGui",
+          "sha256": "1f52c4a52ff8791636322758f552f6b4a934a5d45cf4a0fe869be506c610f741",
+          "size": 48,
+          "kind": "symlink",
+          "target": "PySide6/Qt/lib/QtGui.framework/Versions/A/QtGui"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "licenses/LGPL-3.0.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+        },
+        {
+          "path": "licenses/GPL-3.0.txt",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [
+        "qt-static-vulkanmemoryallocator",
+        "qt-static-freetype",
+        "qt-static-freetype-zlib",
+        "qt-static-freetype-bdf",
+        "qt-static-freetype-pcf",
+        "qt-static-harfbuzz-ng",
+        "qt-static-icc-srgb-color-profile",
+        "qt-static-libpng",
+        "qt-static-md4c",
+        "qt-static-opengl-headers",
+        "qt-static-opengl-es2-headers",
+        "qt-static-grayraster",
+        "qt-static-smooth-scaling-algorithm",
+        "qt-static-xserverhelper",
+        "qt-static-aglfn",
+        "qt-static-vulkan-xml-spec",
+        "qt-static-webgradients"
+      ],
+      "sources": [
+        {
+          "path": "sources/qtbase-everywhere-src-6.8.3.tar.xz",
+          "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+          "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz"
+        }
+      ],
+      "source_basis": "Supplier Qt Company 6.8.3 source release and matching package version; complete Qt Base or PySide source including build scripts supplied. No exact-build or frozen-byte/source equivalence is asserted.",
+      "build_instructions": {
+        "path": "macos-ci/REBUILD.md",
+        "sha256": "f62b2caa6c7cc35f4853f7f66e44f285b15a4795b4526bd9e42a5c22ab0d3b96"
+      }
+    },
+    {
+      "id": "qt-static-psl-data",
+      "version": "47264b57765919188b9f4144de8d95cf77e1b6dc, fetched on 2025-01-22",
+      "license": "MPL-2.0",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/libpsl/qt_attribution.json; Used in Qt Network to avoid setting \"supercookies\" in the cookie jar\nsupported by Qt (by the QNetworkCookieJar class). Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "sources": [
+        {
+          "path": "sources/qtbase-everywhere-src-6.8.3.tar.xz",
+          "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+          "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz"
+        }
+      ],
+      "source_basis": "Qt Base 6.8.3 attribution identifies this embedded component; complete supplier source supplied, not an exact frozen-binary/source match.",
+      "build_instructions": {
+        "path": "macos-ci/REBUILD.md",
+        "sha256": "f62b2caa6c7cc35f4853f7f66e44f285b15a4795b4526bd9e42a5c22ab0d3b96"
+      },
+      "license_scope": "Used in Qt Network to avoid setting \"supercookies\" in the cookie jar\nsupported by Qt (by the QNetworkCookieJar class)."
+    },
+    {
+      "id": "qt-static-libpsl",
+      "version": "664f3dc85259ec65e30248a61fa1c45b7b0e4c3f",
+      "license": "BSD-3-Clause",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/3rdparty/libpsl/qt_attribution.json; Used to compress the embedded copy of publicsuffix list and\nto lookup entries in it. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "license_scope": "Used to compress the embedded copy of publicsuffix list and\nto lookup entries in it."
+    },
+    {
+      "id": "qt-Network",
+      "version": "6.8.3",
+      "license": "LGPL-3.0-only",
+      "provenance": "Observed exact Darwin frozen paths assigned to installed PySide6 Essentials/Shiboken 6.8.3 candidates. Official universal2 wheel members verified separately; thinning, load-command rewriting and signing prevent raw wheel/frozen equality. See macos-ci/REVIEW.md.",
+      "payload": [
+        {
+          "path": "PySide6/Qt/lib/QtNetwork.framework/QtNetwork",
+          "sha256": "e092e4f7c5ddb1c78d6ec93a52992a920bb5c6010a572921d2de4bbc2f980d4e",
+          "size": 27,
+          "kind": "symlink",
+          "target": "Versions/Current/QtNetwork"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtNetwork.framework/Resources",
+          "sha256": "7271140e2b16015909edfeec5281cb52e209dab77e9c2d7ade63ceb43f8abddd",
+          "size": 27,
+          "kind": "symlink",
+          "target": "Versions/Current/Resources"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtNetwork.framework/Versions/A/QtNetwork",
+          "sha256": "56fd47fed425afd86f66404b1586d7af6375ee709bfde55fe0b18bcf42bcc613",
+          "size": 1726880,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtNetwork.framework/Versions/Current",
+          "sha256": "e61c21ca716b3b1aefb7d1198f83679c4ca4d596e5792275dd6203b49216237d",
+          "size": 2,
+          "kind": "symlink",
+          "target": "A"
+        },
+        {
+          "path": "QtNetwork",
+          "sha256": "e741e8915a627870a358c3094776a4ea719fd3f31b3ab23d8ee1394ef31c11b3",
+          "size": 56,
+          "kind": "symlink",
+          "target": "PySide6/Qt/lib/QtNetwork.framework/Versions/A/QtNetwork"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "licenses/LGPL-3.0.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+        },
+        {
+          "path": "licenses/GPL-3.0.txt",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [
+        "qt-static-psl-data",
+        "qt-static-libpsl"
+      ],
+      "sources": [
+        {
+          "path": "sources/qtbase-everywhere-src-6.8.3.tar.xz",
+          "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+          "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz"
+        }
+      ],
+      "source_basis": "Supplier Qt Company 6.8.3 source release and matching package version; complete Qt Base or PySide source including build scripts supplied. No exact-build or frozen-byte/source equivalence is asserted.",
+      "build_instructions": {
+        "path": "macos-ci/REBUILD.md",
+        "sha256": "f62b2caa6c7cc35f4853f7f66e44f285b15a4795b4526bd9e42a5c22ab0d3b96"
+      }
+    },
+    {
+      "id": "qt-static-libdbus-1-headers",
+      "version": "dbus-1.13.12",
+      "license": "AFL-2.1",
+      "provenance": "Qt 6.8.3 source qtbase-everywhere-src-6.8.3/src/dbus/qt_attribution.json; Qt D-Bus uses constants and typedefs from libdbus-1 headers. Conservative Darwin portable/optional feature closure; original attribution and referenced notices preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "sources": [
+        {
+          "path": "sources/qtbase-everywhere-src-6.8.3.tar.xz",
+          "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+          "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz"
+        }
+      ],
+      "source_basis": "Qt Base 6.8.3 attribution identifies this embedded component; complete supplier source supplied, not an exact frozen-binary/source match.",
+      "build_instructions": {
+        "path": "macos-ci/REBUILD.md",
+        "sha256": "f62b2caa6c7cc35f4853f7f66e44f285b15a4795b4526bd9e42a5c22ab0d3b96"
+      },
+      "license_scope": "Qt D-Bus uses constants and typedefs from libdbus-1 headers."
+    },
+    {
+      "id": "qt-DBus",
+      "version": "6.8.3",
+      "license": "LGPL-3.0-only",
+      "provenance": "Observed exact Darwin frozen paths assigned to installed PySide6 Essentials/Shiboken 6.8.3 candidates. Official universal2 wheel members verified separately; thinning, load-command rewriting and signing prevent raw wheel/frozen equality. See macos-ci/REVIEW.md.",
+      "payload": [
+        {
+          "path": "PySide6/Qt/lib/QtDBus.framework/QtDBus",
+          "sha256": "96610b2b8ee9d5ea8b2af129efcf9f00960ba3cc5c897a4fb97e0b74ab6c1ebe",
+          "size": 24,
+          "kind": "symlink",
+          "target": "Versions/Current/QtDBus"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtDBus.framework/Resources",
+          "sha256": "7271140e2b16015909edfeec5281cb52e209dab77e9c2d7ade63ceb43f8abddd",
+          "size": 27,
+          "kind": "symlink",
+          "target": "Versions/Current/Resources"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtDBus.framework/Versions/A/QtDBus",
+          "sha256": "3d156caeef81712aa564dca4d09344b12ba61b9374ad2a0535e09dbff85be208",
+          "size": 701648,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtDBus.framework/Versions/Current",
+          "sha256": "e61c21ca716b3b1aefb7d1198f83679c4ca4d596e5792275dd6203b49216237d",
+          "size": 2,
+          "kind": "symlink",
+          "target": "A"
+        },
+        {
+          "path": "QtDBus",
+          "sha256": "82adc707fcfcd2bcd67d4e922de5a37817c9240eb4c4fa3041b4f7bf99177eca",
+          "size": 50,
+          "kind": "symlink",
+          "target": "PySide6/Qt/lib/QtDBus.framework/Versions/A/QtDBus"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "licenses/LGPL-3.0.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+        },
+        {
+          "path": "licenses/GPL-3.0.txt",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [
+        "qt-static-libdbus-1-headers"
+      ],
+      "sources": [
+        {
+          "path": "sources/qtbase-everywhere-src-6.8.3.tar.xz",
+          "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+          "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz"
+        }
+      ],
+      "source_basis": "Supplier Qt Company 6.8.3 source release and matching package version; complete Qt Base or PySide source including build scripts supplied. No exact-build or frozen-byte/source equivalence is asserted.",
+      "build_instructions": {
+        "path": "macos-ci/REBUILD.md",
+        "sha256": "f62b2caa6c7cc35f4853f7f66e44f285b15a4795b4526bd9e42a5c22ab0d3b96"
+      }
+    },
+    {
+      "id": "qt-Widgets",
+      "version": "6.8.3",
+      "license": "LGPL-3.0-only",
+      "provenance": "Observed exact Darwin frozen paths assigned to installed PySide6 Essentials/Shiboken 6.8.3 candidates. Official universal2 wheel members verified separately; thinning, load-command rewriting and signing prevent raw wheel/frozen equality. See macos-ci/REVIEW.md.",
+      "payload": [
+        {
+          "path": "PySide6/Qt/lib/QtWidgets.framework/QtWidgets",
+          "sha256": "4f2482f65d15b75722efac7bb9b83aff8e4c00493d4a780ac6a23df53fe29457",
+          "size": 27,
+          "kind": "symlink",
+          "target": "Versions/Current/QtWidgets"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtWidgets.framework/Resources",
+          "sha256": "7271140e2b16015909edfeec5281cb52e209dab77e9c2d7ade63ceb43f8abddd",
+          "size": 27,
+          "kind": "symlink",
+          "target": "Versions/Current/Resources"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtWidgets.framework/Versions/A/QtWidgets",
+          "sha256": "e4ad1005bb35aca2d9a289273f090d06da4401c3cb35d5efb5593f331a516396",
+          "size": 6275440,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/lib/QtWidgets.framework/Versions/Current",
+          "sha256": "e61c21ca716b3b1aefb7d1198f83679c4ca4d596e5792275dd6203b49216237d",
+          "size": 2,
+          "kind": "symlink",
+          "target": "A"
+        },
+        {
+          "path": "QtWidgets",
+          "sha256": "4c30d3a2d9bf3efc1c53f2b54773697d1bec3a3e950ccf3cb96c9bd834322d17",
+          "size": 56,
+          "kind": "symlink",
+          "target": "PySide6/Qt/lib/QtWidgets.framework/Versions/A/QtWidgets"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "licenses/LGPL-3.0.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+        },
+        {
+          "path": "licenses/GPL-3.0.txt",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [],
+      "sources": [
+        {
+          "path": "sources/qtbase-everywhere-src-6.8.3.tar.xz",
+          "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+          "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz"
+        }
+      ],
+      "source_basis": "Supplier Qt Company 6.8.3 source release and matching package version; complete Qt Base or PySide source including build scripts supplied. No exact-build or frozen-byte/source equivalence is asserted.",
+      "build_instructions": {
+        "path": "macos-ci/REBUILD.md",
+        "sha256": "f62b2caa6c7cc35f4853f7f66e44f285b15a4795b4526bd9e42a5c22ab0d3b96"
+      }
+    },
+    {
+      "id": "qt-plugins",
+      "version": "6.8.3",
+      "license": "LGPL-3.0-only",
+      "provenance": "Observed exact Darwin frozen paths assigned to installed PySide6 Essentials/Shiboken 6.8.3 candidates. Official universal2 wheel members verified separately; thinning, load-command rewriting and signing prevent raw wheel/frozen equality. See macos-ci/REVIEW.md.",
+      "payload": [
+        {
+          "path": "PySide6/Qt/plugins/networkinformation/libqscnetworkreachability.dylib",
+          "sha256": "a11e79926558e7e1c970c109421e65e6e00c76b7a4544eabf6c7d82a13531170",
+          "size": 73936,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/plugins/platforms/libqcocoa.dylib",
+          "sha256": "62af38e9348211ce3dddcca10b8d1ea5d8bd864be7dc023633723d9e45504b64",
+          "size": 952128,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/plugins/platforms/libqoffscreen.dylib",
+          "sha256": "63732d5f52e9d6db255c91f5fa011e92e39a5e0200d18fade9b0b32f1e5f4ee6",
+          "size": 153888,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/plugins/styles/libqmacstyle.dylib",
+          "sha256": "587abd1ee2c7b5d6e2868475959190a6937ef634e036a3110c41df94fde65a25",
+          "size": 249120,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/plugins/tls/libqcertonlybackend.dylib",
+          "sha256": "98d23e12a9f32e46c415ea9ec2faedc53964ef8181e6162cce817d23dbdb1e9d",
+          "size": 129552,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/plugins/tls/libqopensslbackend.dylib",
+          "sha256": "ea05c939c6b4fec75b217e64d694d237d19f8a9f91e6dcf0abd06237653a90b1",
+          "size": 324352,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/Qt/plugins/tls/libqsecuretransportbackend.dylib",
+          "sha256": "9c00466d71bea47509a16356efe14f894ba432fe89b45c9279addc8f276beeed",
+          "size": 251168,
+          "kind": "binary"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "licenses/LGPL-3.0.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+        },
+        {
+          "path": "licenses/GPL-3.0.txt",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [
+        "qt-static-cocoa-platform-plugin"
+      ],
+      "sources": [
+        {
+          "path": "sources/qtbase-everywhere-src-6.8.3.tar.xz",
+          "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80",
+          "url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz"
+        }
+      ],
+      "source_basis": "Supplier Qt Company 6.8.3 source release and matching package version; complete Qt Base or PySide source including build scripts supplied. No exact-build or frozen-byte/source equivalence is asserted.",
+      "build_instructions": {
+        "path": "macos-ci/REBUILD.md",
+        "sha256": "f62b2caa6c7cc35f4853f7f66e44f285b15a4795b4526bd9e42a5c22ab0d3b96"
+      }
+    },
+    {
+      "id": "pyside-shiboken",
+      "version": "6.8.3",
+      "license": "LGPL-3.0-only",
+      "provenance": "Observed exact Darwin frozen paths assigned to installed PySide6 Essentials/Shiboken 6.8.3 candidates. Official universal2 wheel members verified separately; thinning, load-command rewriting and signing prevent raw wheel/frozen equality. See macos-ci/REVIEW.md.",
+      "payload": [
+        {
+          "path": "PySide6/QtCore.abi3.so",
+          "sha256": "3075556bf7f6bce03c77df0e650ffd5ed55daea2503712789cc40c5c30640dc7",
+          "size": 5780640,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/QtDBus.abi3.so",
+          "sha256": "57455362bc10e65314ec43158b38c2cecd7bbc6597b9f8b0e22528259a344ab3",
+          "size": 558960,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/QtGui.abi3.so",
+          "sha256": "37de22b7a5354f70fa67c359d14ac240244e1616a82d8f0fe344a250f5cbe848",
+          "size": 6681920,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/QtNetwork.abi3.so",
+          "sha256": "25619e4f1152c5c59e87b9bbed9bb4c1e9f492d93caa2e4724607ca10dd06f44",
+          "size": 1890976,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/QtWidgets.abi3.so",
+          "sha256": "64f030fb6f7114d1d33b33c5354e4dd089f39cdd13ee8da470d8e28a886982b1",
+          "size": 10340208,
+          "kind": "binary"
+        },
+        {
+          "path": "PySide6/libpyside6.abi3.6.8.dylib",
+          "sha256": "61ef78f1b4ca54ecfa815094173bbf0ab716df26d27dcad3abd84c2537216960",
+          "size": 394512,
+          "kind": "binary"
+        },
+        {
+          "path": "libpyside6.abi3.6.8.dylib",
+          "sha256": "9e3a19fa66267cbeb0444716693821561290f57f1fa63e9b6d4e622579d47946",
+          "size": 34,
+          "kind": "symlink",
+          "target": "PySide6/libpyside6.abi3.6.8.dylib"
+        },
+        {
+          "path": "libshiboken6.abi3.6.8.dylib",
+          "sha256": "3e30f3650d3ba6a840c1a1f27720862a8790c171e0f4e4fe2f14e1c4ce4036bf",
+          "size": 38,
+          "kind": "symlink",
+          "target": "shiboken6/libshiboken6.abi3.6.8.dylib"
+        },
+        {
+          "path": "shiboken6/Shiboken.abi3.so",
+          "sha256": "3566ca034bb505ea5083fd053d69ffab36c28a52f5acbef97381748190a68c69",
+          "size": 76128,
+          "kind": "binary"
+        },
+        {
+          "path": "shiboken6/libshiboken6.abi3.6.8.dylib",
+          "sha256": "7eaf7dc27365f3501aceaa82c0915a8b05c0b00b86ff3b07947f827c2c3bcd34",
+          "size": 516912,
+          "kind": "binary"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/pyside-setup-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "ac71dd412cdaf692176393339dbb8a6b3725cc68eda9486fcb699011e992b496"
+        },
+        {
+          "path": "licenses/LGPL-3.0.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+        },
+        {
+          "path": "licenses/GPL-3.0.txt",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [
+        "shiboken-python-headers"
+      ],
+      "sources": [
+        {
+          "path": "sources/pyside-setup-everywhere-src-6.8.3.tar.xz",
+          "sha256": "d2c896f7f1a6a7ea4c9f98cfe317272fd139703ddf612b86999f09e48aeef0e6",
+          "url": "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.3-src/pyside-setup-everywhere-src-6.8.3.tar.xz"
+        }
+      ],
+      "source_basis": "Supplier Qt Company 6.8.3 source release and matching package version; complete Qt Base or PySide source including build scripts supplied. No exact-build or frozen-byte/source equivalence is asserted.",
+      "build_instructions": {
+        "path": "macos-ci/REBUILD.md",
+        "sha256": "f62b2caa6c7cc35f4853f7f66e44f285b15a4795b4526bd9e42a5c22ab0d3b96"
+      }
+    },
+    {
+      "id": "cpython-static-hacl",
+      "version": "as bundled in 3.12.10",
+      "license": "MIT",
+      "provenance": "Modules/_hacl source copyright and MIT notices; full Python source-version license documentation retained. Rechecked source-version notices from the downloaded CPython 3.12.10 archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/Python-3.12.10.tar.xz.notices.txt",
+          "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cpython-static-blake2",
+      "version": "as bundled in 3.12.10",
+      "license": "CC0-1.0",
+      "provenance": "Modules/_blake2/impl source headers explicitly dedicate code under CC0; full Python source-version license documentation retained. Rechecked source-version notices from the downloaded CPython 3.12.10 archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/Python-3.12.10.tar.xz.notices.txt",
+          "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cpython-static-mpdecimal",
+      "version": "as bundled in 3.12.10",
+      "license": "BSD-2-Clause",
+      "provenance": "Python 3.12.10 Modules/_decimal/libmpdec headers contain the embedded BSD-2-Clause grant; complete header notices preserved. Rechecked source-version notices from the downloaded CPython 3.12.10 archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/Python-3.12.10.tar.xz.notices.txt",
+          "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cpython-static-expat",
+      "version": "as bundled in 3.12.10",
+      "license": "MIT",
+      "provenance": "Modules/expat/COPYING; conservative embedded parser coverage; full Python source-version license documentation retained. Rechecked source-version notices from the downloaded CPython 3.12.10 archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/Python-3.12.10.tar.xz.notices.txt",
+          "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cpython-static-siphash",
+      "version": "as bundled in 3.12.10",
+      "license": "MIT",
+      "provenance": "Python 3.12.10 Doc/license.rst SipHash24, Marek Majkowski MIT permission; unlike Qt SipHash this is not the CC0 implementation. Rechecked source-version notices from the downloaded CPython 3.12.10 archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/Python-3.12.10.tar.xz.notices.txt",
+          "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "shiboken-python-headers",
+      "version": "3.7.0",
+      "license": "PSF-2.0",
+      "provenance": "Shiboken libshiboken/qt_attribution.json maps bufferprocs_py37.* to CPython 3.7.0; embedded PSF license preserved.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/pyside-setup-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "ac71dd412cdaf692176393339dbb8a6b3725cc68eda9486fcb699011e992b496"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cryptography-openssl",
+      "version": "3.4.1",
+      "license": "Apache-2.0",
+      "provenance": "cryptography official wheel embedded OpenSSL; real backend.openssl_version_text() returned OpenSSL 3.4.1 11 Feb 2025. Not the Debian 3.5.7 libssl/libcrypto.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/OpenSSL-3.4.1-LICENSE.txt.notices.txt",
+          "sha256": "413cbae37e5767bd0e679aadfb5ed49f105d7ec0db492ee338279efc2618fef5"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-asn1",
+      "version": "0.20.0",
+      "license": "BSD-3-Clause",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 2d8b84b4ea1de2bf1dcd2a759737ddb328fb6695b2a95eb7e44fed67e3406f32 matches official registry crate; Cargo.toml grant BSD-3-Clause. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/asn1-0.20.0.crate.notices.txt",
+          "sha256": "6dc694ad326e881a0e4ec2cecb3a0da7211c54ed13567e6319aa0120225e9a2d"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-asn1_derive",
+      "version": "0.20.0",
+      "license": "BSD-3-Clause",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum a200809d0138620b3dba989f1d08d0620e76248bc1e62a2ec1b2df5eb1ee08ad matches official registry crate; Cargo.toml grant BSD-3-Clause. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/asn1_derive-0.20.0.crate.notices.txt",
+          "sha256": "c2429b9bf6efc7beaeff897bbec85608fb399db6fd93b4a15d38bb452661a6ca"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-autocfg",
+      "version": "1.4.0",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26 matches official registry crate; Cargo.toml grant Apache-2.0 OR MIT. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/autocfg-1.4.0.crate.notices.txt",
+          "sha256": "1833e362dc7a2f237f6b06c7acb9654a72b9b5d5e96ff71d544f12300e2d609d"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-base64",
+      "version": "0.22.1",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/base64-0.22.1.crate.notices.txt",
+          "sha256": "66f493d298fe0698d0cc4b3f7aca59eba986c2144f015e283c4e5aa35c0e76a9"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-bitflags",
+      "version": "2.6.0",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/bitflags-2.6.0.crate.notices.txt",
+          "sha256": "da6f39e05ac673902130dd686ceb7837765b5279879730b48f47d863e3977c24"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-cc",
+      "version": "1.2.1",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum fd9de9f2205d5ef3fd67e685b0df337994ddd4495e2a28d185500d0e1edfea47 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/cc-1.2.1.crate.notices.txt",
+          "sha256": "b8491796704a1dd8a25c97285b0c242b3c6c8f22da40285a8573ceb67b5726d8"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-cfg-if",
+      "version": "1.0.0",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd matches official registry crate; Cargo.toml grant MIT/Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/cfg-if-1.0.0.crate.notices.txt",
+          "sha256": "d932c2a5f4615e9a7cfc9b2f00eb09a23c06dfed09203f17929c44fe2ef47208"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-foreign-types",
+      "version": "0.3.2",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1 matches official registry crate; Cargo.toml grant MIT/Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/foreign-types-0.3.2.crate.notices.txt",
+          "sha256": "88df9083e1f1f42b555478bb4312c50c133c7b319fd2d8a25b384690f7b8108c"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-foreign-types-shared",
+      "version": "0.1.1",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b matches official registry crate; Cargo.toml grant MIT/Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/foreign-types-shared-0.1.1.crate.notices.txt",
+          "sha256": "3388e96ef79c87021cb52149f63aeff8541b9bda709e89599108e990e2871c3b"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-heck",
+      "version": "0.5.0",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/heck-0.5.0.crate.notices.txt",
+          "sha256": "44b5114dbc33e36109e394a0c30cc1872f52da1fbd4588145b56d0e7ee731df5"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-indoc",
+      "version": "2.0.5",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum b248f5224d1d606005e02c97f5aa4e88eeb230488bcc03bc9ca4d7991399f2b5 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/indoc-2.0.5.crate.notices.txt",
+          "sha256": "93900333b55e9dd1a3b1405c4d2dec1ac56b82488c9c66dff466775c0a5b9f66"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-itoa",
+      "version": "1.0.14",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum d75a2a4b1b190afb6f5425f10f6a8f959d2ea0b9c2b1d79553551850539e4674 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/itoa-1.0.14.crate.notices.txt",
+          "sha256": "c18cbd43fbf9a91801b207f6da0aae9280f7043d83fe442577b892116f453914"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-libc",
+      "version": "0.2.166",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum c2ccc108bbc0b1331bd061864e7cd823c0cab660bbe6970e66e2c0614decde36 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/libc-0.2.166.crate.notices.txt",
+          "sha256": "2039d143e0cb180932bf1f1a59822849c7a97e5bffa3354d81318bace2d7c100"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-memoffset",
+      "version": "0.9.1",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a matches official registry crate; Cargo.toml grant MIT. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/memoffset-0.9.1.crate.notices.txt",
+          "sha256": "83826fa7b252181020447a2cadc232310469e5e546ca189cb98bf4590757e7fe"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-once_cell",
+      "version": "1.20.2",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/once_cell-1.20.2.crate.notices.txt",
+          "sha256": "8d87ea82549e7514bed40d78caf5f0e6087624d4d6d3f7e0dd49c04937998aaf"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-openssl",
+      "version": "0.10.68",
+      "license": "Apache-2.0",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 6174bc48f102d208783c2c84bf931bb75927a617866870de8a4ea85597f871f5 matches official registry crate; Cargo.toml grant Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/openssl-0.10.68.crate.notices.txt",
+          "sha256": "afbe052337f1250a0fdfeb1b962075dd285f0b361bb0e16e8fb69f04417e7ec9"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-openssl-macros",
+      "version": "0.1.1",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c matches official registry crate; Cargo.toml grant MIT/Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/openssl-macros-0.1.1.crate.notices.txt",
+          "sha256": "795d58259ccbc53a1076f1810d4b514ec82bbedca8f896aaa3f22a5aae145f81"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-openssl-sys",
+      "version": "0.9.108",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum e145e1651e858e820e4860f7b9c5e169bc1d8ce1c86043be79fa7b7634821847 matches official registry crate; Cargo.toml grant MIT. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/openssl-sys-0.9.108.crate.notices.txt",
+          "sha256": "b7f5b17c10df5214941d3655774ec6b89c5cbe52dd939f8ec92b022c84d509a7"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-pem",
+      "version": "3.0.4",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 8e459365e590736a54c3fa561947c84837534b8e9af6fc5bf781307e82658fae matches official registry crate; Cargo.toml grant MIT. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/pem-3.0.4.crate.notices.txt",
+          "sha256": "7297df977fc4b3c04c791518c1c835c5a50ee7b030be7d5b4a447cb4179dabb4"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-pkg-config",
+      "version": "0.3.31",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 953ec861398dccce10c670dfeaf3ec4911ca479e9c02154b3a215178c5f566f2 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/pkg-config-0.3.31.crate.notices.txt",
+          "sha256": "bf8d9bdb18212796f90f50e552f2273d94f9b23ac2ee2c3c3148a1ffaa4b470d"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-portable-atomic",
+      "version": "1.10.0",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 280dc24453071f1b63954171985a0b0d30058d287960968b9b2aca264c8d4ee6 matches official registry crate; Cargo.toml grant Apache-2.0 OR MIT. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/portable-atomic-1.10.0.crate.notices.txt",
+          "sha256": "a1a6e361633218f32e5773eee691137ca7d814865d20089ec80b468a10a53d9e"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-proc-macro2",
+      "version": "1.0.92",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 37d3544b3f2748c54e147655edb5025752e2303145b5aefb3c3ea2c78b973bb0 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/proc-macro2-1.0.92.crate.notices.txt",
+          "sha256": "3bcedf2dd6f2a587664805414630b70e44176f9b252f2f78725f428c82cd24c6"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-pyo3",
+      "version": "0.23.5",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 7778bffd85cf38175ac1f545509665d0b9b92a198ca7941f131f85f7a4f9a872 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/pyo3-0.23.5.crate.notices.txt",
+          "sha256": "5f5cd8c2689de42d4fb0b4308e31b0162580b8b3b662e78c74c9b235af028512"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-pyo3-build-config",
+      "version": "0.23.5",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 94f6cbe86ef3bf18998d9df6e0f3fc1050a8c5efa409bf712e661a4366e010fb matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/pyo3-build-config-0.23.5.crate.notices.txt",
+          "sha256": "153ac495e8f561e9edcffc67f4f096503a566f00047c6ae3815cd056078a5721"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-pyo3-ffi",
+      "version": "0.23.5",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum e9f1b4c431c0bb1c8fb0a338709859eed0d030ff6daa34368d3b152a63dfdd8d matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/pyo3-ffi-0.23.5.crate.notices.txt",
+          "sha256": "ba0aa4f5b6abf760bd40352e5b7fc809c9cd7afad23daece346d673085cf2f47"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-pyo3-macros",
+      "version": "0.23.5",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum fbc2201328f63c4710f68abdf653c89d8dbc2858b88c5d88b0ff38a75288a9da matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/pyo3-macros-0.23.5.crate.notices.txt",
+          "sha256": "5bd34e8a52928eda12f16fe30cd308f74f6c3232c9224af3b65065cf76b75c54"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-pyo3-macros-backend",
+      "version": "0.23.5",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum fca6726ad0f3da9c9de093d6f116a93c1a38e417ed73bf138472cf4064f72028 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/pyo3-macros-backend-0.23.5.crate.notices.txt",
+          "sha256": "b40ef337add438e9ae00c66011f0d1fec0c346ec2b08d8e3dc1668627c142446"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-quote",
+      "version": "1.0.37",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum b5b9d34b8991d19d98081b46eacdd8eb58c6f2b201139f7c5f643cc155a633af matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/quote-1.0.37.crate.notices.txt",
+          "sha256": "7f584c138eb997ac1ae70c432cbe663a568231ead756a7b65d67c359b115f6c9"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-self_cell",
+      "version": "1.0.4",
+      "license": "Apache-2.0",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum d369a96f978623eb3dc28807c4852d6cc617fed53da5d3c400feff1ef34a714a matches official registry crate; Cargo.toml grant Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/self_cell-1.0.4.crate.notices.txt",
+          "sha256": "6d4af8d7e24b74874918e71e1d1149f317f91f7ba44db56a448f7718e82c9e93"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-shlex",
+      "version": "1.3.0",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64 matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/shlex-1.3.0.crate.notices.txt",
+          "sha256": "1a79dee2388b0d5ab465b83e4574f7c733d71650a12b376a8c8eb682ae586c38"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-syn",
+      "version": "2.0.89",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 44d46482f1c1c87acd84dea20c1bf5ebff4c757009ed6bf19cfd36fb10e92c4e matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/syn-2.0.89.crate.notices.txt",
+          "sha256": "ccbce67199aa08ad693ff0ade996e60bdc31fd50203d637eb56779ebb7b39639"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-target-lexicon",
+      "version": "0.12.16",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum 61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1 matches official registry crate; Cargo.toml grant Apache-2.0 WITH LLVM-exception. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/target-lexicon-0.12.16.crate.notices.txt",
+          "sha256": "b38470b3034cf6e94a1c10d36dae45aca3b4a026d0cd53cb9121edb4ed99d019"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-unicode-ident",
+      "version": "1.0.14",
+      "license": "MIT AND Unicode-3.0",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum adb9e6ca4f869e1180728b7950e35922a7fc6397f7b641499e8f3ef06e50dc83 matches official registry crate; Cargo.toml grant (MIT OR Apache-2.0) AND Unicode-3.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/unicode-ident-1.0.14.crate.notices.txt",
+          "sha256": "bd07b69653a9ce18a7e4fd97b94511dc15c825e5e1ff0aaafe349b7cb25b0a0f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-unindent",
+      "version": "0.2.3",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum c7de7d73e1754487cb58364ee906a499937a0dfabd86bcb980fa99ec8c8fa2ce matches official registry crate; Cargo.toml grant MIT OR Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/unindent-0.2.3.crate.notices.txt",
+          "sha256": "ba8a2457bb99db6cb784881d4e715a90d8962699dd4d55c64b75274ed85fcf56"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "crypto-crate-vcpkg",
+      "version": "0.2.15",
+      "license": "MIT",
+      "provenance": "cryptography 44.0.3 Cargo.lock checksum accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426 matches official registry crate; Cargo.toml grant MIT/Apache-2.0. Conservatively includes build/target-only crates; selected option shown, no claim every crate survives linking.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/vcpkg-0.2.15.crate.notices.txt",
+          "sha256": "3ccd226c1d52aab7ea2e740b558efc03acb41b1dff660d17047578071c102108"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-allocator-api2-0.2.21",
+      "version": "0.2.21",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: allocator-api2-0.2.21, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-cc-1.2.0",
+      "version": "1.2.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: cc-1.2.0, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-cfg-if-1.0.0",
+      "version": "1.0.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: cfg-if-1.0.0, MIT/Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-compiler_builtins-0.1.146",
+      "version": "0.1.146",
+      "license": "MIT AND Apache-2.0 WITH LLVM-exception",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: compiler_builtins-0.1.146, MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0). Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-dlmalloc-0.2.7",
+      "version": "0.2.7",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: dlmalloc-0.2.7, MIT/Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-getopts-0.2.21",
+      "version": "0.2.21",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: getopts-0.2.21, MIT/Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-gimli-0.31.1",
+      "version": "0.31.1",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: gimli-0.31.1, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-hashbrown-0.15.2",
+      "version": "0.15.2",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: hashbrown-0.15.2, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-hermit-abi-0.4.0",
+      "version": "0.4.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: hermit-abi-0.4.0, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-libc-0.2.169",
+      "version": "0.2.169",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: libc-0.2.169, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-proc-macro2-1.0.93",
+      "version": "1.0.93",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: proc-macro2-1.0.93, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-quote-1.0.38",
+      "version": "1.0.38",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: quote-1.0.38, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-r-efi-4.5.0",
+      "version": "4.5.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: r-efi-4.5.0, MIT OR Apache-2.0 OR LGPL-2.1-or-later. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-r-efi-alloc-1.0.0",
+      "version": "1.0.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: r-efi-alloc-1.0.0, MIT OR Apache-2.0 OR LGPL-2.1-or-later. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-rand-0.9.0",
+      "version": "0.9.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: rand-0.9.0, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-rand_core-0.9.0",
+      "version": "0.9.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: rand_core-0.9.0, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-rand_xorshift-0.4.0",
+      "version": "0.4.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: rand_xorshift-0.4.0, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-rustc-demangle-0.1.24",
+      "version": "0.1.24",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: rustc-demangle-0.1.24, MIT/Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-shlex-1.3.0",
+      "version": "1.3.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: shlex-1.3.0, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-syn-2.0.98",
+      "version": "2.0.98",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: syn-2.0.98, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-unicode-ident-1.0.16",
+      "version": "1.0.16",
+      "license": "MIT AND Unicode-3.0",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: unicode-ident-1.0.16, (MIT OR Apache-2.0) AND Unicode-3.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-unicode-width-0.1.14",
+      "version": "0.1.14",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: unicode-width-0.1.14, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-unwinding-0.2.5",
+      "version": "0.2.5",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: unwinding-0.2.5, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-wasi-0.11.0-wasi-snapshot-preview1",
+      "version": "preview1",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: wasi-0.11.0+wasi-snapshot-preview1, Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows-sys-0.59.0",
+      "version": "0.59.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows-sys-0.59.0, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows-targets-0.52.6",
+      "version": "0.52.6",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows-targets-0.52.6, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows_aarch64_gnullvm-0.52.6",
+      "version": "0.52.6",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows_aarch64_gnullvm-0.52.6, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows_aarch64_msvc-0.52.6",
+      "version": "0.52.6",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows_aarch64_msvc-0.52.6, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows_i686_gnu-0.52.6",
+      "version": "0.52.6",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows_i686_gnu-0.52.6, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows_i686_gnullvm-0.52.6",
+      "version": "0.52.6",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows_i686_gnullvm-0.52.6, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows_i686_msvc-0.52.6",
+      "version": "0.52.6",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows_i686_msvc-0.52.6, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows_x86_64_gnu-0.52.6",
+      "version": "0.52.6",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows_x86_64_gnu-0.52.6, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows_x86_64_gnullvm-0.52.6",
+      "version": "0.52.6",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows_x86_64_gnullvm-0.52.6, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-windows_x86_64_msvc-0.52.6",
+      "version": "0.52.6",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: windows_x86_64_msvc-0.52.6, MIT OR Apache-2.0. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-zerocopy-0.8.17",
+      "version": "0.8.17",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: zerocopy-0.8.17, BSD-2-Clause OR Apache-2.0 OR MIT. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-zerocopy-derive-0.8.17",
+      "version": "0.8.17",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 supplier COPYRIGHT-library.html: zerocopy-derive-0.8.17, BSD-2-Clause OR Apache-2.0 OR MIT. Standard library dependency notice closure; target/build-only entries are conservative supersets, not asserted linked.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-addr2line",
+      "version": "0.24.2",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 library/Cargo.lock checksum dfbe277e56a376000877090da837660b4427aad530e3028d44e0bffe4f89a1c1; supplier library HTML omits this optional backtrace crate. Binary contains addr2line/miniz_oxide/adler2 symbols and version paths. Retained crate-specific notices from exact locked release; MIT dual option selected.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/addr2line-0.24.2.crate.notices.txt",
+          "sha256": "fcfd89959dbe4ed7e160caea3211aac1c1bbaad9c9cbef862934a9c5b8bb1a32"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-adler2",
+      "version": "2.0.0",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 library/Cargo.lock checksum 512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627; supplier library HTML omits this optional backtrace crate. Binary contains addr2line/miniz_oxide/adler2 symbols and version paths. Retained crate-specific notices from exact locked release; MIT dual option selected.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/adler2-2.0.0.crate.notices.txt",
+          "sha256": "94ed630f35ac16f2eaac216322b5f6410d476702b26ad933b2dd139be82bd8b5"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-miniz_oxide",
+      "version": "0.8.3",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 library/Cargo.lock checksum b8402cab7aefae129c6977bb0ff1b8fd9a04eb5b51efc50a70bea51cda0c7924; supplier library HTML omits this optional backtrace crate. Binary contains addr2line/miniz_oxide/adler2 symbols and version paths. Retained crate-specific notices from exact locked release; MIT dual option selected.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/miniz_oxide-0.8.3.crate.notices.txt",
+          "sha256": "fd904038f0d0a7eb46efa15a2eb96a341415d756fcc7a931cc14800ceceecf35"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-std-object",
+      "version": "0.36.7",
+      "license": "MIT",
+      "provenance": "Rust 1.86.0 library/Cargo.lock checksum 62948e14d923ea95ea2c7c86c71013138b66525b86bdc08d2dcc262bdb497b87; supplier library HTML omits this optional backtrace crate. Binary contains addr2line/miniz_oxide/adler2 symbols and version paths. Retained crate-specific notices from exact locked release; MIT dual option selected.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/object-0.36.7.crate.notices.txt",
+          "sha256": "4afe6a9628b20bfc2576309776609b2dcdaafa4180c49b3aebcff12dfb09a58e"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "rust-standard-library",
+      "version": "1.86.0",
+      "license": "MIT AND Unicode-3.0",
+      "provenance": "Actual official Mac cryptography wheel contains rustc/05f9846f893b09a1be1fc8560e33fc3c815cfecb (Rust 1.86.0), plus std dependency source paths. Same-version Rust COPYRIGHT and library Cargo.lock notice closure retained as a conservative superset, not a linker map or Linux binary match. Darwin excludes Fortanix SGX code.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/rustc-1.86.0-x86_64-unknown-linux-gnu.tar.xz.notices.txt",
+          "sha256": "443a647a5d8eecc15c19c557636c30d7d89f5853a4e5586c27e5a7b91e1d2e2f"
+        },
+        {
+          "path": "licenses/supplier-notices/rust-1.86.0-library-std-Cargo.toml.notices.txt",
+          "sha256": "4400a81f7198c9fbc27d357d2f105683e1f7655dfcd70ce355cb3903e98b17e0"
+        },
+        {
+          "path": "licenses/supplier-notices/rust-1.86.0-library-Cargo.lock.notices.txt",
+          "sha256": "1ad2750b29bdb5968509d8ef9427504423794121f4378b2b121dd81de0139011"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": [
+        "rust-std-allocator-api2-0.2.21",
+        "rust-std-cc-1.2.0",
+        "rust-std-cfg-if-1.0.0",
+        "rust-std-compiler_builtins-0.1.146",
+        "rust-std-dlmalloc-0.2.7",
+        "rust-std-getopts-0.2.21",
+        "rust-std-gimli-0.31.1",
+        "rust-std-hashbrown-0.15.2",
+        "rust-std-hermit-abi-0.4.0",
+        "rust-std-libc-0.2.169",
+        "rust-std-proc-macro2-1.0.93",
+        "rust-std-quote-1.0.38",
+        "rust-std-r-efi-4.5.0",
+        "rust-std-r-efi-alloc-1.0.0",
+        "rust-std-rand-0.9.0",
+        "rust-std-rand_core-0.9.0",
+        "rust-std-rand_xorshift-0.4.0",
+        "rust-std-rustc-demangle-0.1.24",
+        "rust-std-shlex-1.3.0",
+        "rust-std-syn-2.0.98",
+        "rust-std-unicode-ident-1.0.16",
+        "rust-std-unicode-width-0.1.14",
+        "rust-std-unwinding-0.2.5",
+        "rust-std-wasi-0.11.0-wasi-snapshot-preview1",
+        "rust-std-windows-sys-0.59.0",
+        "rust-std-windows-targets-0.52.6",
+        "rust-std-windows_aarch64_gnullvm-0.52.6",
+        "rust-std-windows_aarch64_msvc-0.52.6",
+        "rust-std-windows_i686_gnu-0.52.6",
+        "rust-std-windows_i686_gnullvm-0.52.6",
+        "rust-std-windows_i686_msvc-0.52.6",
+        "rust-std-windows_x86_64_gnu-0.52.6",
+        "rust-std-windows_x86_64_gnullvm-0.52.6",
+        "rust-std-windows_x86_64_msvc-0.52.6",
+        "rust-std-zerocopy-0.8.17",
+        "rust-std-zerocopy-derive-0.8.17",
+        "rust-std-addr2line",
+        "rust-std-adler2",
+        "rust-std-miniz_oxide",
+        "rust-std-object"
+      ]
+    },
+    {
+      "id": "cryptography",
+      "version": "44.0.3",
+      "license": "BSD-3-Clause",
+      "provenance": "Official macOS universal2 wheel hash verified against discovery pip report, and its member against installed candidate hash. Actual wheel embeds OpenSSL 3.4.1 and Rust 1.86.0 markers. Frozen thinning/signing changes are not a byte-match proof. BSD option; explicit conservative application/Rust static notice closure.",
+      "payload": [
+        {
+          "path": "cryptography/hazmat/bindings/_rust.abi3.so",
+          "sha256": "fbb8541956a83fd63d0e67b8b96e1d86a9dd5cc437231925ed0d886570fd8a0b",
+          "size": 9557872,
+          "kind": "binary"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/cryptography-44.0.3.tar.gz.notices.txt",
+          "sha256": "492ef14755a1adc8936dfe03669ce3a2cd775cb171a5ec545554b0a2d47b158a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        },
+        {
+          "path": "licenses/macos-ci/cryptography-44.0.3-cp39-abi3-macosx_10_9_universal2.whl.notices.txt",
+          "sha256": "9c0c816e22cde90b04f3dd9ab0e9340304b326401c2316808e1eacbb1347396d"
+        }
+      ],
+      "statically_linked": [
+        "crypto-crate-asn1",
+        "crypto-crate-asn1_derive",
+        "crypto-crate-autocfg",
+        "crypto-crate-base64",
+        "crypto-crate-bitflags",
+        "crypto-crate-cc",
+        "crypto-crate-cfg-if",
+        "crypto-crate-foreign-types",
+        "crypto-crate-foreign-types-shared",
+        "crypto-crate-heck",
+        "crypto-crate-indoc",
+        "crypto-crate-itoa",
+        "crypto-crate-libc",
+        "crypto-crate-memoffset",
+        "crypto-crate-once_cell",
+        "crypto-crate-openssl",
+        "crypto-crate-openssl-macros",
+        "crypto-crate-openssl-sys",
+        "crypto-crate-pem",
+        "crypto-crate-pkg-config",
+        "crypto-crate-portable-atomic",
+        "crypto-crate-proc-macro2",
+        "crypto-crate-pyo3",
+        "crypto-crate-pyo3-build-config",
+        "crypto-crate-pyo3-ffi",
+        "crypto-crate-pyo3-macros",
+        "crypto-crate-pyo3-macros-backend",
+        "crypto-crate-quote",
+        "crypto-crate-self_cell",
+        "crypto-crate-shlex",
+        "crypto-crate-syn",
+        "crypto-crate-target-lexicon",
+        "crypto-crate-unicode-ident",
+        "crypto-crate-unindent",
+        "crypto-crate-vcpkg",
+        "rust-standard-library",
+        "cryptography-openssl"
+      ]
+    },
+    {
+      "id": "pyinstaller-embedded-loader",
+      "version": "6.13.0",
+      "license": "GPL-2.0-or-later WITH Bootloader-exception",
+      "provenance": "Official PyInstaller 6.13.0 macOS universal2 run loader acquired and inspected; both slices load system libz/libSystem. Exact observed frozen prefix pinned separately. Frozen bytes were not retained, so code-preserving transformation has not been proven. See release gates in macos-ci/REVIEW.md.",
+      "payload": [
+        {
+          "path": "@bootloader",
+          "sha256": "fd719c424c19a64afc3511d3c515b72c2f7a6cf653c9e9e990f4bc3b25c3a62a",
+          "size": 89152,
+          "kind": "bootloader",
+          "hash_scope": "prefix-bytes"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/supplier-notices/pyinstaller-COPYING.notices.txt",
+          "sha256": "d76f2df0043662b4c7ee67b1be32f446495e5eafa68da0474be22b5a560b8513"
+        },
+        {
+          "path": "licenses/supplier-notices/pyinstaller-6.13.0.tar.gz.notices.txt",
+          "sha256": "66e3a8f30185b7e4ab868ba8f590ec97612830ec2c6544d692a0c1869a4877e8"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        },
+        {
+          "path": "licenses/macos-ci/pyinstaller-6.13.0-py3-none-macosx_10_13_universal2.whl.notices.txt",
+          "sha256": "6b1cfe4c890a8cf587eddee10bcbf7f85bb3930c8d56b2135b87d2a47b90f3f5"
+        }
+      ],
+      "statically_linked": [],
+      "exception_basis": "Scoped to the standard loader embedded by PyInstaller, not standalone distribution or source-modified loaders. Native exact-prefix transformation/recombination qualification remains outstanding; no blanket GPL exemption or normalized-code equality is asserted."
+    },
+    {
+      "id": "cpython-static-mersenne-twister",
+      "version": "as bundled in CPython 3.12.10",
+      "license": "BSD-3-Clause",
+      "provenance": "CPython source-version Doc/license.rst section Mersenne Twister contains original copyright and permission; conservatively retained embedded-algorithm coverage. Rechecked source-version notices from the downloaded CPython 3.12.10 archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/Python-3.12.10.tar.xz.notices.txt",
+          "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cpython-static-dtoa",
+      "version": "as bundled in CPython 3.12.10",
+      "license": "HPND",
+      "provenance": "CPython source-version Doc/license.rst section strtod and dtoa contains original copyright and permission; conservatively retained embedded-algorithm coverage. Rechecked source-version notices from the downloaded CPython 3.12.10 archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/Python-3.12.10.tar.xz.notices.txt",
+          "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cpython-static-cfuhash",
+      "version": "as bundled in CPython 3.12.10",
+      "license": "BSD-3-Clause",
+      "provenance": "CPython source-version Doc/license.rst section cfuhash contains original copyright and permission; conservatively retained embedded-algorithm coverage. Rechecked source-version notices from the downloaded CPython 3.12.10 archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/Python-3.12.10.tar.xz.notices.txt",
+          "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "qt-static-qeventdispatcher_cf",
+      "version": "bundled with Qt 6.8.3",
+      "license": "BSD-3-Clause",
+      "provenance": "Used in Qt Core on macOS; src/corelib/kernel/qt_attribution.json and QEVENTDISPATCHER_CF_LICENSE.txt in verified Qt Base source archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "qt-static-cocoa-platform-plugin",
+      "version": "bundled with Qt 6.8.3",
+      "license": "BSD-3-Clause",
+      "provenance": "Code used in macOS Cocoa QPA; src/plugins/platforms/cocoa/qt_attribution.json and COCOA_LICENSE.txt in verified Qt Base source archive.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/qtbase-everywhere-src-6.8.3.tar.xz.notices.txt",
+          "sha256": "674045f873e29c29aa7402849fec82a3dd968be06464d9d0b3e8437409320d6a"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cpython-static-xz",
+      "version": "5.2.3",
+      "license": "LicenseRef-XZ-5.2.3-Public-Domain",
+      "provenance": "CPython 3.12.10 Mac/BuildScript/build-installer.py names XZ 5.2.3; supplier license explicitly identifies liblzma as public domain with fallback permission grant.",
+      "license_scope": "Only embedded liblzma in _lzma; not xz tools, getopt_long, scripts, build tools or documentation.",
+      "payload": [],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/XZ-5.2.3-COPYING.txt.notices.txt",
+          "sha256": "fea1a2d89f381c4b392c7cef6ace8318649863b309ddea9cfd81d0a504ca83fb"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cpython",
+      "version": "3.12.10",
+      "license": "PSF-2.0",
+      "provenance": "All 48 installed Python native candidates per architecture match exact universal2 members of the official Python 3.12.10 macOS installer. Frozen members are separately hash-pinned and are NOT asserted equal after thinning/rewriting/signing. CPython 3.12.10 source notices and installer recipe acquired.",
+      "payload": [
+        {
+          "path": "Python",
+          "sha256": "93a67d14816c31ee78ec1c3d7ef1e014ef9bd6b825720dd59b2259888f2f5a35",
+          "size": 38,
+          "kind": "symlink",
+          "target": "Python.framework/Versions/3.12/Python"
+        },
+        {
+          "path": "Python.framework/Python",
+          "sha256": "d40912f18bc605459717c783f85c2af755e09f13155ba6517b42758dec0a7504",
+          "size": 24,
+          "kind": "symlink",
+          "target": "Versions/Current/Python"
+        },
+        {
+          "path": "Python.framework/Resources",
+          "sha256": "7271140e2b16015909edfeec5281cb52e209dab77e9c2d7ade63ceb43f8abddd",
+          "size": 27,
+          "kind": "symlink",
+          "target": "Versions/Current/Resources"
+        },
+        {
+          "path": "Python.framework/Versions/3.12/Python",
+          "sha256": "523e4fc99e08c08c37bc536925db01bc2fff54a5205d62c0b2e75155526d6364",
+          "size": 7996912,
+          "kind": "binary"
+        },
+        {
+          "path": "Python.framework/Versions/Current",
+          "sha256": "79b367c747e98ea92358fb13eb4c3c23c8936d7aa1aec3c40db76ed56d30ce4e",
+          "size": 5,
+          "kind": "symlink",
+          "target": "3.12"
+        },
+        {
+          "path": "lib-dynload/_bisect.cpython-312-darwin.so",
+          "sha256": "cef6e540b2aa4aea034c0e0943f0a916dd24e5c9bab8c1c779f3886966e66b1a",
+          "size": 72800,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_blake2.cpython-312-darwin.so",
+          "sha256": "c051890b6b3a6166b77bcd7d59607148a6dddc542bab9f8f5d0e319149b3da5f",
+          "size": 94128,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_bz2.cpython-312-darwin.so",
+          "sha256": "34c2540559dcc8b065eb3e898681908400c77033cef720c2cc997010a4a34d86",
+          "size": 75968,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_codecs_cn.cpython-312-darwin.so",
+          "sha256": "7057fb3bb6989083f8c6f1c9e4887737fcdc81234b1a725e25e74f10112dd232",
+          "size": 188640,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_codecs_hk.cpython-312-darwin.so",
+          "sha256": "a4c4199c999675f6e022d8be6b70e3e7d2fa776227cc3caf6b8e59838e0d0c53",
+          "size": 188144,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_codecs_iso2022.cpython-312-darwin.so",
+          "sha256": "4cc92e0db7ccd0387b40f275e175319d629d9fc34c4be666c1aa0c3494a8c3b9",
+          "size": 77408,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_codecs_jp.cpython-312-darwin.so",
+          "sha256": "0c5f32439d12e3298bfe2a2d0cfd40713e082aa7e97acd4c98f76561ce8f8e08",
+          "size": 305680,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_codecs_kr.cpython-312-darwin.so",
+          "sha256": "177ce74caeb86316b4875c48cbf5630658b4dc4b07738d40ae8adda7f69e6d07",
+          "size": 172080,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_codecs_tw.cpython-312-darwin.so",
+          "sha256": "63a121fa6bed5f10fee089dbe08cb3e6f48b89277031f238d2f2d5ff58623926",
+          "size": 170928,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_contextvars.cpython-312-darwin.so",
+          "sha256": "fa0da5af9e8237e66cc8605b1e7a6e467ec9e91441ac2ae1a3c99773a6e8f308",
+          "size": 69328,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_csv.cpython-312-darwin.so",
+          "sha256": "e91da5d456c6257116f63d1ea0e45dc8f7f57d8c2a616d400b63ec428c1a119a",
+          "size": 95728,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_ctypes.cpython-312-darwin.so",
+          "sha256": "33eb028ca82d642dc14e7759ab1027c73f0857975fe71d1ccf1fe97fea4f06fe",
+          "size": 183824,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_datetime.cpython-312-darwin.so",
+          "sha256": "8af443c7238e5a60d0b7a334b45d394543a442ab42d463d3f2d586dd28c70d50",
+          "size": 165056,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_decimal.cpython-312-darwin.so",
+          "sha256": "15f4a862b2f49baa1918d799d3451adeeaff87d8e6f2373570b165c957d5401c",
+          "size": 404608,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_elementtree.cpython-312-darwin.so",
+          "sha256": "1b671c576af27f5ba86a3a3f77e844fbbc068d375e69a4238d01e7153dd99878",
+          "size": 130896,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_hashlib.cpython-312-darwin.so",
+          "sha256": "fb064c785ff28631a89fac14abfdf10befb4684b51b0197d0fbf4542a97ac934",
+          "size": 108880,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_heapq.cpython-312-darwin.so",
+          "sha256": "774beee2c061499d4bb4c4797313130b80a37b40dc61edbe6878406fabb04749",
+          "size": 71744,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_json.cpython-312-darwin.so",
+          "sha256": "0d9c06f03b11a51a4ee36cb147057e79700baf969af2f262e45c62030c416069",
+          "size": 93056,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_lzma.cpython-312-darwin.so",
+          "sha256": "d42b9fd9d23d25f021efbff505967876e622b5cbc9d48ce4da147a0f5ca8c2b8",
+          "size": 276944,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_md5.cpython-312-darwin.so",
+          "sha256": "d244f11dc4357f71684b95de2f3c99c864c665126eb902869aed39b744f48ea7",
+          "size": 74736,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_multibytecodec.cpython-312-darwin.so",
+          "sha256": "ad986da3d1cb24f81518a83e031f85e8feeb0e1fc0baafbc8f395bbb6a755083",
+          "size": 105024,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_opcode.cpython-312-darwin.so",
+          "sha256": "afe51e328ba293f508ee83f9a8a69575f6c3b05070f9f31b653572acac7dde16",
+          "size": 70176,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_pickle.cpython-312-darwin.so",
+          "sha256": "dfd464ca371f913c14ec32aea62aeeb6b76a0776572ca6b925301ed810058734",
+          "size": 178080,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_posixsubprocess.cpython-312-darwin.so",
+          "sha256": "f5136085f1b04bef9c603689f419fc308fc39833cdcb89aa08fd45e83be44e5b",
+          "size": 73488,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_random.cpython-312-darwin.so",
+          "sha256": "d347470204b8500110ada143c6613d376746fa31321675c8d7ed61955a33ddc9",
+          "size": 73952,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_scproxy.cpython-312-darwin.so",
+          "sha256": "cb846bcec34f3542dccc550b3b04892fb8ca5b5d37c1985846494fd0ec76e7fb",
+          "size": 72096,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_sha1.cpython-312-darwin.so",
+          "sha256": "1c27eda337b9f80cc69d7342228bdefb13937e593b8fe4bab425015d170ab2d0",
+          "size": 74704,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_sha2.cpython-312-darwin.so",
+          "sha256": "63818f4f28be82766b0e95eaf410169342927112f8f9e15215da0dc8bf1599cb",
+          "size": 95488,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_sha3.cpython-312-darwin.so",
+          "sha256": "2f34b35797e1c72f63fe418995c6a867d32ed4f78e3e3ed3dfc65b696a3c968f",
+          "size": 94800,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_socket.cpython-312-darwin.so",
+          "sha256": "f25c07e987abec997a413558ae358d2d9f345355484218389ca00765eba87783",
+          "size": 143632,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_ssl.cpython-312-darwin.so",
+          "sha256": "948ea69b240b0940054cd3bb0b0e4d1dfd961f202597cdb0db8cd49682db56ea",
+          "size": 242320,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_statistics.cpython-312-darwin.so",
+          "sha256": "9c788b61d3750452a6896a51b06d7092e78a175516fca0b7da55e00a56fac017",
+          "size": 69568,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/_struct.cpython-312-darwin.so",
+          "sha256": "6d8aec5b0ce66dcba5ca5843f21cbccc0aa93ff24c4374d1e81154eaf5a06ffb",
+          "size": 103712,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/array.cpython-312-darwin.so",
+          "sha256": "1660e44010904ca976d22b74f5404ecd9133c6343702169d553a249a6c363a67",
+          "size": 124176,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/binascii.cpython-312-darwin.so",
+          "sha256": "90c66574ba905b62ecbd5b1d85f558d80eefc4c270ecba616e14d33bdcafe346",
+          "size": 92080,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/fcntl.cpython-312-darwin.so",
+          "sha256": "a59c3b7eb66b9cc52f7c8b70c49a53cc0881c4f7764f69fb68b0475353d98d43",
+          "size": 71888,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/grp.cpython-312-darwin.so",
+          "sha256": "649bad669e0b2ec2cd8ab98675da249ca041fbe295eb2c9d7c5d66c0cd74796f",
+          "size": 72272,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/math.cpython-312-darwin.so",
+          "sha256": "acb89b9210bcc13edeb43763ebbe7dac0b0a7425aaa6416418f30fba696296fc",
+          "size": 120000,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/pyexpat.cpython-312-darwin.so",
+          "sha256": "31c78e97bb0ec5e38d989321cdaf7623cd149549141f6cea4557c38c30842ed4",
+          "size": 277824,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/resource.cpython-312-darwin.so",
+          "sha256": "0fa9eff93b404726a03b1b59de358ae0e53d18682d29d8278fdf627488378cfe",
+          "size": 72272,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/select.cpython-312-darwin.so",
+          "sha256": "56254db92d9d8acc4fcf27e133a2c27fa411257c5604bd11bc440d81cb70bbfc",
+          "size": 97344,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/termios.cpython-312-darwin.so",
+          "sha256": "27b00bedfff84a8ad832b8be6e7e776484c73bff2cafef1c5f65b4e154014e71",
+          "size": 73744,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/unicodedata.cpython-312-darwin.so",
+          "sha256": "a2633925b2091e9fa7957d4dc6e8925100d31e5b99c24c96e24c9c6555ad2544",
+          "size": 1186624,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/xxsubtype.cpython-312-darwin.so",
+          "sha256": "667480e165cb70d5932e09ca81b79899c0206cc3440e47a1ec1f6953d74dfee6",
+          "size": 70880,
+          "kind": "binary"
+        },
+        {
+          "path": "lib-dynload/zlib.cpython-312-darwin.so",
+          "sha256": "263e837b8f85f82d25d7b235697f7983fe1aac92eb01ecce998df377ed6495a3",
+          "size": 101808,
+          "kind": "binary"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/Python-3.12.10.tar.xz.notices.txt",
+          "sha256": "70d78c5571c4efaa9b235d5d38b322b49a4b07063a169348de899c9cd2d39d7f"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        },
+        {
+          "path": "provenance/macos-ci/python-installer-evidence.json",
+          "sha256": "3f35430e8520342ed497ce9d2a179c2807a6b1290d77c4100ed37325a93bd137"
+        }
+      ],
+      "statically_linked": [
+        "cpython-static-hacl",
+        "cpython-static-blake2",
+        "cpython-static-mpdecimal",
+        "cpython-static-expat",
+        "cpython-static-siphash",
+        "cpython-static-mersenne-twister",
+        "cpython-static-dtoa",
+        "cpython-static-cfuhash",
+        "cpython-static-xz"
+      ]
+    },
+    {
+      "id": "cpython-openssl",
+      "version": "3.0.16",
+      "license": "Apache-2.0",
+      "provenance": "Observed Python ssl.OPENSSL_VERSION and source-version Mac installer recipe agree; both installed OpenSSL dylibs match official installer members. Frozen hashes are separately observed, not supplier-byte equalities.",
+      "payload": [
+        {
+          "path": "libcrypto.3.dylib",
+          "sha256": "3f6d6f8445c77518a5646a78e799003bf33330947c55e1495d13d5b0e1fc53ff",
+          "size": 3599904,
+          "kind": "binary"
+        },
+        {
+          "path": "libssl.3.dylib",
+          "sha256": "92a1c5704bdd9365bc14f60a080f051109b6582dda159225feaa672ca44c965d",
+          "size": 633232,
+          "kind": "binary"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/OpenSSL-3.0.16-LICENSE.txt.notices.txt",
+          "sha256": "2fd66b39e2f33ce36ffea9888c5a6ae952eb2d79f5e6498c22f1fb3038af63d2"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    },
+    {
+      "id": "cffi",
+      "version": "2.1.1",
+      "license": "MIT-0",
+      "provenance": "Official arch-specific Mac wheel fetched and installed candidate hash matched; both Mach-O slices load /usr/lib/libffi.dylib. No Linux static libffi claim is reused. Exact frozen bytes pinned independently.",
+      "payload": [
+        {
+          "path": "_cffi_backend.cpython-312-darwin.so",
+          "sha256": "8cbaad4a53e7acc3843b946ff7d183f44e4fca6ba88f5b7aa59cd1d778ae6fb9",
+          "size": 247664,
+          "kind": "binary"
+        }
+      ],
+      "notices": [
+        {
+          "path": "licenses/macos-ci/cffi-2.1.1-cp312-cp312-macosx_11_0_arm64.whl.notices.txt",
+          "sha256": "b684dae9ca87ae7eed83ba82640cf70285597b497ff8eb83355fb4b7e4f3aaaf"
+        },
+        {
+          "path": "licenses/macos-ci/cffi-2.1.1-cp312-cp312-macosx_10_15_x86_64.whl.notices.txt",
+          "sha256": "e4015130630b5b1a3ff43eead6e318477d70c301779c9bc301ff56eb56ce81a8"
+        },
+        {
+          "path": "macos-ci/REVIEW.md",
+          "sha256": "17c0c13a68ddc9733d2e5dfe9a708915e799b25518a6d991ba16ee400b8eab41"
+        }
+      ],
+      "statically_linked": []
+    }
+  ]
+}

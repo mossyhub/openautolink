@@ -19,6 +19,61 @@ build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build)
 
 
+def test_workflow_wires_coverage_without_weakening_native_byte_gate():
+    workflow = (ROOT.parent / ".github/workflows/build-desktop-builder.yml").read_text()
+    native = workflow.split("  native-package:\n", 1)[1].split("  combine-mac:\n", 1)[0]
+    assert "coverage_linux_ci.py" in native
+    assert "coverage_macos_ci.py" in native
+    assert '--native-coverage "$RUNNER_TEMP/oal-native-coverage/coverage.json"' in native
+    assert "required_source_inputs(review, lock)" in native
+    assert "--fetch" not in native  # Mac full supplier lock includes irrelevant wheels/installers.
+    assert "fail-fast: false" in native
+    assert "cffi==2.1.1 pyinstaller-hooks-contrib==2026.8" in native
+    assert "python-version: '3.12.15'" in native
+    assert native.count("python-version: '3.12.10'") == 3
+    assert "python-version: ${{ matrix.python-version }}" in native
+    combine = workflow.split("  combine-mac:\n", 1)[1].split("  smoke-final-mac:\n", 1)[0]
+    assert "if: ${{ !cancelled() }}" in combine  # Windows failure must not suppress Mac gates.
+    final_mac = workflow.split("  smoke-final-mac:\n", 1)[1].split("  qualified-downloads:\n", 1)[0]
+    assert "if: ${{ !cancelled() && needs.combine-mac.result == 'success' }}" in final_mac
+    assert "continue-on-error" not in workflow
+    assert workflow.count("ref: ${{ github.event.pull_request.head.sha || github.sha }}") == workflow.count("uses: actions/checkout@")
+    assert "EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
+    assert "GIT_CONFIG_KEY_0: core.autocrlf" in workflow
+    assert "GIT_CONFIG_VALUE_0: 'false'" in workflow
+
+
+def test_source_snapshot_contains_nested_ci_rebuild_inputs(tmp_path):
+    target = tmp_path / "source.zip"
+    build.source_archive(target)
+    with zipfile.ZipFile(target) as archive:
+        for relative in ("packaging/provenance/linux-ci/license-policy.json",
+                         "packaging/provenance/linux-ci/ubuntu-sources.lock.json",
+                         "packaging/provenance/macos-ci/supplier-inputs.lock.json",
+                         "packaging/macos-ci/README.md", "packaging/macos-ci/REBUILD.md"):
+            assert archive.read("desktop-builder/" + relative) == (ROOT / relative).read_bytes()
+
+
+def test_ci_macos_sources_selects_only_exact_required_archives():
+    review = json.loads((ROOT / "packaging/provenance/macos-arm64-ci-reviewed.json").read_text())
+    lock = json.loads((ROOT / "packaging/provenance/macos-ci/supplier-inputs.lock.json").read_text())
+    selected = build.required_source_inputs(review, lock)
+    assert [entry["path"] for entry in selected["inputs"]] == [
+        "qtbase-everywhere-src-6.8.3.tar.xz", "pyside-setup-everywhere-src-6.8.3.tar.xz"]
+    assert all(entry in lock["inputs"] for entry in selected["inputs"])
+    lock["inputs"] = [entry for entry in lock["inputs"] if entry not in selected["inputs"]]
+    with pytest.raises(ValueError, match="source input"):
+        build.required_source_inputs(review, lock)
+
+
+def test_ci_sources_cannot_silently_replace_reviewed_hash(tmp_path):
+    payload, review = coverage_fixture(tmp_path)
+    source = review["components"][0]["sources"][0]
+    lock = {"schema": 1, "inputs": [{**source, "sha256": "b" * 64}]}
+    with pytest.raises(ValueError, match="source input"):
+        build.required_source_inputs(review, lock)
+
+
 def test_reviewed_generator_materializes_exact_schema2_evidence(tmp_path):
     module_path = ROOT / "packaging/generate_native.py"
     assert module_path.is_file(), "Reviewed coverage materializer is missing"
@@ -104,6 +159,100 @@ def test_scoped_composite_terms_require_exact_reviewed_notice(tmp_path, license_
     assert build.validate_native_coverage(payload, coverage, tmp_path) == coverage
     c["notices"].pop()
     with pytest.raises(ValueError, match="reviewed notice"):
+        build.validate_native_coverage(payload, coverage, tmp_path)
+
+
+UBUNTU_NOTICE_POLICY = json.loads(
+    (ROOT / "packaging/provenance/linux-ci/license-policy.json").read_text()
+)["scoped_notices"]
+
+
+@pytest.mark.parametrize("license_id", UBUNTU_NOTICE_POLICY)
+def test_ubuntu_composite_routes_require_exact_notice_and_nonempty_scope(tmp_path, license_id):
+    payload, coverage = coverage_fixture(tmp_path)
+    coverage["schema"] = 2
+    component = coverage["components"][0]
+    policy = UBUNTU_NOTICE_POLICY[license_id]
+    component.update(license=license_id, license_scope=policy["license_scope"])
+    for field in ("sources", "source_basis", "build_instructions"):
+        component.pop(field)
+    notice = tmp_path / "ubuntu.copyright"
+    notice.write_bytes((ROOT / "packaging" / policy["notice_path"]).read_bytes())
+    assert build.sha256(notice) == policy["notice_sha256"]
+    component["notices"] = [{"path": notice.name, "sha256": policy["notice_sha256"]}]
+    assert build.validate_native_coverage(payload, coverage, tmp_path) == coverage
+    for scope in (None, "", "  ", 1):
+        component["license_scope"] = scope
+        with pytest.raises(ValueError, match="scope"):
+            build.validate_native_coverage(payload, coverage, tmp_path)
+    component["license_scope"] = policy["license_scope"]
+    component["notices"] = [{"path": "notice.txt", "sha256": build.sha256(tmp_path / "notice.txt")}]
+    with pytest.raises(ValueError, match="reviewed notice"):
+        build.validate_native_coverage(payload, coverage, tmp_path)
+
+
+def test_mac_xz_route_is_exact_static_liblzma_only(tmp_path):
+    import copy
+
+    payload, coverage = coverage_fixture(tmp_path)
+    coverage["schema"] = 2
+    review = json.loads((ROOT / "packaging/provenance/macos-arm64-ci-reviewed.json").read_text())
+    xz = copy.deepcopy(next(c for c in review["components"] if c["id"] == "cpython-static-xz"))
+    for asset in xz["notices"]:
+        target = tmp_path / asset["path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / "packaging" / asset["path"]).read_bytes())
+    coverage["components"][0]["statically_linked"] = [xz["id"]]
+    coverage["components"].append(xz)
+    assert build.validate_native_coverage(payload, coverage, tmp_path) == coverage
+    for field, value in [("version", "5.2.4"), ("license_scope", "all xz tools"),
+                         ("license_scope", ""), ("id", "xz-tools"), ("notices", []),
+                         ("statically_linked", ["example"]), ("sources", [{"path": "source.zip"}])]:
+        changed = copy.deepcopy(coverage)
+        changed["components"][-1][field] = value
+        if field == "id":
+            changed["components"][0]["statically_linked"] = [value]
+        with pytest.raises(ValueError, match="XZ.*liblzma"):
+            build.validate_native_coverage(payload, changed, tmp_path)
+    changed = copy.deepcopy(coverage)
+    changed["components"][0]["payload"] = []
+    changed["components"][-1]["payload"] = payload
+    with pytest.raises(ValueError, match="XZ.*liblzma"):
+        build.validate_native_coverage(payload, changed, tmp_path)
+
+
+@pytest.mark.parametrize("component_id,scope", [
+    ("qt-static-wintab", "Only the Wintab headers embedded in the Qt 6.8.3 Windows platform plugin."),
+    ("cpython-static-liblzma", "Only embedded liblzma 5.2.5 in CPython _lzma; not xz tools, scripts or build tools."),
+])
+def test_windows_scoped_notice_routes_reject_scope_and_notice_drift(tmp_path, component_id, scope):
+    import copy
+    payload, coverage = coverage_fixture(tmp_path)
+    coverage["schema"] = 2
+    review = json.loads((ROOT / "packaging/provenance/windows-ci-reviewed.json").read_text())
+    component = copy.deepcopy(next(c for c in review["components"] if c["id"] == component_id))
+    component["license_scope"] = scope
+    for asset in component["notices"]:
+        target = tmp_path / asset["path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / "packaging" / asset["path"]).read_bytes())
+    coverage["components"].append(component)
+    assert build.validate_native_coverage(payload, coverage, tmp_path) == coverage
+    for field, value in [("license_scope", "all software"), ("version", "other"),
+                          ("notices", []), ("payload", payload), ("statically_linked", ["example"])]:
+        changed = copy.deepcopy(coverage)
+        changed["components"][-1][field] = value
+        if field == "payload":
+            changed["components"][0]["payload"] = []
+        with pytest.raises(ValueError, match="Windows.*scope"):
+            build.validate_native_coverage(payload, changed, tmp_path)
+
+
+def test_windows_microsoft_terms_are_not_a_source_archive_requirement(tmp_path):
+    payload, coverage = coverage_fixture(tmp_path)
+    coverage["schema"] = 2
+    coverage["components"][0]["license"] = "LicenseRef-Microsoft-VisualStudio-2022-Distributable-Code"
+    with pytest.raises(ValueError, match="Microsoft.*downstream"):
         build.validate_native_coverage(payload, coverage, tmp_path)
 
 
@@ -399,11 +548,101 @@ def test_inventory_reads_actual_archive_bytes_including_mislabelled_native_data(
                              ("readme", str(data), True, "x"),
                              ("alias", "library", False, "n")], "python")
     executable = tmp_path / "app"
-    executable.write_bytes(magic + b"UNIT TEST bootloader" + pkg.read_bytes())
+    # This matrix exercises member magic, not PE loader structure (tested separately).
+    executable.write_bytes(b"\x7fELFUNIT TEST bootloader" + pkg.read_bytes())
     inventory = build.native_inventory(executable)
     assert {entry["path"] for entry in inventory} == {"@bootloader", "library", "disguised-data", "alias"}
     assert next(e for e in inventory if e["path"] == "library")["sha256"] == build.sha256(binary)
     assert next(e for e in inventory if e["path"] == "alias")["target"] == "library"
+
+
+def _inventory_archive(tmp_path, entries):
+    from PyInstaller.archive.writers import CArchiveWriter
+    toc = []
+    for i, (name, data, kind) in enumerate(entries):
+        source = tmp_path / f"input-{i}"
+        source.write_bytes(data)
+        toc.append((name, str(source), False, kind))
+    pkg = tmp_path / "payload.pkg"
+    CArchiveWriter(str(pkg), toc, "python")
+    executable = tmp_path / "app"
+    executable.write_bytes(b"\x7fELFtest loader" + pkg.read_bytes())
+    return executable
+
+
+def _zip_bytes(entries):
+    output = io.BytesIO()
+    import warnings
+    with warnings.catch_warnings(), zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        warnings.filterwarnings("ignore", message="Duplicate name:", category=UserWarning)
+        for name, data in entries:
+            info = zipfile.ZipInfo("placeholder")
+            info.filename = name  # Preserve hostile raw separators on Windows too.
+            archive.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED)
+    return output.getvalue()
+
+
+def test_inventory_binary_flag_is_not_native_and_nested_zip_is_scanned(tmp_path):
+    nested = _zip_bytes([("renamed.bin", b"MZnative content")])
+    executable = _inventory_archive(tmp_path, [
+        ("translation.qm", b"translation not executable", "b"),
+        ("metadata", b"package metadata", "b"),
+        ("renamed-container", _zip_bytes([("nested", nested)]), "b")])
+    payload = build.native_inventory(executable)
+    assert {e["path"] for e in payload} == {"@bootloader", "renamed-container!/nested!/renamed.bin"}
+
+
+@pytest.mark.parametrize("entries", [
+    [("../escape", b"data")], [("same", b"one"), ("same", b"two")],
+    [("A", b"one"), ("a", b"two")], [("a\\b", b"data")],
+    [("/absolute", b"data")], [("a/./b", b"data")], [("nul\0tail", b"data")]])
+def test_inventory_rejects_unsafe_zip_names(tmp_path, entries):
+    if "\0" in entries[0][0]:
+        data = _zip_bytes([("nul_tail", b"data")]).replace(b"nul_tail", b"nul\0tail")
+    else:
+        data = _zip_bytes(entries)
+    executable = _inventory_archive(tmp_path, [("container", data, "x")])
+    with pytest.raises(ValueError, match="ZIP"):
+        build.native_inventory(executable)
+
+
+@pytest.mark.parametrize("limit,value", [("ZIP_MAX_BYTES", 10), ("ZIP_MAX_MEMBERS", 1),
+                                          ("ZIP_MAX_DEPTH", 1), ("ZIP_MAX_RATIO", 1)])
+def test_inventory_bounds_zip_expansion_globally(tmp_path, monkeypatch, limit, value):
+    inner = _zip_bytes([("one", b"a" * 1000), ("two", b"other")])
+    executable = _inventory_archive(tmp_path, [("container", _zip_bytes([("inner", inner)]), "x")])
+    monkeypatch.setattr(build, limit, value)
+    with pytest.raises(ValueError, match="limit"):
+        build.native_inventory(executable)
+
+
+def test_inventory_malformed_zip_is_not_data(tmp_path):
+    executable = _inventory_archive(tmp_path, [("container", b"PK\x03\x04broken", "x")])
+    with pytest.raises(ValueError, match="ZIP"):
+        build.native_inventory(executable)
+
+
+def test_inventory_onedir_nested_zip_native_cannot_hide(tmp_path):
+    executable = _inventory_archive(tmp_path, [])
+    internal = tmp_path / "_internal"
+    internal.mkdir()
+    (internal / "not-a-zip-extension").write_bytes(_zip_bytes([("hidden", b"MZnative")]))
+    assert "not-a-zip-extension!/hidden" in {p["path"] for p in build.native_inventory(executable)}
+
+
+def test_compliance_container_has_no_native_self_reference(tmp_path):
+    compliance = build.compliance_archive(tmp_path)
+    executable = _inventory_archive(tmp_path, [("builder-compliance.zip", compliance.read_bytes(), "b")])
+    assert {p["path"] for p in build.native_inventory(executable)} == {"@bootloader"}
+    with zipfile.ZipFile(compliance, "a") as archive:
+        archive.writestr("native/payload.json", b"[]")
+    executable = _inventory_archive(tmp_path, [("builder-compliance.zip", compliance.read_bytes(), "b")])
+    assert {p["path"] for p in build.native_inventory(executable)} == {"@bootloader"}
+    build.verify_embedded_compliance(executable, compliance)
+    with zipfile.ZipFile(compliance, "a") as archive:
+        archive.writestr("licenses/more.txt", b"changed")
+    with pytest.raises(ValueError, match="embedded compliance"):
+        build.verify_embedded_compliance(executable, compliance)
 
 
 def test_inventory_includes_onedir_transitive_libraries(tmp_path):
@@ -457,7 +696,8 @@ def test_packaging_refuses_to_offer_uncovered_native_candidate(tmp_path, monkeyp
         from PyInstaller.archive.writers import CArchiveWriter
         stage = Path(args[args.index("--distpath") + 1])
         pkg = tmp_path / "unit.pkg"
-        CArchiveWriter(str(pkg), [], "python")
+        compliance = Path(args[args.index("--add-data") + 1][:-2])
+        CArchiveWriter(str(pkg), [("builder-compliance.zip", str(compliance), False, "x")], "python")
         (stage / build.NAME).write_bytes(b"\x7fELFUNIT TEST bootloader" + pkg.read_bytes())
     monkeypatch.setattr(build.platform, "system", lambda: "Linux")
     monkeypatch.setattr(build.platform, "machine", lambda: "x86_64")
@@ -488,6 +728,51 @@ def test_elf_loader_digest_ignores_only_appended_archive_section_offset(tmp_path
     prefix[80] = 1
     executable.write_bytes(prefix + pkg.read_bytes())
     assert build.native_inventory(executable) != first
+
+
+def test_windows_candidate_probe_runs_before_coverage_rejection(tmp_path, monkeypatch):
+    candidate = tmp_path / "private-candidate.exe"
+    candidate.write_bytes(b"not a real executable; integration call-order fixture")
+    cache = tmp_path / "cache"
+    output = tmp_path / "output"
+    output.mkdir()
+    module = build.windows_support()
+    calls = []
+    def probe(executable, discovery, review, supplier_cache):
+        assert executable.is_file()
+        assert supplier_cache == cache
+        calls.append("probe")
+        return {"status": "evidence-only", "notQualification": True}
+    def minimal(inventory, review, policy, report):
+        calls.append("minimal")
+        return {"status": "blocked", "components": [], "blockers": [{"code": "MICROSOFT_REDISTRIBUTION_UNRESOLVED"}]}
+    def materialize(*args, **kwargs):
+        assert candidate.is_file()
+        calls.append("coverage")
+        raise ValueError("MICROSOFT_REDISTRIBUTION_UNRESOLVED")
+    def ui(executable, work):
+        assert executable.is_file()
+        calls.append("ui")
+        return {"status": "evidence-only", "notQualification": True}
+    monkeypatch.setattr(module, "probe_candidate_ui", ui)
+    monkeypatch.setattr(module, "probe_native_loader", probe)
+    monkeypatch.setattr(module, "minimal_review", minimal)
+    monkeypatch.setattr(module, "materialize", materialize)
+    monkeypatch.setattr(build, "windows_support", lambda: module)
+    discovery = {"artifactSha256": build.sha256(candidate), "builderSourceSha256": "a" * 64, "payload": []}
+    with pytest.raises(ValueError, match="MICROSOFT"):
+        build.windows_candidate_coverage(candidate, discovery, cache, tmp_path, output)
+    assert calls == ["probe", "minimal", "ui", "coverage"]
+    report = json.loads((output / "windows-candidate-review.json").read_text())
+    assert report["loaderProbe"]["status"] == "evidence-only"
+    assert report["coverage"]["status"] == "blocked"
+    assert report["notQualification"] is True
+    assert not list(output.glob("*.exe"))
+    override = tmp_path / "override.json"
+    override.write_text(json.dumps({"schema": 2, "system": "Windows", "architecture": "x86_64",
+        "status": "reviewed", "blockers": [], "components": [{"id": "pretend-MIT", "license": "MIT", "payload": []}]}))
+    with pytest.raises(ValueError, match="Windows coverage override"):
+        build.windows_candidate_coverage(candidate, discovery, cache, tmp_path, output, override)
 
 
 def test_native_packaging_rejects_reusing_output_with_old_artifact(tmp_path, monkeypatch):
@@ -619,7 +904,18 @@ def test_dual_runtime_app_uses_one_launcher_and_keeps_quoted_arguments(tmp_path)
     ("Darwin", "arm64", "OpenAutoLink-Builder-macos-arm64.runtime.tar.gz"),
 ])
 def test_native_build_offers_direct_payload_and_hashes_every_output(tmp_path, monkeypatch, system, machine, expected):
-    commands, smoked = [], []
+    commands, smoked, windows_specs, windows_probes = [], [], [], []
+    original_spec = build.windows_spec
+    def record_spec(root, work, compliance):
+        windows_specs.append((root, work, compliance))
+        return original_spec(root, work, compliance)
+    monkeypatch.setattr(build, "windows_spec", record_spec)
+    def candidate_gate(candidate, discovery, cache, work, output, coverage_file=None):
+        assert candidate.is_file()
+        assert discovery["artifactSha256"] == build.sha256(candidate)
+        windows_probes.append(candidate)
+        return coverage_file
+    monkeypatch.setattr(build, "windows_candidate_coverage", candidate_gate)
     monkeypatch.setattr(build.platform, "system", lambda: system)
     monkeypatch.setattr(build.platform, "machine", lambda: machine)
     import hashlib
@@ -632,15 +928,21 @@ def test_native_build_offers_direct_payload_and_hashes_every_output(tmp_path, mo
     def fake_run(*args):
         commands.append([str(a) for a in args])
         if "PyInstaller" in args:
-            frozen_root = Path(args[args.index("--paths") + 1])
+            if system == "Windows":
+                assert windows_specs, "Windows freeze must use pre-filtered Analysis spec"
+                frozen_root, _, compliance = windows_specs[-1]
+                assert Path(args[-1]).suffix == ".spec"
+            else:
+                frozen_root = Path(args[args.index("--paths") + 1])
+                compliance = Path(args[args.index("--add-data") + 1][:-2])
+                assert Path(args[-1]) == frozen_root / "oal_builder/__main__.py"
             assert frozen_root != ROOT, "Freeze the embedded source snapshot, not a concurrently editable checkout"
             assert (frozen_root / "oal_builder/__main__.py").read_bytes() == (ROOT / "oal_builder/__main__.py").read_bytes()
-            assert Path(args[-1]) == frozen_root / "oal_builder/__main__.py"
             stage = Path(args[args.index("--distpath") + 1])
             native = stage / build.NAME / build.NAME if system == "Darwin" else stage / expected
             native.parent.mkdir(parents=True, exist_ok=True)
             pkg = tmp_path / "unit.pkg"
-            CArchiveWriter(str(pkg), [], "python")
+            CArchiveWriter(str(pkg), [("builder-compliance.zip", str(compliance), False, "x")], "python")
             native.write_bytes(prefix + pkg.read_bytes())
             native.chmod(0o755)
     def fake_smoke(executable, screenshot, source_sha256):
@@ -649,14 +951,21 @@ def test_native_build_offers_direct_payload_and_hashes_every_output(tmp_path, mo
     monkeypatch.setattr(build, "run", fake_run)
     monkeypatch.setattr(build, "smoke_artifact", fake_smoke, raising=False)
     output = tmp_path / "output"
-    assert build.main(["--output", str(output), "--native-coverage", str(coverage_path)]) == 0
+    argv = ["--output", str(output), "--native-coverage", str(coverage_path)]
+    if system == "Windows":
+        argv += ["--windows-ci-cache", str(tmp_path)]
+    assert build.main(argv) == 0
     assert (output / expected).is_file()
     command = next(c for c in commands if "PyInstaller" in c)
     assert len([c for c in commands if "PyInstaller" in c]) == 2
-    assert "--additional-hooks-dir" in command
-    assert "--runtime-hook" in command
-    assert any("builder-compliance.zip:." in c for c in command)
-    assert ("--onedir" if system == "Darwin" else "--onefile") in command
+    if system == "Windows":
+        assert len(windows_probes) == 1
+        assert command[-1].endswith(".spec")
+    else:
+        assert "--additional-hooks-dir" in command
+        assert "--runtime-hook" in command
+        assert any("builder-compliance.zip:." in c for c in command)
+        assert ("--onedir" if system == "Darwin" else "--onefile") in command
     if system != "Darwin":
         assert smoked == [output / expected]
         assert not list(output.glob("*.zip")) and not list(output.glob("*.tar.gz"))
@@ -778,6 +1087,7 @@ def test_final_mac_smoke_uses_mounted_launcher_and_detaches_on_failure(tmp_path,
                          kind="dual-runtime-dmg", builderSourceSha256="a" * 64)
     monkeypatch.setattr(build.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(build.platform, "machine", lambda: "arm64")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "cocoa")
     commands, launched = [], []
     def native(*args):
         commands.append(args)
@@ -803,6 +1113,7 @@ def test_final_mac_smoke_uses_mounted_launcher_and_detaches_on_failure(tmp_path,
         report = json.loads((evidence / "smoke-macos-arm64.json").read_text())
         assert report["packageSha256"] == build.sha256(dmg)
         assert report["architecture"] == "arm64"
+        assert report["nativePlatformSmoke"] == "cocoa-passed"
     assert launched
     assert commands[-1][:2] == ("hdiutil", "detach")
 
@@ -827,6 +1138,8 @@ def test_smoke_checks_actual_frozen_child_architecture(tmp_path, monkeypatch, wr
         elif args[1] == "--smoke-test":
             target.write_bytes(b"\x89PNG\r\n\x1a\n")
     monkeypatch.setattr(build.subprocess, "run", fake_child)
+    archive_exe = _inventory_archive(tmp_path, [("builder-compliance.zip", compliance.read_bytes(), "x")])
+    archive_exe.rename(tmp_path / "fake-child")
     if wrong_arch:
         with pytest.raises(ValueError, match="architecture"):
             build.smoke_artifact(tmp_path / "fake-child", tmp_path / "shot.png", build.sha256(tmp_path / "builder-source.zip"))
@@ -835,7 +1148,7 @@ def test_smoke_checks_actual_frozen_child_architecture(tmp_path, monkeypatch, wr
         assert called == ["--runtime-info", "--export-compliance", "--smoke-test"]
 
 
-@pytest.mark.parametrize("mutation", [None, "hash", "missing", "architecture"])
+@pytest.mark.parametrize("mutation", [None, "hash", "missing", "architecture", "offscreen"])
 def test_mac_qualification_requires_both_matching_native_reports(tmp_path, mutation):
     package_dir = tmp_path / "package"
     package_dir.mkdir()
@@ -855,6 +1168,7 @@ def test_mac_qualification_requires_both_matching_native_reports(tmp_path, mutat
                              architecture="wrong" if mutation == "architecture" else arch,
                              packageSha256="0" * 64 if mutation == "hash" else build.sha256(dmg),
                              builderSourceSha256="a" * 64, frozenSmokeTest="passed",
+                             nativePlatformSmoke="offscreen" if mutation == "offscreen" else "cocoa-passed",
                              scope="combined-dmg-launcher-native-runtime-and-ui")
     if mutation:
         with pytest.raises((ValueError, FileNotFoundError)):
@@ -886,6 +1200,35 @@ def test_linux_native_gate_requires_xcb_display_and_hashes_evidence(tmp_path, mo
         manifest = build.read_manifest(path)
         assert manifest["nativePlatformSmoke"] == "xcb-display-passed"
         assert "smoke-linux-xcb.png" in manifest["files"]
+
+
+@pytest.mark.parametrize("qpa", ["windows", "offscreen", "qwindows"])
+def test_windows_final_native_smoke_requires_windows_plugin(tmp_path, monkeypatch, qpa):
+    executable = tmp_path / (build.NAME + ".exe")
+    executable.write_bytes(b"UNIT TEST ONLY: executable")
+    path = tmp_path / f"{build.NAME}-windows-x86_64.json"
+    build.write_manifest(tmp_path, path.stem, executable, [executable], kind="direct-executable",
+                         system="Windows", architecture="x86_64", builderSourceSha256="a" * 64)
+    monkeypatch.setattr(build.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(build.platform, "machine", lambda: "AMD64")
+    monkeypatch.setenv("QT_QPA_PLATFORM", qpa)
+    monkeypatch.setattr(build, "smoke_artifact", lambda executable, screenshot, source: screenshot.write_bytes(b"PNG fixture"))
+    if qpa != "windows":
+        with pytest.raises(ValueError, match="QT_QPA_PLATFORM=windows"):
+            build.smoke_windows_qwindows(tmp_path)
+    else:
+        assert build.main(["--smoke-windows-qwindows", str(tmp_path)]) == 0
+        manifest = build.read_manifest(path)
+        assert manifest["nativePlatformSmoke"] == "qwindows-passed"
+        assert "smoke-windows-qwindows.png" in manifest["files"]
+
+
+def test_mac_final_smoke_refuses_offscreen_as_native_cocoa(tmp_path, monkeypatch):
+    monkeypatch.setattr(build.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(build.platform, "machine", lambda: "arm64")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    with pytest.raises(ValueError, match="cocoa"):
+        build.smoke_mac(tmp_path, tmp_path / "out", "arm64")
 
 
 def test_frozen_hook_exports_compliance_without_starting_ui(tmp_path):

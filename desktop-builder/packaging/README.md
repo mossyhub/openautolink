@@ -109,7 +109,10 @@ only the offscreen gate is not evidence of working Linux desktop startup.
 ### Mac staging, combination and qualification
 
 On an ARM Mac and an Intel Mac independently, use the same source checkout and
-pinned requirements, then run `python packaging/build.py --output dist`.
+pinned requirements. Materialize the architecture's reviewed native coverage and
+required sources using the steps in [macos-ci/README.md](macos-ci/README.md), then run
+`python packaging/build.py --output dist --native-coverage /path/to/reviewed/coverage.json`.
+Omitting coverage deliberately rejects the package; it is not a release-build shortcut.
 Each produces an **internal** `OpenAutoLink-Builder-macos-ARCH.runtime.tar.gz`,
 `OpenAutoLink-Builder-macos-ARCH.json`, and `smoke-macos-ARCH.png`. Transfer all three
 files into `incoming/arm64/` and `incoming/x86_64/`, respectively. Then on a Mac:
