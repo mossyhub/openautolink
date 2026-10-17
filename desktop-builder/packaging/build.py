@@ -276,6 +276,9 @@ def validate_native_coverage(payload: list[dict], coverage: dict, base: Path):
             windows = windows_support()
             if component.get("license") == windows.PYTHON_EMBEDDED_LICENSE:
                 notice_only = windows.validate_python_embedded_route(component, coverage, base)
+            elif (component.get("id") == "microsoft-msvc"
+                  and component.get("distribution_basis", {}).get("route") == "pyinstaller-6.13.0-compiled-loader-combination"):
+                notice_only = windows.validate_compiled_loader_route(component, coverage, base)
             else:
                 # No paid-VS assumption and no blanket Microsoft notice route.
                 raise ValueError(f"{component['id']}: Microsoft runtime downstream protective terms and supplier-specific distribution route remain unresolved")

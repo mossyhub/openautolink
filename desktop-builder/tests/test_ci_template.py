@@ -65,7 +65,7 @@ def test_real_failed_process_projects_only_fixed_categories(tmp_path, text, code
     ('template: tool output did not close after exit; incomplete output discarded. Check for leftover tools before retrying.', 'ci-template-tool-output-incomplete'),
     ('ci-template-SECRET', 'ci-template-unclassified-failure'),
     ('Compiler failure SECRET', 'ci-template-unclassified-failure'),
-    ('x' * 100000, 'ci-template-unclassified-failure'),
+    pytest.param('x' * 100000, 'ci-template-unclassified-failure', id='oversized-untrusted-error'),
 ])
 def test_known_failures_are_exact_allowlist_not_arbitrary_text(message, code):
     assert harness().failure_details(BuilderError(message)) == {'codes': [code]}

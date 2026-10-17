@@ -390,6 +390,58 @@ def _split_python_embedded_terms(result):
     return items
 
 
+def _apply_compiled_loader_distribution(result, items, base):
+    """Use the exact upstream compiled-binary grant, not Microsoft relicensing."""
+    import copy
+    import hashlib
+    canonical = json.loads(REVIEW.read_text(encoding="utf-8"))
+    components = {c["id"]: c for c in result["components"]}
+    parent = components["pyinstaller-embedded-loader"]
+    original = next(c for c in canonical["components"] if c["id"] == parent["id"])
+    static = components["microsoft-msvc"]
+    original_static = next(c for c in canonical["components"] if c["id"] == static["id"])
+    probe = result["loaderProbe"]
+    wheel = "pyinstaller-6.13.0-py3-none-win_amd64.whl"
+    wheel_sha = "8d4296236b85aae570379488c2da833b28828b17c57c2cc21fccd7e3811fe372"
+    member = "PyInstaller/bootloader/Windows-64bit-intel/runw.exe"
+    member_sha = "7ed67be1a51d6d7c6d0d912b77e61c0950f8cdb7b9403f1de4da46c5506b337f"
+    notice = {"path": "licenses/windows-ci/pyinstaller-6.13.0-py3-none-win_amd64.whl.notices.txt",
+              "sha256": "563755bbf4aaf6ffcb409adcaf1046cf69df26a669d6221de02bdb6cbf9ea70b"}
+    copying_sha = "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245"
+    if (result.get("collectionMode") != BOOTSTRAP_MODE
+            or len(items) != 1
+            or any(items[0].get(k) != v for k, v in {
+                "component": parent["id"], "payload": "@bootloader", "supplier": wheel,
+                "supplierSha256": wheel_sha, "member": member,
+                "supplierMemberSha256": member_sha, "sha256": probe["loaderSha256"]}.items())
+            or probe.get("supplierWheelSha256") != wheel_sha
+            or parent["payload"] != [e for e in result["observed_payload"] if e["path"] == "@bootloader"]
+            or any(parent.get(k) != original.get(k) for k in ("version", "license", "license_scope", "notices", "statically_linked", "sources"))
+            or any(static.get(k) != original_static.get(k) for k in ("version", "license", "notices", "statically_linked", "sources"))
+            or static["payload"] != []
+            or [c["id"] for c in result["components"] if "microsoft-msvc" in c["statically_linked"]] != [parent["id"]]):
+        raise ValueError("Unreviewed compiled-loader supplier distribution scope")
+    gate = _load("build")
+    for asset in parent["notices"] + static["notices"]:
+        gate.coverage_asset(base, asset)
+    # The retained wheel notice wraps the exact COPYING member with one final
+    # separator newline. Bind its original bytes, not a paraphrase of the grant.
+    bundle = gate.coverage_asset(base, notice).read_bytes()
+    marker = b"===== pyinstaller-6.13.0.dist-info/COPYING.txt =====\n"
+    if bundle.count(marker) != 1 or hashlib.sha256(bundle.split(marker)[1][:-1]).hexdigest() != copying_sha:
+        raise ValueError("Changed compiled-loader COPYING grant")
+    static["provenance"] = ("Evidenced static Microsoft runtime retained in the exact official PyInstaller 6.13.0 runw.exe. "
+        "Distribution of this compiled loader in the combined application relies on the supplier's exact COPYING grant, "
+        "not GPL relicensing of Microsoft code, CPython's grant, or human assent.")
+    static["distribution_basis"] = {
+        "route": "pyinstaller-6.13.0-compiled-loader-combination",
+        "supplier": wheel, "supplierSha256": wheel_sha, "member": member,
+        "supplierMemberSha256": member_sha, "copyingSha256": copying_sha,
+        "notice": copy.deepcopy(notice), "candidateLoaderSha256": probe["loaderSha256"],
+        "candidateLoaderHashScope": probe["loaderHashScope"],
+    }
+
+
 def accept_candidate_evidence(inventory, review, policy, evidence, *, identity):
     """Resolve fixed gates only from this candidate's corresponding native proof."""
     import copy
@@ -398,14 +450,39 @@ def accept_candidate_evidence(inventory, review, policy, evidence, *, identity):
     if "WINDOWS_FROZEN_UI_UNTESTED" in resolved:
         items = _split_python_embedded_terms(result)
         resolved.add("WINDOWS_EMBEDDED_MICROSOFT_TERMS_UNVERIFIED")
-        if items:
-            result["blockers"].append({"code": "WINDOWS_EMBEDDED_MICROSOFT_SUPPLIER_GRANTS_UNPROVEN",
-                "detail": "CPython's exact downstream grant and scoped protective terms are bound. The exact PyInstaller loader retains an evidenced static Microsoft runtime scope: which applicable supplier downstream redistribution terms cover that embedded runtime? No paid VS entitlement or human assent is inferred.",
-                "items": items})
+        _apply_compiled_loader_distribution(result, items, BASE)
     result["blockers"] = [b for b in result["blockers"] if b["code"] not in resolved]
     result["status"] = "blocked" if result["blockers"] else "reviewed"
     audit(inventory, result)
     return result
+
+
+def validate_compiled_loader_route(component, coverage, base):
+    """Replay the binary supplier route at the shared gate; no generic waiver."""
+    canonical = json.loads(REVIEW.read_text(encoding="utf-8"))
+    policy = json.loads(BOOTSTRAP_POLICY.read_text(encoding="utf-8"))
+    if (coverage.get("schema") != 2 or coverage.get("system") != "Windows"
+            or coverage.get("architecture") != "x86_64" or coverage.get("collectionMode") != BOOTSTRAP_MODE
+            or component.get("id") != "microsoft-msvc"
+            or coverage.get("supplier_matches") != canonical["supplier_matches"]
+            or coverage.get("supplier_inputs") != canonical["supplier_inputs"]):
+        raise ValueError("Compiled-loader route requires exact Windows supplier bindings")
+    evidence = coverage.get("windowsEvidence", {})
+    loader = evidence.get("loaderProbe", {})
+    inventory = {"payload": coverage.get("observed_payload"),
+                 **{key: loader.get(key) for key in ("artifactSha256", "builderSourceSha256")}}
+    audit(inventory, coverage)
+    expected, resolved = validate_candidate_evidence(inventory, canonical, policy, evidence,
+                                                     identity=loader.get("identity"))
+    if resolved != {"WINDOWS_FROZEN_UI_UNTESTED", "WINDOWS_RECOMBINATION_UNTESTED", "WINDOWS_INSTALLED_RUNTIME_UNTESTED"}:
+        raise ValueError("Compiled-loader route needs all candidate-bound native probes")
+    _apply_compiled_loader_distribution(expected, _split_python_embedded_terms(expected), base)
+    exact = next(c for c in expected["components"] if c["id"] == "microsoft-msvc")
+    parent = next(c for c in expected["components"] if c["id"] == "pyinstaller-embedded-loader")
+    parents = [c for c in coverage["components"] if "microsoft-msvc" in c["statically_linked"]]
+    if (component != exact or parents != [parent] or coverage.get("loaderProbe") != loader):
+        raise ValueError("Changed compiled-loader distribution scope, code, notices or static closure")
+    return True
 
 
 def validate_python_embedded_route(component, coverage, base):

@@ -26,7 +26,7 @@ Only these fixed findings can be resolved by the new acceptance step:
 | `WINDOWS_FROZEN_UI_UNTESTED` | Actual frozen read-only BuilderWindow on `windows` and `offscreen`, plus a separate `--terms-preview` rendering on `windows`; exact terms token and hash-pinned assent/entrypoint/test source. |
 | `WINDOWS_RECOMBINATION_UNTESTED` | Exact supplier QtCore clone with a changed overlay, archived replacement hash, original coverage rejection, and Win32 runtime observation proving that modified bundled QtCore and the bundled qwindows plugin actually loaded with BuilderWindow. Original candidate remains unchanged. |
 | `WINDOWS_INSTALLED_RUNTIME_UNTESTED` | Exact official NSIS stub code/imports, actual outer extraction matching all five staged members, and actual outer BuilderWindow smoke with `QT_QPA_PLATFORM=windows` using an already installed runtime. Resolves only this narrow gate. |
-| `WINDOWS_EMBEDDED_MICROSOFT_TERMS_UNVERIFIED` | The separate terms preview/source proof permits splitting the specific CPython downstream grant from the still-unproved supplier scopes below. It does not grant rights to other suppliers. |
+| `WINDOWS_EMBEDDED_MICROSOFT_TERMS_UNVERIFIED` | The separate terms preview/source proof permits splitting the specific CPython downstream grant from the independently scoped compiled-loader supplier route below. CPython's grant does not cover other suppliers. |
 
 Missing evidence retains its finding. Failed, stale, mismatched or malformed
 evidence is rejected. Unknown findings remain blockers. An explicit coverage
@@ -59,7 +59,7 @@ Windows binaries and permit compliant downstream redistribution. They require
 protective distributor/external-end-user terms, not purchase of a publisher's
 Visual Studio license or an invented entitlement certificate.
 
-The shared validator now has exactly one conditional Microsoft route:
+The shared validator retains the conditional CPython-specific Microsoft route:
 `LicenseRef-Microsoft-CPython-3.12.10-Embedded-Code`, component
 `microsoft-cpython-embedded`. It covers only the exact original supplier members
 assigned to `cpython`, `cpython-libffi` and `cpython-openssl`. It retains the
@@ -108,29 +108,55 @@ All retained component notices are checked from local bytes; changed notices,
 new/unknown suppliers, changed wheel/member hashes and changed component grants
 reject this correction rather than inheriting it by filename or component label.
 
-### Exactly one remaining non-CPython Microsoft scope
+### Exact compiled-loader supplier distribution route
 
-After successful technical/terms-source probes,
-`WINDOWS_EMBEDDED_MICROSOFT_SUPPLIER_GRANTS_UNPROVEN` contains exactly **one**, not
-20, item: `pyinstaller-embedded-loader` / `@bootloader`.
-The official wheel `pyinstaller-6.13.0-py3-none-win_amd64.whl` has SHA-256
-`8d4296236b85aae570379488c2da833b28828b17c57c2cc21fccd7e3811fe372`;
-its exact `PyInstaller/bootloader/Windows-64bit-intel/runw.exe` supplier hash is
-`7ed67be1a51d6d7c6d0d912b77e61c0950f8cdb7b9403f1de4da46c5506b337f`.
-The [supplier's bootloader documentation](https://pyinstaller.org/en/v6.13.0/bootloader-building.html)
-describes its static runtime. This is distinct affirmative evidence, not an
-inference from a dynamic import. Loader COPYING/wheel notices remain retained,
-including wheel-notice digest
-`563755bbf4aaf6ffcb409adcaf1046cf69df26a669d6221de02bdb6cbf9ea70b`.
-The blocker records both the actual candidate-prefix hash and supplier-member
-hash; those hashes have different scopes and must not be conflated.
+The remaining non-CPython static Microsoft scope is still recorded as
+`pyinstaller-embedded-loader` / `@bootloader` → `microsoft-msvc`. It is not
+removed, relabeled GPL, or covered by CPython's grant. The derived review now
+uses the exact upstream **compiled-binary combination distribution grant** to
+resolve `WINDOWS_EMBEDDED_MICROSOFT_SUPPLIER_GRANTS_UNPROVEN` for this one scope.
 
-**Outstanding question:** Which applicable supplier downstream redistribution
-terms cover the Microsoft runtime statically embedded in that exact official
-PyInstaller `runw.exe`? CPython's express grant does not cover it. No paid Visual
-Studio purchase, invented entitlement certificate or broad new supplier audit is
-required by this question. The clean-machine installer gate above is separately
-unresolved, even when every installed-runtime technical probe passes.
+The [PyInstaller 6.13.0 COPYING](https://github.com/pyinstaller/pyinstaller/blob/v6.13.0/COPYING.txt)
+expressly gives “unlimited permission to link or embed compiled bootloader and
+related files into combinations with other programs, and to distribute those
+combinations without any restriction coming from the use of those files.” It
+also preserves GPL restrictions in other respects, including modification and
+distribution outside a combined executable. This policy relies on the supplier's
+published grant for its compiled binary; it is not a conclusion that Microsoft
+code is GPL-licensed, a grant for unrelated suppliers, or a legal guarantee.
+
+The route binds all of these exact bytes:
+
+| Input | SHA-256 |
+| --- | --- |
+| `pyinstaller-6.13.0-py3-none-win_amd64.whl` | `8d4296236b85aae570379488c2da833b28828b17c57c2cc21fccd7e3811fe372` |
+| `PyInstaller/bootloader/Windows-64bit-intel/runw.exe` | `7ed67be1a51d6d7c6d0d912b77e61c0950f8cdb7b9403f1de4da46c5506b337f` |
+| Wheel `pyinstaller-6.13.0.dist-info/COPYING.txt` | `dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245` |
+| Retained wheel notice bundle | `563755bbf4aaf6ffcb409adcaf1046cf69df26a669d6221de02bdb6cbf9ea70b` |
+
+The notice bundle wraps the original COPYING bytes with a labeled header and
+one final separator newline. The gate checks both the complete bundle and the
+original member digest from those retained bytes. It retains every loader and
+Microsoft notice, the loader GPL exception, `pyinstaller-static-zlib`, the
+Microsoft static-runtime record/license, and all CPython-specific conditions.
+The [supplier bootloader documentation](https://pyinstaller.org/en/v6.13.0/bootloader-building.html)
+remains evidence for the static runtime; the grant does not erase that fact.
+
+`microsoft-msvc.distribution_basis` records the exact supplier route, member,
+COPYING/notice hashes, and actual candidate-prefix hash and hash scope. The
+supplier-member hash and normalized candidate-prefix hash are distinct. Native
+code equivalence, critical-header checks and candidate-bound source/identity
+proof remain mandatory; adding this policy does not loosen the PE comparator.
+The shared validator replays the native report contract and requires all three
+candidate probes, the exact original suppliers, this sole parent and unchanged
+static closure. New versions/suppliers, standalone loaders/DLLs, changed code,
+notices, exception or scope do not inherit the route. Unknown scopes reject.
+
+Only the supplier-grant finding is resolved by this route. Unknown findings and
+missing technical proof remain blockers. In particular,
+`WINDOWS_BOOTSTRAP_UNVALIDATED` remains the separate **unresolved clean-machine
+installer gate**, even when every installed-runtime probe passes. No report
+creates human assent and this change does not authorize release by itself.
 
 ## Assent and trust boundary
 

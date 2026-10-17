@@ -124,34 +124,56 @@ def test_mapping_correction_rejects_unreviewed_supplier_or_notice(mutation):
         module.minimal_review(inventory, review, policy, evidence["loaderProbe"])
 
 
-def test_acceptance_resolves_only_proven_gates_and_names_supplier_gaps():
+def test_acceptance_uses_exact_compiled_supplier_grant_preserving_other_gates():
     module, inventory, review, policy, evidence, identity = fixture()
     review["blockers"].append({"code": "FUTURE_UNKNOWN_GATE", "detail": "retain me"})
     original = copy.deepcopy(review)
     result = module.accept_candidate_evidence(inventory, review, policy, evidence, identity=identity)
     codes = {b["code"] for b in result["blockers"]}
-    assert codes == {"FUTURE_UNKNOWN_GATE", "WINDOWS_EMBEDDED_MICROSOFT_SUPPLIER_GRANTS_UNPROVEN",
-                     "WINDOWS_BOOTSTRAP_UNVALIDATED"}
+    assert codes == {"FUTURE_UNKNOWN_GATE", "WINDOWS_BOOTSTRAP_UNVALIDATED"}
     assert result["status"] == "blocked"
     assert review == original
-    gap = next(b for b in result["blockers"] if b["code"].endswith("GRANTS_UNPROVEN"))
-    assert len(gap["items"]) == 1
-    item = gap["items"][0]
-    assert item["component"] == "pyinstaller-embedded-loader"
-    assert item["payload"] == "@bootloader"
-    assert item["member"] == "PyInstaller/bootloader/Windows-64bit-intel/runw.exe"
-    assert item["supplierMemberSha256"] == evidence["loaderProbe"]["supplierSha256"]
-    assert item["sha256"] == inventory["payload"][0]["sha256"]
-    assert item["supplierSha256"] == evidence["loaderProbe"]["supplierWheelSha256"]
     components = {c["id"]: c for c in result["components"]}
+    static = components["microsoft-msvc"]
+    original_static = next(c for c in original["components"] if c["id"] == static["id"])
+    assert static["license"] == original_static["license"]  # not GPL relicensing
+    assert static["notices"] == original_static["notices"]
+    assert static["payload"] == []
+    assert components["pyinstaller-embedded-loader"]["statically_linked"] == ["pyinstaller-static-zlib", "microsoft-msvc"]
+    basis = static["distribution_basis"]
+    assert basis["route"] == "pyinstaller-6.13.0-compiled-loader-combination"
+    assert basis["supplierSha256"] == "8d4296236b85aae570379488c2da833b28828b17c57c2cc21fccd7e3811fe372"
+    assert basis["member"] == "PyInstaller/bootloader/Windows-64bit-intel/runw.exe"
+    assert basis["supplierMemberSha256"] == "7ed67be1a51d6d7c6d0d912b77e61c0950f8cdb7b9403f1de4da46c5506b337f"
+    assert basis["copyingSha256"] == "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245"
+    assert basis["notice"]["sha256"] == "563755bbf4aaf6ffcb409adcaf1046cf69df26a669d6221de02bdb6cbf9ea70b"
+    assert basis["candidateLoaderSha256"] == inventory["payload"][0]["sha256"]
+    assert basis["candidateLoaderHashScope"] == evidence["loaderProbe"]["loaderHashScope"]
     assert "microsoft-cpython-embedded" in components["cpython"]["statically_linked"]
     assert "microsoft-msvc" not in components["cpython"]["statically_linked"]
     assert "microsoft-msvc" not in components["qt-Core"]["statically_linked"]
     assert components["microsoft-cpython-embedded"]["license"].startswith("LicenseRef-Microsoft-")
     assert components["microsoft-cpython-embedded"]["payload"] == []
     assert result["windowsEvidence"]["candidateSmoke"]["termsPreview"]["assent"] == "not-given"
-    with pytest.raises(ValueError, match="GRANTS_UNPROVEN"):
+    with pytest.raises(ValueError, match="WINDOWS_BOOTSTRAP_UNVALIDATED"):
         module.materialize(inventory, result, PACKAGING, PACKAGING / "must-not-create", cache=PACKAGING)
+
+
+@pytest.mark.parametrize("mutation", ["version", "license", "scope", "notice", "static-notice", "zlib-edge", "unknown-parent"])
+def test_compiled_grant_rejects_changed_review_scope(mutation):
+    module, inventory, review, policy, evidence, identity = fixture()
+    parent = next(c for c in review["components"] if c["id"] == "pyinstaller-embedded-loader")
+    static = next(c for c in review["components"] if c["id"] == "microsoft-msvc")
+    if mutation == "version": parent["version"] = "6.14.0"
+    if mutation == "license": parent["license"] = "MIT"
+    if mutation == "scope": parent["license_scope"] = "standalone or modified loaders too"
+    if mutation == "notice": parent["notices"][-1]["sha256"] = "0" * 64
+    if mutation == "static-notice": static["notices"] = []
+    if mutation == "zlib-edge": parent["statically_linked"].remove("pyinstaller-static-zlib")
+    if mutation == "unknown-parent":
+        next(c for c in review["components"] if c["id"] == "pyinstaller-static-zlib")["statically_linked"].append("microsoft-msvc")
+    with pytest.raises(ValueError, match="compiled-loader"):
+        module.accept_candidate_evidence(inventory, review, policy, evidence, identity=identity)
 
 
 @pytest.mark.parametrize("name,gate", [
@@ -248,18 +270,65 @@ def test_shared_gate_accepts_only_exact_cpython_embedded_route(monkeypatch):
     result = module.accept_candidate_evidence(inventory, review, policy, evidence, identity=identity)
     narrow = next(c for c in result["components"] if c["id"] == "microsoft-cpython-embedded")
     assert module.validate_python_embedded_route(narrow, result, PACKAGING) is True
-    # Put this route first: it must pass the real shared gate, which must then
-    # reject the different, unresolved supplier closure rather than approve all.
+    # Exercise both routes through the real shared gate. A sentinel after them
+    # proves each passed without pretending missing source archives are present.
     result["components"].remove(narrow)
     result["components"].insert(0, narrow)
-    unresolved = next(c for c in result["components"] if c["id"] == "microsoft-msvc")
-    result["components"].remove(unresolved)
-    result["components"].insert(1, unresolved)
+    compiled = next(c for c in result["components"] if c["id"] == "microsoft-msvc")
+    result["components"].remove(compiled)
+    result["components"].insert(1, compiled)
+    result["components"].insert(2, {"id": "test-sentinel", "license": "Unsupported-test-sentinel",
+                                    "payload": [], "statically_linked": []})
     build = module._load("build")
     monkeypatch.setattr(build.platform, "system", lambda: "Windows")
     monkeypatch.setattr(build.platform, "machine", lambda: "AMD64")
-    with pytest.raises(ValueError, match="microsoft-msvc:.*supplier-specific"):
+    with pytest.raises(ValueError, match="Unsupported native license: Unsupported-test-sentinel"):
         build.validate_native_coverage(inventory["payload"], result, PACKAGING)
+
+
+@pytest.mark.parametrize("mutation", [None, "scope", "license", "version", "notice", "copying", "wheel", "member", "code", "candidate-hash", "standalone", "other-parent", "zlib-edge", "exception", "missing-probe", "supplier"])
+def test_compiled_loader_shared_route_is_exact(mutation):
+    module, inventory, review, policy, evidence, identity = fixture()
+    result = module.accept_candidate_evidence(inventory, review, policy, evidence, identity=identity)
+    static = next(c for c in result["components"] if c["id"] == "microsoft-msvc")
+    parent = next(c for c in result["components"] if c["id"] == "pyinstaller-embedded-loader")
+    basis = static["distribution_basis"]
+    if mutation == "scope": static["license_scope"] = "all supplier runtime code"
+    if mutation == "license": static["license"] = "GPL-2.0-or-later"
+    if mutation == "version": parent["version"] = "6.14.0"
+    if mutation == "notice": static["notices"][0]["sha256"] = "0" * 64
+    if mutation == "copying": basis["copyingSha256"] = "0" * 64
+    if mutation == "wheel": basis["supplierSha256"] = "0" * 64
+    if mutation == "member": basis["member"] = "PyInstaller/bootloader/Windows-64bit-intel/run.exe"
+    if mutation == "code": result["windowsEvidence"]["loaderProbe"]["supplierSha256"] = "0" * 64
+    if mutation == "candidate-hash": parent["payload"][0]["sha256"] = "0" * 64
+    if mutation == "standalone": parent["payload"][0]["path"] = "runw.exe"
+    if mutation == "other-parent": next(c for c in result["components"] if c["id"] == "qt-Core")["statically_linked"].append(static["id"])
+    if mutation == "zlib-edge": parent["statically_linked"].remove("pyinstaller-static-zlib")
+    if mutation == "exception": parent["exception_basis"] = "standalone loader waiver"
+    if mutation == "missing-probe": result["windowsEvidence"].pop("bootstrapProbe")
+    if mutation == "supplier": result["supplier_inputs"][-1]["sha256"] = "0" * 64
+    if mutation:
+        with pytest.raises(ValueError):
+            module.validate_compiled_loader_route(static, result, PACKAGING)
+    else:
+        assert module.validate_compiled_loader_route(static, result, PACKAGING) is True
+
+
+def test_compiled_grant_checks_actual_notice_bytes(tmp_path):
+    module, inventory, review, policy, evidence, identity = fixture()
+    result = module.accept_candidate_evidence(inventory, review, policy, evidence, identity=identity)
+    static = next(c for c in result["components"] if c["id"] == "microsoft-msvc")
+    parent = next(c for c in result["components"] if c["id"] == "pyinstaller-embedded-loader")
+    for asset in parent["notices"] + static["notices"]:
+        path = tmp_path / asset["path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((PACKAGING / asset["path"]).read_bytes())
+    assert module.validate_compiled_loader_route(static, result, tmp_path) is True
+    notice = tmp_path / static["distribution_basis"]["notice"]["path"]
+    notice.write_bytes(notice.read_bytes().replace(b"unlimited permission", b"no permission", 1))
+    with pytest.raises(ValueError, match="changed native evidence"):
+        module.validate_compiled_loader_route(static, result, tmp_path)
 
 
 @pytest.mark.parametrize("mutation", ["scope", "notice", "version", "standalone", "other-parent", "parent-hash", "source", "probe", "supplier"])
