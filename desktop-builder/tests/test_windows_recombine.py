@@ -68,10 +68,11 @@ def test_private_spec_replaces_exactly_one_core_without_touching_original(tmp_pa
         probe.replace_qtcore_toc(rows, replacement)
 
 
+@pytest.mark.parametrize('archive_separator', ['/', '\\'])
 @pytest.mark.parametrize("fault", [None, "build-timeout", "original-in-archive", "bad-runtime-hash",
                                    "offscreen", "wrong-plugin", "external-core", "workspace-write",
                                    "missing-runtime", "bad-png", "coverage-accepts", "original-changed"])
-def test_private_probe_archives_changed_bytes_and_keeps_original_inventory(tmp_path, monkeypatch, fault):
+def test_private_probe_archives_changed_bytes_and_keeps_original_inventory(tmp_path, monkeypatch, fault, archive_separator):
     """Real archive/gates; subprocess replay is NOT native runtime proof."""
     import copy
     import json
@@ -112,7 +113,10 @@ def test_private_probe_archives_changed_bytes_and_keeps_original_inventory(tmp_p
     # Keep archive parsing real; the fake launcher creates genuine CArchive bytes.
     def inventory(executable):
         from PyInstaller.archive.readers import CArchiveReader
-        blob = CArchiveReader(str(executable)).extract(probe.CORE)
+        reader = CArchiveReader(str(executable))
+        members = [name for name in reader.toc if name.replace('\\', '/') == probe.CORE]
+        assert len(members) == 1
+        blob = reader.extract(members[0])
         return [{**entry, "sha256": digest(blob), "size": len(blob)}, plugin_entry]
     monkeypatch.setattr(build, "native_inventory", inventory)
     if fault == "coverage-accepts":
@@ -132,8 +136,8 @@ def test_private_probe_archives_changed_bytes_and_keeps_original_inventory(tmp_p
             plugin_file = replacement.with_name("qwindows.dll")
             plugin_file.write_bytes(plugin)
             CArchiveWriter(str(dist / (build.NAME + ".exe")),
-                           [(probe.CORE, str(replacement), True, "b"),
-                            (plugin_entry["path"], str(plugin_file), True, "b")], "python")
+                           [(probe.CORE.replace("/", archive_separator), str(replacement), True, "b"),
+                            (plugin_entry["path"].replace("/", archive_separator), str(plugin_file), True, "b")], "python")
         else:
             assert kwargs["env"]["QT_QPA_PLATFORM"] == "windows"
             png = Path(argv[argv.index("--screenshot") + 1])

@@ -1,3 +1,5 @@
 -r requirements.txt
 pytest==8.3.5
 pyinstaller==6.13.0
+# PE parser regressions also run on Linux/macOS; PyInstaller installs it only on Windows.
+pefile==2023.2.7
