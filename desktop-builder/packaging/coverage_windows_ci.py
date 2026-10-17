@@ -84,6 +84,18 @@ def minimal_review(inventory, review, policy, probe):
     data = inventory.get("inventory", inventory)
     actual = _payload_map(data.get("payload"))
     expected = _payload_map(policy.get("expectedNonLoaderPayload"))
+    bootstrap = policy.get("collectionMode") == BOOTSTRAP_MODE
+    if policy.get("collectionMode") not in {None, BOOTSTRAP_MODE}:
+        raise ValueError("Unknown Windows collection policy")
+    if bootstrap:
+        canonical = json.loads(BOOTSTRAP_POLICY.read_text(encoding="utf-8"))
+        legacy = json.loads((BASE / "provenance/windows-ci-minimal-policy.json").read_text(encoding="utf-8"))
+        original = _payload_map(legacy["expectedNonLoaderPayload"])
+        excluded = _payload_map(policy.get("excludedAppLocalMsvcPayload"))
+        if (policy != canonical or set(excluded) != BOOTSTRAP_MSVC_PATHS
+                or excluded != {p: e for p, e in original.items() if p in BOOTSTRAP_MSVC_PATHS}
+                or expected != {p: e for p, e in original.items() if p not in BOOTSTRAP_MSVC_PATHS}):
+            raise ValueError("Changed bootstrap policy or excluded runtime mapping")
     loader = actual.get("@bootloader", {})
     if ({p: e for p, e in actual.items() if p != "@bootloader"} != expected
             or len(actual) != policy.get("expectedTotalNativeCount")
@@ -109,6 +121,8 @@ def minimal_review(inventory, review, policy, probe):
                "builder-compliance-container"}
     excluded_paths = {e["path"] for c in review["components"] if c["id"] in removed for e in c["payload"]}
     excluded_paths.add("PySide6/plugins/tls/qopensslbackend.dll")
+    if bootstrap:
+        excluded_paths.update(BOOTSTRAP_MSVC_PATHS)
     components = []
     for component in result["components"]:
         if component["id"] in removed:
@@ -151,8 +165,39 @@ def minimal_review(inventory, review, policy, probe):
         "Implement and verify Microsoft-only downstream protective assent for distributors/external end users. "
         "The separate PySide/Shiboken-supplied MSVC downstream grant still requires review; exact supplier bytes are known. "
         "No assent was accepted on the publisher's or user's behalf.")
+    if bootstrap:
+        result.update(collectionMode=BOOTSTRAP_MODE,
+                      pythonDownstream=copy.deepcopy(policy["pythonDownstream"]))
+        # Keep the conservative embedded-code/static notice closure. Removing
+        # separately shipped DLLs does not turn all compiler output into PSF code.
+        msvc = next(c for c in components if c["id"] == "microsoft-msvc")
+        msvc["provenance"] = ("No separately redistributed MSVC DLLs remain. Retained conservative embedded-code notice closure; "
+            "the exact Python Windows downstream grant applies to embedded Microsoft code in CPython only. "
+            "This is not a blanket grant for other supplier code or evidence of human assent.")
+        msvc["license_scope"] = "Microsoft code embedded in retained supplier binaries only; not independently licensed Python, Qt, PySide, Shiboken or builder code."
+        microsoft.update(code="WINDOWS_EMBEDDED_MICROSOFT_TERMS_UNVERIFIED",
+            detail="Exact CPython downstream notice and scoped assent source are bound; native frozen assent and pre-Python wrapper gates remain required. No publisher VS license purchase is assumed.")
+        result["blockers"].extend([
+            {"code": "WINDOWS_BOOTSTRAP_UNVALIDATED", "detail": "Validate official Microsoft installed runtime and interactive bootstrap before Python/Qt, including cancellation/failure paths."},
+            {"code": "WINDOWS_FROZEN_UI_UNTESTED", "detail": "Require native frozen inner BuilderWindow on windows and offscreen and separate terms preview, bound to this candidate."},
+        ])
+        verify_python_downstream(result, BASE)
     audit(inventory, result)
     return result
+
+
+def verify_python_downstream(review, base):
+    """Bind the retained supplier notice and reviewed assent implementation bytes."""
+    expected = json.loads(BOOTSTRAP_POLICY.read_text(encoding="utf-8"))["pythonDownstream"]
+    if review.get("pythonDownstream") != expected:
+        raise ValueError("Changed Python downstream notice/assent binding")
+    gate = _load("build")
+    gate.coverage_asset(base, expected["notice"])
+    cpython = next((c for c in review["components"] if c["id"] == "cpython"), {})
+    if expected["notice"] not in cpython.get("notices", []):
+        raise ValueError("Missing embedded Python downstream notice")
+    for asset in expected["sourceEvidence"]:
+        gate.coverage_asset(Path(base).parent, asset)
 
 
 def materialize(inventory, review, base, output, *, cache):
@@ -184,31 +229,56 @@ def verify_assets(review, base):
 
 
 def fetch_sources(review, cache, *, offline=False):
-    """Acquire required sources and the exact probe wheel, not unrelated wheels."""
+    """Acquire required sources and exact loader/Qt replacement probe wheels."""
     inputs = list(review["source_inputs"])
     if "supplier_inputs" in review:
-        loader = [e for e in review["supplier_inputs"]
-                  if e["path"] == "pyinstaller-6.13.0-py3-none-win_amd64.whl"]
-        if len(loader) != 1:
-            raise ValueError("Missing unique pinned Windows loader wheel")
-        inputs += loader
+        core = [e for e in review.get("supplier_matches", []) if e["payload"] == "PySide6/Qt6Core.dll"]
+        if len(core) != 1:
+            raise ValueError("Missing unique pinned Windows QtCore supplier")
+        for name in ("pyinstaller-6.13.0-py3-none-win_amd64.whl", core[0]["input"]):
+            matches = [e for e in review["supplier_inputs"] if e["path"] == name]
+            if len(matches) != 1:
+                raise ValueError("Missing unique pinned Windows probe wheel")
+            if matches[0] not in inputs:
+                inputs += matches
     return _load("prepare_native").prepare(
         {"schema": 1, "inputs": inputs}, cache, [], offline=offline)
 
 
-def windows10_runtime_binaries(toc):
-    """Windows-10+ deployment policy applied to Analysis.binaries BEFORE freeze.
+BOOTSTRAP_MODE = "official-vc-runtime-bootstrap-v1"
+BOOTSTRAP_POLICY = BASE / "provenance/windows-ci-bootstrap-policy.json"
+BOOTSTRAP_MSVC_PATHS = frozenset({
+    "PySide6/MSVCP140.dll", "PySide6/MSVCP140_1.dll", "PySide6/MSVCP140_2.dll",
+    "PySide6/VCRUNTIME140.dll", "PySide6/VCRUNTIME140_1.dll",
+    "VCRUNTIME140.dll", "VCRUNTIME140_1.dll", "shiboken6/MSVCP140.dll",
+    "shiboken6/VCRUNTIME140.dll", "shiboken6/VCRUNTIME140_1.dll",
+})
 
-    OS UCRT/API-set forwarders must resolve from the supported Windows system,
-    not the build runner's private SDK/OS copies. This does not suppress any
-    entries from a frozen inventory. MSVC runtime DLLs remain distributable
-    payload and require their own exact supplier/terms review.
+
+def windows10_runtime_binaries(toc, *, bootstrap=False):
+    """Filter Analysis.binaries BEFORE freeze, never a frozen inventory.
+
+    The default retains app-local MSVC for historical CI. Bootstrap mode drops
+    only the ten reviewed MSVC destination paths and requires the official-runtime
+    wrapper to validate the installed x64 runtime before Python/Qt can start.
+    Unknown MSVC destinations fail rather than being silently hidden. All other
+    entries survive for the exact frozen-payload gate (not an unknown-path waiver).
     """
-    def system_runtime(name):
-        name = name.replace("\\", "/").rsplit("/", 1)[-1].lower()
-        return (name == "ucrtbase.dll" or
-                re.fullmatch(r"api-ms-win-(?:core|crt)-[a-z0-9-]+\.dll", name) is not None)
-    return [entry for entry in toc if not system_runtime(entry[0])]
+    known = {p.casefold() for p in BOOTSTRAP_MSVC_PATHS}
+    result = []
+    for entry in toc:
+        path = entry[0].replace("\\", "/").casefold()
+        name = path.rsplit("/", 1)[-1]
+        if (name == "ucrtbase.dll" or
+                re.fullmatch(r"api-ms-win-(?:core|crt)-[a-z0-9-]+\.dll", name)):
+            continue
+        if bootstrap:
+            if path in known:
+                continue
+            if re.fullmatch(r"(?:msvcp|vcruntime|concrt|vcomp|msvcr)[a-z0-9_]*\.dll", name):
+                raise ValueError("Unreviewed Microsoft runtime destination")
+        result.append(entry)
+    return result
 
 
 PE_PREFIX_SCOPE = "PE-prefix-with-build-timestamps-and-checksum-zeroed"

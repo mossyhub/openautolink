@@ -200,7 +200,8 @@ def test_automated_entrypoint_exercises_real_readonly_builder(
         assert not window.centralWidget().isEnabled()
         assert all(not child.isEnabled() for child in window.findChildren(QAbstractButton))
         assert all(not child.isEnabled() for child in window.findChildren(QLineEdit))
-        assert not window.licenses.isChecked()
+        assert not hasattr(window, "licenses")
+        assert not hasattr(window, "source_mode")
         assert not any(hasattr(window.backend, name) for name in
                        ("Builder", "BuildConfig", "backup_identity", "restore_identity"))
         shown.append(window)

@@ -43,6 +43,34 @@ def test_workflow_wires_coverage_without_weakening_native_byte_gate():
     assert "GIT_CONFIG_VALUE_0: 'false'" in workflow
 
 
+def test_mac_diagnostics_preserve_strict_inventory_and_upload_only_json():
+    workflow = (ROOT.parent / ".github/workflows/build-desktop-builder.yml").read_text()
+    assert '--macos-ci-cache "$RUNNER_TEMP/oal-native-sources"' in workflow
+    assert 'desktop-builder/dist/macos-loader-review.json' in workflow
+    assert 'steps.freeze.outcome == \'failure\'' in workflow
+    source = (ROOT / 'packaging/build.py').read_text()
+    assert 'macos_loader_diagnostics(candidate, args.macos_ci_cache' in source
+    assert source.index('macos_loader_diagnostics(candidate, args.macos_ci_cache') < source.index('add_native_compliance(compliance, payload, coverage)')
+    assert 'loader_scope = "prefix-bytes"' in source
+    assert 'normalize_macho' not in source
+
+
+def test_release_publication_is_separate_write_scoped_gated_job():
+    workflow = (ROOT.parent / '.github/workflows/build-desktop-builder.yml').read_text()
+    assert 'types: [published]' in workflow
+    publication = workflow.split('  publish-release:\n', 1)[1]
+    assert "github.event_name == 'release'" in publication
+    assert "needs.qualified-downloads.result == 'success'" in publication
+    assert 'needs: qualified-downloads' in publication
+    assert 'contents: write' in publication
+    assert 'contents: write' not in workflow.split('  publish-release:\n', 1)[0]
+    assert 'publish_desktop.py' in publication
+    assert 'ref: ${{ github.event.pull_request.head.sha || github.sha }}' in publication
+    assert 'workflow_run:' not in workflow
+    assert 'release create' not in workflow
+    assert 'release-apk' not in workflow
+
+
 def test_source_snapshot_contains_nested_ci_rebuild_inputs(tmp_path):
     target = tmp_path / "source.zip"
     build.source_archive(target)
@@ -754,6 +782,17 @@ def test_windows_candidate_probe_runs_before_coverage_rejection(tmp_path, monkey
         assert executable.is_file()
         calls.append("ui")
         return {"status": "evidence-only", "notQualification": True}
+    from types import SimpleNamespace
+    def replacement(*args, **kwargs):
+        calls.append("replacement")
+        return {"status": "passed", "notQualification": True}
+    def bootstrap(*args, **kwargs):
+        calls.append("bootstrap")
+        return {"status": "passed", "notQualification": True}
+    original_load = module._load
+    monkeypatch.setattr(module, "_load", lambda name: (
+        SimpleNamespace(probe_recombination=replacement) if name == "windows_recombine" else
+        SimpleNamespace(probe_candidate=bootstrap) if name == "windows_setup" else original_load(name)))
     monkeypatch.setattr(module, "probe_candidate_ui", ui)
     monkeypatch.setattr(module, "probe_native_loader", probe)
     monkeypatch.setattr(module, "minimal_review", minimal)
@@ -762,7 +801,7 @@ def test_windows_candidate_probe_runs_before_coverage_rejection(tmp_path, monkey
     discovery = {"artifactSha256": build.sha256(candidate), "builderSourceSha256": "a" * 64, "payload": []}
     with pytest.raises(ValueError, match="MICROSOFT"):
         build.windows_candidate_coverage(candidate, discovery, cache, tmp_path, output)
-    assert calls == ["probe", "minimal", "ui", "coverage"]
+    assert calls == ["probe", "minimal", "ui", "replacement", "bootstrap", "coverage"]
     report = json.loads((output / "windows-candidate-review.json").read_text())
     assert report["loaderProbe"]["status"] == "evidence-only"
     assert report["coverage"]["status"] == "blocked"

@@ -61,8 +61,8 @@ class WindowsCoverageTests(unittest.TestCase):
             exe = mock.Mock()
             exec(compile(text, str(spec), "exec"), {"Analysis": lambda *a, **kw: analysis,
                                                   "PYZ": mock.Mock(), "EXE": exe})
-            self.assertEqual(analysis.binaries, rows[1:])
-            self.assertIn(rows[1:], exe.call_args.args)
+            self.assertEqual(analysis.binaries, [])
+            self.assertIn(analysis.binaries, exe.call_args.args)
 
     @staticmethod
     def resource_relocation_pair():
@@ -420,7 +420,7 @@ class WindowsCoverageTests(unittest.TestCase):
         self.assertNotEqual(hashlib.sha256(changed).hexdigest(), comparison["candidatePrefixSha256"])
         self.assert_resource_movement_negative_controls(module, bytes(changed), supplier)
 
-    def test_fetch_selects_required_sources_and_only_official_loader_wheel(self):
+    def test_fetch_selects_required_sources_and_official_probe_wheels(self):
         module = load_module()
         review = json.loads(module.REVIEW.read_text())
         prepare = mock.Mock()
@@ -428,9 +428,10 @@ class WindowsCoverageTests(unittest.TestCase):
         with mock.patch.object(module, "_load", return_value=prepare):
             module.fetch_sources(review, Path("cache"))
         inputs = prepare.prepare.call_args.args[0]["inputs"]
-        self.assertEqual(len(inputs), len(review["source_inputs"]) + 1)
+        self.assertEqual(len(inputs), len(review["source_inputs"]) + 2)
         self.assertEqual([i["path"] for i in inputs if i["path"].endswith(".whl")],
-                         ["pyinstaller-6.13.0-py3-none-win_amd64.whl"])
+                         ["pyinstaller-6.13.0-py3-none-win_amd64.whl",
+                          "PySide6_Essentials-6.8.3-cp39-abi3-win_amd64.whl"])
 
     def test_ci_identity_is_verified_and_dirty_checkout_rejected(self):
         module = load_module()
@@ -611,6 +612,23 @@ class WindowsCoverageTests(unittest.TestCase):
             self.assertEqual(run.returncode, 2)
             self.assertIn("native Windows", run.stdout)
 
+    def test_bootstrap_filter_removes_exact_ten_paths_before_freeze(self):
+        module = load_module()
+        policy = json.loads((PACKAGING / "provenance/windows-ci-minimal-policy.json").read_text())
+        review = json.loads(module.REVIEW.read_text())
+        removed = next(c["payload"] for c in review["components"] if c["id"] == "microsoft-msvc")
+        self.assertEqual(len(removed), 10)
+        names = {p["path"] for p in removed}
+        rows = [(p["path"], "supplier/" + p["path"], "BINARY") for p in policy["expectedNonLoaderPayload"]]
+        self.assertEqual(module.windows10_runtime_binaries(rows, bootstrap=True),
+                         [r for r in rows if r[0] not in names])
+        self.assertEqual(module.windows10_runtime_binaries(rows), rows)
+        aliases = [(r[0].replace("/", "\\").upper(), r[1], r[2]) for r in rows if r[0] in names]
+        self.assertEqual(module.windows10_runtime_binaries(aliases, bootstrap=True), [])
+        for name in ("other/VCRUNTIME140.dll", "VCRUNTIME999.dll", "MSVCP140.dll"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "Unreviewed.*runtime"):
+                module.windows10_runtime_binaries([(name, "supplier", "BINARY")], bootstrap=True)
+
     def test_windows10_filter_drops_only_os_ucrt_and_api_set_forwarders(self):
         module = load_module()
         self.assertTrue(hasattr(module, "windows10_runtime_binaries"), "Analysis TOC filter missing")
@@ -706,6 +724,57 @@ class WindowsCoverageTests(unittest.TestCase):
             if mutation == "scope": evidence["loaderHashScope"] = "prefix-bytes"
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 module.minimal_review(inv, review, policy, evidence)
+
+    @staticmethod
+    def bootstrap_fixture():
+        """Synthetic candidate/probe identities for contracts, NOT native evidence."""
+        module = load_module()
+        review = json.loads(module.REVIEW.read_text())
+        policy = json.loads((PACKAGING / "provenance/windows-ci-bootstrap-policy.json").read_text())
+        loader = {"path": "@bootloader", "sha256": "a" * 64, "size": 1234,
+                  "kind": "bootloader", "hash_scope": module.PE_PREFIX_SCOPE}
+        inventory = {"artifactSha256": "b" * 64, "builderSourceSha256": "c" * 64,
+                     "payload": [loader] + policy["expectedNonLoaderPayload"]}
+        probe = {"schema": 1, "status": "evidence-only", "notQualification": True,
+                 "system": "Windows", "architecture": "x86_64", "artifactSha256": "b" * 64,
+                 "builderSourceSha256": "c" * 64, "loaderSha256": "a" * 64,
+                 "loaderHashScope": module.PE_PREFIX_SCOPE,
+                 "supplierWheelSha256": "8d4296236b85aae570379488c2da833b28828b17c57c2cc21fccd7e3811fe372",
+                 "supplierMember": "PyInstaller/bootloader/Windows-64bit-intel/runw.exe",
+                 "sections": [{"name": ".text", "sha256": "d" * 64}]}
+        return module, inventory, review, policy, probe
+
+    def test_bootstrap_review_retains_embedded_notices_and_assent_not_dlls(self):
+        self.assertTrue((PACKAGING / "provenance/windows-ci-bootstrap-policy.json").is_file(),
+                        "Explicit bootstrap candidate policy missing")
+        module, inventory, review, policy, probe = self.bootstrap_fixture()
+        result = module.minimal_review(inventory, review, policy, probe)
+        self.assertEqual(module.audit(inventory, result)["payload_count"], 37)
+        self.assertEqual(result["collectionMode"], module.BOOTSTRAP_MODE)
+        byid = {c["id"]: c for c in result["components"]}
+        self.assertEqual(byid["microsoft-msvc"]["payload"], [])
+        self.assertNotIn("historical_non_native_payload", byid["microsoft-msvc"])
+        self.assertIn("microsoft-msvc", byid["cpython"]["statically_linked"])
+        self.assertEqual(result["pythonDownstream"], policy["pythonDownstream"])
+        self.assertIn(policy["pythonDownstream"]["notice"], byid["cpython"]["notices"])
+        self.assertTrue(byid["qt-translations"]["sources"])
+        codes = {b["code"] for b in result["blockers"]}
+        self.assertEqual(codes, {"WINDOWS_BOOTSTRAP_UNVALIDATED", "WINDOWS_FROZEN_UI_UNTESTED",
+                                 "WINDOWS_EMBEDDED_MICROSOFT_TERMS_UNVERIFIED", "WINDOWS_RECOMBINATION_UNTESTED"})
+        # Old app-local DLLs are NOT hidden from a frozen inventory.
+        original = json.loads((PACKAGING / "provenance/windows-ci-minimal-policy.json").read_text())
+        inv = {**inventory, "payload": [inventory["payload"][0]] + original["expectedNonLoaderPayload"]}
+        with self.assertRaisesRegex(ValueError, "payload"):
+            module.minimal_review(inv, review, policy, probe)
+        for mutation in ("missing", "extra", "hash", "msvc", "policy"):
+            inv, pol = copy.deepcopy(inventory), copy.deepcopy(policy)
+            if mutation == "missing": inv["payload"].pop()
+            if mutation == "extra": inv["payload"].append({**inv["payload"][1], "path": "unknown.dll"})
+            if mutation == "hash": inv["payload"][1]["sha256"] = "0" * 64
+            if mutation == "msvc": inv["payload"].append(original["expectedNonLoaderPayload"][0])
+            if mutation == "policy": pol["excludedAppLocalMsvcPayload"].pop()
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                module.minimal_review(inv, review, pol, probe)
 
     def test_exact_review_audit_rejects_duplicate_paths(self):
         path = PACKAGING / "coverage_windows_ci.py"

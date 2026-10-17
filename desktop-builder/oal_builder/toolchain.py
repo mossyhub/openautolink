@@ -153,10 +153,11 @@ class Downloader:
             # Never expose URLs containing credentials or response content.
             raise BuilderError('Download failed; check connectivity or GitHub API rate limit and retry') from exc
 
-    def metadata(self, url):
+    def metadata(self, url, *, max_bytes=16 * 1024**2):
         with self._open(url) as response:
-            data = response.read(16 * 1024**2 + 1)
-        if len(data) > 16 * 1024**2:
+            data = response.read(max_bytes + 1)
+        self.check_cancel()
+        if len(data) > max_bytes:
             raise BuilderError('Metadata response too large')
         return data
 
@@ -315,17 +316,20 @@ class Toolchain:
         self.progress = progress
         self.downloader = Downloader(self.workspace / 'cache/downloads', progress, cancel_event)
 
-    def environment(self, java_home):
+    def environment(self, java_home, *, android=True):
         # Do not inherit signing secrets, Gradle init options or Java agents.
         allowed = {'SystemRoot', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'LANG', 'LC_ALL', 'TZ', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy'}
         env = {k: v for k, v in os.environ.items() if k in allowed}
         home = self.workspace / 'cache/home'
         temp = self.workspace / 'cache/tmp'
-        for p in (home, temp, self.workspace / 'cache/gradle', home / '.android'):
+        directories = (home, temp) + ((self.workspace / 'cache/gradle', home / '.android') if android else ())
+        for p in directories:
             p.mkdir(parents=True, exist_ok=True)
-        env.update({'JAVA_HOME': str(java_home), 'ANDROID_HOME': str(self.sdk), 'ANDROID_SDK_ROOT': str(self.sdk), 'ANDROID_NDK_HOME': str(self.sdk / 'ndk/28.2.13676358'), 'GRADLE_USER_HOME': str(self.workspace / 'cache/gradle'), 'HOME': str(home), 'USERPROFILE': str(home), 'ANDROID_USER_HOME': str(home / '.android'), 'TMPDIR': str(temp), 'TMP': str(temp), 'TEMP': str(temp), 'CMAKE_BUILD_PARALLEL_LEVEL': '2'})
+        env.update({'JAVA_HOME': str(java_home), 'HOME': str(home), 'USERPROFILE': str(home), 'TMPDIR': str(temp), 'TMP': str(temp), 'TEMP': str(temp)})
+        if android:
+            env.update({'ANDROID_HOME': str(self.sdk), 'ANDROID_SDK_ROOT': str(self.sdk), 'ANDROID_NDK_HOME': str(self.sdk / 'ndk/28.2.13676358'), 'GRADLE_USER_HOME': str(self.workspace / 'cache/gradle'), 'ANDROID_USER_HOME': str(home / '.android'), 'CMAKE_BUILD_PARALLEL_LEVEL': '2'})
         system_path = os.defpath if os.name != 'nt' else str(Path(env.get('SystemRoot', 'C:/Windows')) / 'System32')
-        env['PATH'] = os.pathsep.join((str(Path(java_home) / 'bin'), str(self.sdk / 'cmake/3.22.1/bin'), system_path))
+        env['PATH'] = os.pathsep.join((str(Path(java_home) / 'bin'),) + ((str(self.sdk / 'cmake/3.22.1/bin'),) if android else ()) + (system_path,))
         return env
 
     def _install_archive(self, archive, target, digest, *, strip_root):
@@ -344,6 +348,36 @@ class Toolchain:
             os.replace(stage, target)
         finally:
             remove_managed(stage)
+
+    def install_personalization(self):
+        """Prepare only official Java tools and bundletool; no Android SDK/NDK."""
+        host = {'Linux': 'linux', 'Windows': 'windows', 'Darwin': 'mac'}.get(platform.system())
+        machine = platform.machine().lower()
+        if host is None or machine not in {'x86_64', 'amd64', 'arm64', 'aarch64'} or (host != 'mac' and machine not in {'x86_64', 'amd64'}):
+            raise BuilderError('Personalization tools support Windows/Linux x64 and Intel/Apple Silicon macOS')
+        self.downloader.check_cancel()
+        self.progress('tools', 'Preparing Java signing and bundle tools; no Android SDK or NDK is needed')
+        self.tools.mkdir(parents=True, exist_ok=True)
+        arch = 'aarch64' if machine in {'arm64', 'aarch64'} else 'x64'
+        releases = self.downloader.json('https://api.adoptium.net/v3/assets/latest/17/hotspot?' + urllib.parse.urlencode({'architecture': arch, 'image_type': 'jdk', 'os': host, 'vendor': 'eclipse'}))
+        if not releases:
+            raise BuilderError('Official JDK 17 unavailable for this host')
+        package = releases[0]['binary']['package']
+        archive = self.downloader.download(package['link'], package['checksum'], size=package['size'])
+        jdk = self.tools / 'jdk-17'
+        self._install_archive(archive, jdk, package['checksum'], strip_root=True)
+        java_home = jdk / 'Contents/Home' if host == 'mac' else jdk
+        suffix = '.exe' if host == 'windows' else ''
+        executables = {name: str(java_home / 'bin' / (name + suffix)) for name in ('java', 'javac', 'jarsigner', 'keytool')}
+        if any(not Path(path).is_file() for path in executables.values()):
+            raise BuilderError('Managed JDK installation is incomplete')
+        source = self.downloader.download('https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar', BUNDLETOOL_SHA256)
+        jar = self.tools / 'bundletool-1.18.3.jar'
+        if jar.is_symlink():
+            raise BuilderError('Managed bundletool must not be a symlink')
+        shutil.copyfile(source, jar)
+        env = self.environment(java_home, android=False)
+        return {**executables, 'bundletool': str(jar), 'env': env}
 
     def install(self, accept_licenses):
         if not accept_licenses:
@@ -388,17 +422,24 @@ class Toolchain:
                 raise BuilderError('Managed JDK installation is incomplete')
         return {**executables, 'bundletool': str(jar), 'env': env}
 
-    def prepare_source(self):
-        """Resolve the bundled qualified pin, never a moving latest release."""
+    def prepare_source(self, release=None):
+        """Fetch the operation's resolved immutable tuple, never re-resolve it.
+
+        Direct callers may omit it to resolve latest once. Explicit tuples also
+        permit historical qualification, but no user-facing pin or fallback.
+        """
         from .native_verification import SOURCE_REF, SOURCE_COMMIT
-        release = self.downloader.json(GITHUB + '/releases/tags/' + urllib.parse.quote(SOURCE_REF, safe=''))
-        if (not isinstance(release, dict) or release.get('tag_name') != SOURCE_REF
-                or release.get('draft') is not False or release.get('prerelease') is not False):
-            raise BuilderError('Qualified source release is not the expected stable public release; update the desktop builder')
-        tag = SOURCE_REF
-        commit = commit_sha(self.downloader.json(GITHUB + '/commits/' + urllib.parse.quote(tag, safe=''))['sha'])
-        if commit != SOURCE_COMMIT:
-            raise BuilderError('Qualified source tag no longer matches its reviewed commit; update the desktop builder')
+        from .releases import resolve_latest_release, validate_tag, validate_commit
+        if release is None:
+            release = resolve_latest_release(self.downloader.json)
+        if not isinstance(release, dict):
+            raise BuilderError('Invalid resolved source release')
+        tag = validate_tag(release.get('sourceRef'))
+        commit = validate_commit(release.get('sourceCommit'))
+        if release.get('versionName') != tag[1:]:
+            raise BuilderError('Resolved release version does not match its tag')
+        if tag == SOURCE_REF and commit != SOURCE_COMMIT:
+            raise BuilderError('Reviewed overlay release tag no longer matches its immutable commit; update the desktop builder')
         tree = self.downloader.json(GITHUB + '/git/trees/' + commit + '?recursive=1')
         if tree.get('truncated'):
             raise BuilderError('GitHub source tree was truncated; cannot verify gitlink')
@@ -426,7 +467,7 @@ class Toolchain:
             safe_extract(archive, stage, strip_root=True)
             manifest = stage / 'app/src/main/AndroidManifest.xml'
             overlays = []
-            if manifest.is_file() and personalize_cluster_affinity(manifest):
+            if tag == SOURCE_REF and commit == SOURCE_COMMIT and manifest.is_file() and personalize_cluster_affinity(manifest):
                 overlays.append('personal-cluster-task-affinity')
             overlays.extend(apply_native_verification_overlay(stage, tag, commit))
             cmake = (stage / 'app/src/main/cpp/CMakeLists.txt').read_text()

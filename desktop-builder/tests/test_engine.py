@@ -601,11 +601,20 @@ def test_build_pipeline_reserves_versions_verifies_and_keeps_signing_out_of_grad
     commands = []
     class Tools:
         def __init__(self, workspace, progress, cancel):
+            from types import SimpleNamespace
             self.workspace = workspace
+            self.downloader = SimpleNamespace(json=self.metadata, check_cancel=lambda: None)
+        def metadata(self, url):
+            if url.endswith('/releases/latest'):
+                return {'tag_name': 'v1.2.3', 'draft': False, 'prerelease': False,
+                        'html_url': 'https://github.com/mossyhub/openautolink/releases/tag/v1.2.3', 'assets': []}
+            assert url.endswith('/git/ref/tags/v1.2.3')
+            return {'ref': 'refs/tags/v1.2.3', 'object': {'type': 'commit', 'sha': 'a' * 40}}
         def install(self, accepted):
             assert accepted
             return {'java': 'java', 'jarsigner': 'jarsigner', 'keytool': 'keytool', 'bundletool': 'bundletool.jar', 'env': {}}
-        def prepare_source(self):
+        def prepare_source(self, release):
+            assert release['sourceCommit'] == 'a' * 40 and release['sourceRef'] == 'v1.2.3'
             source = self.workspace / 'source'
             (source / 'gradle/wrapper').mkdir(parents=True, exist_ok=True)
             (source / 'gradle/wrapper/gradle-wrapper.properties').write_text('distributionSha256Sum=' + 'a' * 64)
@@ -654,7 +663,7 @@ def test_build_pipeline_reserves_versions_verifies_and_keeps_signing_out_of_grad
         return ''
     monkeypatch.setattr(e, 'Toolchain', Tools)
     monkeypatch.setattr(e, 'run_process', command)
-    builder = e.Builder(e.BuildConfig(tmp_path, 'com.example.personal', accept_licenses=True), lambda *_: None)
+    builder = e.Builder(e.BuildConfig(tmp_path, 'com.example.personal', accept_licenses=True, mode='source'), lambda *_: None)
     first = builder.build()
     assert first['versionCode'] == 1 and Path(first['artifact']).is_file()
     assert first['sourceCommit'] == 'a' * 40

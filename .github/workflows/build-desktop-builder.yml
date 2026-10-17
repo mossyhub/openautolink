@@ -1,6 +1,8 @@
 name: Desktop builder
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
   push:
     branches: ['feat/**']
@@ -145,6 +147,8 @@ jobs:
           lock = json.loads(Path('packaging/provenance/macos-ci/supplier-inputs.lock.json').read_text())
           temporary = Path(os.environ['RUNNER_TEMP'])
           prepare(required_source_inputs(review, lock), temporary / 'oal-native-sources', [])
+          # Exact supplier wheel for diagnostics; does not refresh coverage hashes.
+          prepare({'schema': 1, 'inputs': [e for e in lock['inputs'] if e['path'] == 'pyinstaller-6.13.0-py3-none-macosx_10_13_universal2.whl']}, temporary / 'oal-native-sources', [])
           payload = [entry for component in review['components'] for entry in component['payload']]
           (temporary / 'oal-reviewed-inventory.json').write_text(json.dumps({'payload': payload}), encoding='utf-8')
           PY
@@ -167,7 +171,19 @@ jobs:
         run: |
           if [[ "$RUNNER_OS" == Windows ]]; then
             # Exact candidate probes run before coverage approval; no fallback.
-            python packaging/build.py --output dist --windows-ci-cache "$RUNNER_TEMP/oal-native-sources"
+            if python packaging/build.py --output windows-inner --windows-ci-cache "$RUNNER_TEMP/oal-native-sources"; then
+              python packaging/windows_setup.py --inner windows-inner --cache "$RUNNER_TEMP/oal-native-sources" --output dist
+            else
+              mkdir -p dist
+              for file in native-payload-review.json windows-candidate-review.json windows-recombination.json windows-recombination.png windows-bootstrap.json windows-bootstrap.png; do
+                if [[ -f "windows-inner/$file" ]]; then cp "windows-inner/$file" "dist/$file"; fi
+              done
+              exit 1
+            fi
+          elif [[ "$RUNNER_OS" == macOS ]]; then
+            python packaging/build.py --output dist \
+              --native-coverage "$RUNNER_TEMP/oal-native-coverage/coverage.json" \
+              --macos-ci-cache "$RUNNER_TEMP/oal-native-sources"
           else
             python packaging/build.py --output dist \
               --native-coverage "$RUNNER_TEMP/oal-native-coverage/coverage.json"
@@ -203,7 +219,20 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: UNQUALIFIED-windows-candidate-${{ github.sha }}-${{ github.run_attempt }}
-          path: desktop-builder/dist/windows-candidate-review.json
+          path: |
+            desktop-builder/dist/windows-candidate-review.json
+            desktop-builder/dist/windows-recombination.json
+            desktop-builder/dist/windows-recombination.png
+            desktop-builder/dist/windows-bootstrap.json
+            desktop-builder/dist/windows-bootstrap.png
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve bounded Mac supplier comparison JSON only
+        if: ${{ failure() && steps.freeze.outcome == 'failure' && hashFiles('desktop-builder/dist/macos-loader-review.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: UNQUALIFIED-macos-loader-${{ matrix.name }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: desktop-builder/dist/macos-loader-review.json
           if-no-files-found: error
           retention-days: 7
       - name: Native Windows qwindows startup (not offscreen)
@@ -211,11 +240,29 @@ jobs:
         env:
           QT_QPA_PLATFORM: windows
         run: python packaging/build.py --smoke-windows-qwindows dist
-      - name: Native Windows terms preview (no acceptance)
+      - name: Native Windows terms preview from verified inner payload
         if: runner.os == 'Windows'
         env:
           QT_QPA_PLATFORM: windows
-        run: ./dist/OpenAutoLink-Builder.exe --terms-preview --screenshot dist/terms-windows.png
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess, sys, tempfile
+          from pathlib import Path
+          sys.path.insert(0, 'packaging')
+          import windows_setup as setup
+          build = setup.load_module('build')
+          folder = Path('dist').resolve()
+          manifest = build.read_manifest(folder / setup.MANIFEST)
+          with tempfile.TemporaryDirectory(dir=folder.parent) as temporary:
+              extracted = Path(temporary) / 'payload'
+              setup.extract_outer(folder / manifest['artifact'], extracted, manifest['embeddedPayload'])
+              subprocess.run([str(extracted / 'builder.exe'), '--terms-preview', '--screenshot',
+                              str(folder / 'terms-windows.png')], check=True, timeout=120,
+                             env=setup.child_environment(QT_QPA_PLATFORM='windows'))
+          if not (folder / 'terms-windows.png').read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):
+              raise ValueError('Terms preview did not produce a PNG')
+          PY
       - name: Native Linux XCB startup under Xvfb (not offscreen)
         if: runner.os == 'Linux'
         env:
@@ -369,9 +416,8 @@ jobs:
           path: desktop-builder/evidence/x86_64
       - name: Require both native reports for these exact DMG bytes
         run: python packaging/build.py --qualify-mac downloads/macos --evidence evidence
-      - name: Recheck direct executable manifests after artifact transport
-        run: |
-          python -c "import sys; sys.path.insert(0, 'packaging'); from build import read_manifest; from pathlib import Path; read_manifest(Path('downloads/windows/OpenAutoLink-Builder-windows-x86_64.json')); assert read_manifest(Path('downloads/linux/OpenAutoLink-Builder-linux-x86_64.json'))['nativePlatformSmoke'] == 'xcb-display-passed'"
+      - name: Recheck all three exact downloads and native gates against this checkout
+        run: python -I -S packaging/publish_desktop.py --downloads downloads --verify-only
       # GitHub Actions transports artifacts as ZIPs; each named download below
       # contains exactly ONE install/run file. No installer ZIP/tar is built by us.
       - uses: actions/upload-artifact@v4
@@ -411,6 +457,54 @@ jobs:
             desktop-builder/downloads/macos/OpenAutoLink-Builder-macos.json
             desktop-builder/downloads/macos/smoke-macos-arm64.png
             desktop-builder/downloads/macos/smoke-macos-x86_64.png
-# No release creation, store uploads, real signing credentials, or auto-publication.
+      - name: Preserve the exact qualified set for release-only publication
+        if: github.event_name == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERNAL-qualified-release
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          path: |
+            desktop-builder/downloads/windows/OpenAutoLink-Builder.exe
+            desktop-builder/downloads/windows/OpenAutoLink-Builder-windows-x86_64.json
+            desktop-builder/downloads/windows/smoke-windows-x86_64.png
+            desktop-builder/downloads/windows/smoke-windows-qwindows.png
+            desktop-builder/downloads/linux/OpenAutoLink-Builder
+            desktop-builder/downloads/linux/OpenAutoLink-Builder-linux-x86_64.json
+            desktop-builder/downloads/linux/smoke-linux-x86_64.png
+            desktop-builder/downloads/linux/smoke-linux-xcb.png
+            desktop-builder/downloads/macos/OpenAutoLink-Builder.dmg
+            desktop-builder/downloads/macos/OpenAutoLink-Builder-macos.json
+            desktop-builder/downloads/macos/smoke-macos-arm64.png
+            desktop-builder/downloads/macos/smoke-macos-x86_64.png
+
+  publish-release:
+    name: Attach only three tested files to the originating release
+    needs: qualified-downloads
+    if: ${{ github.event_name == 'release' && github.event.action == 'published' && !github.event.release.draft && !github.event.release.prerelease && needs.qualified-downloads.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: INTERNAL-qualified-release
+          path: desktop-builder/downloads
+      - name: Bind source, release ID, tag commit and all native gates; upload and read back
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # stdlib-only verifier; no app/Qt dependencies and no native execution here.
+        run: python -I -S desktop-builder/packaging/publish_desktop.py --downloads desktop-builder/downloads
+# Attaching assets cannot trigger another release:published event. This workflow
+# never creates/edits releases or tags and never invokes the Android release job.
 # macos-15 (ARM) and macos-15-intel (x64) are explicit supported runner labels:
 # https://github.com/actions/runner-images#available-images

@@ -1,8 +1,8 @@
-"""CI-only, real managed first/update AAB gate; unit fixtures are not native proof.
+"""CI-only native AAB transformation/signing first-update gate.
 
-No host JDK/SDK/NDK/Gradle setup, credential inputs, identity export, or fallback.
-The supported source is asserted, not substituted for Toolchain's latest release:
-release drift fails closed and requires an explicitly reviewed gate update.
+All hosts consume one exact template/descriptor/source tuple. Only the separate
+Linux producer may compile source; native jobs never install Android tooling.
+Local prepublication and actual published-template artifacts remain distinct.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from oal_builder.toolchain import file_digest
 
 METADATA = ('applicationId', 'versionCode', 'versionName', 'sourceCommit',
             'sourceRef', 'sourceOverlays', 'signingCertificateSha256',
-            'carplayIncluded', 'sha256')
+            'carplayIncluded', 'sha256', 'mode')
 
 
 class FailureCode(Enum):
@@ -73,6 +73,10 @@ class FailureCode(Enum):
     BUDGET_INVALID = 'time-budget-invalid'
     BUDGET_EXCEEDED = 'time-budget-exceeded'
     EXPORT_HASH = 'export-hash-mismatch'
+    MODE = 'build-mode-mismatch'
+    TEMPLATE_HASH = 'template-hash-mismatch'
+    PAYLOAD = 'dex-native-payload-mismatch'
+    PERSONALIZE_COMPILED = 'personalization-used-android-build-tools'
 
 
 class QualificationError(BuilderError):
@@ -97,9 +101,8 @@ def native_platform():
     return name
 
 
-def prepare_ci(workspace, destination, *, accept_ci_android_licenses, expected_platform, builder_commit):
-    require(os.environ.get('GITHUB_ACTIONS') == 'true' and accept_ci_android_licenses is True,
-            FailureCode.CI_CONSENT)
+def prepare_ci(workspace, destination, *, expected_platform, builder_commit):
+    require(os.environ.get('GITHUB_ACTIONS') == 'true', FailureCode.CI_CONSENT)
     require(native_platform() == expected_platform, FailureCode.HOST_MISMATCH)
     require(isinstance(builder_commit, str) and re.fullmatch('[0-9a-f]{40}', builder_commit), FailureCode.BUILDER_COMMIT)
     require(bool(os.environ.get('RUNNER_TEMP')), FailureCode.RUNNER_TEMP)
@@ -121,11 +124,13 @@ def prepare_ci(workspace, destination, *, accept_ci_android_licenses, expected_p
 
 
 def validate_pair(first, update):
+    require(first['mode'] == update['mode'] == 'personalize', FailureCode.MODE)
+    require(first['sourceOverlays'] == update['sourceOverlays'], FailureCode.PAIR_OVERLAYS)
     for key, code in (('applicationId', FailureCode.PAIR_APP_ID),
                       ('signingCertificateSha256', FailureCode.PAIR_SIGNER),
                       ('sourceCommit', FailureCode.PAIR_SOURCE_COMMIT),
                       ('sourceRef', FailureCode.PAIR_SOURCE_REF),
-                      ('sourceOverlays', FailureCode.PAIR_OVERLAYS),
+
                       ('versionName', FailureCode.PAIR_VERSION_NAME)):
         require(first[key] == update[key], code)
     require(update['versionCode'] > first['versionCode'], FailureCode.PAIR_VERSION)
@@ -133,7 +138,7 @@ def validate_pair(first, update):
     require(first['sha256'] != update['sha256'], FailureCode.PAIR_HASH)
 
 
-def validate_artifact(result, workspace, app_id):
+def validate_artifact(result, workspace, app_id, release, mode, template_sha256=None):
     """Check on-disk bytes/sidecars; return only bounded public metadata.
 
     Cryptographic signer and binary manifest verification is additionally run
@@ -144,13 +149,20 @@ def validate_artifact(result, workspace, app_id):
     require(result['applicationId'] == app_id, FailureCode.APP_ID)
     require(type(result['versionCode']) is int and 1 <= result['versionCode'] <= 2100000000,
             FailureCode.VERSION_CODE)
-    require(result['sourceCommit'] == SOURCE_COMMIT, FailureCode.SOURCE_COMMIT)
-    require(result['sourceRef'] == SOURCE_REF, FailureCode.SOURCE_REF)
-    require(result['versionName'] == SOURCE_REF.removeprefix('v'), FailureCode.SOURCE_VERSION_NAME)
+    require(result['sourceCommit'] == release['sourceCommit'], FailureCode.SOURCE_COMMIT)
+    require(result['sourceRef'] == release['sourceRef'], FailureCode.SOURCE_REF)
+    require(result['versionName'] == release['versionName'], FailureCode.SOURCE_VERSION_NAME)
+    require(mode in {'source', 'personalize'} and result['mode'] == mode, FailureCode.MODE)
+    if mode == 'personalize':
+        require(isinstance(template_sha256, str) and re.fullmatch('[0-9a-f]{64}', template_sha256)
+                and result.get('templateSha256') == template_sha256, FailureCode.TEMPLATE_HASH)
     overlays = result['sourceOverlays']
+    allowed = ({'personal-cluster-task-affinity', OVERLAY_ID}
+               if mode == 'source' and release['sourceCommit'] == SOURCE_COMMIT
+               and release['sourceRef'] == SOURCE_REF else set())
     require(isinstance(overlays, list) and all(isinstance(v, str) for v in overlays)
             and len(overlays) == len(set(overlays))
-            and set(overlays) <= {'personal-cluster-task-affinity', OVERLAY_ID}, FailureCode.OVERLAYS)
+            and set(overlays) <= allowed, FailureCode.OVERLAYS)
     for key, code in (('sha256', FailureCode.HASH_FORMAT), ('signingCertificateSha256', FailureCode.SIGNER_FORMAT)):
         require(isinstance(result[key], str) and re.fullmatch('[0-9a-f]{64}', result[key]), code)
     require(result['carplayIncluded'] is False, FailureCode.CARPLAY)
@@ -175,10 +187,11 @@ def validate_artifact(result, workspace, app_id):
     except (OSError, ValueError):
         raise QualificationError(FailureCode.METADATA_READ) from None
     require(isinstance(saved, dict), FailureCode.METADATA_TYPE)
-    require(all(saved.get(key) == result[key] for key in METADATA)
+    fields = METADATA + (('templateSha256',) if mode == 'personalize' else ())
+    require(all(saved.get(key) == result[key] for key in fields)
             and saved.get('artifact') == result['artifact'], FailureCode.METADATA_MATCH)
     require(checksum.read_text('utf-8') == result['sha256'] + '  ' + path.name + '\n', FailureCode.CHECKSUM_MATCH)
-    return {**{key: result[key] for key in METADATA}, 'artifact': path.name,
+    return {**{key: result[key] for key in fields}, 'artifact': path.name,
             'sizeBytes': path.stat().st_size, 'abis': ['arm64-v8a', 'x86_64']}
 
 
@@ -202,91 +215,128 @@ def validate_manifest(xml, app_id):
             FailureCode.MANIFEST_AFFINITY)
 
 
-def validate_tools(tools, workspace):
+def validate_tools(tools, workspace, mode='source'):
     """Assert the engine actually selected managed tools, not runner SDK/JDK."""
     from oal_builder.toolchain import SDK_PACKAGES
     workspace = Path(workspace).resolve()
     root = workspace / 'tools'
-    for key in ('java', 'jarsigner', 'keytool', 'bundletool'):
+    require(mode in {'source', 'personalize'}, FailureCode.MODE)
+    for key in ('java', 'jarsigner', 'keytool', 'bundletool') + (('javac',) if mode == 'personalize' else ()):
         path = Path(tools[key])
         require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(root),
                 FailureCode.TOOL_PATH)
     env = tools['env']
-    for key, expected in (('ANDROID_HOME', root / 'android-sdk'), ('ANDROID_SDK_ROOT', root / 'android-sdk'),
+    android_env = (('ANDROID_HOME', root / 'android-sdk'), ('ANDROID_SDK_ROOT', root / 'android-sdk'),
                           ('ANDROID_NDK_HOME', root / 'android-sdk/ndk/28.2.13676358'),
-                          ('GRADLE_USER_HOME', workspace / 'cache/gradle')):
-        require(Path(env[key]).resolve() == expected, FailureCode.TOOL_ENV)
+                          ('GRADLE_USER_HOME', workspace / 'cache/gradle'))
+    for key, expected in android_env:
+        if mode == 'source':
+            require(key in env and Path(env[key]).resolve() == expected, FailureCode.TOOL_ENV)
+        else:
+            require(key not in env, FailureCode.TOOL_ENV)
     java_home = Path(env['JAVA_HOME']).resolve()
     require(java_home.is_relative_to(root / 'jdk-17')
             and all(Path(tools[k]).resolve().parent == java_home / 'bin' for k in ('java', 'jarsigner', 'keytool')),
             FailureCode.TOOL_JDK)
-    for directory in [root / 'jdk-17', *(root / 'android-sdk' / p.replace(';', '/') for p in SDK_PACKAGES)]:
+    for directory in [root / 'jdk-17', *(root / 'android-sdk' / p.replace(';', '/') for p in SDK_PACKAGES if mode == 'source')]:
         marker = directory / '.oal-archive-digest'
         require(directory.resolve().is_relative_to(root) and not marker.is_symlink()
                 and marker.is_file() and marker.stat().st_size <= 64
                 and re.fullmatch('[0-9a-f]{40}|[0-9a-f]{64}', marker.read_text()), FailureCode.TOOL_PROVENANCE)
 
 
-def qualify(workspace, destination, *, accept_ci_android_licenses=False,
-            expected_platform, builder_commit, timeout_seconds=9000):
+EXPORTS = ('personalize-first.aab', 'personalize-update.aab')
+
+
+def qualify(workspace, destination, *, expected_platform, builder_commit,
+            template_inputs, timeout_seconds=3600):
+    from scripts import ci_template as local
+    from oal_builder.releases import DESCRIPTOR_NAME
     require(type(timeout_seconds) is int and 1 <= timeout_seconds <= 9000, FailureCode.BUDGET_INVALID)
+    inputs = local.load_inputs(template_inputs)
+    release = inputs['release']
     workspace, destination = prepare_ci(workspace, destination,
-        accept_ci_android_licenses=accept_ci_android_licenses,
         expected_platform=expected_platform, builder_commit=builder_commit)
     started = time.monotonic()
-    report = {'schema': 1, 'status': 'running', 'platform': expected_platform,
-              'builderCommit': builder_commit, 'expectedSourceCommit': SOURCE_COMMIT,
-              'expectedSourceRef': SOURCE_REF, 'builds': [], 'lastPhase': 'starting',
-              'licenseConsent': 'explicit-ci-only', 'toolchain': 'managed',
-              'purpose': 'disposable-native-first-update-qualification-not-for-publishing'}
+    report = {'schema': 3, 'status': 'running', 'platform': expected_platform,
+              'builderCommit': builder_commit, 'expectedSourceCommit': release['sourceCommit'],
+              'expectedSourceRef': release['sourceRef'], 'builds': [], 'lastPhase': 'starting',
+              'sourceSelection': local.SELECTION, 'liveReleaseTemplateDownloadQualified': False,
+              'publishedTemplateArtifactQualified': False,
+              'licenseConsent': 'not-required-no-android-tools', 'toolchain': 'managed-java-bundletool-only',
+              'purpose': 'disposable-native-aab-only-qualification-not-for-publishing'}
     atomic_json(destination / 'result.json', report)
     cancel = threading.Event()
     timer = threading.Timer(timeout_seconds, cancel.set)
     timer.daemon = True
     timer.start()
+    results = []
 
     def progress(phase, _message):
-        # Never print raw tool text, paths, caller-provided messages or exceptions.
-        if phase in {'identity', 'download', 'tools', 'source', 'build', 'validate', 'sign', 'verify', 'complete'}:
+        # Fixed phase vocabulary only: never tool messages, exceptions or paths.
+        if phase in {'identity', 'release', 'download', 'tools', 'source', 'build',
+                     'validate', 'sign', 'verify', 'complete', 'personalize', 'template'}:
             report['lastPhase'] = phase
             print('Native AAB qualification: ' + phase, flush=True)
 
-    try:
-        config = BuildConfig(workspace=workspace, app_id=suggest_app_id(), accept_licenses=True)
-        results = []
-        for _ in range(2):
-            require(not cancel.is_set(), FailureCode.BUDGET_EXCEEDED)
+    def build(config, selected, descriptor_bytes=None, template_sha=None):
+        require(not cancel.is_set(), FailureCode.BUDGET_EXCEEDED)
+        report['scenario'] = EXPORTS[len(results)].removesuffix('.aab')
+        with local.bound_inputs(selected, descriptor_bytes):
             builder = Builder(config, progress=progress, cancel_event=cancel)
-            result = builder.build()  # Real engine -> real Toolchain, no injection/fallback CLI.
-            report['lastPhase'] = 'managed-toolchain-verification'
-            validate_tools(builder.tools, workspace)
-            report['lastPhase'] = 'artifact-metadata-verification'
-            clean = validate_artifact(result, workspace, config.app_id)
-            report['lastPhase'] = 'artifact-reverification'
-            builder._verify(Path(result['artifact']), result,
-                            {'signingCertificateSha256': clean['signingCertificateSha256']}, False)
-            xml = builder._run([builder.tools['java'], '-jar', builder.tools['bundletool'],
-                                'dump', 'manifest', '--bundle=' + result['artifact'], '--module=base'], 'verify')
-            validate_manifest(xml, config.app_id)
-            clean['manifestChecks'] = 'personal-cluster-affinity-and-original-implementation-classes'
-            require(not cancel.is_set(), FailureCode.BUDGET_EXCEEDED)
-            results.append(result)
-            report['builds'].append(clean)
-        validate_pair(*report['builds'])
-        # Re-read first build too: the update must not mutate the earlier artifact.
-        for result in results:
-            validate_artifact(result, workspace, config.app_id)
-        for result, clean, filename in zip(results, report['builds'], ('first.aab', 'update.aab')):
+            result = builder.build()  # Real Builder/Toolchain, never build fixtures.
+        report['lastPhase'] = 'managed-toolchain-verification'
+        validate_tools(builder.tools, config.workspace, mode=config.mode)
+        report['lastPhase'] = 'artifact-metadata-verification'
+        clean = validate_artifact(result, config.workspace, config.app_id, release, config.mode, template_sha)
+        report['lastPhase'] = 'artifact-reverification'
+        builder._verify(Path(result['artifact']), result,
+                        {'signingCertificateSha256': clean['signingCertificateSha256']}, False)
+        xml = builder._run([builder.tools['java'], '-jar', builder.tools['bundletool'],
+                            'dump', 'manifest', '--bundle=' + result['artifact'], '--module=base'], 'verify')
+        validate_manifest(xml, config.app_id)
+        clean['manifestChecks'] = 'personal-cluster-affinity-and-original-implementation-classes'
+        clean['payloadSha256'] = local.payload_digest(result['artifact'])
+        require(not cancel.is_set(), FailureCode.BUDGET_EXCEEDED)
+        results.append((result, config, template_sha))
+        report['builds'].append(clean)
+        return builder, result
+
+    try:
+        template, descriptor = inputs['template'], inputs['descriptor']
+        selected, raw = inputs['selected'], inputs['raw']
+        digest = descriptor['templateAsset']['sha256']
+        report['template'] = {'provenance': inputs['provenance'],
+                              'sourceCommit': release['sourceCommit'], 'sourceRef': release['sourceRef'],
+                              'sha256': digest, 'sizeBytes': descriptor['templateAsset']['size'],
+                              'descriptorSha256': file_digest(Path(template_inputs) / DESCRIPTOR_NAME),
+                              'payloadSha256': local.payload_digest(template)}
+        easy_config = BuildConfig(workspace=workspace, app_id=suggest_app_id(),
+                                  accept_licenses=False, mode='personalize')
+        local.seed_template(workspace, template, descriptor)
+        build(easy_config, selected, raw, digest)
+        build(easy_config, selected, raw, digest)
+        require(not (workspace / 'tools/android-sdk').exists()
+                and not (workspace / 'cache/gradle').exists()
+                and not any((workspace / 'source').glob('*')), FailureCode.PERSONALIZE_COMPILED)
+        validate_pair(report['builds'][0], report['builds'][1])
+        require(all(b['payloadSha256'] == report['template']['payloadSha256'] for b in report['builds']),
+                FailureCode.PAYLOAD)
+        # Later builds must not modify earlier artifacts or their sidecars.
+        for result, config, template_sha in results:
+            validate_artifact(result, config.workspace, config.app_id, release, config.mode, template_sha)
+        for (result, _, _), clean, filename in zip(results, report['builds'], EXPORTS):
             target = destination / filename
             shutil.copyfile(result['artifact'], target)
             require(file_digest(target) == clean['sha256'], FailureCode.EXPORT_HASH)
             clean['artifact'] = filename
         require(not cancel.is_set(), FailureCode.BUDGET_EXCEEDED)
-        report.update(status='passed', lastPhase='complete')
+        report.update(status='passed', lastPhase='complete',
+                      relationships=['personalize-first-to-update'],
+                      publishedTemplateArtifactQualified=inputs['provenance'] == 'published-release-template')
     except Exception as exc:
-        for filename in ('first.aab', 'update.aab'):
+        for filename in EXPORTS:
             (destination / filename).unlink(missing_ok=True)
-        # Fixed diagnostics only; do not turn exception strings into artifacts.
         reason = 'time-budget-exceeded' if cancel.is_set() else 'native-build-or-verification-failed'
         if not cancel.is_set() and type(exc) is QualificationError and isinstance(exc.code, FailureCode):
             reason = exc.code.value
@@ -307,20 +357,19 @@ def main(argv=None):
     parser.add_argument('--expected-platform', required=True,
                         choices=['linux-x86_64', 'windows-x86_64', 'macos-x86_64', 'macos-arm64'])
     parser.add_argument('--builder-commit', required=True)
-    parser.add_argument('--accept-ci-android-licenses', action='store_true',
-                        help='Explicit Android SDK license consent for this disposable CI run only')
-    parser.add_argument('--timeout-seconds', type=int, default=9000,
+    parser.add_argument('--template-inputs', required=True, type=Path,
+                        help='Exact shared AAB, descriptor, release and provenance directory')
+    parser.add_argument('--timeout-seconds', type=int, default=3600,
                         help='Cooperative cancellation budget (maximum 9000); CI also enforces a hard timeout')
     args = parser.parse_args(argv)
     try:
         qualify(args.workspace, args.output,
-                accept_ci_android_licenses=args.accept_ci_android_licenses,
                 expected_platform=args.expected_platform, builder_commit=args.builder_commit,
-                timeout_seconds=args.timeout_seconds)
+                timeout_seconds=args.timeout_seconds, template_inputs=args.template_inputs)
     except Exception:
         print('Native AAB qualification failed; inspect the sanitized result if present. No native pass is claimed.', flush=True)
         return 1
-    print('Native first/update AAB qualification passed; disposable artifacts are not for publishing.', flush=True)
+    print('Native AAB-only qualification passed; inspect template provenance in result.json. Native live download is NOT qualified.', flush=True)
     return 0
 
 

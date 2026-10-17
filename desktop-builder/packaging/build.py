@@ -27,13 +27,27 @@ def windows_support():
     return module
 
 
-def windows_spec(frozen_root: Path, work: Path, compliance: Path) -> Path:
+def macos_loader_diagnostics(candidate, cache, output, discovery):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("macos_loader", Path(__file__).with_name("macos_loader.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.diagnose(candidate, cache, output / "macos-loader-review.json", discovery)
+
+
+def runtime_data(frozen_root: Path, compliance: Path):
+    """Runtime inputs must come from the same embedded source snapshot."""
+    return [(str(compliance), "."),
+            (str(frozen_root / "oal_builder/resources/ProtoPersonalizer.java"), "oal_builder/resources")]
+
+
+def windows_spec(frozen_root: Path, work: Path, compliance: Path, *, replacement=None, extra_runtime_hooks=()) -> Path:
     """Generate a real onefile spec and filter only before EXE construction."""
     from PyInstaller.building.makespec import main as makespec
     spec = Path(makespec([str(frozen_root / "oal_builder/__main__.py")], name=NAME,
         onefile=True, console=False, noupx=True, specpath=str(work), shorthand_manifest=None,
         pathex=[str(frozen_root)], hiddenimports=["oal_builder.engine"],
-        datas=[(str(compliance), ".")], runtime_hooks=[str(frozen_root / "packaging/runtime_hook.py")],
+        datas=runtime_data(frozen_root, compliance), runtime_hooks=[str(frozen_root / "packaging/runtime_hook.py"), *extra_runtime_hooks],
         hookspath=[str(frozen_root / "packaging")], excludes=["tkinter"]))
     text = spec.read_text(encoding="utf-8")
     anchor = "pyz = PYZ("
@@ -41,7 +55,11 @@ def windows_spec(frozen_root: Path, work: Path, compliance: Path) -> Path:
         raise ValueError("Unsupported PyInstaller spec layout")
     support = str(frozen_root / "packaging/coverage_windows_ci.py")
     injection = ("import runpy\n"
-                 f"a.binaries = runpy.run_path({support!r})['windows10_runtime_binaries'](a.binaries)\n\n")
+                 f"a.binaries = runpy.run_path({support!r})['windows10_runtime_binaries'](a.binaries, bootstrap=True)\n"
+                 f"a.datas = runpy.run_path({support!r})['windows10_runtime_binaries'](a.datas, bootstrap=True)\n\n")
+    if replacement is not None:
+        probe = str(frozen_root / "packaging/windows_recombine.py")
+        injection += f"a.binaries = runpy.run_path({probe!r})['replace_qtcore_toc'](a.binaries, {replacement!r})\n\n"
     spec.write_text(text.replace(anchor, injection + anchor), encoding="utf-8")
     return spec
 
@@ -50,7 +68,7 @@ def windows_candidate_coverage(candidate, discovery, cache, work, output, covera
     """Probe the private actual candidate BEFORE fail-closed coverage cleanup."""
     windows = windows_support()
     review = json.loads(windows.REVIEW.read_text(encoding="utf-8"))
-    policy = json.loads((windows.BASE / "provenance/windows-ci-minimal-policy.json").read_text(encoding="utf-8"))
+    policy = json.loads((windows.BASE / "provenance/windows-ci-bootstrap-policy.json").read_text(encoding="utf-8"))
     report = {"schema": 1, "status": "UNQUALIFIED-DISCOVERY-ONLY", "notQualification": True,
               "artifactSha256": discovery["artifactSha256"],
               "builderSourceSha256": discovery["builderSourceSha256"]}
@@ -62,6 +80,11 @@ def windows_candidate_coverage(candidate, discovery, cache, work, output, covera
                               "payload_count": len(discovery["payload"]),
                               "component_count": len(minimal["components"])}
         report["candidateSmoke"] = windows.probe_candidate_ui(candidate, work)
+        report["recombinationProbe"] = windows._load("windows_recombine").probe_recombination(
+            candidate, discovery, minimal, cache, work, output,
+            build=windows._load("build"), windows=windows)
+        report["bootstrapProbe"] = windows._load("windows_setup").probe_candidate(
+            candidate, discovery, cache, work, output)
     except (ValueError, OSError, KeyError, subprocess.SubprocessError):
         report["collectionError"] = "WINDOWS_CANDIDATE_PROBE_OR_POLICY_FAILED"
         raise
@@ -511,9 +534,9 @@ def collect_licenses(destination: Path):
 def source_archive(target: Path):
     """Explicit source allowlist: no work folders, credentials, venvs or build output."""
     sources = [REPOSITORY / "LICENSE", REPOSITORY / "THIRD_PARTY_LICENSES.md"]
-    for pattern in ("oal_builder/*.py", "tests/test_*.py", "requirements*.txt", "packaging/*.py",
+    for pattern in ("oal_builder/*.py", "oal_builder/resources/*.java", "tests/test_*.py", "requirements*.txt", "packaging/*.py",
                     "packaging/*.md", "packaging/provenance/**/*.json", "packaging/provenance/**/*.md",
-                    "packaging/macos-ci/*.md", "packaging/licenses/**/*"):
+                    "packaging/macos-ci/*.md", "packaging/windows-setup/*", "packaging/licenses/**/*"):
         sources.extend(ROOT.glob(pattern))
     workflow = REPOSITORY / ".github/workflows/build-desktop-builder.yml"
     if workflow.is_file():
@@ -787,6 +810,11 @@ def smoke_linux_xcb(package_dir: Path):
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
+def windows_stage_metadata():
+    """Never offer the MSVC-free inner runtime as a direct end-user download."""
+    return {"kind": "internal-runtime-stage", "runtimeCollection": "official-vc-runtime-bootstrap-v1"}
+
+
 def smoke_windows_qwindows(package_dir: Path):
     import os
     if (platform.system() != "Windows" or platform.machine().lower() not in {"amd64", "x86_64"}
@@ -794,6 +822,8 @@ def smoke_windows_qwindows(package_dir: Path):
         raise ValueError("Native qwindows smoke requires Windows x64 and QT_QPA_PLATFORM=windows")
     path = package_dir / f"{NAME}-windows-x86_64.json"
     manifest = read_manifest(path)
+    if manifest.get("bootstrap") == "official-vc-runtime-bootstrap-v1":
+        return windows_support()._load("windows_setup").smoke_package(package_dir)
     if (manifest.get("system") != "Windows" or manifest.get("architecture") != "x86_64"
             or manifest.get("kind") != "direct-executable" or manifest["artifact"] != NAME + ".exe"):
         raise ValueError("Expected the direct Windows executable")
@@ -810,6 +840,7 @@ def main(argv=None):
     parser.add_argument("--native-coverage", type=Path, help="License-specific exact-native-byte coverage JSON and notice/source assets (required to offer a package)")
     parser.add_argument("--audit-native", type=Path, help="Read a frozen executable into an UNQUALIFIED inventory; do not build or approve it")
     parser.add_argument("--windows-ci-cache", type=Path, help="Pinned Windows supplier/source cache; required for actual candidate loader probe before coverage")
+    parser.add_argument("--macos-ci-cache", type=Path, help="Pinned Mac supplier cache for diagnostics only; never changes coverage")
     parser.add_argument("--mac-arch", choices=("native", "x86_64", "arm64"), default="native",
                         help="Native Mac runtime stage (not a standalone Mac download)")
     mode = parser.add_mutually_exclusive_group()
@@ -880,9 +911,11 @@ def main(argv=None):
         command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--noupx",
                    "--name", NAME, "--distpath", str(stage), "--workpath", str(work / "pyinstaller"),
                    "--specpath", str(work), "--paths", str(frozen_root), "--hidden-import", "oal_builder.engine",
-                   "--add-data", f"{compliance}:.", "--runtime-hook", str(frozen_root / "packaging/runtime_hook.py"),
+                   "--runtime-hook", str(frozen_root / "packaging/runtime_hook.py"),
                    "--additional-hooks-dir", str(frozen_root / "packaging"),
                    "--exclude-module", "tkinter"]
+        for source_path, destination in runtime_data(frozen_root, compliance):
+            command += ["--add-data", f"{source_path}:{destination}"]
         if system == "Darwin":
             # Console onedir avoids nested visible .apps; the outer .app launches it without a terminal.
             command += ["--onedir", "--target-arch", architecture]
@@ -905,6 +938,8 @@ def main(argv=None):
                      "builderSourceSha256": source_sha, "payload": payload}
         report_path.write_text(json.dumps(discovery, indent=2) + "\n", encoding="utf-8")
         coverage = args.native_coverage.resolve() if args.native_coverage else None
+        if system == "Darwin" and args.macos_ci_cache is not None:
+            macos_loader_diagnostics(candidate, args.macos_ci_cache, output, discovery)
         if system == "Windows":
             coverage = windows_candidate_coverage(candidate, discovery, args.windows_ci_cache.resolve(),
                                                   work, output, coverage)
@@ -916,6 +951,7 @@ def main(argv=None):
         verify_native_compliance(candidate, compliance)
         report_path.unlink()
         (output / "windows-candidate-review.json").unlink(missing_ok=True)
+        (output / "macos-loader-review.json").unlink(missing_ok=True)
         os_name = "macos" if system == "Darwin" else system.lower()
         stem = f"{NAME}-{os_name}-{architecture}"
         screenshot = output / f"smoke-{os_name}-{architecture}.png"
@@ -937,7 +973,8 @@ def main(argv=None):
                        architecture=architecture, python=platform.python_version(),
                        builderSourceSha256=source_sha, frozenSmokeTest="passed",
                        nativeCoverage="exact-payload-evidence-verified",
-                       kind="internal-runtime-stage" if system == "Darwin" else "direct-executable")
+                       **(windows_stage_metadata() if system == "Windows" else
+                          {"kind": "internal-runtime-stage" if system == "Darwin" else "direct-executable"}))
     return 0
 
 

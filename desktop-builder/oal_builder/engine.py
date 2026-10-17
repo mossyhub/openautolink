@@ -35,6 +35,7 @@ from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 
 from .toolchain import BuilderError, Toolchain, file_digest, remove_managed
+from .releases import MAX_DESCRIPTOR_SIZE, resolve_latest_release, resolve_template, verify_template_download
 
 
 @dataclass(frozen=True)
@@ -44,18 +45,15 @@ class BuildConfig:
     carplay_key: Path | None = None
     carplay_certificate: Path | None = None
     accept_licenses: bool = False
+    mode: str = 'personalize'
 
 
 def suggest_app_id() -> str:
     return 'com.openautolink.personal.u' + secrets.token_hex(8)
 
 
-def validate_app_id(value):
-    if not isinstance(value, str) or len(value) > 150 or not re.fullmatch(r'[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+', value) or value == 'com.openautolink.app':
-        raise BuilderError('Use a unique lowercase application ID, not com.openautolink.app')
-    reserved = set('abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null _'.split())
-    if any(part in reserved for part in value.split('.')):
-        raise BuilderError('Application ID segments must not be Java keywords')
+# Shared with the clean-interpreter template publication verifier.
+from .app_identity import validate_app_id, validate_personal_app_id
 
 
 def atomic_write(path, data, mode=0o600):
@@ -193,7 +191,12 @@ class Builder:
         self.workspace = Path(config.workspace).expanduser().resolve()
 
     def _run(self, argv, phase, cwd=None):
-        return run_process(argv, cwd or self.workspace, self.tools['env'], self.cancel_event, self.progress, phase)
+        if self.cancel_event.is_set():
+            raise BuilderError('Build cancelled')
+        output = run_process(argv, cwd or self.workspace, self.tools['env'], self.cancel_event, self.progress, phase)
+        if self.cancel_event.is_set():
+            raise BuilderError('Build cancelled')
+        return output
 
     def _verify(self, bundle, expected, state, carplay):
         java = [self.tools['java'], '-Duser.language=en', '-Duser.country=US', '-jar', self.tools['bundletool']]
@@ -222,30 +225,49 @@ class Builder:
 
     def build(self) -> dict:
         validate_app_id(self.config.app_id)
-        if not self.config.accept_licenses:
+        if self.config.mode not in {'personalize', 'source'}:
+            raise BuilderError('Unknown build mode; choose personalization or source compilation')
+        if self.config.mode == 'source' and not self.config.accept_licenses:
             raise BuilderError('Android SDK license acceptance is required')
         if self.cancel_event.is_set():
             raise BuilderError('Build cancelled')
+        # Read-only preflight: reject incompatible new IDs before the lock creates
+        # a workspace. Existing source identities retain their update path.
+        if self.config.mode == 'personalize' or load_state(self.config.workspace) is None:
+            validate_personal_app_id(self.config.app_id)
         with workspace_lock(self.config.workspace) as self.workspace:
             state = self._prepare_identity()
             carplay = self._prepare_carplay()
             pending = None
             reserved = False
+            personalization = self.workspace / 'private/personalization'
             try:
                 self.progress('identity', 'Local upload identity ready; back it up before publishing')
                 manager = Toolchain(self.workspace, self.progress, self.cancel_event)
-                self.tools = manager.install(self.config.accept_licenses)
-                upstream = manager.prepare_source()
+                self.progress('release', 'Resolving the latest stable upstream release')
+                upstream = resolve_latest_release(manager.downloader.json)
+                manager.downloader.check_cancel()
+                template = None
+                if self.config.mode == 'personalize':
+                    template = resolve_template(upstream, lambda url: manager.downloader.metadata(url, max_bytes=MAX_DESCRIPTOR_SIZE))
+                    item = template['templateAsset']
+                    downloaded = manager.downloader.download(template['url'], item['sha256'], size=item['size'])
+                    downloaded = verify_template_download(downloaded, template)
+                    self.tools = manager.install_personalization()
+                else:
+                    self.tools = manager.install(self.config.accept_licenses)
+                    upstream = manager.prepare_source(upstream)
                 source = self.workspace / 'source'
-                wrapper_properties = (source / 'gradle/wrapper/gradle-wrapper.properties').read_text()
-                if not re.search(r'^distributionSha256Sum=[0-9a-f]{64}\s*$', wrapper_properties, re.M):
-                    raise BuilderError('Upstream Gradle wrapper is missing a pinned SHA-256 checksum')
-                if not (source / 'gradle/verification-metadata.xml').is_file():
-                    raise BuilderError('Upstream dependency verification metadata is missing')
-                script = (source / 'app/build.gradle.kts').read_text()
-                required = ('oalBuilderUnsigned', 'oalVersionCode', 'oalVersionName', 'appId') + (('oalCarPlayMfiAssetsDir',) if carplay else ())
-                if any(value not in script for value in required):
-                    raise BuilderError('Latest upstream release does not support this managed builder; wait for a compatible release')
+                if self.config.mode == 'source':
+                    wrapper_properties = (source / 'gradle/wrapper/gradle-wrapper.properties').read_text()
+                    if not re.search(r'^distributionSha256Sum=[0-9a-f]{64}\s*$', wrapper_properties, re.M):
+                        raise BuilderError('Upstream Gradle wrapper is missing a pinned SHA-256 checksum')
+                    if not (source / 'gradle/verification-metadata.xml').is_file():
+                        raise BuilderError('Upstream dependency verification metadata is missing')
+                    script = (source / 'app/build.gradle.kts').read_text()
+                    required = ('oalBuilderUnsigned', 'oalVersionCode', 'oalVersionName', 'appId') + (('oalCarPlayMfiAssetsDir',) if carplay else ())
+                    if any(value not in script for value in required):
+                        raise BuilderError('Latest upstream release does not support this managed builder; wait for a compatible release')
                 if state['lastVersionCode'] >= 2100000000:
                     raise BuilderError('Android version code is exhausted')
                 code = state['lastVersionCode'] + 1
@@ -254,15 +276,29 @@ class Builder:
                 atomic_json(self.workspace / 'private/identity/state.json', state)
                 reserved = True
                 result = {'applicationId': self.config.app_id, 'versionCode': code, 'versionName': upstream['versionName'], 'sourceCommit': upstream['sourceCommit'], 'sourceRef': upstream['sourceRef'], 'sourceOverlays': upstream.get('sourceOverlays', []), 'signingCertificateSha256': state['signingCertificateSha256'], 'carplayIncluded': bool(carplay)}
-                wrapper = source / ('gradlew.bat' if os.name == 'nt' else 'gradlew')
-                if os.name != 'nt':
-                    wrapper.chmod(0o755)
-                argv = [str(wrapper), ':app:bundleRelease', '--no-daemon', '--no-build-cache', '--no-configuration-cache', '--max-workers=2', '--dependency-verification=strict', '-Dorg.gradle.parallel=false', '-Dorg.gradle.caching=false', '-Dorg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8', '-Pkotlin.compiler.execution.strategy=in-process', '-PoalBuilderUnsigned=true', '-PappId=' + self.config.app_id, '-PoalVersionCode=' + str(code), '-PoalVersionName=' + upstream['versionName']]
-                if carplay:
-                    argv.append('-PoalCarPlayMfiAssetsDir=' + str(carplay))
-                self.progress('build', 'Compiling both native ABIs and the release app; first build can take a while')
-                self._run(argv, 'build', source)
-                unsigned = source / 'app/build/outputs/bundle/release/app-release.aab'
+                result['mode'] = self.config.mode
+                if template is not None:
+                    from .personalize import personalize_bundle
+                    remove_managed(personalization)
+                    personalization.mkdir(mode=0o700)
+                    unsigned = personalization / 'unsigned.aab'
+                    self.progress('build', 'Personalizing the verified release template without compiling the app')
+                    personalize_bundle(downloaded, unsigned,
+                        original_app_id=template['templateApplicationId'], app_id=self.config.app_id,
+                        version_code=code, java=self.tools['java'], javac=self.tools['javac'],
+                        bundletool=self.tools['bundletool'], workdir=personalization,
+                        run=self._run, carplay=carplay)
+                    result['templateSha256'] = template['templateAsset']['sha256']
+                else:
+                    wrapper = source / ('gradlew.bat' if os.name == 'nt' else 'gradlew')
+                    if os.name != 'nt':
+                        wrapper.chmod(0o755)
+                    argv = [str(wrapper), ':app:bundleRelease', '--no-daemon', '--no-build-cache', '--no-configuration-cache', '--max-workers=2', '--dependency-verification=strict', '-Dorg.gradle.parallel=false', '-Dorg.gradle.caching=false', '-Dorg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8', '-Pkotlin.compiler.execution.strategy=in-process', '-PoalBuilderUnsigned=true', '-PappId=' + self.config.app_id, '-PoalVersionCode=' + str(code), '-PoalVersionName=' + upstream['versionName']]
+                    if carplay:
+                        argv.append('-PoalCarPlayMfiAssetsDir=' + str(carplay))
+                    self.progress('build', 'Compiling both native ABIs and the release app; first build can take a while')
+                    self._run(argv, 'build', source)
+                    unsigned = source / 'app/build/outputs/bundle/release/app-release.aab'
                 if not unsigned.is_file() or not unsigned.stat().st_size:
                     raise BuilderError('Gradle did not produce an Android App Bundle')
                 verify_bundle_entries(unsigned, bool(carplay))
@@ -281,6 +317,7 @@ class Builder:
                 self.progress('verify', 'Verifying signature, signer, application ID, versions, native ABIs and assets')
                 self._verify(pending, result, state, bool(carplay))
                 result.update(artifact=str(artifact), sha256=file_digest(pending))
+                manager.downloader.check_cancel()
                 os.replace(pending, artifact)
                 pending = None
                 atomic_json(artifact.with_suffix('.json'), result)
@@ -294,12 +331,15 @@ class Builder:
                 if reserved:
                     state['lastAttemptStatus'] = 'cancelled' if self.cancel_event.is_set() else 'failed'
                     atomic_json(self.workspace / 'private/identity/state.json', state)
+                if self.cancel_event.is_set():
+                    raise BuilderError('Build cancelled') from None
                 if isinstance(exc, BuilderError):
                     raise
                 raise BuilderError('Build failed while preparing or verifying managed inputs; identity and prior outputs were preserved') from exc
             finally:
                 if pending is not None:
                     pending.unlink(missing_ok=True)
+                remove_managed(personalization)
                 if carplay:
                     # AAB asset intermediates inherently contain the supplied pair.
                     # No build cache is enabled; remove intermediates after either outcome.
@@ -355,9 +395,11 @@ class Builder:
 
     def _prepare_identity(self):
         validate_app_id(self.config.app_id)
+        state = load_state(self.config.workspace)
+        if self.config.mode == 'personalize' or state is None:
+            validate_personal_app_id(self.config.app_id)
         self.workspace = managed_workspace(self.config.workspace)
         identity = self.workspace / 'private/identity'
-        state = load_state(self.workspace)
         if state is not None:
             if state['applicationId'] != self.config.app_id:
                 raise BuilderError('Application ID is immutable; choose another workspace for another app')

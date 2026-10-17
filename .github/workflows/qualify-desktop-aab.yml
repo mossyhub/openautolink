@@ -2,6 +2,30 @@ name: Qualify desktop builder native AABs
 
 on:
   workflow_dispatch:
+    inputs:
+      template_mode:
+        description: Published latest template or explicit Linux prepublication build
+        type: choice
+        required: true
+        default: published
+        options:
+          - published
+          - local
+  # Called only AFTER release-apk has uploaded and read back template assets.
+  workflow_call:
+    inputs:
+      template_mode:
+        type: string
+        default: published
+      expected_release_tag:
+        type: string
+        required: true
+      expected_source_commit:
+        type: string
+        required: true
+      builder_commit:
+        type: string
+        required: true
   push:
     branches: ['feat/**']
     paths:
@@ -22,17 +46,68 @@ concurrency:
 env:
   PYTHONUTF8: '1'
   PYTHONDONTWRITEBYTECODE: '1'
-  # An immutable feature HEAD, not the PR merge ref or a moving branch name.
-  # Manual dispatch qualifies the exact commit selected by that dispatch.
-  BUILDER_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+  BUILDER_COMMIT: ${{ inputs.builder_commit || github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  template-producer:
+    name: Resolve latest once and supply exact intentional AAB
+    runs-on: ubuntu-22.04
+    timeout-minutes: 170
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.builder_commit || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert exact checked-out builder commit
+        run: >-
+          python -c "import os,subprocess; actual=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(); assert actual == os.environ['BUILDER_COMMIT'], 'Checkout commit mismatch'"
+      - name: Install pinned verifier dependencies
+        working-directory: desktop-builder
+        run: python -m pip install -r requirements-dev.txt
+      - name: Producer contract unit tests (not native evidence)
+        working-directory: desktop-builder
+        run: python -m pytest tests/test_ci_template.py tests/test_template_publication.py -q
+      # Only this Linux job may install Android tools and compile once. The
+      # producer uses exact latest source, never the retained historical AAB.
+      # Manual/release mode defaults to actual publication, with no fallback.
+      - name: Produce prepublication template once or fetch published latest
+        working-directory: desktop-builder
+        shell: bash
+        env:
+          TEMPLATE_MODE: ${{ inputs.template_mode || 'local' }}
+          EXPECTED_RELEASE_TAG: ${{ inputs.expected_release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          args=(--output "$RUNNER_TEMP/oal-template-inputs" --cache "$RUNNER_TEMP/oal-template-cache" --workspace "$RUNNER_TEMP/oal-template-producer")
+          if [[ -n "$EXPECTED_RELEASE_TAG" || -n "$EXPECTED_SOURCE_COMMIT" ]]; then
+            args+=(--expected-release-tag "$EXPECTED_RELEASE_TAG" --expected-source-commit "$EXPECTED_SOURCE_COMMIT")
+          fi
+          if [[ "$TEMPLATE_MODE" == local ]]; then
+            python -m scripts.ci_template "${args[@]}" --template-mode local --accept-ci-android-licenses
+          else
+            python -m scripts.ci_template "${args[@]}" --template-mode published
+          fi
+      - name: Share exact bounded public template inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-template-inputs
+          path: |
+            ${{ runner.temp }}/oal-template-inputs/release.json
+            ${{ runner.temp }}/oal-template-inputs/template.aab
+            ${{ runner.temp }}/oal-template-inputs/openautolink-personalization.json
+            ${{ runner.temp }}/oal-template-inputs/provenance.json
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 0
+          retention-days: 7
   native-aab:
-    name: Real first and update AAB (${{ matrix.name }})
+    name: AAB-only first and update (${{ matrix.name }})
+    needs: template-producer
     runs-on: ${{ matrix.os }}
-    # Two real source builds plus fresh multi-GB managed-tool downloads per host.
-    # This is deliberately expensive, independent of the frozen-UI smoke job.
-    timeout-minutes: 180
+    timeout-minutes: 80
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -57,7 +132,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.builder_commit || github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -68,30 +143,29 @@ jobs:
           python -c "import os,subprocess; actual=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(); assert actual == os.environ['BUILDER_COMMIT'], 'Checkout commit mismatch'"
       - name: Install pinned Python test and builder dependencies only
         run: python -m pip install -r requirements-dev.txt
-      - name: Unit tests (fixtures are not native qualification)
-        run: python -m pytest tests/test_qualification.py tests/test_engine.py tests/test_toolchain.py -q
-      # Do NOT set up JDK/SDK/NDK/Gradle or restore a workspace/tool cache.
-      # Builder -> real Toolchain owns all Android tools, downloads, and env.
-      # Native Apple Silicon SDK binaries may require pre-existing Rosetta.
-      # No Rosetta auto-install, x64 Python fallback, skip, or masked failure:
-      # absence/incompatibility is a failed native qualification, not a pass.
-      - name: Real managed first build and same-identity update
+      - name: AAB-only contract unit tests (not native qualification)
+        run: >-
+          python -m pytest tests/test_qualification.py
+          tests/test_releases.py tests/test_personalize.py tests/test_personalization_tools.py -q
+      - name: Read identical template descriptor and source metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: native-template-inputs
+          path: ${{ runner.temp }}/oal-template-inputs
+      # Managed Java and bundletool only: no SDK/NDK/Gradle, app source build,
+      # source-mode transitions, host tool setup, or workspace/tool-cache reuse.
+      - name: Real managed AAB-only transformation signing and update
         id: qualify
-        timeout-minutes: 155
+        timeout-minutes: 65
         run: >-
           python qualification.py
           --workspace "${{ runner.temp }}/oal-aab-managed"
           --output "${{ runner.temp }}/oal-aab-export"
           --expected-platform "${{ matrix.name }}"
           --builder-commit "$BUILDER_COMMIT"
-          --accept-ci-android-licenses
-          --timeout-seconds 9000
-      # Consent above is explicit and CI-only; it changes no desktop UI default.
-      # The timer cooperatively cancels Gradle/downloads; the step/job hard caps
-      # remain authoritative for stuck extraction/network/native tools. A hard
-      # kill may leave status=running or no report: neither is native proof.
-      # Skip upload when prerequisites failed and qualify never ran. If it did
-      # run, a missing report remains an error (including a hard-killed run).
+          --template-inputs "${{ runner.temp }}/oal-template-inputs"
+          --timeout-seconds 3600
+      # Missing report after an attempted qualification remains a failure.
       - name: Upload sanitized result only (including failure if produced)
         if: always() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure' || steps.qualify.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
@@ -101,24 +175,21 @@ jobs:
           if-no-files-found: error
           include-hidden-files: false
           retention-days: 7
-      - name: Upload disposable AAB pair only after full qualification
+      - name: Upload disposable AABs only after full qualification
         if: success() && steps.qualify.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: native-aab-disposable-${{ matrix.name }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/oal-aab-export/first.aab
-            ${{ runner.temp }}/oal-aab-export/update.aab
+            ${{ runner.temp }}/oal-aab-export/personalize-first.aab
+            ${{ runner.temp }}/oal-aab-export/personalize-update.aab
           if-no-files-found: error
           include-hidden-files: false
           compression-level: 0
           retention-days: 7
-# Upload paths are individual allowlisted files, never directories/globs.
-# No identity, keystore, password, workspace, raw logs, source cache, or CarPlay
-# authentication files leave the ephemeral runner. AAB signer certificates are
-# public; each job's disposable private signing identity dies with its runner.
-# Gate proves native source-engine builds, NOT frozen-app invocation, notarization,
-# real-car behavior, Play acceptance, or end-user identity continuity. Do not
-# publish these randomly identified AABs. All four jobs must pass for qualification.
-# Latest-source drift from the reviewed v0.1.526 commit fails closed; no test fixture
-# or alternate/preinstalled toolchain can be selected from this workflow/CLI.
+# Only allowlisted public inputs, safe reports and disposable signed AABs leave
+# runners. Never export identities, keys, passwords, raw logs, source workspaces
+# or CarPlay credentials. All four native jobs must pass. This qualifies native
+# AAB transformation/signing, not frozen GUI, real-car behavior or Play acceptance.
+# Reports distinguish local prepublication from actual published-template bytes;
+# native jobs consume shared bytes and do not claim live release download proof.

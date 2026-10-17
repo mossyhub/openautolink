@@ -1,0 +1,335 @@
+{
+  "schema": 1,
+  "status": "candidate-policy-not-coverage",
+  "system": "Windows",
+  "architecture": "x86_64",
+  "minimumWindows": "10-1809",
+  "originDiscoverySha256": "0d1a1b6a325fa5ee3cdb978b0d6597488c338bed191a6b884338cb63db8c6bfc",
+  "expectedNonLoaderPayload": [
+    {
+      "path": "PySide6/Qt6Core.dll",
+      "sha256": "6965720757c87788c1701b236b8157270f3ea9b7d5eaf2d1297b21803fc3b000",
+      "size": 6159496,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt6Gui.dll",
+      "sha256": "428e11074a3764184f06bd437779f483f5c754c8c8de5a6cda94d9ed108a4789",
+      "size": 9285768,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt6Network.dll",
+      "sha256": "89c144105c64aafa38d35ce715cd8ec6a3a642ecf9b363dbf68eb03edbd64d28",
+      "size": 1755784,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/Qt6Widgets.dll",
+      "sha256": "85023696a1f024a8af06736b50afa44395d7b9ecb6462284fc4bd6363f27510f",
+      "size": 6500488,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtCore.pyd",
+      "sha256": "ba4413c25ecc3fb6f0456287ce8dd32c72225a45f42a0aa96f91c4a650a96b65",
+      "size": 3442824,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtGui.pyd",
+      "sha256": "8934ae4a884f87990b30bdb1bf8395aea2a3fb558f472ee5c1890e879e59baab",
+      "size": 3992200,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtNetwork.pyd",
+      "sha256": "aa2e3d5c6d70be932de8037108881e221eb007c8e61c257ce9a17573046bf6eb",
+      "size": 1078920,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/QtWidgets.pyd",
+      "sha256": "ae79cc3e2715b18aa8800508bccd953eca7e627256302748aa7f8ba6c8717211",
+      "size": 5824648,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/plugins/networkinformation/qnetworklistmanager.dll",
+      "sha256": "bee235ee6d177d3da62b8698143051e22472fa247e495e4d49b00de4a2639df7",
+      "size": 71304,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/plugins/platforms/qoffscreen.dll",
+      "sha256": "9d797246a110199856ecb046f171959c3428313716a524a17f7d8aac865daf79",
+      "size": 109192,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/plugins/platforms/qwindows.dll",
+      "sha256": "3fc5e6acb36a916aff3029c05d07fed89234394268f1467e3b6f7284b820def4",
+      "size": 907912,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/plugins/styles/qmodernwindowsstyle.dll",
+      "sha256": "f3aab945da37da86df3cbd418b172889993be49e2a3789a07645d40ccde23bec",
+      "size": 215688,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/plugins/tls/qcertonlybackend.dll",
+      "sha256": "17998a88f8e85cd72525778f6ed8958c3f78fc24b162e13586d774a17c709ea7",
+      "size": 102024,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/plugins/tls/qschannelbackend.dll",
+      "sha256": "36dcb0e1952782188a344ee7a10eb8cd594ba83916efd8c31b5fdd16134b0d20",
+      "size": 254600,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/pyside6.abi3.dll",
+      "sha256": "85c1a0c3303191cbaa18e8b52f813223b62ab1c34cacc3669c450a70f898cbd5",
+      "size": 238216,
+      "kind": "binary"
+    },
+    {
+      "path": "_bz2.pyd",
+      "sha256": "65f610646d10d5babea080e060d244b546ec52c54012e5e937dc72dcc2e2e7bc",
+      "size": 86896,
+      "kind": "binary"
+    },
+    {
+      "path": "_cffi_backend.cp312-win_amd64.pyd",
+      "sha256": "9af5e4f68a41f26b726f2e9424f9d58a4f5666189f6a48be95f406b257102aec",
+      "size": 181248,
+      "kind": "binary"
+    },
+    {
+      "path": "_ctypes.pyd",
+      "sha256": "0e56107a891100535f2da79d85a5ae65ff1227b4765bd108f8593ac1a1110d81",
+      "size": 127480,
+      "kind": "binary"
+    },
+    {
+      "path": "_decimal.pyd",
+      "sha256": "aeacfead2befcc0768063a037bb64bd32109ae09cb144e5f571b04dd7965db9d",
+      "size": 262000,
+      "kind": "binary"
+    },
+    {
+      "path": "_elementtree.pyd",
+      "sha256": "5009a9a53c03ef8387443b5cf6ce08e5c3a79727466a0b931c5bbca915bf89ca",
+      "size": 135160,
+      "kind": "binary"
+    },
+    {
+      "path": "_hashlib.pyd",
+      "sha256": "03d233dbace599168eaffec823de6ed7beec8c2a4ebfe9b8a3d8e042a59af3ba",
+      "size": 68976,
+      "kind": "binary"
+    },
+    {
+      "path": "_lzma.pyd",
+      "sha256": "e3deecc1f59a3b811c608861decd84de1e8df8bafd5e2b39188861318c5a38cf",
+      "size": 161136,
+      "kind": "binary"
+    },
+    {
+      "path": "_socket.pyd",
+      "sha256": "3efa4636cf9e350856f6927d67a4c2564bf9bd2758a00bbf17d3aece5b60016d",
+      "size": 85496,
+      "kind": "binary"
+    },
+    {
+      "path": "_ssl.pyd",
+      "sha256": "0bc527d2dbc50009f43b2ed5d5982c4f63f4b647647ffa9eda612dcda80f6040",
+      "size": 179432,
+      "kind": "binary"
+    },
+    {
+      "path": "_wmi.pyd",
+      "sha256": "a980f1e7a29842bd946863fc2693fbeb555a9dc0f9e1630dfed9a2fcdef3ece2",
+      "size": 40304,
+      "kind": "binary"
+    },
+    {
+      "path": "cryptography/hazmat/bindings/_rust.pyd",
+      "sha256": "9aab0bd7321bf03b7d832add76b6b31d6ba580840505b03c23c7773669e67247",
+      "size": 8315904,
+      "kind": "binary"
+    },
+    {
+      "path": "libcrypto-3.dll",
+      "sha256": "ccfffddcd3defb8d899026298af9af43bc186130f8483d77e97c93233d5f27d7",
+      "size": 5231472,
+      "kind": "binary"
+    },
+    {
+      "path": "libffi-8.dll",
+      "sha256": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a",
+      "size": 39696,
+      "kind": "binary"
+    },
+    {
+      "path": "libssl-3.dll",
+      "sha256": "007142039f04d04e0ed607bda53de095e5bc6a8a10d26ecedde94ea7d2d7eefe",
+      "size": 794992,
+      "kind": "binary"
+    },
+    {
+      "path": "pyexpat.pyd",
+      "sha256": "d615e193d1affcdbfe504e90d3621cbdcff94bf72b79d899126534507fd6d27a",
+      "size": 205304,
+      "kind": "binary"
+    },
+    {
+      "path": "python3.dll",
+      "sha256": "fb975a606e7fbf74f64260e3f60c3490b4f74a183c0926fd6ed1ac4c52ac7b1c",
+      "size": 70376,
+      "kind": "binary"
+    },
+    {
+      "path": "python312.dll",
+      "sha256": "9a0e3435aaa680d868150f87ab3e388ad2eebc22f87e036155c7b4eda8cd2120",
+      "size": 6945272,
+      "kind": "binary"
+    },
+    {
+      "path": "select.pyd",
+      "sha256": "d4d7181b11db0bd22a6cd5cda6f8583d1f5c77615fd0a6ca33350619d6e0438a",
+      "size": 33136,
+      "kind": "binary"
+    },
+    {
+      "path": "shiboken6/Shiboken.pyd",
+      "sha256": "d823883139737f6591db4cce513cb7cf464636ba2d38525ab9894e2f0017da6c",
+      "size": 32392,
+      "kind": "binary"
+    },
+    {
+      "path": "shiboken6/shiboken6.abi3.dll",
+      "sha256": "e2dbcabaa68bf92f4bb2f70af4ee0970bb8fb8a7c3ae16a12c9cd5b0094b9c58",
+      "size": 371848,
+      "kind": "binary"
+    },
+    {
+      "path": "unicodedata.pyd",
+      "sha256": "208ee1cd3cbad0828433ca7246b05be2b1ff5569983d27d296c0b38888585488",
+      "size": 1140592,
+      "kind": "binary"
+    }
+  ],
+  "expectedTotalNativeCount": 37,
+  "loader": "Require freshly observed @bootloader plus successful probe-loader result bound to the same actual EXE and discovery. Never reuse the old prefix hash for new source/resource bytes.",
+  "absentNativeBasenames": [
+    "opengl32sw.dll",
+    "qopensslbackend.dll",
+    "libcrypto-3-x64.dll",
+    "libssl-3-x64.dll",
+    "ucrtbase.dll"
+  ],
+  "absentNativePatterns": [
+    "api-ms-win-core-*.dll",
+    "api-ms-win-crt-*.dll"
+  ],
+  "additionalRequirements": [
+    "Apply windows10_runtime_binaries(a.binaries, bootstrap=True) after Analysis and before EXE; never filter a frozen inventory.",
+    "Official Microsoft runtime bootstrap validates installed x64 runtime before Python/Qt; interactive installer terms, cancellation and error paths fail closed.",
+    "Exact unfiltered frozen inventory and candidate-bound loader probe.",
+    "Native frozen inner builder UI on windows and offscreen, and separate terms preview.",
+    "Native isolated-user protective assent behavior; never manufacture human consent in automation.",
+    "Native LGPL replacement/recombination evidence and final artifact/source binding.",
+    "Retain all embedded-Python Microsoft notices and existing scoped assent; separate wrapper/runtime EULA is not a substitute.",
+    "Materialize only after explicit bootstrap proof validation and shared final license/source gate."
+  ],
+  "collectionMode": "official-vc-runtime-bootstrap-v1",
+  "excludedAppLocalMsvcPayload": [
+    {
+      "path": "PySide6/MSVCP140.dll",
+      "sha256": "2a2aef1d8ccb312edb33554e3db0ac8c158957dc3e31faf5de02b3eab340afcc",
+      "size": 565384,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/MSVCP140_1.dll",
+      "sha256": "b5730e2601752205a35b5ea8b387942aafec3485f8b602749fc50a9a8fc13a41",
+      "size": 27784,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/MSVCP140_2.dll",
+      "sha256": "5a3acd58b316ea45fccd2e4d707a919f009d66eb5588e3dbacf8c3fbab8f4649",
+      "size": 260232,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/VCRUNTIME140.dll",
+      "sha256": "7516a369770fce4c993c0aa6a91f872e8e97873e85866851ae7351eb1dfed528",
+      "size": 111240,
+      "kind": "binary"
+    },
+    {
+      "path": "PySide6/VCRUNTIME140_1.dll",
+      "sha256": "ac1a338047211cc6def2330b7e9f866260ce4ab50c43b858f156960b39846ca5",
+      "size": 41608,
+      "kind": "binary"
+    },
+    {
+      "path": "VCRUNTIME140.dll",
+      "sha256": "052ad6a20d375957e82aa6a3c441ea548d89be0981516ca7eb306e063d5027f4",
+      "size": 120400,
+      "kind": "binary"
+    },
+    {
+      "path": "VCRUNTIME140_1.dll",
+      "sha256": "6a99bc0128e0c7d6cbbf615fcc26909565e17d4ca3451b97f8987f9c6acbc6c8",
+      "size": 49776,
+      "kind": "binary"
+    },
+    {
+      "path": "shiboken6/MSVCP140.dll",
+      "sha256": "38ea04a8369a8d578f194d50f9d050cd04821ce09ee1bc92aff755d12e8421ed",
+      "size": 565384,
+      "kind": "binary"
+    },
+    {
+      "path": "shiboken6/VCRUNTIME140.dll",
+      "sha256": "578472ddb6ca711f866b4b355198989348d7c62348fcc9c314c20aea48f5434f",
+      "size": 111240,
+      "kind": "binary"
+    },
+    {
+      "path": "shiboken6/VCRUNTIME140_1.dll",
+      "sha256": "68b277fd42d3a482e8284ca3fc0d68644857283b76eaaee33297c6d30b142e4a",
+      "size": 41608,
+      "kind": "binary"
+    }
+  ],
+  "pythonDownstream": {
+    "basis": "CPython-3.12.10-Windows-LICENSE downstream distribution conditions, lines 283-320; Microsoft code only. No paid publisher Visual Studio entitlement assumption.",
+    "notice": {
+      "path": "licenses/windows-ci/CPython-3.12.10-Windows-LICENSE.txt",
+      "sha256": "e502c6b880ff58d614901495a9009c136539cd0b1e2a2abb8fc00b934c203419"
+    },
+    "scope": "Microsoft code embedded in the supplier CPython binaries; not a grant for separately distributed PySide/Shiboken MSVC DLLs, and not a restriction on non-Microsoft code.",
+    "termsToken": "1:de66f4da4023f467b4471f3f3458c3a440e62d6af6fce0df88d4392f15296876",
+    "sourceEvidence": [
+      {
+        "path": "oal_builder/windows_terms.py",
+        "sha256": "af31f3302819055c8a4e3aa33ef99df47965a73b2a2eb8c37d91a1c3424c4e64"
+      },
+      {
+        "path": "oal_builder/__main__.py",
+        "sha256": "80419b047153c61897025b8636323d6358448dbe9f9b5567e300e9e7e8a2a71b"
+      },
+      {
+        "path": "tests/test_windows_terms.py",
+        "sha256": "86433553b470b8c6f55dd36e9d07656b960672791d0e9f2c8fd7155cd1d6d46b"
+      }
+    ]
+  }
+}

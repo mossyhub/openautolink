@@ -43,7 +43,12 @@ class PublicWorkflowContracts(unittest.TestCase):
             self.assertNotRegex(executable, r"-P\s*oalCarPlayMfiAssetsDir")
             self.assertNotIn("ORG_GRADLE_PROJECT_oalCarPlayMfiAssetsDir", executable)
             self.assertNotRegex(executable, r"secrets\.[^ }]*(?:MFI|CARPLAY|IDENTITY)")
-            self.assertNotIn("bundleRelease", executable)
+        self.assertNotIn("bundleRelease", CI)
+        template = run_block(RELEASE, "Build unsigned credential-free personalization AAB")
+        self.assertEqual(RELEASE.count(":app:bundleRelease"), 1)
+        self.assertIn(":app:bundleRelease", template)
+        self.assertIn("-PappId=com.openautolink.template -PoalBuilderUnsigned=true", template)
+        self.assertIn("test ! -e secrets/upload-key.jks", template)
         self.assertEqual(set(re.findall(r"secrets\.([A-Z0-9_]+)", RELEASE)), {
             "UPLOAD_KEYSTORE_BASE64", "UPLOAD_KEY_ALIAS", "UPLOAD_KEY_PASSWORD",
             "UPLOAD_STORE_PASSWORD",
@@ -65,16 +70,27 @@ class PublicWorkflowContracts(unittest.TestCase):
     def test_archive_gate_precedes_exact_upload(self):
         gate = RELEASE.index("- name: Verify public APKs contain no private CarPlay identity")
         self.assertLess(RELEASE.index("- name: Rename APKs"), gate)
-        self.assertLess(gate, RELEASE.index("- name: Upload APKs to release"))
+        self.assertLess(gate, RELEASE.index("- name: Upload APKs and intentional personalization template to release"))
         self.assertIn("fail_on_unmatched_files: true", RELEASE)
         self.assertNotIn("continue-on-error:", RELEASE)
         self.assertNotIn("-*.apk", RELEASE)
         for label, module in (("car", "app"), ("companion", "companion")):
-            self.assertIn(f"{module}/build/outputs/apk/release/openautolink-{label}-${{{{ steps.tag.outputs.value }}}}.apk", RELEASE)
+            self.assertIn(f"public-apks/openautolink-{label}-${{{{ steps.tag.outputs.value }}}}.apk", RELEASE)
         self.assertIn("app-release.apk", RELEASE)
         self.assertIn("companion-release.apk", RELEASE)
         # Existing release signing is required; companion has no unsigned override.
-        self.assertNotIn("-PoalBuilderUnsigned", RELEASE)
+        for step in ("Build car app release APK", "Build companion release APK"):
+            self.assertNotIn("-PoalBuilderUnsigned", run_block(RELEASE, step))
+        preserve = RELEASE.index("- name: Preserve public APKs and remove signing key before template build")
+        template = RELEASE.index("- name: Build unsigned credential-free personalization AAB")
+        verify = RELEASE.index("- name: Verify template and create bound descriptor")
+        upload = RELEASE.index("- name: Upload APKs and intentional personalization template to release")
+        self.assertLess(gate, preserve)
+        self.assertLess(preserve, template)
+        self.assertLess(template, verify)
+        self.assertLess(verify, upload)
+        self.assertIn("rm -f secrets/upload-key.jks", run_block(RELEASE, "Preserve public APKs and remove signing key before template build"))
+        self.assertIn('sha256sum --check "$RUNNER_TEMP/public-apks.sha256"', run_block(RELEASE, "Verify template and create bound descriptor"))
 
     def apk_gate(self, entries=None, module="app", missing=False, corrupt=False):
         entries = entries or ["classes.dex", "assets/public-config.json"]

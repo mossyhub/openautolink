@@ -183,11 +183,11 @@ def test_download_verifies_cached_bytes_and_rejects_corruption(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize('latest_tag', ['v0.1.526', 'v0.1.527', 'v1.2.3'])
-def test_source_qualified_release_ignores_latest_drift(tmp_path, latest_tag):
+def test_source_uses_latest_immutable_release_and_revision_scoped_overlays(tmp_path, latest_tag):
     import hashlib
     import threading
-    release_tag = 'v0.1.526'
-    commit = '580a68d772afc97e444019504178f1678731feb6'
+    release_tag = latest_tag
+    commit = '580a68d772afc97e444019504178f1678731feb6' if release_tag == 'v0.1.526' else 'a' * 40
     gitlink = 'b' * 40
     requests = []
     source = tmp_path / 'source.zip'
@@ -215,10 +215,9 @@ def test_source_qualified_release_ignores_latest_drift(tmp_path, latest_tag):
         def json(self, url):
             requests.append(url)
             responses = {
-                tc.GITHUB + '/releases/latest': {'tag_name': latest_tag, 'prerelease': False, 'draft': False},
-                tc.GITHUB + '/releases/tags/' + release_tag: {'tag_name': release_tag, 'prerelease': False, 'draft': False},
-                tc.GITHUB + '/commits/' + release_tag: {'sha': commit},
-                tc.GITHUB + '/commits/' + latest_tag: {'sha': commit if latest_tag == release_tag else 'a' * 40},
+                tc.GITHUB + '/releases/latest': {'tag_name': latest_tag, 'prerelease': False, 'draft': False,
+                    'html_url': 'https://github.com/mossyhub/openautolink/releases/tag/' + latest_tag, 'assets': []},
+                tc.GITHUB + '/git/ref/tags/' + release_tag: {'ref': 'refs/tags/' + release_tag, 'object': {'type': 'commit', 'sha': commit}},
                 tc.GITHUB + '/git/trees/' + commit + '?recursive=1': {'tree': [{'path': 'external/opencardev-aasdk', 'mode': '160000', 'sha': gitlink}], 'truncated': False},
                 tc.GITHUB + '/releases/tags/native-deps': {'body': 'aasdk ' + gitlink, 'assets': assets},
             }
@@ -234,42 +233,48 @@ def test_source_qualified_release_ignores_latest_drift(tmp_path, latest_tag):
     manager = tc.Toolchain(tmp_path / 'work', lambda *_: None, threading.Event())
     manager.downloader = Network()
     result = manager.prepare_source()
-    assert requests[:2] == [tc.GITHUB + '/releases/tags/' + release_tag, tc.GITHUB + '/commits/' + release_tag]
-    assert tc.GITHUB + '/releases/latest' not in requests
+    assert requests[:2] == [tc.GITHUB + '/releases/latest', tc.GITHUB + '/git/ref/tags/' + release_tag]
     assert result['sourceRef'] == release_tag
     assert result['sourceCommit'] == commit
     assert result['versionName'] == release_tag.removeprefix('v')
-    assert result['sourceOverlays'] == ['personal-cluster-task-affinity', 'native-gradle-verification-v0.1.526']
-    assert 'protoc-4.29.3-osx-aarch_64.exe' in (tmp_path / 'work/source/gradle/verification-metadata.xml').read_text()
+    expected = ['personal-cluster-task-affinity', 'native-gradle-verification-v0.1.526'] if release_tag == 'v0.1.526' else []
+    assert result['sourceOverlays'] == expected
+    assert ('protoc-4.29.3-osx-aarch_64.exe' in (tmp_path / 'work/source/gradle/verification-metadata.xml').read_text()) == bool(expected)
     assert (tmp_path / 'work/source/external/opencardev-aasdk/include/aasdk/header.h').is_file()
     assert (tmp_path / 'work/source/app/src/main/cpp/third_party/aasdk/arm64-v8a/lib/libaasdk.a').is_file()
+    requests.clear()
+    selected = {'sourceRef': release_tag, 'sourceCommit': commit, 'versionName': release_tag[1:]}
+    assert manager.prepare_source(selected) == result
+    assert requests[0] == tc.GITHUB + '/git/trees/' + commit + '?recursive=1'
+    assert not any('/releases/latest' in url or '/git/ref/' in url for url in requests)
     assets[0]['digest'] = None
     with pytest.raises(tc.BuilderError, match='SHA-256'):
-        manager.prepare_source()
+        manager.prepare_source(selected)
 
 
 @pytest.mark.parametrize(('release', 'commit'), [
-    ({'tag_name': 'v0.1.527', 'draft': False, 'prerelease': False}, '580a68d772afc97e444019504178f1678731feb6'),
+    ({'tag_name': 'v0.1.527-beta', 'draft': False, 'prerelease': False}, '580a68d772afc97e444019504178f1678731feb6'),
     ({'tag_name': 'v0.1.526', 'draft': True, 'prerelease': False}, '580a68d772afc97e444019504178f1678731feb6'),
     ({'tag_name': 'v0.1.526', 'draft': False, 'prerelease': True}, '580a68d772afc97e444019504178f1678731feb6'),
-    ({'tag_name': 'v0.1.526', 'draft': False, 'prerelease': False}, 'a' * 40),
+
     ({'tag_name': 'v0.1.526', 'draft': False, 'prerelease': False}, '580a68d'),
     ({'tag_name': 'v0.1.526', 'draft': False, 'prerelease': False}, None),
     ({'tag_name': 'v0.1.526'}, '580a68d772afc97e444019504178f1678731feb6'),
     ({'draft': False, 'prerelease': False}, '580a68d772afc97e444019504178f1678731feb6'),
     (None, '580a68d772afc97e444019504178f1678731feb6'),
 ])
-def test_source_rejects_unqualified_metadata_before_downloads(tmp_path, release, commit):
+def test_source_rejects_invalid_latest_metadata_before_downloads(tmp_path, release, commit):
     import threading
     requests = []
     downloads = []
     class Network:
         def json(self, url):
             requests.append(url)
-            if url == tc.GITHUB + '/releases/tags/v0.1.526':
-                return release
-            if url == tc.GITHUB + '/commits/v0.1.526':
-                return {'sha': commit}
+            if url == tc.GITHUB + '/releases/latest':
+                return (dict(release, html_url='https://github.com/mossyhub/openautolink/releases/tag/' + release.get('tag_name', ''), assets=[])
+                        if isinstance(release, dict) else release)
+            if url == tc.GITHUB + '/git/ref/tags/v0.1.526':
+                return {'ref': 'refs/tags/v0.1.526', 'object': {'type': 'commit', 'sha': commit}}
             pytest.fail('Unqualified source must fail before further metadata: ' + url)
         def download(self, *args, **kwargs):
             downloads.append(args)
@@ -279,9 +284,9 @@ def test_source_rejects_unqualified_metadata_before_downloads(tmp_path, release,
     source = tmp_path / 'source/keep.txt'
     source.parent.mkdir()
     source.write_text('previous source')
-    with pytest.raises(tc.BuilderError, match='[Qq]ualified|exact source commit'):
+    with pytest.raises(tc.BuilderError, match='release|Release|commit'):
         manager.prepare_source()
-    assert requests[0] == tc.GITHUB + '/releases/tags/v0.1.526'
+    assert requests[0] == tc.GITHUB + '/releases/latest'
     assert downloads == []
     assert source.read_text() == 'previous source'
     assert not (tmp_path / 'source.preparing').exists()
@@ -331,3 +336,25 @@ def test_archive_links_never_escape_and_contained_tool_links_work(tmp_path):
     assert (tmp_path / 'jdk/bin/javac').read_bytes() == b'tool'
     with pytest.raises(tc.BuilderError, match='Links'):
         tc.safe_extract(archive, tmp_path / 'reject')
+
+
+def test_descriptor_metadata_read_is_bounded_and_cancellable(tmp_path, monkeypatch):
+    import threading
+    event = threading.Event()
+    downloader = tc.Downloader(tmp_path, lambda *_: None, event)
+    reads = []
+    class Response(io.BytesIO):
+        def read(self, count):
+            reads.append(count)
+            return super().read(count)
+    monkeypatch.setattr(downloader, '_open', lambda url: Response(b'x' * 65538))
+    with pytest.raises(tc.BuilderError, match='too large'):
+        downloader.metadata('https://github.com/descriptor', max_bytes=65536)
+    assert reads == [65537]
+    class CancelledResponse(io.BytesIO):
+        def read(self, count):
+            event.set()
+            return b'{}'
+    monkeypatch.setattr(downloader, '_open', lambda url: CancelledResponse())
+    with pytest.raises(tc.BuilderError, match='cancelled'):
+        downloader.metadata('https://github.com/descriptor', max_bytes=65536)

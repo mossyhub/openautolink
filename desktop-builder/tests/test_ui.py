@@ -25,6 +25,7 @@ class Config:
     carplay_key: Path | None = None
     carplay_certificate: Path | None = None
     accept_licenses: bool = False
+    mode: str = "personalize"
 
 
 @pytest.fixture
@@ -107,7 +108,6 @@ def test_close_before_first_build_reopens_uninitialized_workspace(app, tmp_path,
         assert not reopened.error_label.text()
         reopened.advance()
         assert reopened.pages.currentIndex() == 1
-        reopened.licenses.setChecked(True)
         assert reopened.build_config().workspace == workspace
         assert workspace.exists() is (workspace_kind != "missing")
         assert engine.load_state(workspace) is None
@@ -159,7 +159,6 @@ def test_remembered_workspace_problem_blocks_new_identity(app, backend, tmp_path
         assert "choose" in reopened.error_label.text().lower()
         reopened.advance()  # Not just a disabled visual control.
         assert reopened.pages.currentIndex() == 0
-        reopened.licenses.setChecked(True)
         with pytest.raises(ValueError, match="(?i)restore"):
             reopened.build_config()
         assert settings.value("workspace/path") == str(custom)
@@ -213,7 +212,6 @@ def test_saved_identity_disappearing_before_build_blocks_config(app, backend, tm
     try:
         win.advance()
         custom.rmdir()
-        win.licenses.setChecked(True)
         with pytest.raises(ValueError, match="(?i)restore"):
             win.build_config()
         assert not win.next_button.isEnabled()
@@ -307,10 +305,42 @@ def test_unwritable_preferences_fail_visibly_instead_of_forgetting_workspace(app
         win.close()
 
 
+def test_default_personalization_needs_no_android_sdk_consent(window):
+    window.next_button.click()
+    config = window.build_config()
+    assert config.mode == "personalize"
+    assert config.accept_licenses is False
+    from PySide6.QtWidgets import QLabel, QPushButton, QRadioButton, QCheckBox
+    assert not window.findChildren(QRadioButton)
+    assert not any("advanced" in item.text().lower() for item in window.findChildren(QPushButton))
+    assert not any("license" in item.text().lower() for item in window.findChildren(QCheckBox))
+    assert not any(hasattr(window, name) for name in (
+        "source_mode", "personalize_mode", "advanced_options", "licenses", "license_link"))
+    text = " ".join(item.text() for item in window.findChildren(QLabel))
+    assert "from source" not in text.lower()
+    assert "source compilation" not in text.lower()
+    assert "No Gradle, Android SDK or NDK" in text
+    assert "latest stable release when you start" in text
+    assert "same application ID and signing key" in text
+    assert window.result is None
+    assert not window.result_metadata.text()
+
+
+def test_carplay_validation_recovers_without_any_license_prompt(window):
+    window.next_button.click()
+    window.carplay.setChecked(True)
+    window.next_button.click()
+    assert "Both CarPlay files" in window.error_label.text()
+    assert window.worker is None
+    window.carplay.setChecked(False)
+    config = window.build_config()
+    assert config.mode == "personalize" and config.accept_licenses is False
+
+
 def test_new_build_has_editable_generated_identity_and_no_license_consent(window):
     assert window.app_id.text() == "com.openautolink.user_a123456789"
     assert not window.app_id.isReadOnly()
-    assert not window.licenses.isChecked()
+    assert window.build_config().accept_licenses is False
     assert window.workspace_input.text().endswith("workspace")
     assert window.pages.currentIndex() == 0
     assert window.windowTitle() == "OpenAutoLink Builder"
@@ -330,6 +360,17 @@ def test_saved_identity_is_locked_and_bad_state_blocks_build(window, backend):
     assert "Corrupt identity" in window.error_label.text()
 
 
+def test_options_explain_missing_template_recovery_without_source_path(window):
+    from PySide6.QtWidgets import QLabel
+    window.next_button.click()
+    text = " ".join(item.text() for item in window.pages.widget(1).findChildren(QLabel))
+    assert "compatible template is missing" in text
+    assert "Keep your work folder" in text
+    assert "retry after the publisher" in text
+    assert "switch" not in text.lower()
+    assert "from source" not in text.lower()
+
+
 def test_application_id_is_validated_before_options(window):
     for invalid in ("bad", "com..oops", "com.1bad.app", "com.example-app", "com.class.app", " com.example.app ", "com.Example.app", "com.openautolink.app", "com." + "a" * 147):
         window.app_id.setText(invalid)
@@ -342,6 +383,77 @@ def test_application_id_is_validated_before_options(window):
     assert window.next_button.text() == "Build bundle"
 
 
+@pytest.mark.parametrize("app_id", ["com.openautolink", "com.openautolink.template.user"])
+def test_new_identity_rejects_template_overlap_before_options(window, app_id):
+    window.app_id.setText(app_id)
+    window.next_button.click()
+    assert window.pages.currentIndex() == 0
+    assert "incompatible with AAB personalization" in window.error_label.text()
+    assert "source compilation" not in window.error_label.text()
+    assert not window.workspace.exists()
+
+
+def test_existing_incompatible_identity_is_preserved_without_offering_source(window, backend):
+    saved = {"applicationId": "com.openautolink.template.user", "lastVersionCode": 8}
+    backend.load_state = lambda _: dict(saved)
+    window.load_workspace(window.workspace)
+    window.next_button.click()
+    assert window.pages.currentIndex() == 1
+    with pytest.raises(Exception, match="do not reset") as error:
+        window.build_config()
+    assert "source compilation" not in str(error.value)
+    assert "contact the publisher" in str(error.value)
+    assert window.state == saved and window.app_id.isReadOnly()
+    assert not window.workspace.exists()
+
+
+@pytest.mark.parametrize("saved", [False, True])
+def test_options_navigation_keeps_identity_workspace_and_carplay(window, backend, tmp_path, saved):
+    if saved:
+        backend.load_state = lambda _: {"applicationId": "com.example.saved", "lastVersionCode": 8}
+        window.load_workspace(window.workspace)
+    else:
+        window.app_id.setText("com.example.custom")
+    original = (window.workspace, window.app_id.text(), window.state, window.app_id.isReadOnly())
+    backend.load_state = lambda _: pytest.fail("Page navigation must not reload identity")
+    backend.suggest_app_id = lambda: pytest.fail("Page navigation must not generate identity")
+    window.carplay.setChecked(True)
+    window.key_input.setText(str(tmp_path / "authorized.pk8"))
+    window.cert_input.setText(str(tmp_path / "authorized.p7b"))
+    for page in (1, 0, 1):
+        window.pages.setCurrentIndex(page)
+        assert (window.workspace, window.app_id.text(), window.state, window.app_id.isReadOnly()) == original
+        assert window.carplay.isChecked()
+        assert window.key_input.text() == str(tmp_path / "authorized.pk8")
+        assert window.cert_input.text() == str(tmp_path / "authorized.p7b")
+    assert not window.workspace.exists()
+
+
+def test_config_explicitly_overrides_backend_source_and_license_defaults(window, backend):
+    class LegacyDefaults(Config):
+        def __init__(self, *, mode="source", accept_licenses=True, **kwargs):
+            super().__init__(mode=mode, accept_licenses=accept_licenses, **kwargs)
+    backend.BuildConfig = LegacyDefaults
+    config = window.build_config()
+    assert config.mode == "personalize"
+    assert config.accept_licenses is False
+
+
+def test_carplay_pair_validation_for_personalization(window, tmp_path):
+    window.carplay.setChecked(True)
+    with pytest.raises(ValueError, match="Both"):
+        window.build_config()
+    key, cert = tmp_path / "authorized.pk8", tmp_path / "authorized.p7b"
+    window.key_input.setText(str(key))
+    window.cert_input.setText(str(cert))
+    with pytest.raises(ValueError, match="existing"):
+        window.build_config()
+    key.write_bytes(b"test key")
+    cert.write_bytes(b"test certificate")
+    config = window.build_config()
+    assert (config.mode, config.carplay_key, config.carplay_certificate) == ("personalize", key, cert)
+
+
 def test_carplay_option_describes_authentication_and_authorization(window):
     from PySide6.QtWidgets import QLabel
     assert window.carplay.text() == 'Include CarPlay authentication files'
@@ -350,28 +462,23 @@ def test_carplay_option_describes_authentication_and_authorization(window):
     assert 'dedicated Android Automotive OS' in text
 
 
-def test_license_consent_is_required_and_carplay_needs_pair(window, tmp_path):
+def test_unchecking_carplay_excludes_files_without_losing_selection(window, tmp_path):
     window.next_button.click()
-    window.next_button.click()
-    assert "license" in window.error_label.text().lower()
-    assert window.worker is None
-    window.licenses.setChecked(True)
     window.carplay.setChecked(True)
     assert not window.carplay_fields.isHidden()
-    with pytest.raises(ValueError, match="Both"):
-        window.build_config()
     key, cert = tmp_path / "identity.pk8", tmp_path / "identity.p7b"
     key.write_bytes(b"test-key")
     cert.write_bytes(b"test-cert")
     window.key_input.setText(str(key))
     window.cert_input.setText(str(cert))
     config = window.build_config()
-    assert config.carplay_key == key
-    assert config.carplay_certificate == cert
-    assert config.accept_licenses is True
+    assert config.carplay_key == key and config.carplay_certificate == cert
+    assert config.accept_licenses is False
     window.carplay.setChecked(False)
     config = window.build_config()
     assert config.carplay_key is None and config.carplay_certificate is None
+    assert window.carplay_fields.isHidden()
+    assert window.key_input.text() == str(key) and window.cert_input.text() == str(cert)
 
 
 def wait_until(app, condition, seconds=5):
@@ -392,7 +499,7 @@ def install_builder(backend, tmp_path, *, fail=None, block=False):
         def build(self):
             calls.append((self.config, threading.current_thread().ident))
             entered.set()
-            self.progress("compile", "Compiling the app")
+            self.progress("personalize", "Personalizing the release AAB")
             if block:
                 assert self.cancel.wait(5)
                 raise RuntimeError("Cancelled")
@@ -402,13 +509,13 @@ def install_builder(backend, tmp_path, *, fail=None, block=False):
             artifact.write_bytes(b"fake backend test artifact")
             backend.load_state = lambda _: {"applicationId": self.config.app_id, "lastVersionCode": 7}
             return {"artifact": str(artifact), "applicationId": self.config.app_id,
-                    "versionCode": 7, "versionName": "0.7", "sourceCommit": "abc123"}
+                    "versionCode": 7, "versionName": "0.7", "sourceCommit": "abc123",
+                    "sourceRef": "v0.7", "mode": self.config.mode}
     backend.Builder = FakeBuilder
     return calls, entered
 
 
 def begin_build(window):
-    window.licenses.setChecked(True)
     window.next_button.click()
     window.next_button.click()
 
@@ -418,7 +525,8 @@ def test_build_runs_off_main_thread_and_shows_actual_bundle(window, backend, tmp
     begin_build(window)
     wait_until(app, lambda: window.worker is None)
     assert calls[0][1] != threading.current_thread().ident
-    assert calls[0][0].accept_licenses is True
+    assert calls[0][0].mode == "personalize"
+    assert calls[0][0].accept_licenses is False
     assert window.artifact_path.text() == str(tmp_path / "actual-bundle.aab")
     assert not window.result_card.isHidden()
     assert "abc123" in window.result_metadata.text()
@@ -426,6 +534,33 @@ def test_build_runs_off_main_thread_and_shows_actual_bundle(window, backend, tmp
     assert window.next_button.text() == "Build update"
     window.next_button.click()
     assert window.pages.currentIndex() == 1
+
+
+def test_result_displays_only_backend_resolved_release_and_source(window, tmp_path):
+    assert not window.result_metadata.text()
+    artifact = tmp_path / "test-result.aab"
+    artifact.write_bytes(b"fake backend test artifact")
+    result = {"artifact": str(artifact), "applicationId": "com.example.saved",
+              "versionName": "1.2.3", "versionCode": 9,
+              "sourceRef": "v1.2.3", "sourceCommit": "a" * 40, "mode": "personalize"}
+    window._on_success(result)
+    text = window.result_metadata.text()
+    assert "Release: v1.2.3" in text
+    assert "Version 1.2.3 • code 9" in text
+    assert "Source commit: " + "a" * 40 in text
+    assert "Personalized release" in text
+
+
+@pytest.mark.parametrize("mode", ["source", "unknown", None])
+def test_non_personalization_result_is_not_offered_as_desktop_output(window, tmp_path, mode):
+    artifact = tmp_path / "unexpected-result.aab"
+    artifact.write_bytes(b"fake backend test artifact")
+    window._on_success({"artifact": str(artifact), "applicationId": "com.example.saved",
+                        "versionName": "1.2.3", "versionCode": 9,
+                        "sourceRef": "v1.2.3", "sourceCommit": "a" * 40, "mode": mode})
+    assert window.result is None
+    assert window.result_card.isHidden()
+    assert "AAB personalization result" in window.error_label.text()
 
 
 def test_build_error_is_visible_without_success_actions(window, backend, tmp_path, app):
@@ -436,6 +571,25 @@ def test_build_error_is_visible_without_success_actions(window, backend, tmp_pat
     assert window.result_card.isHidden()
     assert window.next_button.isEnabled()
     assert not window.cancel_button.isVisible()
+
+
+def test_missing_template_failure_is_actionable_without_switching_modes(window, backend, tmp_path, app):
+    message = ("Latest release has no compatible personalization template. "
+               "Keep your work folder and retry after the publisher provides a supported template.")
+    calls, _ = install_builder(backend, tmp_path, fail=message)
+    identity = (window.workspace, window.app_id.text())
+    begin_build(window)
+    wait_until(app, lambda: window.worker is None)
+    assert window.error_label.text() == message
+    assert len(calls) == 1
+    assert calls[0][0].mode == "personalize"
+    assert window.build_config().mode == "personalize"
+    assert window.build_config().accept_licenses is False
+    assert (window.workspace, window.app_id.text()) == identity
+    assert window.result_card.isHidden()
+    window.next_button.click()
+    assert window.pages.currentIndex() == 1
+    assert window.build_config().mode == "personalize"
 
 
 def test_cancel_signals_worker_and_never_displays_success(window, backend, tmp_path, app):

@@ -1,6 +1,24 @@
-# Build your personal OAL car app
+# Create your personal OAL car app
 
-Use the **OpenAutoLink Desktop Builder** to make a signed Android App Bundle (`.aab`) for your own Google Play Console app. You do not edit source files or install Git, Java, Android Studio, or Docker on your computer. The wizard manages native build tools and source in one folder you choose.
+**Personalize the latest supported release AAB** to create a signed bundle for your own Google Play Console app—without compiling OpenAutoLink. The tool applies your app identity, optional user-supplied CarPlay files, and your upload signature.
+
+## Create your AAB
+
+The desktop tool personalizes precompiled AABs only. It does not compile OpenAutoLink or install the Android SDK/NDK.
+
+This tool is for people creating their **own** Play app, not the maintainer's existing app. The maintainer keeps the established release signing and Play publishing process; public releases additionally provide a credential-free AAB template and its verification metadata.
+
+Your saved personal application ID, upload key, version history and encrypted backup carry forward between updates. Continue with the [dedicated AAOS Internal Test installation guide](install-gm.md) after creating your AAB.
+
+### Easy path: personalize a release AAB
+
+The planned flow is to verify a supported, credential-free release AAB, apply your unique application ID and package-specific manifest values, optionally include your authorized CarPlay pair, and sign the result with your own upload key. Compiled app code is reused rather than rebuilt, avoiding Gradle and Android SDK/NDK setup for this path. Packaging/signing tools are still needed and will be managed by the tool.
+
+Use a designated personalization-ready **AAB**, not the release APK renamed to `.aab`. The published template is **unsigned** and contains no private CarPlay authentication files. The tool checks its tag, source commit, format, size and SHA-256 against the release metadata hosted by the official GitHub repository. This trusts that repository and HTTPS; it is not verification against the maintainer's Android signing certificate. Your finished personalized AAB is signed with your own upload key. The maintainer's private key is neither needed nor shared. Google Play separately manages the app-signing key for your own app.
+
+**This is not an available download yet.** Local bundle transformation, signing and generated-APK checks pass on the retained test bundle. Latest-release template publication, native personalization qualification and separate Play/car verification remain outstanding. The screenshots below show the AAB-personalization wizard, not proof of release readiness.
+
+The steps below follow the AAB-personalization workflow.
 
 > [!IMPORTANT]
 > **Desktop packaging preview:** downloadable desktop release files are not published yet. The Windows EXE, Linux single executable, and macOS app in a DMG are packaging targets, not currently available downloads. Do not download the car or companion APK expecting it to be the desktop builder. The steps below describe the desktop workflow; the existing [advanced Docker fallback](manual-build.md) is separate.
@@ -9,7 +27,7 @@ The result is for **Internal Test on the dedicated Android Automotive OS track**
 
 ## Before you start
 
-- Use a computer and a private local folder you trust, with internet access and room for the Android SDK/NDK, source, caches, and build outputs. Initial tool downloads are substantial; do not choose a temporary or shared folder.
+- Use a computer and a private local folder you trust, with internet access and room for managed tools, templates, caches and outputs. The tool manages Java/bundle tools, not the Android SDK/NDK. Do not choose a temporary or shared folder.
 - Keep the managed folder between builds. It holds your permanent application identity and upload-signing key as well as replaceable build tools.
 - Review the [Play account registration requirements](install-gm.md#1-register-your-play-console-developer-account), including the one-time registration fee and Android-device verification for new personal accounts. **iPhone owners should check that prerequisite before paying.**
 - For CarPlay, have your own compatible authentication pair ready, with authorization to use and include it. Android Auto does not require these files. Read [CarPlay authentication files](carplay-private-mfi-assets.md).
@@ -32,12 +50,12 @@ Linux targets Ubuntu 22.04 graphical desktops with X11/XWayland and normal graph
 
 ![The desktop builder's app identity screen](screenshots/builder-identity.png)
 
-*Actual Linux wizard capture; paths and generated IDs differ on your computer.*
+*Actual Linux read-only wizard capture; paths and generated IDs differ on your computer. Controls are disabled only for screenshot testing.*
 
 1. Select a private, permanent **managed folder**. The builder keeps its own tools there rather than changing your system Java installation or global PATH.
 2. For a new app, keep the generated unique **application ID** unless you have a specific reason to change it. It is the package identity Google Play uses, not the display name. Do not use the upstream `com.openautolink.app`.
 3. If you are continuing an app made by this builder on another computer, **restore its encrypted identity backup first**. Do not create a fresh identity and try to use it as an update.
-4. Review and accept the Android SDK/tool license terms if you agree. The builder needs that consent to prepare its tools.
+4. Continue to the optional CarPlay files. No source-build mode or Android SDK consent is needed.
 
 The builder remembers your chosen folder on this computer. If that folder or its saved identity disappears, it blocks building and asks you to locate or restore it; it does not silently create a replacement. Only the folder path and application ID are stored in the operating system's per-user preferences. Keys, downloads, and build state stay in the managed folder. Use **Create another app** only when you intentionally want a different Play app.
 
@@ -46,6 +64,10 @@ The builder generates an Android **upload-signing key** for a new identity. No s
 Already have a Play app from another build system? Stop before making a new key: its existing package ID, accepted upload key, and highest uploaded version code must be preserved. A new desktop identity is not an automatic migration. The [advanced fallback](manual-build.md#existing-apps) describes existing-keystore input.
 
 ## 3. Select optional CarPlay authentication files
+
+![The desktop tool’s AAB personalization and optional CarPlay files](screenshots/builder-options.png)
+
+*Actual Linux read-only wizard capture. Disabled controls are a screenshot-test safeguard, not a requirement in normal use.*
 
 For CarPlay, select both files using the wizard's file pickers:
 
@@ -60,9 +82,9 @@ These are **not** your Android upload-signing key. The builder does not generate
 
 Start the build and keep the application open while it works. The desktop workflow:
 
-1. Checks the qualified stable OAL source pin bundled with this builder against its exact release tag and source revision before downloading source or native dependencies.
-2. Downloads and checks its managed native tools and dependencies.
-3. Builds the car app with your application ID, without source edits.
+1. Resolves the latest stable GitHub release to its exact source revision and checks compatibility.
+2. Verifies and downloads that release’s template plus managed signing tools.
+3. Changes only the reviewed package-specific bundle fields and optional assets, preserving compiled app code.
 4. Signs the AAB with your saved upload key.
 5. Checks the result and shows the artifact path, package ID, source revision, and version.
 
@@ -92,13 +114,19 @@ The desktop builder does not sign in to Google, create your developer account, a
 ## Later updates
 
 1. Open the builder with the **same managed folder**, or restore your latest identity backup first.
-2. Build the qualified source selected by your installed builder using the saved application ID and upload key. Reselect your authorized CarPlay pair if required.
+2. Check for the latest stable GitHub release, then personalize its supported AAB template using the saved application ID and upload key. Reselect your authorized CarPlay pair if required.
 3. Check that the new version code is higher than every code already uploaded to this Play app. If another computer or build system uploaded a newer code, reconcile that state before uploading; an old backup cannot know about later uploads.
 4. Back up the updated identity state.
 5. Upload the new `.aab` to the **same app's dedicated Android Automotive OS Internal Test**, then roll it out.
 6. Give the car internet access and confirm the update in its Play Store.
 
-Each desktop builder bundles a qualified source pin, not an automatic “latest release” selector. This builder selects **v0.1.526** at `580a68d772afc97e444019504178f1678731feb6`; the source itself is downloaded into your managed folder. A newer desktop builder advances that pin after qualification. There is no source-ref field, manual source pull, or source edit in this workflow. Installing a newer desktop builder does not update the car by itself: build and upload its AAB using the same identity.
+The tool checks the **latest stable GitHub release** at the start of each operation, then uses that resolved revision consistently. It requires a compatible template and verified metadata for that release. If the latest release is unsupported or lacks its template, the tool reports that rather than silently selecting an older release. There is no arbitrary source-ref field in the beginner workflow.
+
+Earlier source-build qualification used **v0.1.526** at `580a68d772afc97e444019504178f1678731feb6`; that historical result does not qualify a newer release or the new mode integration. Installing a newer desktop tool does not update the car by itself: create and upload its AAB using the same identity.
+
+## Developer source builds
+
+The previous source-build implementation is preserved for development, but is not offered by this desktop tool. The maintainer’s existing release/signing and Play publishing workflow is unchanged. [Manual source-build notes](manual-build.md) remain separate from this user guide.
 
 ## If something goes wrong
 

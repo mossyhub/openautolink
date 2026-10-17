@@ -8,3 +8,5 @@ desktop-builder/**/*.py text eol=lf
 desktop-builder/**/*.md text eol=lf
 desktop-builder/**/*.json text eol=lf
 desktop-builder/requirements*.txt text eol=lf
+desktop-builder/packaging/windows-setup/** text eol=lf
+desktop-builder/oal_builder/resources/*.java text eol=lf

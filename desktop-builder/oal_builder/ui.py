@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
 )
 
 GUIDE_URL = "https://github.com/mossyhub/openautolink/blob/main/docs/install-gm.md"
-SDK_LICENSE_URL = "https://developer.android.com/studio/terms"
 DEFAULT_WORKSPACE = Path.home() / "OpenAutoLink Builder"
 
 # Linear-inspired luminance hierarchy, translated into native Qt widgets.
@@ -194,7 +193,6 @@ class BuilderWindow(QMainWindow):
         self.carplay.toggled.connect(self.carplay_fields.setVisible)
         self.key_button.clicked.connect(lambda: self.choose_carplay_file(self.key_input, "Private key (*.pk8)"))
         self.cert_button.clicked.connect(lambda: self.choose_carplay_file(self.cert_input, "Certificate (*.p7b)"))
-        self.license_link.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(SDK_LICENSE_URL)))
         self.next_button.clicked.connect(self.advance)
         self.cancel_button.clicked.connect(self.cancel_build)
         self.restore_button.clicked.connect(self.restore_identity)
@@ -220,7 +218,7 @@ class BuilderWindow(QMainWindow):
 
     def _make_identity_page(self):
         layout = self._page("An app that's yours.", "Build a signed Android App Bundle for your own Google Play Internal Test.")
-        frame, fields = card("One folder. Everything together.", "Source, build tools, signing identity and finished bundles live here. Keep this folder for future updates.")
+        frame, fields = card("One folder. Everything together.", "Release templates, managed tools, signing identity and finished bundles live here. Keep this folder for future updates.")
         self.workspace_input = QLineEdit(str(self.workspace))
         self.workspace_input.setReadOnly(True)
         self.workspace_input.setAccessibleName("Managed work folder")
@@ -246,7 +244,12 @@ class BuilderWindow(QMainWindow):
         layout.addStretch()
 
     def _make_options_page(self):
-        layout = self._page("Choose what to include.", "Android Auto is ready to build. CarPlay requires your authentication files.")
+        layout = self._page("Personalize your release.", "Use the latest supported release AAB with your own app identity and signing key.")
+        frame, fields = card("Create your personal AAB")
+        fields.addWidget(label("Use a supported prebuilt release bundle with your app identity. No Gradle, Android SDK or NDK downloads. Signing and verification tools are managed for you.", "muted"))
+        fields.addWidget(label("Your updates keep the same application ID and signing key.", "muted"))
+        fields.addWidget(label("Checks the latest stable release when you start. The resolved release, version and source commit appear with your finished bundle. If a compatible template is missing, personalization stops. Keep your work folder and retry after the publisher provides a supported template.", "muted"))
+        layout.addWidget(frame)
         frame, fields = card("CarPlay", "Select compatible files you are authorized to use and include. These are separate from your Android signing key.")
         self.carplay = QCheckBox("Include CarPlay authentication files")
         fields.addWidget(self.carplay)
@@ -271,18 +274,10 @@ class BuilderWindow(QMainWindow):
         fields.addWidget(self.carplay_fields)
         layout.addWidget(frame)
 
-        frame, fields = card("Build tools & SDK licenses", "The first build downloads source and build tools, including Java and the Android SDK. Allow several GB of free space and time for downloads.")
-        self.license_link = button("Read Android SDK terms ↗")
-        fields.addWidget(self.license_link, alignment=Qt.AlignmentFlag.AlignLeft)
-        self.licenses = QCheckBox("I accept the Android SDK license terms")
-        self.licenses.setAccessibleName("Accept Android SDK license terms")
-        fields.addWidget(self.licenses)
-        fields.addWidget(label("Required before installation. Nothing is accepted on your behalf until you choose this option.", "muted"))
-        layout.addWidget(frame)
         layout.addStretch()
 
     def _make_build_page(self):
-        layout = self._page("From source to your bundle.", "The build runs locally. You can keep this window open while it works.")
+        layout = self._page("Your personal bundle.", "The build runs locally. You can keep this window open while it works.")
         frame, fields = card("Build activity")
         self.status_label = label("Ready to build", "cardTitle")
         self.detail_label = label("", "muted")
@@ -442,12 +437,15 @@ class BuilderWindow(QMainWindow):
             raise ValueError("Use a unique lowercase application ID, for example com.example.my_app (150 characters maximum). Each part must start with a letter; no spaces, Java keywords, or com.openautolink.app.")
         if self.state and app_id != self.state["applicationId"]:
             raise ValueError("The application ID is locked to this saved identity.")
+        if self.state is None:
+            from .app_identity import validate_personal_app_id
+            validate_personal_app_id(app_id)
         return app_id
 
     def build_config(self):
         app_id = self.validate_identity()
-        if not self.licenses.isChecked():
-            raise ValueError("Read and accept the Android SDK license terms before building.")
+        from .app_identity import validate_personal_app_id
+        validate_personal_app_id(app_id)
         key = certificate = None
         if self.carplay.isChecked():
             if not self.key_input.text() or not self.cert_input.text():
@@ -456,7 +454,8 @@ class BuilderWindow(QMainWindow):
             if key.suffix.lower() != ".pk8" or certificate.suffix.lower() != ".p7b" or not key.is_file() or not certificate.is_file():
                 raise ValueError("Choose existing .pk8 and .p7b files for CarPlay.")
         return self.backend.BuildConfig(workspace=self.workspace, app_id=app_id, carplay_key=key,
-                                        carplay_certificate=certificate, accept_licenses=True)
+                                        carplay_certificate=certificate,
+                                        mode="personalize", accept_licenses=False)
 
     def advance(self):
         if self.worker is not None:
@@ -511,7 +510,10 @@ class BuilderWindow(QMainWindow):
             artifact = Path(result["artifact"]).resolve()
             if artifact.suffix.lower() != ".aab" or not artifact.is_file():
                 raise ValueError("The build returned no readable .aab file. Review the build details.")
-            metadata = (f"{result['applicationId']}\nVersion {result['versionName']} • code {result['versionCode']}\n"
+            if result.get('mode') != 'personalize':
+                raise ValueError("The build returned no AAB personalization result. Review the build details.")
+            metadata = (f"{result['applicationId']}\nPersonalized release • Release: {result['sourceRef']}\n"
+                        f"Version {result['versionName']} • code {result['versionCode']}\n"
                         f"Source commit: {result['sourceCommit']}")
         except (KeyError, TypeError, ValueError, OSError) as exc:
             self._on_failure(str(exc))
