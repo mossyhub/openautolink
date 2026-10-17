@@ -324,6 +324,10 @@ def probe_candidate(candidate, discovery, cache, work, output):
             if sha256(executable) != report["outerSha256"] or sha256(candidate) != discovery["artifactSha256"]:
                 raise ValueError("Probe artifact changed")
             report["screenshotSha256"] = sha256(screenshot)
+            if os.environ.get("OAL_CLEAN_RUNTIME_TEST_ACCEPTANCE"):
+                phase = "WINDOWS_BOOTSTRAP_CLEAN_RUNTIME"
+                load_module("windows_clean_install").probe(
+                    executable, staged, discovery, private, output, setup=load_module("windows_setup"))
         report["status"] = "passed"
         return report
     except Exception as error:

@@ -23,7 +23,7 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 > [!IMPORTANT]
 > Install on a locked GM vehicle through your own Google Play Console app's **dedicated Android Automotive OS Internal Test**. APK sideloading is not supported on these head units.
 >
-> **Personalize a precompiled release AAB** with your own app identity and upload key, without compiling OAL. **AAB personalization is in development, and desktop downloads are not published yet.**
+> **Personalize a precompiled release AAB** with your own app identity and upload key, without compiling OAL or installing the Android SDK. **The AAB-only desktop builder remains a preview; desktop downloads are not published yet.**
 >
 > CarPlay also requires your own compatible authentication pair that you are authorized to include; the builder does not supply it. Keep your builder identity and encrypted backup for later updates.
 >
@@ -75,11 +75,11 @@ Check the source revision and release notes for your installed build. USB hot-pl
 
 ### Car app on a locked GM vehicle
 
-Start with [Create your AAB](docs/build-aab.md#create-your-aab), then follow the [Internal Test installation guide](docs/install-gm.md). **Personalization is in development and desktop packages remain unpublished.** The desktop tool is AAB-only; source-build work is preserved separately for development.
+Start with [Create your AAB](docs/build-aab.md#create-your-aab), then follow the [Internal Test installation guide](docs/install-gm.md). **The desktop builder remains a preview and desktop packages remain unpublished.** The desktop tool is AAB-only; source-build work is preserved separately for development.
 
 The installation guide covers developer registration (including Google's one-time fee and Android-device verification requirement for new personal accounts), creating a free app, selecting **dedicated Android Automotive OS → Internal testing**, enrolling the car's Google account, and choosing the **car** in Google's web install picker. An Install button alone does not prove the car is eligible.
 
-For CarPlay, select your own [authorized authentication pair](docs/carplay-private-mfi-assets.md) in the builder; it does not generate those files. Preserve the managed folder and an encrypted identity backup. For updates, preserve the same application ID and upload key, use a supported release/template or qualified source revision, and upload a higher-version AAB to the same Internal Test. Cross-path updates will be verified before switching modes is offered.
+For CarPlay, select your own [authorized authentication pair](docs/carplay-private-mfi-assets.md) in the builder; it does not generate those files. Preserve the managed folder and an encrypted identity backup. For updates, preserve the same application ID and upload key, personalize the latest stable release's supported template, and upload a higher-version AAB to the same Internal Test. If that release lacks a compatible template, the builder stops rather than selecting an older release or compiling source.
 
 The car itself needs internet-connected Wi-Fi or its data service; [an OnStar data plan is not required](#car-internet-no-onstar-data-plan-required).
 

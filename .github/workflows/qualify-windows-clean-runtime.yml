@@ -1,0 +1,123 @@
+name: Windows clean-runtime evidence (disposable CI only)
+
+on:
+  # Initial qualification must run before this new workflow reaches default.
+  # This maintainer branch is explicitly authorized for disposable CI testing.
+  push:
+    branches: ['feat/desktop-personal-builder']
+    paths:
+      - '.github/workflows/qualify-windows-clean-runtime.yml'
+      - 'desktop-builder/packaging/windows_clean_install.*'
+      - 'desktop-builder/packaging/windows_setup.py'
+      - 'desktop-builder/packaging/windows-setup/**'
+      - 'desktop-builder/packaging/build.py'
+      - 'desktop-builder/tests/test_windows_clean_install.py'
+  workflow_dispatch:
+    inputs:
+      authorize_disposable_test_acceptance:
+        description: 'Authorize test-only Microsoft installer/UI acceptance on disposable hosted VM; NOT user consent'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-clean-runtime-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: core.autocrlf
+  GIT_CONFIG_VALUE_0: 'false'
+  PYTHONUTF8: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  clean-runtime:
+    if: ${{ github.event_name == 'push' || inputs.authorize_disposable_test_acceptance }}
+    # Never add self-hosted or matrix runner overrides to this destructive test.
+    runs-on: windows-2022
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: desktop-builder
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+          architecture: x64
+      - name: Prepare pinned packaging tools before runtime removal
+        timeout-minutes: 5
+        run: python -m pip install -r requirements-dev.txt cffi==2.1.1 pyinstaller-hooks-contrib==2026.8 --report pip-install-report.json
+      - name: Native worker parser and guard/contract tests
+        timeout-minutes: 5
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path packaging/windows_clean_install.ps1), [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { throw 'Native clean-runtime worker failed PowerShell 5.1 parsing' }
+          python -m pytest tests/test_windows_clean_install.py tests/test_windows_setup.py -q
+      - name: Fetch exact reviewed suppliers before runtime removal
+        timeout-minutes: 10
+        run: python packaging/coverage_windows_ci.py fetch --cache "$env:RUNNER_TEMP/oal-native-sources"
+      - name: Real absent-runtime installer and frozen AAB wizard
+        id: probe
+        # Worker: 840s cooperative scenario; independent supervisor: 900s hard
+        # scenario + 30s teardown + 60s MSI drain + 240s recovery + 30s teardown.
+        # Controller: 1350s, without killing the recovery owner. Leave build and
+        # reporting headroom; do not cancel this job to accelerate another run.
+        timeout-minutes: 45
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+          RUNNER_LABEL: windows-2022
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          QT_QPA_PLATFORM: windows
+          OAL_CLEAN_RUNTIME_TEST_ACCEPTANCE: disposable-ci-only-not-user-consent
+        run: |
+          # This ordinary private candidate build still hits the unchanged coverage
+          # gate AFTER our native probe. It must not publish an executable.
+          # Refuse mutation if candidate preparation used the recovery reserve.
+          $env:OAL_CLEAN_RUNTIME_STEP_DEADLINE = [string]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 2700)
+          python packaging/build.py --output windows-inner --windows-ci-cache "$env:RUNNER_TEMP/oal-native-sources"
+          $freezeExit = $LASTEXITCODE
+          # Use inbox PS, not Python, for the post-removal CI check/upload handoff.
+          $reportPath = 'windows-inner/windows-clean-install.json'
+          $receiptPath = 'windows-inner/windows-clean-install-verified.json'
+          if (Test-Path 'windows-inner/windows-clean-controller-timeout.json') { throw 'Controller deadline exceeded; recovery unconfirmed' }
+          if (-not (Test-Path $reportPath)) { throw 'No native clean-runtime evidence; inspect earlier candidate failure' }
+          $report = Get-Content $reportPath -Raw | ConvertFrom-Json
+          if ($report.status -cne 'passed') { throw ('Clean-runtime probe blocked: ' + $report.phase + '/' + $report.failureCode) }
+          if (-not (Test-Path $receiptPath)) { throw 'Native report was not verified by the exact-candidate controller' }
+          $receipt = Get-Content $receiptPath -Raw | ConvertFrom-Json
+          if ($receipt.status -cne 'evidence-verified-not-gate-approval' -or
+              $receipt.reportSha256 -cne (Get-FileHash $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()) {
+            throw 'Clean-runtime receipt mismatch'
+          }
+          Write-Output "Clean-runtime evidence verified; packaging exit $freezeExit; distribution gate unchanged."
+          exit 0
+      - name: Preserve only bounded exact-candidate evidence and cropped test UI
+        if: ${{ always() && steps.probe.outcome != 'skipped' && hashFiles('desktop-builder/windows-inner/windows-clean-install.json', 'desktop-builder/windows-inner/windows-clean-controller-timeout.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-clean-runtime-evidence-${{ github.sha }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            desktop-builder/windows-inner/windows-clean-install.json
+            desktop-builder/windows-inner/windows-clean-controller-timeout.json
+            desktop-builder/windows-inner/windows-clean-install-verified.json
+            desktop-builder/windows-inner/windows-clean-decline.png
+            desktop-builder/windows-inner/windows-clean-cancel.png
+            desktop-builder/windows-inner/windows-clean-license.png
+            desktop-builder/windows-inner/windows-clean-installed.png
+            desktop-builder/windows-inner/windows-clean-builder-terms.png
+            desktop-builder/windows-inner/windows-clean-wizard.png

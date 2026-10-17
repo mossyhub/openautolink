@@ -4,7 +4,7 @@ For a locked GM Android Automotive OS head unit, install OpenAutoLink through **
 
 You will build a personal signed `.aab`, upload it to your app, enroll the Google account used in the car as a tester, and tell Google Play to install it **on the car**. Do this while parked. This guide does not change the car's operating system.
 
-**Create your AAB first:** follow [Create your AAB](build-aab.md#create-your-aab)—personalize a supported precompiled release—including the current development/download notice. No source editing is needed. For CarPlay, the build also needs your own [authorized authentication pair](carplay-private-mfi-assets.md); building or installing OAL alone does not provide it.
+**Create your AAB first:** follow [Create your AAB](build-aab.md#create-your-aab)—personalize a supported precompiled release. **The AAB-only desktop builder remains a preview; desktop downloads are not published yet.** No source editing or Android SDK setup is needed. Upload your finished signed AAB, not the unsigned release template or the maintainer's signed APK. For CarPlay, the build also needs your own [authorized authentication pair](carplay-private-mfi-assets.md); building or installing OAL alone does not provide it.
 
 ## Before you begin
 

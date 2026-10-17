@@ -1,6 +1,6 @@
 # Desktop packages
 
-**Linux exact-byte coverage is reviewed; native-platform release gates still apply.**
+**Desktop packaging preview: no public desktop downloads are published yet.**
 The formats below are packaging targets. A download is qualified only by its
 actual final-artifact manifest and native smoke evidence. The Linux review now
 covers the fresh container payload, including Qt static code, Debian runtime
@@ -11,18 +11,45 @@ attestations; LGPL source/recombination remains enforced. See
 [LINUX-REBUILD.md](LINUX-REBUILD.md). Offscreen Linux tests do not qualify XCB,
 Windows/Mac dependencies, or certify legal compliance.
 
+## Qualification status
+
+- AAB personalization first-build and same-identity update tests passed on Windows,
+  Linux, Mac Intel and Mac Apple Silicon at builder `e8db340e`, using the
+  prepublication CI template from OAL **v0.1.528**. This is not qualification of
+  a template downloaded from a published release.
+- Linux final-package startup and the combined Mac DMG's native startup on both
+  architectures passed. These packaging checks are separate from AAB production.
+- Windows bootstrap startup with an already-installed runtime passed earlier.
+  Clean-machine runtime installation remains pending; installed-runtime smoke and
+  mocked installer tests do not qualify interactive consent, UAC, cancellation,
+  failure or restart handling on a clean machine.
+- Public desktop/template delivery and separate Play/car acceptance are not
+  established by those tests. Keep preview wording until the remaining gates pass.
+
 ## One file to run/install per operating system
 
-Python is **not required** by end users. Build tools are managed by the app inside
+Python, PySide and Visual Studio are **not required** by end users. Java and
+bundle/signing tools are managed by the app inside
 `~/OpenAutoLink Builder` (or your chosen dedicated folder), not installed globally.
-The first Android build needs Internet access and several GB of free space. SDK
-licenses require explicit consent in the app. No Play credentials are used.
+The AAB-only workflow needs Internet access and space for templates, tools, caches
+and output. It does not compile OAL or install Gradle, the Android SDK or NDK;
+there is no Android SDK consent step. No Play credentials are used. The source
+backend remains for development, not as a user-selectable mode or fallback.
 
 | OS | File | How to use |
 | --- | --- | --- |
-| Windows x86_64 | `OpenAutoLink-Builder.exe` | Double-click. No installer or adjacent runtime directory. |
+| Windows x86_64 | `OpenAutoLink-Builder.exe` | Open the single download; if needed, it offers Microsoft's official runtime installer. No adjacent runtime directory is required. |
 | Linux x86_64 | `OpenAutoLink-Builder` | In a supporting file manager: Properties → Permissions → Allow executing, then open. See prerequisites below. |
 | Mac Intel **and** Apple silicon | `OpenAutoLink-Builder.dmg` | Open and drag the single app to Applications. Architecture selection is automatic. |
+
+Windows requires Windows 10 1809 or newer / Windows 11 on x64. If the required
+Microsoft Visual C++ x64 runtime is absent or outdated, the bootstrap asks before
+downloading Microsoft's official installer, verifies its pinned hash and Microsoft
+signature, then opens it interactively. Users review the terms and normal
+administrator/UAC prompts themselves. Declining or a failed installation stops
+startup; if a restart is requested, restart and reopen the same builder file.
+The builder also presents its runtime terms on first use. This is one download,
+**not a promise of zero prompts**, and does not require a Visual Studio installation.
 
 The Mac app contains two complete native runtime trees in
 `Contents/Resources/runtimes/{arm64,x86_64}`. Its single launcher selects a fixed
@@ -61,14 +88,18 @@ Every frozen executable embeds `builder-compliance.zip`, containing licenses,
 runtime version inventory, running instructions, and `builder-source.zip` with
 the exact desktop-builder source bytes used for that build. The Mac contains
 this archive in **both** runtime trees. No adjacent source ZIP is required.
-Export a copy without starting Qt or downloading anything:
+On Linux and Mac, export a copy without starting Qt or downloading anything:
 
 ```sh
-# Linux (use .\OpenAutoLink-Builder.exe in Windows PowerShell):
+# Linux:
 ./OpenAutoLink-Builder --export-compliance builder-compliance.zip
 # Mac:
 "/Applications/OpenAutoLink-Builder.app/Contents/MacOS/OpenAutoLink-Builder" --export-compliance builder-compliance.zip
 ```
+
+The Windows bootstrap contains the archive inside its inner `builder.exe`; the
+outer launcher does not forward `--export-compliance`. Developers can use that
+option on the extracted inner executable, not on the downloaded wrapper.
 
 The destination must not already exist. Keep the embedded source and legal files
 when redistributing. The snapshot is the builder, **not** the Android app source;
@@ -88,11 +119,28 @@ python -m venv .venv
 python -m pip install -r requirements-dev.txt
 python -m pytest tests -q
 python -m oal_builder --smoke-test
-python packaging/build.py --output dist --native-coverage /path/to/reviewed/coverage.json
 ```
 
-Use a fresh output directory. On Windows/Linux this produces the direct file,
-a screenshot and a manifest hashing both (the manifest does not hash itself).
+Before freezing, materialize coverage for the exact native target. On the reviewed
+Ubuntu CI environment:
+
+```sh
+python packaging/coverage_linux_ci.py --cache native-sources --output native-coverage
+python packaging/build.py --output dist --native-coverage native-coverage/coverage.json
+```
+
+For Mac use the staging instructions below. For Windows, the native pipeline is:
+
+```sh
+python packaging/coverage_windows_ci.py fetch --cache native-sources
+python packaging/build.py --output windows-inner --windows-ci-cache native-sources
+python packaging/windows_setup.py --inner windows-inner --cache native-sources --output dist
+```
+
+Use fresh output directories. The Windows inner stage is **not** the end-user
+download; the bootstrap wraps it only after its source/native gates pass. Final
+Windows/Linux output includes the single file, a screenshot and a manifest hashing
+both (the manifest does not hash itself).
 The script executes the **final output executable** and verifies the frozen
 child's actual architecture, exported source hash, licenses, and a real Qt PNG.
 The smoke must not create a work folder or perform an Android build. For headless
@@ -147,7 +195,8 @@ hashes to the final manifest. No freezing or rebuilding occurs after those gates
 
 ## CI downloads and limits
 
-The workflow runs on `feat/**` pushes, relevant pull requests and manual dispatch.
+The workflow runs on `feat/**` pushes, relevant pull requests, manual dispatch and
+published-release events.
 It uses `ubuntu-22.04`, `windows-2022`, `macos-15` (ARM) and `macos-15-intel` (Intel),
 listed in [GitHub's supported runner images](https://github.com/actions/runner-images#available-images).
 The final Mac smoke jobs install **no** builder dependencies; they use only the
@@ -158,12 +207,16 @@ Only after all gates pass are the three end-user artifacts uploaded:
 `OpenAutoLink-Builder-Mac`. Each contains exactly one run/install file from the
 table above. `OpenAutoLink-Builder-Verification` holds manifests and screenshots.
 `INTERNAL-*` artifacts are intermediate CI transport, **not** recommended downloads.
-GitHub Actions itself wraps downloads in ZIPs; this workflow does not create a
-GitHub Release or direct public release-asset URL. A maintainer may separately
-publish the already-tested EXE, executable and DMG without repackaging them.
+GitHub Actions itself wraps artifact downloads in ZIPs. A release-event-only job
+can attach the exact tested EXE, executable and DMG to the originating stable
+release after all packaging gates pass. It checks the release/tag/source identity,
+refuses to replace existing assets and reads uploaded bytes back for verification.
+The workflow never creates a release or tag. This publication code does not mean
+desktop release assets are currently available.
 
-CI has read-only repository permissions and no signing, notarization, Play API,
-or publishing credentials. There is no automatic release creation. Offline smoke
+Build and PR jobs have read-only repository permissions. Only the release-only
+publication job receives repository contents-write permission; there are no
+developer-signing, notarization or Play API credentials. Offline smoke
 proves packaging, embedded compliance and Qt startup—not first-run tool downloads,
 full AAB production, interactive desktop behavior, or OS signing acceptance.
 Native Windows and both Mac runs must pass before claiming those platforms are

@@ -580,11 +580,12 @@ def source_archive(target: Path):
     sources = [REPOSITORY / "LICENSE", REPOSITORY / "THIRD_PARTY_LICENSES.md"]
     for pattern in ("oal_builder/*.py", "oal_builder/resources/*.java", "tests/test_*.py", "requirements*.txt", "packaging/*.py",
                     "packaging/*.md", "packaging/provenance/**/*.json", "packaging/provenance/**/*.md",
-                    "packaging/macos-ci/*.md", "packaging/windows-setup/*", "packaging/licenses/**/*"):
+                    "packaging/macos-ci/*.md", "packaging/windows-setup/*", "packaging/windows_clean_install.ps1", "packaging/licenses/**/*"):
         sources.extend(ROOT.glob(pattern))
-    workflow = REPOSITORY / ".github/workflows/build-desktop-builder.yml"
-    if workflow.is_file():
-        sources.append(workflow)
+    for name in ("build-desktop-builder.yml", "qualify-windows-clean-runtime.yml"):
+        workflow = REPOSITORY / ".github/workflows" / name
+        if workflow.is_file():
+            sources.append(workflow)
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
         for source in sorted(set(sources)):
             if source.is_file():
