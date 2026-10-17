@@ -469,7 +469,10 @@ class WindowsCoverageTests(unittest.TestCase):
                     mock.patch("platform.machine", return_value="AMD64"), \
                     mock.patch("subprocess.run", side_effect=child):
                 result = module.probe_candidate_ui(candidate, root)
-            self.assertEqual(environments, ["windows", "windows", "offscreen"])
+            self.assertEqual(environments, ["windows", "windows", "offscreen", "windows"])
+            self.assertEqual(result["termsPreview"]["assent"], "not-given")
+            self.assertEqual(result["termsPreview"]["platform"], "windows")
+            self.assertEqual(result["termsPreview"]["termsToken"], json.loads(module.BOOTSTRAP_POLICY.read_text())["pythonDownstream"]["termsToken"])
             self.assertEqual(result["status"], "evidence-only")
             self.assertTrue(result["notQualification"])
             self.assertEqual([p["platform"] for p in result["screenshots"]], ["windows", "offscreen"])

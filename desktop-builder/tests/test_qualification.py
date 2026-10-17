@@ -240,24 +240,27 @@ def test_actual_manifest_keeps_implementation_classes_and_personal_affinity():
         assert str(caught.value) == reason
 
 
-def shared_fixture(tmp_path, provenance='local-linux-template'):
+def shared_fixture(tmp_path, provenance='local-linux-template', selected=None):
     from scripts import ci_template as h
     from oal_builder import releases as r
     source = tmp_path / 'fixture-input'
     result = bundle_result(source)
     template = Path(result['artifact'])
-    descriptor = dict(schemaVersion=1, formatVersion=1, releaseTag=release_fixture()['sourceRef'],
-                      sourceCommit=release_fixture()['sourceCommit'], templateApplicationId=r.TEMPLATE_APPLICATION_ID,
+    release = release_fixture() if selected is None else selected
+    descriptor = dict(schemaVersion=1, formatVersion=1, releaseTag=release['sourceRef'],
+                      sourceCommit=release['sourceCommit'], templateApplicationId=r.TEMPLATE_APPLICATION_ID,
                       transformContract=r.TRANSFORM_CONTRACT,
-                      templateAsset=dict(name=r.template_name(release_fixture()['sourceRef']),
+                      templateAsset=dict(name=r.template_name(release['sourceRef']),
                                          size=template.stat().st_size, sha256=q_digest(template)))
     descriptor_path = source / r.DESCRIPTOR_NAME
     descriptor_path.write_text(json.dumps(descriptor))
-    release = release_fixture()
+    preparation = (['ci-template-v0.1.528-cluster-affinity'] if selected else result['sourceOverlays'])
     if provenance == 'published-release-template':
         release, _ = h.local_metadata(release, template, descriptor_path)
+        preparation = []
     directory = tmp_path / 'shared'
-    h.export_inputs(release, template, descriptor_path, directory, provenance=provenance)
+    h.export_inputs(release, template, descriptor_path, directory, provenance=provenance,
+                    source_preparation=preparation)
     return directory
 
 
@@ -265,6 +268,7 @@ def q_digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+@pytest.mark.parametrize('source_kind', ['historical', 'exact528'])
 @pytest.mark.parametrize('provenance', ['local-linux-template', 'published-release-template'])
 @pytest.mark.parametrize('fault,reason', [
     (None, None), ('easy-source', 'source-commit-mismatch'),
@@ -272,13 +276,18 @@ def q_digest(path):
     ('easy-update-signer', 'pair-signer-mismatch'),
     ('payload', 'dex-native-payload-mismatch'), ('android', 'personalization-used-android-build-tools'),
 ])
-def test_native_gate_only_personalizes_shared_aab_twice(tmp_path, monkeypatch, provenance, fault, reason):
+def test_native_gate_only_personalizes_shared_aab_twice(tmp_path, monkeypatch, provenance, fault, reason, source_kind):
     """Boundary fakes are orchestration tests, NOT native qualification."""
     from oal_builder import engine
     q = qualification()
     monkeypatch.setenv('GITHUB_ACTIONS', 'true')
     monkeypatch.setenv('RUNNER_TEMP', str(tmp_path))
-    inputs = shared_fixture(tmp_path, provenance)
+    selected_release = None
+    if source_kind == 'exact528':
+        selected_release = dict(sourceRef='v0.1.528', sourceCommit='09c75422b5f0529b7b521c628eefffe9a75273d7',
+                                versionName='0.1.528', assets={}, templateAvailable=False)
+    inputs = shared_fixture(tmp_path, provenance, selected_release)
+    expected_release = selected_release or release_fixture()
     calls, configs = [], []
 
     class FixtureBuilder:
@@ -291,9 +300,10 @@ def test_native_gate_only_personalizes_shared_aab_twice(tmp_path, monkeypatch, p
             self.tools = tool_fixture(config.workspace, android=False)
         def build(self):
             selected = engine.resolve_latest_release(lambda _: pytest.fail('resolved again'))
-            assert selected['sourceCommit'] == release_fixture()['sourceCommit']
+            assert selected['sourceCommit'] == expected_release['sourceCommit']
             calls.append('build')
             result = bundle_result(self.config.workspace, len(configs))
+            result.update({k: expected_release[k] for k in ('sourceRef', 'sourceCommit', 'versionName')})
             descriptor = engine.resolve_template(selected, lambda _: pytest.fail('live template request'))
             result.update(applicationId=self.config.app_id, mode='personalize', sourceOverlays=[],
                           templateSha256=descriptor['templateAsset']['sha256'])
@@ -350,6 +360,10 @@ def test_native_gate_only_personalizes_shared_aab_twice(tmp_path, monkeypatch, p
         for build in report['builds']:
             assert build['sha256'] == q_digest(out / build['artifact'])
     assert report['liveReleaseTemplateDownloadQualified'] is False
+    from scripts import ci_template as h
+    assert report['template']['sourcePreparation'] == h.load_inputs(inputs)['sourcePreparation']
+    assert all(build['sourceOverlays'] == [] for build in report['builds'])
+    assert report['template']['sourceCommit'] == expected_release['sourceCommit']
     text = (out / 'result.json').read_text()
     assert 'DO-NOT-EXPORT' not in text and str(tmp_path) not in text
 
@@ -498,7 +512,9 @@ def test_workflow_is_aab_only_four_host_gate_with_one_linux_producer():
     assert '--timeout-seconds 3600' in native
     for forbidden in ('continue-on-error', 'actions/cache', 'pull_request_target', 'secrets.'):
         assert forbidden not in text
-    assert text.count('uses: actions/upload-artifact@') == 3
+    assert text.count('uses: actions/upload-artifact@') == 4
+    assert 'path: ${{ runner.temp }}/oal-template-failure.json' in producer
+    assert 'name: template-producer-failure-' in producer
     for filename in ('release.json', 'template.aab', 'openautolink-personalization.json', 'provenance.json'):
         assert f'${{{{ runner.temp }}}}/oal-template-inputs/{filename}' in producer
     assert 'actions/download-artifact@' in native

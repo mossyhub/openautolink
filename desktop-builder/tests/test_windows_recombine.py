@@ -282,6 +282,9 @@ def test_candidate_runs_recombination_before_legal_materialization(tmp_path, mon
         calls.append("bootstrap")
         return {"status": "passed", "notQualification": True}
     windows = SimpleNamespace(REVIEW=review, BASE=tmp_path,
+                              run_candidate_probe=lambda candidate, discovery, collect: collect(),
+                              accept_candidate_evidence=lambda *args, **kwargs: minimal,
+                              ci_identity=lambda: None,
                               probe_native_loader=lambda *a: {}, minimal_review=lambda *a: minimal,
                               probe_candidate_ui=lambda *a: {}, materialize=materialize,
                               _load=lambda name: (SimpleNamespace(probe_recombination=recombine) if name == "windows_recombine"

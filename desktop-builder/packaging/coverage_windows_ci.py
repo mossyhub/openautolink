@@ -182,8 +182,272 @@ def minimal_review(inventory, review, policy, probe):
             {"code": "WINDOWS_FROZEN_UI_UNTESTED", "detail": "Require native frozen inner BuilderWindow on windows and offscreen and separate terms preview, bound to this candidate."},
         ])
         verify_python_downstream(result, BASE)
+        _correct_bootstrap_static_mapping(result, review)
     audit(inventory, result)
     return result
+
+
+BOOTSTRAP_CORRECTED_COMPONENTS = frozenset({
+    "qt-Core", "qt-Gui", "qt-Network", "qt-Widgets", "qt-plugins",
+    "pyside-shiboken", "cffi", "cryptography",
+})
+
+
+def _correct_bootstrap_static_mapping(result, historical):
+    """Remove an unsupported edge, not supplier licenses or other static edges."""
+    import copy
+    import hashlib
+    historical_bytes = REVIEW.read_bytes()
+    historical_sha256 = "e5b6ceba87c8d96afcb13d52a0032446b0f6212acd73ff750ab74762fbff8998"
+    if hashlib.sha256(historical_bytes).hexdigest() != historical_sha256:
+        raise ValueError("Changed historical evidence for bootstrap mapping correction")
+    canonical = json.loads(historical_bytes)
+    if (any(historical.get(k) != canonical[k] for k in ("supplier_inputs", "supplier_matches"))
+            or [c for c in historical["components"] if c["id"] in BOOTSTRAP_CORRECTED_COMPONENTS]
+            != [c for c in canonical["components"] if c["id"] in BOOTSTRAP_CORRECTED_COMPONENTS]):
+        raise ValueError("Unreviewed supplier/notice/component for bootstrap mapping correction")
+    items = []
+    gate = _load("build")
+    for component in result["components"]:
+        if component["id"] not in BOOTSTRAP_CORRECTED_COMPONENTS:
+            continue
+        for asset in component["notices"]:
+            gate.coverage_asset(BASE, asset)
+        names = {m["input"] for m in historical["supplier_matches"]
+                 if m["payload"] in {p["path"] for p in component["payload"]}}
+        items.append({"component": component["id"], "payload": copy.deepcopy(component["payload"]),
+                      "notices": copy.deepcopy(component["notices"]),
+                      "suppliers": [copy.deepcopy(s) for s in historical["supplier_inputs"] if s["path"] in names]})
+        component["statically_linked"] = [e for e in component["statically_linked"] if e != "microsoft-msvc"]
+    result["bootstrapMappingCorrection"] = {
+        "historicalReviewSha256": historical_sha256,
+        "scope": "exact-runtime-free-bootstrap-suppliers-only",
+        "rationale": "Official Qt/PySide/Shiboken LGPL/GPL, CFFI MIT-0 and cryptography Apache/BSD supplier grants are retained. MSVC compilation or dynamic runtime imports alone do not establish a static Microsoft edge. This removes an unsupported mapping, not a claim of universal absence or an exemption from evidenced obligations.",
+        "items": items,
+    }
+
+
+def _digest(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _native_identity(identity):
+    if (not isinstance(identity, dict)
+            or set(identity) != {"checkoutCommit", "expectedCommit", "trackedCheckoutDirty", "runner", "runId", "runAttempt"}
+            or not re.fullmatch(r"[0-9a-f]{40}", str(identity.get("checkoutCommit", "")))
+            or identity["checkoutCommit"] != identity["expectedCommit"]
+            or identity["trackedCheckoutDirty"] is not False or identity["runner"] != "windows-2022"
+            or any(not isinstance(identity[k], str) or not re.fullmatch(r"[1-9][0-9]*", identity[k])
+                   for k in ("runId", "runAttempt"))):
+        raise ValueError("Native clean Windows CI identity required")
+
+
+def _bound_probe(probe, inventory, identity, status):
+    data = inventory.get("inventory", inventory)
+    if (not isinstance(probe, dict) or probe.get("schema") != 1 or probe.get("status") != status
+            or probe.get("notQualification") is not True or "failureCode" in probe
+            or probe.get("identity") != identity or probe.get("originalUnchanged") is not True
+            or probe.get("sourceEvidenceVerified") is not True
+            or any(not _digest(data.get(k)) or probe.get(k) != data[k]
+                   for k in ("artifactSha256", "builderSourceSha256"))):
+        raise ValueError("Missing or mismatched candidate-bound native probe")
+
+
+def validate_candidate_evidence(inventory, review, policy, evidence, *, identity):
+    """Replay report contracts, not signatures or claims of human consent.
+
+    Reports are collected in-process by the native build; JSON alone does not
+    establish their authenticity. Missing probes leave their named gate closed;
+    supplied but malformed/stale/failed probes reject the entire submission.
+    """
+    _native_identity(identity)
+    if not isinstance(evidence, dict) or evidence.keys() - {
+            "loaderProbe", "candidateSmoke", "recombinationProbe", "bootstrapProbe"}:
+        raise ValueError("Unknown Windows evidence kind")
+    loader = evidence.get("loaderProbe", {})
+    result = minimal_review(inventory, review, policy, loader)
+    if (result.get("collectionMode") != BOOTSTRAP_MODE or loader.get("identity") != identity
+            or loader.get("scope") != "nonresource-PE-sections-with-debug-timestamps-zeroed-and-critical-headers"
+            or loader.get("supplierSha256") != "7ed67be1a51d6d7c6d0d912b77e61c0950f8cdb7b9403f1de4da46c5506b337f"
+            or "failureCode" in loader
+            or not any(s.get("name") == ".text" for s in loader["sections"])
+            or not all(_digest(s.get("sha256")) for s in loader["sections"])):
+        raise ValueError("Runtime-free native candidate/loader identity and exact comparison required")
+    data = inventory.get("inventory", inventory)
+    actual = _payload_map(data["payload"])
+    _load("windows_setup").assert_external_runtime(data["payload"])
+    # Split the historical combined gate without discarding installation paths.
+    installation = next(b for b in result["blockers"] if b["code"] == "WINDOWS_BOOTSTRAP_UNVALIDATED")
+    installation.update(
+        detail="Native clean-machine interactive Microsoft installer acceptance, cancellation and failure paths remain untested. Installed-runtime smoke and native unit replay are not human installer integration or assent.",
+        installationPaths={"acceptance": "not-tested", "cancellation": "not-tested", "failure": "not-tested"},
+        unitReplay="separate-unit-tests-not-human-integration")
+    result["blockers"].append({"code": "WINDOWS_INSTALLED_RUNTIME_UNTESTED",
+        "detail": "Require exact outer extraction/stub and native BuilderWindow smoke with an already installed runtime; this does not exercise installation."})
+    resolved = set()
+    ui = evidence.get("candidateSmoke")
+    if ui is not None:
+        _bound_probe(ui, inventory, identity, "evidence-only")
+        shots = ui.get("screenshots", [])
+        preview = ui.get("termsPreview", {})
+        if (not isinstance(shots, list) or len(shots) != 2
+                or [s.get("platform") for s in shots] != ["windows", "offscreen"]
+                or not all(_digest(s.get("sha256")) for s in shots)
+                or preview.get("platform") != "windows" or not _digest(preview.get("sha256"))
+                or preview.get("termsToken") != policy["pythonDownstream"]["termsToken"]
+                or preview.get("assent") != "not-given"):
+            raise ValueError("Separate frozen builder and non-assenting terms preview required")
+        verify_python_downstream(result, BASE)
+        resolved.add("WINDOWS_FROZEN_UI_UNTESTED")
+    replacement = evidence.get("recombinationProbe")
+    if replacement is not None:
+        _bound_probe(replacement, inventory, identity, "passed")
+        core = "PySide6/Qt6Core.dll"
+        matches = [m for m in review["supplier_matches"] if m["payload"] == core]
+        suppliers = [s for s in review["supplier_inputs"] if len(matches) == 1 and s["path"] == matches[0]["input"]]
+        runtime = {"system": "Windows", "architecture": "x86_64", "frozen": True,
+                   "qtPlatform": "windows", "coreSha256": replacement.get("modifiedSha256"),
+                   "pluginSha256": actual["PySide6/plugins/platforms/qwindows.dll"]["sha256"],
+                   "bundledCore": True, "bundledPlugin": True, "builderWindow": True}
+        if (len(suppliers) != 1 or matches[0]["member"] != core
+                or matches[0]["sha256"] != actual[core]["sha256"]
+                or replacement.get("scope") != "native-windows-private-QtCore-overlay-replacement"
+                or replacement.get("supplierWheelSha256") != suppliers[0]["sha256"]
+                or replacement.get("supplierMember") != core
+                or replacement.get("originalSha256") != actual[core]["sha256"]
+                or replacement.get("modifiedSha256") == actual[core]["sha256"]
+                or replacement.get("archivedCoreSha256") != replacement.get("modifiedSha256")
+                or replacement.get("originalSize") != actual[core]["size"]
+                or replacement.get("modifiedSize") != actual[core]["size"] + len(_load("windows_recombine").MARKER)
+                or replacement.get("mutation") != "non-loaded-file-overlay-only"
+                or replacement.get("originalCoverageRejected") is not True
+                or replacement.get("runtime") != runtime
+                or any(not _digest(replacement.get(k)) for k in ("modifiedSha256", "archivedCoreSha256",
+                       "replacementArtifactSha256", "instrumentationSha256", "screenshotSha256"))):
+            raise ValueError("Exact supplier Qt replacement must actually load with bundled qwindows")
+        resolved.add("WINDOWS_RECOMBINATION_UNTESTED")
+    bootstrap = evidence.get("bootstrapProbe")
+    if bootstrap is not None:
+        _bound_probe(bootstrap, inventory, identity, "passed")
+        nsis = json.loads((BASE / "provenance/windows-setup.lock.json").read_text(encoding="utf-8"))["nsis"]
+        stub = bootstrap.get("loader", {})
+        if (bootstrap.get("scope") != "native-windows-private-bootstrap-installed-runtime"
+                or bootstrap.get("humanInstallation") != "not-tested-no-assent-automated"
+                or bootstrap.get("extraction") != "exact-payload-verified"
+                or not _digest(bootstrap.get("outerSha256")) or not _digest(bootstrap.get("screenshotSha256"))
+                or stub.get("status") != "exact-nonresource-sections"
+                or stub.get("supplierStubSha256") != nsis["stubSha256"]
+                or stub.get("supplierArchiveSha256") != nsis["sha256"]
+                or not stub.get("sections") or not all(_digest(s.get("sha256")) for s in stub["sections"])
+                or stub.get("imports") != sorted(["advapi32.dll", "shell32.dll", "ole32.dll", "comctl32.dll",
+                                                   "user32.dll", "gdi32.dll", "kernel32.dll"])):
+            raise ValueError("Exact supplier bootstrap extraction and native qwindows evidence required")
+        resolved.add("WINDOWS_INSTALLED_RUNTIME_UNTESTED")
+    return result, resolved
+
+
+PYTHON_EMBEDDED_ID = "microsoft-cpython-embedded"
+PYTHON_EMBEDDED_LICENSE = "LicenseRef-Microsoft-CPython-3.12.10-Embedded-Code"
+PYTHON_EMBEDDED_SCOPE = ("Microsoft Distributable Code embedded only in unmodified official CPython 3.12.10 "
+                         "Windows embeddable archive binaries; no standalone Microsoft DLLs, other suppliers, "
+                         "or restrictions on independently licensed code.")
+PYTHON_PARENTS = frozenset({"cpython", "cpython-libffi", "cpython-openssl"})
+
+
+def _split_python_embedded_terms(result):
+    """Use Python's actual downstream grant, never extend it to another supplier."""
+    import copy
+    parents = [c for c in result["components"] if c["id"] in PYTHON_PARENTS]
+    for parent in parents:
+        parent["statically_linked"] = [PYTHON_EMBEDDED_ID if e == "microsoft-msvc" else e
+                                      for e in parent["statically_linked"]]
+    old = next(c for c in result["components"] if c["id"] == "microsoft-msvc")
+    component = {"id": PYTHON_EMBEDDED_ID, "version": "CPython 3.12.10 Windows binary build",
+                 "license": PYTHON_EMBEDDED_LICENSE, "license_scope": PYTHON_EMBEDDED_SCOPE,
+                 "provenance": "Official Python Windows LICENSE lines 283-320 permits compliant downstream redistribution; supplier member hashes retained. Source-bound protective assent mechanism, not a claim of assent.",
+                 "payload": [], "statically_linked": [], "notices": copy.deepcopy(old["notices"])}
+    result["components"].append(component)
+    # Only evidenced static scopes survive the derived mapping correction.
+    items = []
+    for parent in result["components"]:
+        if "microsoft-msvc" not in parent["statically_linked"]:
+            continue
+        for entry in parent["payload"]:
+            matches = [m for m in result["supplier_matches"] if m["payload"] == entry["path"]]
+            if entry["path"] == "@bootloader":
+                matches = [{"input": "pyinstaller-6.13.0-py3-none-win_amd64.whl",
+                            "member": result["loaderProbe"]["supplierMember"]}]
+            if len(matches) != 1:
+                raise ValueError("Unresolved embedded-code supplier identity")
+            supplier = next(s for s in result["supplier_inputs"] if s["path"] == matches[0]["input"])
+            items.append({"component": parent["id"], "payload": entry["path"], "sha256": entry["sha256"],
+                          "supplier": supplier["path"], "supplierSha256": supplier["sha256"],
+                          "member": matches[0]["member"],
+                          "supplierMemberSha256": result["loaderProbe"]["supplierSha256"] if entry["path"] == "@bootloader" else matches[0]["sha256"],
+                          "missingEvidence": "Applicable downstream redistribution terms for the evidenced static Microsoft runtime in this exact supplier loader; CPython's grant does not apply."})
+    old["provenance"] = "Evidenced static Microsoft runtime in the exact PyInstaller runw.exe supplier loader (supplier bootloader-building documentation describes the static runtime); downstream grant not established by the retained notices. No standalone runtime DLLs."
+    old["license_scope"] = "Microsoft runtime statically embedded in the exact PyInstaller supplier runw.exe only; not Qt, PySide, Shiboken, CFFI, cryptography or CPython."
+    return items
+
+
+def accept_candidate_evidence(inventory, review, policy, evidence, *, identity):
+    """Resolve fixed gates only from this candidate's corresponding native proof."""
+    import copy
+    result, resolved = validate_candidate_evidence(inventory, review, policy, evidence, identity=identity)
+    result["windowsEvidence"] = copy.deepcopy(evidence)
+    if "WINDOWS_FROZEN_UI_UNTESTED" in resolved:
+        items = _split_python_embedded_terms(result)
+        resolved.add("WINDOWS_EMBEDDED_MICROSOFT_TERMS_UNVERIFIED")
+        if items:
+            result["blockers"].append({"code": "WINDOWS_EMBEDDED_MICROSOFT_SUPPLIER_GRANTS_UNPROVEN",
+                "detail": "CPython's exact downstream grant and scoped protective terms are bound. The exact PyInstaller loader retains an evidenced static Microsoft runtime scope: which applicable supplier downstream redistribution terms cover that embedded runtime? No paid VS entitlement or human assent is inferred.",
+                "items": items})
+    result["blockers"] = [b for b in result["blockers"] if b["code"] not in resolved]
+    result["status"] = "blocked" if result["blockers"] else "reviewed"
+    audit(inventory, result)
+    return result
+
+
+def validate_python_embedded_route(component, coverage, base):
+    """Shared-gate route for the exact Python downstream grant, no DLL route.
+
+    Source evidence is hash-pinned, not signed. This validates a retained
+    in-process native report contract; it does not certify a human's assent.
+    """
+    if (coverage.get("schema") != 2 or coverage.get("system") != "Windows"
+            or coverage.get("architecture") != "x86_64" or coverage.get("collectionMode") != BOOTSTRAP_MODE
+            or component.get("id") != PYTHON_EMBEDDED_ID or component.get("license") != PYTHON_EMBEDDED_LICENSE
+            or component.get("payload") != [] or component.get("sources")
+            or component.get("statically_linked") != []):
+        raise ValueError("Microsoft CPython route requires embedded-only Windows supplier scope")
+    canonical = json.loads(REVIEW.read_text(encoding="utf-8"))
+    policy = json.loads(BOOTSTRAP_POLICY.read_text(encoding="utf-8"))
+    if (coverage.get("supplier_matches") != canonical["supplier_matches"]
+            or coverage.get("supplier_inputs") != canonical["supplier_inputs"]):
+        raise ValueError("Changed Microsoft embedded-code supplier bindings")
+    evidence = coverage.get("windowsEvidence", {})
+    loader = evidence.get("loaderProbe", {})
+    inventory = {"payload": coverage.get("observed_payload"),
+                 **{key: loader.get(key) for key in ("artifactSha256", "builderSourceSha256")}}
+    audit(inventory, coverage)
+    expected, resolved = validate_candidate_evidence(inventory, canonical, policy, evidence,
+                                                     identity=loader.get("identity"))
+    if resolved != {"WINDOWS_FROZEN_UI_UNTESTED", "WINDOWS_RECOMBINATION_UNTESTED", "WINDOWS_INSTALLED_RUNTIME_UNTESTED"}:
+        raise ValueError("Microsoft embedded-code route needs all candidate-bound native probes")
+    _split_python_embedded_terms(expected)
+    exact = next(c for c in expected["components"] if c["id"] == PYTHON_EMBEDDED_ID)
+    if component != exact or coverage.get("pythonDownstream") != policy["pythonDownstream"]:
+        raise ValueError("Changed Microsoft embedded-code scope, notices or sourceEvidence")
+    parents = [c for c in coverage["components"] if PYTHON_EMBEDDED_ID in c["statically_linked"]]
+    if {c["id"] for c in parents} != PYTHON_PARENTS:
+        raise ValueError("Python downstream grant cannot cover another supplier")
+    for parent in parents:
+        original = next(c for c in expected["components"] if c["id"] == parent["id"])
+        if parent["payload"] != original["payload"] or parent["statically_linked"] != original["statically_linked"]:
+            raise ValueError("Changed Python supplier payload or static closure")
+    for asset in component["notices"]:
+        _load("build").coverage_asset(base, asset)
+    return True
 
 
 def verify_python_downstream(review, base):
@@ -510,6 +774,56 @@ def compare_pe_loader(frozen, supplier):
             "sections": list(actual.values()), "resourceSections": resources}
 
 
+def verify_candidate_source(executable, inventory):
+    """Check actual embedded snapshot and hash-pinned assent/source evidence."""
+    import hashlib
+    import io
+    import zipfile
+    from PyInstaller.archive.readers import CArchiveReader
+    data = inventory.get("inventory", inventory)
+    policy = json.loads(BOOTSTRAP_POLICY.read_text(encoding="utf-8"))
+    build = _load("build")
+    blob = CArchiveReader(str(executable)).extract("builder-compliance.zip")
+    with zipfile.ZipFile(io.BytesIO(blob)) as compliance:
+        if compliance.namelist().count("builder-source.zip") != 1:
+            raise ValueError("Unique embedded source required")
+        source = compliance.read("builder-source.zip")
+    if hashlib.sha256(source).hexdigest() != data.get("builderSourceSha256"):
+        raise ValueError("Candidate source digest changed")
+    with zipfile.ZipFile(io.BytesIO(source)) as snapshot:
+        for asset in policy["pythonDownstream"]["sourceEvidence"]:
+            build.coverage_asset(BASE.parent, asset)
+            name = "desktop-builder/" + asset["path"]
+            if (snapshot.namelist().count(name) != 1
+                    or hashlib.sha256(snapshot.read(name)).hexdigest() != asset["sha256"]):
+                raise ValueError("Candidate assent source differs from reviewed sourceEvidence")
+    _load("windows_setup").verify_snapshot(executable, data["builderSourceSha256"])
+
+
+def run_candidate_probe(executable, inventory, collect):
+    """Bind an in-process native probe; never turn imported JSON into evidence."""
+    import platform
+    if platform.system() != "Windows" or platform.machine().lower() not in {"amd64", "x86_64"}:
+        raise ValueError("Native Windows x64 probe required")
+    identity = ci_identity()
+    _native_identity(identity)
+    data = inventory.get("inventory", inventory)
+    build = _load("build")
+    if (build.sha256(executable) != data.get("artifactSha256")
+            or inventory.get("identity", identity) != identity):
+        raise ValueError("Candidate or identity changed before probe")
+    verify_candidate_source(executable, inventory)
+    report = collect()
+    if build.sha256(executable) != data["artifactSha256"] or ci_identity() != identity:
+        raise ValueError("Original candidate or CI identity changed during probe")
+    binding = {"schema": 1, "notQualification": True, "identity": identity,
+               "artifactSha256": data["artifactSha256"], "builderSourceSha256": data["builderSourceSha256"],
+               "originalUnchanged": True, "sourceEvidenceVerified": True}
+    if not isinstance(report, dict) or any(k in report and report[k] != value for k, value in binding.items()):
+        raise ValueError("Probe returned conflicting candidate binding")
+    return {**report, **binding}
+
+
 def probe_candidate_ui(executable, work):
     """Exercise private Windows candidate before legal gating; export hashes only.
 
@@ -541,7 +855,16 @@ def probe_candidate_ui(executable, work):
         if workspace.exists() or not target.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
             raise ValueError("Candidate smoke created workspace or failed screenshot")
         screenshots.append({"platform": qpa, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
-    return {"status": "evidence-only", "notQualification": True, "screenshots": screenshots,
+    preview = work / "candidate-terms-preview.png"
+    preview.unlink(missing_ok=True)
+    subprocess.run([str(executable), "--terms-preview", "--workspace", str(workspace),
+                    "--screenshot", str(preview)], env=env, check=True, timeout=120)
+    if workspace.exists() or not preview.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("Candidate terms preview created workspace or failed screenshot")
+    policy = json.loads(BOOTSTRAP_POLICY.read_text(encoding="utf-8"))
+    return {"schema": 1, "status": "evidence-only", "notQualification": True, "screenshots": screenshots,
+            "termsPreview": {"platform": "windows", "sha256": hashlib.sha256(preview.read_bytes()).hexdigest(),
+                             "termsToken": policy["pythonDownstream"]["termsToken"], "assent": "not-given"},
             "scope": "private-candidate-startup-only; readability, final coverage and LGPL replacement remain separate gates"}
 
 

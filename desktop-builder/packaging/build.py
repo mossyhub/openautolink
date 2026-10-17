@@ -27,12 +27,39 @@ def windows_support():
     return module
 
 
-def macos_loader_diagnostics(candidate, cache, output, discovery):
+def macos_support():
     import importlib.util
     spec = importlib.util.spec_from_file_location("macos_loader", Path(__file__).with_name("macos_loader.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.diagnose(candidate, cache, output / "macos-loader-review.json", discovery)
+    return module
+
+
+def macos_loader_diagnostics(candidate, cache, output, discovery):
+    return macos_support().diagnose(candidate, cache, output / "macos-loader-review.json", discovery)
+
+
+def macos_candidate_coverage(candidate, discovery, cache, work, coverage):
+    """Live supplier proof; no imported loader hash override or runtime relaxation."""
+    if platform.system() != "Darwin" or coverage is None:
+        raise ValueError("Mac candidate coverage requires native Mac and reviewed coverage")
+    reviewed = json.loads(coverage.read_text(encoding="utf-8"))
+    verified = macos_support().candidate_coverage(candidate, cache, discovery, reviewed)
+    destination = work / "macos-candidate-coverage"
+    destination.mkdir(exist_ok=True)
+    for component in verified["components"]:
+        assets = component.get("notices", []) + component.get("sources", [])
+        if component.get("build_instructions"):
+            assets += [component["build_instructions"]]
+        for asset in assets:
+            source = coverage_asset(coverage.parent, asset)
+            target = destination / asset["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    validate_native_coverage(discovery["payload"], verified, destination)
+    path = destination / "coverage.json"
+    path.write_text(json.dumps(verified, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def runtime_data(frozen_root: Path, compliance: Path):
@@ -79,12 +106,20 @@ def windows_candidate_coverage(candidate, discovery, cache, work, output, covera
         report["coverage"] = {"status": minimal["status"], "blockers": minimal["blockers"],
                               "payload_count": len(discovery["payload"]),
                               "component_count": len(minimal["components"])}
-        report["candidateSmoke"] = windows.probe_candidate_ui(candidate, work)
-        report["recombinationProbe"] = windows._load("windows_recombine").probe_recombination(
-            candidate, discovery, minimal, cache, work, output,
-            build=windows._load("build"), windows=windows)
-        report["bootstrapProbe"] = windows._load("windows_setup").probe_candidate(
-            candidate, discovery, cache, work, output)
+        report["candidateSmoke"] = windows.run_candidate_probe(candidate, discovery,
+            lambda: windows.probe_candidate_ui(candidate, work))
+        report["recombinationProbe"] = windows.run_candidate_probe(candidate, discovery,
+            lambda: windows._load("windows_recombine").probe_recombination(
+                candidate, discovery, minimal, cache, work, output,
+                build=windows._load("build"), windows=windows))
+        report["bootstrapProbe"] = windows.run_candidate_probe(candidate, discovery,
+            lambda: windows._load("windows_setup").probe_candidate(candidate, discovery, cache, work, output))
+        minimal = windows.accept_candidate_evidence(discovery, review, policy,
+            {key: report[key] for key in ("loaderProbe", "candidateSmoke", "recombinationProbe", "bootstrapProbe")},
+            identity=windows.ci_identity())
+        report["coverage"] = {"status": minimal["status"], "blockers": minimal["blockers"],
+                              "payload_count": len(discovery["payload"]),
+                              "component_count": len(minimal["components"])}
     except (ValueError, OSError, KeyError, subprocess.SubprocessError):
         report["collectionError"] = "WINDOWS_CANDIDATE_PROBE_OR_POLICY_FAILED"
         raise
@@ -100,6 +135,10 @@ def windows_candidate_coverage(candidate, discovery, cache, work, output, covera
             return sorted([{field: c.get(field) for field in fields} for c in components], key=lambda c: c["id"])
         if obligations(supplied.get("components", [])) != obligations(minimal["components"]):
             raise ValueError("Windows coverage override changed exact reviewed obligations")
+        if (minimal["status"] != "reviewed" or minimal["blockers"]
+                or any(supplied.get(field) != minimal.get(field) for field in
+                       ("windowsEvidence", "pythonDownstream", "collectionMode", "status", "blockers"))):
+            raise ValueError("Windows coverage override cannot erase candidate evidence or unresolved gates")
         if windows.audit(discovery, supplied)["status"] != "reviewed":
             raise ValueError("Windows coverage override is not reviewed")
         return coverage_file
@@ -234,10 +273,12 @@ def validate_native_coverage(payload: list[dict], coverage: dict, base: Path):
                 raise ValueError("Windows static notice requires exact supplier, scope and notice")
             notice_only = True
         if component.get("license", "").startswith("LicenseRef-Microsoft-"):
-            # Do not invent proprietary-source obligations or a paid-VS rule.
-            # The Python downstream grant is conditional; the package still
-            # needs a reviewed, Microsoft-only assent/distribution mechanism.
-            raise ValueError("Microsoft runtime downstream protective terms and supplier-specific distribution route remain unresolved")
+            windows = windows_support()
+            if component.get("license") == windows.PYTHON_EMBEDDED_LICENSE:
+                notice_only = windows.validate_python_embedded_route(component, coverage, base)
+            else:
+                # No paid-VS assumption and no blanket Microsoft notice route.
+                raise ValueError(f"{component['id']}: Microsoft runtime downstream protective terms and supplier-specific distribution route remain unresolved")
         if coverage.get("schema") == 2 and component.get("license") == "GPL-3.0-or-later WITH GCC-exception-3.1":
             if not isinstance(component.get("exception_basis"), str) or not component["exception_basis"].strip():
                 raise ValueError("GCC exception requires runtime/eligible-compilation basis")
@@ -840,7 +881,7 @@ def main(argv=None):
     parser.add_argument("--native-coverage", type=Path, help="License-specific exact-native-byte coverage JSON and notice/source assets (required to offer a package)")
     parser.add_argument("--audit-native", type=Path, help="Read a frozen executable into an UNQUALIFIED inventory; do not build or approve it")
     parser.add_argument("--windows-ci-cache", type=Path, help="Pinned Windows supplier/source cache; required for actual candidate loader probe before coverage")
-    parser.add_argument("--macos-ci-cache", type=Path, help="Pinned Mac supplier cache for diagnostics only; never changes coverage")
+    parser.add_argument("--macos-ci-cache", type=Path, help="Pinned Mac supplier cache; required for strict live loader comparison and native codesign verification")
     parser.add_argument("--mac-arch", choices=("native", "x86_64", "arm64"), default="native",
                         help="Native Mac runtime stage (not a standalone Mac download)")
     mode = parser.add_mutually_exclusive_group()
@@ -892,6 +933,10 @@ def main(argv=None):
         raise ValueError("Windows packaging requires --windows-ci-cache for the actual candidate loader probe")
     if system != "Windows" and args.windows_ci_cache is not None:
         raise ValueError("--windows-ci-cache requires native Windows")
+    if system == "Darwin" and args.macos_ci_cache is None:
+        raise ValueError("Mac packaging requires --macos-ci-cache for live supplier verification")
+    if system != "Darwin" and args.macos_ci_cache is not None:
+        raise ValueError("--macos-ci-cache requires native Mac")
     if system == "Darwin" and args.mac_arch not in ("native", architecture):
         raise SystemExit("Build and smoke each Mac runtime on its own native architecture")
     if architecture not in (("arm64", "x86_64") if system == "Darwin" else ("x86_64",)):
@@ -938,8 +983,9 @@ def main(argv=None):
                      "builderSourceSha256": source_sha, "payload": payload}
         report_path.write_text(json.dumps(discovery, indent=2) + "\n", encoding="utf-8")
         coverage = args.native_coverage.resolve() if args.native_coverage else None
-        if system == "Darwin" and args.macos_ci_cache is not None:
+        if system == "Darwin":
             macos_loader_diagnostics(candidate, args.macos_ci_cache, output, discovery)
+            coverage = macos_candidate_coverage(candidate, discovery, args.macos_ci_cache.resolve(), work, coverage)
         if system == "Windows":
             coverage = windows_candidate_coverage(candidate, discovery, args.windows_ci_cache.resolve(),
                                                   work, output, coverage)
@@ -948,6 +994,17 @@ def main(argv=None):
         # The final native payload must remain byte-identical; drift fails closed.
         run(*command)
         verify_embedded_compliance(candidate, compliance)
+        if system == "Darwin":
+            # Onedir keeps evidence OUTSIDE PKG: retain raw hashes, not a mask.
+            # Independently prove source code/static headers and native signature
+            # again, then require identical full EXE, prefix, PKG and supplier proof.
+            discovery = {"status": "unqualified", "artifactSha256": sha256(candidate),
+                         "builderSourceSha256": source_sha, "payload": native_inventory(candidate)}
+            report_path.write_text(json.dumps(discovery, indent=2) + "\n", encoding="utf-8")
+            macos_loader_diagnostics(candidate, args.macos_ci_cache, output, discovery)
+            first_proof = json.loads(coverage.read_text(encoding="utf-8"))["macos_loader_evidence"]
+            if macos_support().verify_candidate(candidate, args.macos_ci_cache.resolve()) != first_proof:
+                raise ValueError("Mac loader or PKG changed during second freeze")
         verify_native_compliance(candidate, compliance)
         report_path.unlink()
         (output / "windows-candidate-review.json").unlink(missing_ok=True)

@@ -307,6 +307,7 @@ def qualify(workspace, destination, *, expected_platform, builder_commit,
         selected, raw = inputs['selected'], inputs['raw']
         digest = descriptor['templateAsset']['sha256']
         report['template'] = {'provenance': inputs['provenance'],
+                              'sourcePreparation': inputs['sourcePreparation'],
                               'sourceCommit': release['sourceCommit'], 'sourceRef': release['sourceRef'],
                               'sha256': digest, 'sizeBytes': descriptor['templateAsset']['size'],
                               'descriptorSha256': file_digest(Path(template_inputs) / DESCRIPTOR_NAME),

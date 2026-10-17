@@ -10,6 +10,149 @@ from oal_builder import engine, releases as r
 from oal_builder.toolchain import BuilderError, Downloader
 
 
+def test_failure_report_retains_validated_source_without_exception_text(tmp_path, monkeypatch, capsys):
+    h = harness()
+    monkeypatch.setattr(h, 'resolve_snapshot', lambda _: {'release': release()})
+    def fail(*args, **kwargs):
+        raise RuntimeError('SECRET /private/identity https://user:password@example.com ' * 10000)
+    monkeypatch.setattr(h, 'compile_template', fail)
+    report = tmp_path / 'failure.json'
+    status = h.main(['--output', str(tmp_path / 'out'), '--cache', str(tmp_path / 'cache'),
+                     '--workspace', str(tmp_path / 'work'), '--template-mode', 'local',
+                     '--failure-report', str(report)])
+    assert status == 1
+    value = json.loads(report.read_text())
+    assert value == dict(schema=1, status='failed', templateMode='local', phase='compile',
+                         codes=['ci-template-unclassified-failure'],
+                         source={k: release()[k] for k in ('sourceRef', 'sourceCommit', 'versionName')})
+    assert report.stat().st_size < 4096
+    assert 'SECRET' not in report.read_text() + capsys.readouterr().out
+    assert not (tmp_path / 'out').exists()
+
+
+@pytest.mark.parametrize('text,codes', [
+    ('Dependency verification failed', ['ci-template-dependency-verification-failed']),
+    ('No space left on device', ['ci-template-disk-space-exhausted']),
+    ('UnknownHostException', ['ci-template-network-download-failed']),
+    ('Unresolved reference', ['ci-template-compiler-failed']),
+    ('Dependency verification failed; No space left on device',
+     ['ci-template-dependency-verification-failed', 'ci-template-disk-space-exhausted']),
+    ('opaque SECRET', ['ci-template-tool-exit-unclassified']),
+])
+def test_real_failed_process_projects_only_fixed_categories(tmp_path, text, codes):
+    import os
+    import sys
+    h = harness()
+    with pytest.raises(BuilderError) as caught:
+        engine.run_process([sys.executable, '-c', 'import sys; print(sys.argv[1]); sys.exit(7)',
+                            text + ' /private/SECRET password=SECRET'], tmp_path, dict(os.environ),
+                           threading.Event(), lambda *_: None, 'build')
+    assert h.failure_details(caught.value) == dict(codes=codes, toolExitCode=7)
+
+
+@pytest.mark.parametrize('message,code', [
+    ('ci-template-source-mismatch', 'ci-template-source-mismatch'),
+    ('ci-template-input-invalid', 'ci-template-input-invalid'),
+    ('ci-template-descriptor-invalid', 'ci-template-descriptor-invalid'),
+    ('ci-template-producer-time-budget-exceeded', 'ci-template-producer-time-budget-exceeded'),
+    ('ci-expected-release-requires-published-mode', 'ci-expected-release-requires-published-mode'),
+    ('ci-template-producer-path-not-fresh', 'ci-template-producer-path-not-fresh'),
+    ('ci-template-linux-license-consent-required', 'ci-template-linux-license-consent-required'),
+    ('Build cancelled', 'ci-template-cancelled'),
+    ('Download failed; check connectivity or GitHub API rate limit and retry', 'ci-template-network-download-failed'),
+    ('Incomplete download', 'ci-template-download-incomplete'),
+    ('build: managed tool could not start (on Apple Silicon, legacy SDK tools may require Rosetta)', 'ci-template-tool-start-failed'),
+    ('template: tool output did not close after exit; incomplete output discarded. Check for leftover tools before retrying.', 'ci-template-tool-output-incomplete'),
+    ('ci-template-SECRET', 'ci-template-unclassified-failure'),
+    ('Compiler failure SECRET', 'ci-template-unclassified-failure'),
+    ('x' * 100000, 'ci-template-unclassified-failure'),
+])
+def test_known_failures_are_exact_allowlist_not_arbitrary_text(message, code):
+    assert harness().failure_details(BuilderError(message)) == {'codes': [code]}
+
+
+@pytest.mark.parametrize('failure', ['unavailable', 'mismatch', 'malformed-source', 'report-write'])
+def test_report_covers_resolution_failures_and_never_prints_write_errors(tmp_path, monkeypatch, capsys, failure):
+    h = harness()
+    selected = release()
+    if failure == 'malformed-source':
+        selected['sourceRef'] = 'SECRET'
+    monkeypatch.setattr(h, 'resolve_snapshot', lambda _: {'release': selected})
+    report = tmp_path / 'failure.json'
+    args = ['--output', str(tmp_path / 'out'), '--cache', str(tmp_path / 'cache'),
+            '--workspace', str(tmp_path / 'work'), '--template-mode', 'published',
+            '--failure-report', str(report)]
+    if failure == 'mismatch':
+        args += ['--expected-release-tag', 'v0.1.527', '--expected-source-commit', 'b' * 40]
+    if failure == 'report-write':
+        def fail(*_):
+            raise OSError('SECRET /private/path')
+        monkeypatch.setattr(engine, 'atomic_json', fail)
+    assert h.main(args) == 1
+    output = capsys.readouterr().out
+    assert 'SECRET' not in output
+    if failure == 'report-write':
+        assert 'ci-template-failure-report-write-failed' in output
+    else:
+        value = json.loads(report.read_text())
+        codes = {'unavailable': 'ci-latest-published-template-unavailable',
+                 'mismatch': 'ci-expected-published-release-mismatch',
+                 'malformed-source': 'ci-source-snapshot-invalid'}
+        assert value['codes'] == [codes[failure]]
+        assert value['source'] == (None if failure == 'malformed-source' else
+                                  {k: release()[k] for k in ('sourceRef', 'sourceCommit', 'versionName')})
+        assert 'SECRET' not in report.read_text()
+    assert not (tmp_path / 'out').exists()
+
+
+def test_workflow_uploads_only_producer_failure_json_after_attempt():
+    path = Path(__file__).resolve().parents[2] / '.github/workflows/qualify-desktop-aab.yml'
+    text = path.read_text().split('\n  native-aab:', 1)[0]
+    assert 'id: produce' in text
+    assert '--failure-report "$RUNNER_TEMP/oal-template-failure.json"' in text
+    step = text.split('- name: Upload bounded template failure report', 1)[1].split('      - name:', 1)[0]
+    assert "if: failure() && steps.produce.outcome == 'failure'" in step
+    assert 'path: ${{ runner.temp }}/oal-template-failure.json' in step
+    assert 'if-no-files-found: error' in step
+    assert 'include-hidden-files: false' in step
+    assert 'retention-days: 7' in step
+    assert '*' not in step and '.log' not in step
+
+
+@pytest.mark.parametrize('mutation', [None, 'changed-bytes', 'changed-size', 'different-commit', 'different-tag'])
+def test_latest_template_affinity_repair_is_exact_source_bound(tmp_path, mutation):
+    h = harness()
+    # The reviewed checkout already contains the upstream placeholder fix.
+    # Reconstruct the exact released manifest, then bind its real digest.
+    reviewed = (Path(__file__).resolve().parents[2] / 'app/src/main/AndroidManifest.xml').read_bytes()
+    released = reviewed.replace(b'android:taskAffinity="${applicationId}.templates"',
+                                b'android:taskAffinity="com.openautolink.app.templates"')
+    assert hashlib.sha256(released).hexdigest() == '93bdf196c22b08f84447dd6ca6010c215a4fc93060743b1322e2c048243d29aa'
+    selected = release() | {'sourceCommit': '09c75422b5f0529b7b521c628eefffe9a75273d7'}
+    if mutation == 'changed-bytes':
+        released = bytes([released[0] ^ 1]) + released[1:]
+    elif mutation == 'changed-size':
+        released += b'\n'
+    elif mutation == 'different-commit':
+        selected['sourceCommit'] = 'c' * 40
+    elif mutation == 'different-tag':
+        selected.update(sourceRef='v0.1.529', versionName='0.1.529')
+    manifest = tmp_path / 'app/src/main/AndroidManifest.xml'
+    manifest.parent.mkdir(parents=True)
+    manifest.write_bytes(released)
+    if mutation in {'changed-bytes', 'changed-size'}:
+        with pytest.raises(BuilderError, match='^ci-template-affinity-source-mismatch$') as caught:
+            h.prepare_template_affinity(tmp_path, selected)
+        assert h.failure_details(caught.value)['codes'] == ['ci-template-affinity-source-mismatch']
+        assert manifest.read_bytes() == released
+    elif mutation:
+        assert h.prepare_template_affinity(tmp_path, selected) == []
+        assert manifest.read_bytes() == released
+    else:
+        assert h.prepare_template_affinity(tmp_path, selected) == ['ci-template-v0.1.528-cluster-affinity']
+        assert manifest.read_bytes() == reviewed
+
+
 def harness():
     from scripts import ci_template
     return ci_template
@@ -185,23 +328,47 @@ def test_real_ci_metadata_adapter_drives_fresh_personalization_twice(tmp_path):
     (tmp_path / 'local-integration-result.json').write_text(json.dumps(evidence, indent=2))
 
 
-def test_linux_producer_compiles_template_once_without_user_identity(tmp_path, monkeypatch):
+@pytest.mark.parametrize('preparation_kind', ['none', 'exact528', 'historical'])
+@pytest.mark.parametrize('failure', [None, 'tools', 'source', 'source-contract', 'build',
+                                   'template-copy', 'template-verify'])
+def test_linux_producer_compiles_template_once_without_user_identity(tmp_path, monkeypatch, failure,
+                                                                   preparation_kind):
     import platform
     from oal_builder import toolchain
+    from oal_builder.native_verification import SOURCE_REF, SOURCE_COMMIT, OVERLAY_ID
+    selected = release()
+    prior = []
+    expected_preparation = []
+    if preparation_kind == 'exact528':
+        selected['sourceCommit'] = '09c75422b5f0529b7b521c628eefffe9a75273d7'
+        expected_preparation = ['ci-template-v0.1.528-cluster-affinity']
+    elif preparation_kind == 'historical':
+        selected.update(sourceRef=SOURCE_REF, sourceCommit=SOURCE_COMMIT, versionName=SOURCE_REF[1:])
+        prior = ['personal-cluster-task-affinity', OVERLAY_ID]
+        expected_preparation = prior.copy()
     h = harness()
     monkeypatch.setenv('GITHUB_ACTIONS', 'true')
     monkeypatch.setattr(platform, 'system', lambda: 'Linux')
     calls = []
+    original_affinity = h.prepare_template_affinity
+    def affinity(source, selected):
+        calls.append('affinity-preflight')
+        return original_affinity(source, selected)
+    monkeypatch.setattr(h, 'prepare_template_affinity', affinity)
     class Manager:
         def __init__(self, workspace, progress, cancel):
             self.workspace = workspace
         def install(self, accept):
             assert accept is True
             calls.append('install')
+            if failure == 'tools':
+                raise BuilderError('Download checksum mismatch')
             return dict(java='/managed/java', bundletool='/managed/bundletool.jar', env={})
-        def prepare_source(self, selected):
-            assert selected == release()
+        def prepare_source(self, requested):
+            assert requested == selected
             calls.append('source')
+            if failure == 'source':
+                raise BuilderError('Native-deps release does not match source aasdk gitlink')
             source = self.workspace / 'source'
             (source / 'gradle/wrapper').mkdir(parents=True)
             (source / 'gradle/wrapper/gradle-wrapper.properties').write_text('distributionSha256Sum=' + 'a' * 64 + '\n')
@@ -209,28 +376,65 @@ def test_linux_producer_compiles_template_once_without_user_identity(tmp_path, m
             (source / 'app').mkdir()
             (source / 'app/build.gradle.kts').write_text('oalBuilderUnsigned oalVersionCode oalVersionName appId')
             (source / 'gradlew').write_text('fixture')
-            return selected
+            if failure == 'source-contract':
+                (source / 'app/build.gradle.kts').write_text('unsupported')
+            if preparation_kind == 'exact528':
+                reviewed = (Path(__file__).resolve().parents[2] / 'app/src/main/AndroidManifest.xml').read_bytes()
+                manifest = source / 'app/src/main/AndroidManifest.xml'
+                manifest.parent.mkdir(parents=True)
+                manifest.write_bytes(reviewed.replace(b'${applicationId}.templates',
+                                                      b'com.openautolink.app.templates'))
+            return selected | {'sourceOverlays': prior}
     def run(argv, cwd, env, cancel, progress, phase):
         calls.append(argv)
         if ':app:bundleRelease' in argv:
+            if failure == 'build':
+                raise BuilderError(engine.process_failure(b'Dependency verification failed SECRET', phase, 1))
+            if failure == 'template-copy':
+                return ''  # Successful process with missing required AAB must fail closed.
             assert '--dependency-verification=strict' in argv
             assert '-PappId=' + r.TEMPLATE_APPLICATION_ID in argv
             assert '-PoalBuilderUnsigned=true' in argv
-            assert '-PoalVersionName=' + release()['versionName'] in argv
+            assert '-PoalVersionName=' + selected['versionName'] in argv
             unsigned = Path(cwd) / 'app/build/outputs/bundle/release/app-release.aab'
             unsigned.parent.mkdir(parents=True)
             unsigned.write_bytes(b'unit fixture only')
         else:
+            if failure == 'template-verify':
+                raise BuilderError(engine.process_failure(b'SECRET opaque publication failure', phase, 1))
             assert argv[1:3] == ['-I', '-S'] and 'publish_template.py' in argv[3]
-            assert argv[argv.index('--commit') + 1] == release()['sourceCommit']
+            assert argv[argv.index('--commit') + 1] == selected['sourceCommit']
         return ''
     monkeypatch.setattr(toolchain, 'Toolchain', Manager)
     monkeypatch.setattr(engine, 'run_process', run)
     monkeypatch.setattr(engine.Builder, 'build', lambda _: pytest.fail('Must not invoke community source mode'))
-    template, descriptor = h.compile_template(tmp_path / 'managed', release(), tmp_path / 'template',
-                                               accept_ci_android_licenses=True)
+    if failure is not None:
+        monkeypatch.setattr(h, 'resolve_snapshot', lambda _: {'release': selected})
+        report = tmp_path / 'failure.json'
+        assert h.main(['--output', str(tmp_path / 'out'), '--cache', str(tmp_path / 'cache'),
+                       '--workspace', str(tmp_path / 'managed'), '--template-mode', 'local',
+                       '--accept-ci-android-licenses', '--failure-report', str(report)]) == 1
+        value = json.loads(report.read_text())
+        assert value['phase'] == failure
+        expected = {'tools': 'ci-template-download-checksum-mismatch',
+                    'source': 'ci-template-native-source-mismatch',
+                    'source-contract': 'ci-template-source-contract-unsupported',
+                    'build': 'ci-template-dependency-verification-failed',
+                    'template-copy': 'ci-template-aab-missing',
+                    'template-verify': 'ci-template-tool-exit-unclassified'}
+        assert value['codes'] == [expected[failure]]
+        assert value['source']['sourceCommit'] == selected['sourceCommit']
+        assert 'SECRET' not in report.read_text()
+        assert not (tmp_path / 'out').exists()
+        return
+    diagnostic = {}
+    template, descriptor = h.compile_template(tmp_path / 'managed', selected, tmp_path / 'template',
+                                               accept_ci_android_licenses=True, diagnostic=diagnostic)
+    assert diagnostic.get('sourcePreparation', []) == expected_preparation
     assert template.read_bytes() == b'unit fixture only'
     assert descriptor.name == r.DESCRIPTOR_NAME
+    assert calls.index('source') < calls.index('affinity-preflight') < next(
+        i for i, c in enumerate(calls) if isinstance(c, list) and ':app:bundleRelease' in c)
     assert sum(isinstance(c, list) and ':app:bundleRelease' in c for c in calls) == 1
     assert not list((tmp_path / 'managed/private').rglob('*'))
     assert not any('jarsigner' in str(c) or 'keytool' in str(c) for c in calls)
@@ -336,12 +540,99 @@ def test_shared_inputs_bind_exact_source_descriptor_and_bundle(tmp_path):
         h.load_inputs(output)
 
 
-def input_fixture(directory):
+def test_success_provenance_roundtrips_exact528_preparation(tmp_path):
+    h = harness()
+    selected = release() | {'sourceCommit': '09c75422b5f0529b7b521c628eefffe9a75273d7'}
+    template, descriptor = input_fixture(tmp_path / 'input', selected)
+    preparation = ['ci-template-v0.1.528-cluster-affinity']
+    output = tmp_path / 'shared'
+    h.export_inputs(selected, template, descriptor, output,
+                    provenance='local-linux-template', source_preparation=preparation)
+    loaded = h.load_inputs(output)
+    assert loaded['release'] == selected  # Immutable tag is not the effective patched source.
+    assert loaded['sourcePreparation'] == preparation
+    assert json.loads((output / 'provenance.json').read_text()) == {
+        'schema': 2, 'kind': 'local-linux-template', 'sourcePreparation': preparation,
+        'descriptorSha256': hashlib.sha256(descriptor.read_bytes()).hexdigest()}
+    assert (output / r.DESCRIPTOR_NAME).read_bytes() == descriptor.read_bytes()
+    assert {p.name for p in output.iterdir()} == {
+        'release.json', 'template.aab', r.DESCRIPTOR_NAME, 'provenance.json'}
+
+
+@pytest.mark.parametrize('boundary', ['export', 'import'])
+@pytest.mark.parametrize('case', ['unknown', 'commit', 'tag', 'historical', 'published',
+                                 'duplicate', 'string', 'object', 'null'])
+def test_source_preparation_rejects_unbound_or_untrusted_claims(tmp_path, boundary, case):
+    h = harness()
+    selected = release() | {'sourceCommit': '09c75422b5f0529b7b521c628eefffe9a75273d7'}
+    preparation = ['ci-template-v0.1.528-cluster-affinity']
+    provenance = 'local-linux-template'
+    if case == 'unknown':
+        preparation = ['SECRET /private/key']
+    elif case == 'commit':
+        selected['sourceCommit'] = 'c' * 40
+    elif case == 'tag':
+        selected.update(sourceRef='v0.1.529', versionName='0.1.529')
+    elif case == 'historical':
+        preparation = ['personal-cluster-task-affinity']
+    elif case == 'published':
+        provenance = 'published-release-template'
+    elif case == 'duplicate':
+        preparation *= 2
+    elif case == 'string':
+        preparation = preparation[0]
+    elif case == 'object':
+        preparation = {'ci-template-v0.1.528-cluster-affinity': 'SECRET'}
+    elif case == 'null':
+        preparation = None
+    template, descriptor = input_fixture(tmp_path / 'input', selected)
+    if provenance == 'published-release-template':
+        selected, _ = h.local_metadata(selected, template, descriptor)
+    output = tmp_path / 'shared'
+    if boundary == 'export':
+        with pytest.raises(BuilderError, match='^ci-template-input-invalid$'):
+            h.export_inputs(selected, template, descriptor, output,
+                            provenance=provenance, source_preparation=preparation)
+        assert not output.exists()  # Reject before exporting arbitrary supplied strings.
+    else:
+        h.export_inputs(selected, template, descriptor, output, provenance=provenance)
+        path = output / 'provenance.json'
+        value = json.loads(path.read_text())
+        value['sourcePreparation'] = preparation
+        path.write_text(json.dumps(value))
+        with pytest.raises(BuilderError, match='^ci-template-input-invalid$'):
+            h.load_inputs(output)
+
+
+@pytest.mark.parametrize('source_kind', ['exact528', 'historical'])
+def test_successful_producer_main_exports_actual_preparation(tmp_path, monkeypatch, source_kind):
+    from oal_builder.native_verification import SOURCE_REF, SOURCE_COMMIT, OVERLAY_ID
+    h = harness()
+    selected = release() | {'sourceCommit': '09c75422b5f0529b7b521c628eefffe9a75273d7'}
+    preparation = ['ci-template-v0.1.528-cluster-affinity']
+    if source_kind == 'historical':
+        selected.update(sourceRef=SOURCE_REF, sourceCommit=SOURCE_COMMIT, versionName=SOURCE_REF[1:])
+        preparation = ['personal-cluster-task-affinity', OVERLAY_ID]
+    template, descriptor = input_fixture(tmp_path / 'input', selected)
+    monkeypatch.setattr(h, 'resolve_snapshot', lambda _: {'release': selected})
+    def compiled(workspace, actual, destination, *, diagnostic, **kwargs):
+        assert actual == selected
+        diagnostic['sourcePreparation'] = preparation
+        return template, descriptor
+    monkeypatch.setattr(h, 'compile_template', compiled)
+    output = tmp_path / 'out'
+    assert h.main(['--output', str(output), '--cache', str(tmp_path / 'cache'),
+                   '--workspace', str(tmp_path / 'work'), '--template-mode', 'local']) == 0
+    assert h.load_inputs(output)['sourcePreparation'] == preparation
+
+
+def input_fixture(directory, selected=None):
+    selected = release() if selected is None else selected
     directory.mkdir(parents=True)
-    template = directory / r.template_name(release()['sourceRef'])
+    template = directory / r.template_name(selected['sourceRef'])
     template.write_bytes(b'unit fixture; NOT an AAB or native proof')
-    descriptor = dict(schemaVersion=1, formatVersion=1, releaseTag=release()['sourceRef'],
-                      sourceCommit=release()['sourceCommit'], templateApplicationId=r.TEMPLATE_APPLICATION_ID,
+    descriptor = dict(schemaVersion=1, formatVersion=1, releaseTag=selected['sourceRef'],
+                      sourceCommit=selected['sourceCommit'], templateApplicationId=r.TEMPLATE_APPLICATION_ID,
                       transformContract=r.TRANSFORM_CONTRACT,
                       templateAsset=dict(name=template.name, size=template.stat().st_size,
                                          sha256=hashlib.sha256(template.read_bytes()).hexdigest()))

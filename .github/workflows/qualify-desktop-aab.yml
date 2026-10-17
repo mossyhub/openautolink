@@ -74,6 +74,7 @@ jobs:
       # producer uses exact latest source, never the retained historical AAB.
       # Manual/release mode defaults to actual publication, with no fallback.
       - name: Produce prepublication template once or fetch published latest
+        id: produce
         working-directory: desktop-builder
         shell: bash
         env:
@@ -81,7 +82,7 @@ jobs:
           EXPECTED_RELEASE_TAG: ${{ inputs.expected_release_tag }}
           EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
         run: |
-          args=(--output "$RUNNER_TEMP/oal-template-inputs" --cache "$RUNNER_TEMP/oal-template-cache" --workspace "$RUNNER_TEMP/oal-template-producer")
+          args=(--output "$RUNNER_TEMP/oal-template-inputs" --cache "$RUNNER_TEMP/oal-template-cache" --workspace "$RUNNER_TEMP/oal-template-producer" --failure-report "$RUNNER_TEMP/oal-template-failure.json")
           if [[ -n "$EXPECTED_RELEASE_TAG" || -n "$EXPECTED_SOURCE_COMMIT" ]]; then
             args+=(--expected-release-tag "$EXPECTED_RELEASE_TAG" --expected-source-commit "$EXPECTED_SOURCE_COMMIT")
           fi
@@ -90,6 +91,15 @@ jobs:
           else
             python -m scripts.ci_template "${args[@]}" --template-mode published
           fi
+      - name: Upload bounded template failure report
+        if: failure() && steps.produce.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: template-producer-failure-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/oal-template-failure.json
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 7
       - name: Share exact bounded public template inputs
         uses: actions/upload-artifact@v4
         with:

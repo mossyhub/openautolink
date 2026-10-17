@@ -4,8 +4,8 @@ Run these commands from `desktop-builder` on native Windows x64. Python/build
 requirements belong to the packaging runner, not to an end user. No Visual
 Studio purchase/license key is requested. Windows 10 1809+ or Windows 11 x64 is
 the recipient target; no Python, Java, Android SDK or source SDK is installed by
-the bootstrap. AAB personalization remains the primary app path; source builds
-remain available separately in Advanced options.
+the bootstrap. The community app offers AAB personalization only; maintainer
+source releases/template production remain separate and unchanged.
 
 ## Commands and artifact boundary
 
@@ -89,12 +89,15 @@ Allowlisted diagnostics available to the workflow owner:
 - existing `native-payload-review.json`
 
 These reports are explicitly `notQualification=true`. Upload only those explicit
-names, never private candidates, installed DLLs, work folders or caches. A probe
-is not authorization to change review status or remove an unknown legal blocker.
-The embedded Microsoft-code terms/static supplier scope and native assent route
-still require review; the shared gate intentionally rejects unresolved
-`LicenseRef-Microsoft-*` terms. Passing all technical probes alone cannot produce
-a public executable. This is not a demand for an end-user/publisher VS license.
+names, never private candidates, installed DLLs, work folders or caches. The
+candidate-bound acceptance step resolves only the corresponding fixed technical
+findings, never unknown blockers or a claim of human consent. The shared gate has
+one exact, conditional CPython embedded-Microsoft-code route; other supplier
+scopes remain itemized blockers, not blanket MIT or automatic permission. See
+[the evidence acceptance contract](../provenance/windows-ci-evidence-acceptance.md)
+for required hashes, identity, terms-preview/source proof, and remaining grants.
+Passing technical probes alone cannot produce a public executable. This is not
+a demand for an end-user/publisher Visual Studio license.
 
 The native unit suite includes an offline PowerShell call-order harness for
 runtime-present, decline, failed download/hash/signature, cancellation, failed

@@ -796,12 +796,19 @@ def test_windows_candidate_probe_runs_before_coverage_rejection(tmp_path, monkey
     monkeypatch.setattr(module, "probe_candidate_ui", ui)
     monkeypatch.setattr(module, "probe_native_loader", probe)
     monkeypatch.setattr(module, "minimal_review", minimal)
+    monkeypatch.setattr(module, "run_candidate_probe", lambda candidate, discovery, collect: collect())
+    monkeypatch.setattr(module, "ci_identity", lambda: None)
+    def accept(inventory, review, policy, evidence, *, identity):
+        calls.append("accept")
+        assert set(evidence) == {"loaderProbe", "candidateSmoke", "recombinationProbe", "bootstrapProbe"}
+        return {"status": "blocked", "components": [], "blockers": [{"code": "MICROSOFT_REDISTRIBUTION_UNRESOLVED"}]}
+    monkeypatch.setattr(module, "accept_candidate_evidence", accept)
     monkeypatch.setattr(module, "materialize", materialize)
     monkeypatch.setattr(build, "windows_support", lambda: module)
     discovery = {"artifactSha256": build.sha256(candidate), "builderSourceSha256": "a" * 64, "payload": []}
     with pytest.raises(ValueError, match="MICROSOFT"):
         build.windows_candidate_coverage(candidate, discovery, cache, tmp_path, output)
-    assert calls == ["probe", "minimal", "ui", "replacement", "bootstrap", "coverage"]
+    assert calls == ["probe", "minimal", "ui", "replacement", "bootstrap", "accept", "coverage"]
     report = json.loads((output / "windows-candidate-review.json").read_text())
     assert report["loaderProbe"]["status"] == "evidence-only"
     assert report["coverage"]["status"] == "blocked"
@@ -810,6 +817,10 @@ def test_windows_candidate_probe_runs_before_coverage_rejection(tmp_path, monkey
     override = tmp_path / "override.json"
     override.write_text(json.dumps({"schema": 2, "system": "Windows", "architecture": "x86_64",
         "status": "reviewed", "blockers": [], "components": [{"id": "pretend-MIT", "license": "MIT", "payload": []}]}))
+    with pytest.raises(ValueError, match="Windows coverage override"):
+        build.windows_candidate_coverage(candidate, discovery, cache, tmp_path, output, override)
+    # Matching obligations alone must not let an override erase a live gate.
+    override.write_text(json.dumps({"status": "reviewed", "blockers": [], "components": []}))
     with pytest.raises(ValueError, match="Windows coverage override"):
         build.windows_candidate_coverage(candidate, discovery, cache, tmp_path, output, override)
 
@@ -991,6 +1002,17 @@ def test_native_build_offers_direct_payload_and_hashes_every_output(tmp_path, mo
     monkeypatch.setattr(build, "smoke_artifact", fake_smoke, raising=False)
     output = tmp_path / "output"
     argv = ["--output", str(output), "--native-coverage", str(coverage_path)]
+    if system == "Darwin":
+        # This generic packaging test uses an ELF stand-in, NOT a Mac loader.
+        # Strict supplier/codesign behavior is exercised by test_macos_loader.py.
+        from types import SimpleNamespace
+        coverage["macos_loader_evidence"] = {"unitTestStandIn": True}
+        coverage_path.write_text(json.dumps(coverage))
+        monkeypatch.setattr(build, "macos_loader_diagnostics", lambda *args: None)
+        monkeypatch.setattr(build, "macos_candidate_coverage", lambda *args: coverage_path)
+        monkeypatch.setattr(build, "macos_support", lambda: SimpleNamespace(
+            verify_candidate=lambda *args: coverage["macos_loader_evidence"]))
+        argv += ["--macos-ci-cache", str(tmp_path)]
     if system == "Windows":
         argv += ["--windows-ci-cache", str(tmp_path)]
     assert build.main(argv) == 0
