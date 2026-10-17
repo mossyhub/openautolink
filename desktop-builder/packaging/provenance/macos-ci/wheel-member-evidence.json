@@ -1,0 +1,1091 @@
+{
+  "status": "supplier-observations-not-frozen-byte-matches",
+  "members": [
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/lib/QtCore.framework/Versions/A/QtCore",
+      "sha256": "33d144794c6ca8fa009040a2f4c8ec1c33d5bb14784a5e783b572a51aceac6ca",
+      "slices": {
+        "x86_64": {
+          "sha256": "2ff95c9d502c3b91f3f2dd4bda2cf8782eb1cd9258668d21d174c0e0acfd9db1",
+          "size": 6177616,
+          "dependencies": [
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/ApplicationServices",
+            "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+            "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libz.1.dylib",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "7a400e71f55d4e2880547de480d72f4cce7f7f9d5d20308b330ea1dc8ee6ca3e",
+          "size": 5714888,
+          "dependencies": [
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/ApplicationServices",
+            "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+            "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libz.1.dylib",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              5670448,
+              44440
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/lib/QtDBus.framework/Versions/A/QtDBus",
+      "sha256": "27c1a0a440f809f02ef445b667db021d566a7398d083204d677b2629319e1d71",
+      "slices": {
+        "x86_64": {
+          "sha256": "38234135a759282958daa0754a17dcf961678747c9d0075d0739d4951c1e054f",
+          "size": 691088,
+          "dependencies": [
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "fca9e9428139d2920a649bfb53e8dabc6ce2d2920c9a9c2109e333927805c297",
+          "size": 683512,
+          "dependencies": [
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              678080,
+              5432
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/lib/QtGui.framework/Versions/A/QtGui",
+      "sha256": "39cb18231555aa0ebd52e30cc5eeedca6e54f40f909d502d9a6731442786cedf",
+      "slices": {
+        "x86_64": {
+          "sha256": "10816bbcb036745ab07c5ed9bbdef9c3a2388499c194ea97880d169aaf290342",
+          "size": 9146592,
+          "dependencies": [
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/Carbon.framework/Versions/A/Carbon",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics",
+            "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/System/Library/Frameworks/QuartzCore.framework/Versions/A/QuartzCore",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtDBus.framework/Versions/A/QtDBus",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/usr/lib/libz.1.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "607f83a1e8c46623a311adb6235f8a398887c77d5e2012ae0b3715a9f321f73f",
+          "size": 8409224,
+          "dependencies": [
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/Carbon.framework/Versions/A/Carbon",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics",
+            "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/System/Library/Frameworks/QuartzCore.framework/Versions/A/QuartzCore",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtDBus.framework/Versions/A/QtDBus",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/usr/lib/libz.1.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              8343888,
+              65336
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/lib/QtNetwork.framework/Versions/A/QtNetwork",
+      "sha256": "ebb5149a3ad646b7e3dbe5e138457f1fbbe7111e64ff38d0815b1226a62149da",
+      "slices": {
+        "x86_64": {
+          "sha256": "247051771dab10235ecf728f2dbe54ebcdb6b805ee3d9087018b5ab812e57e68",
+          "size": 1740936,
+          "dependencies": [
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+            "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+            "/System/Library/Frameworks/SystemConfiguration.framework/Versions/A/SystemConfiguration",
+            "/System/Library/Frameworks/CFNetwork.framework/Versions/A/CFNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libz.1.dylib",
+            "/usr/lib/libresolv.9.dylib",
+            "/System/Library/Frameworks/GSS.framework/Versions/A/GSS",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "f5749c9b2e1c142cb06e6066a28cd49d1a99e45f49bfbf09b5310f2127f29b2d",
+          "size": 1708728,
+          "dependencies": [
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+            "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+            "/System/Library/Frameworks/SystemConfiguration.framework/Versions/A/SystemConfiguration",
+            "/System/Library/Frameworks/CFNetwork.framework/Versions/A/CFNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libz.1.dylib",
+            "/usr/lib/libresolv.9.dylib",
+            "/System/Library/Frameworks/GSS.framework/Versions/A/GSS",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              1695360,
+              13368
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/lib/QtWidgets.framework/Versions/A/QtWidgets",
+      "sha256": "1331fad05c0e9828653edc0299dedfb55498f7bdf3aa9ff4d6f153722c50eaab",
+      "slices": {
+        "x86_64": {
+          "sha256": "454399de562871be0c2d97e16c9731ebf7ddc3fd0053644ad9a9a2d079bafd2e",
+          "size": 6637688,
+          "dependencies": [
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/usr/lib/libz.1.dylib",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "25fe2c6da31ae4a4e09cb59c59d97cfc6914143625b1a61b0a0ccfdd2bb9252f",
+          "size": 6257288,
+          "dependencies": [
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/usr/lib/libz.1.dylib",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              6208656,
+              48632
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/plugins/networkinformation/libqscnetworkreachability.dylib",
+      "sha256": "48a6798cab930a33a541ccca213d80738f9fce7f4e6eff8ef4937d361e8bc264",
+      "slices": {
+        "x86_64": {
+          "sha256": "240877c93b35c4e1d34186a3a6840b72fc79907e8eb31bc5374a29ef609f31dc",
+          "size": 30624,
+          "dependencies": [
+            "/System/Library/Frameworks/SystemConfiguration.framework/Versions/A/SystemConfiguration",
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "d0785b5956dfb0bd212abe63d442e814b1d95477fe842491ed0a2db1326b2d01",
+          "size": 55792,
+          "dependencies": [
+            "/System/Library/Frameworks/SystemConfiguration.framework/Versions/A/SystemConfiguration",
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              55200,
+              592
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/plugins/platforms/libqcocoa.dylib",
+      "sha256": "a81f175e5666b7d3e2fb48e1b938932096c2995e3ad6d247cc684dd5bcd953c8",
+      "slices": {
+        "x86_64": {
+          "sha256": "54d94f6c247e0c9de625f4501d1f82dc62d88ba9ad1ec76beafb9c177651192a",
+          "size": 903544,
+          "dependencies": [
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/Carbon.framework/Versions/A/Carbon",
+            "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+            "/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/IOSurface.framework/Versions/A/IOSurface",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "/System/Library/Frameworks/QuartzCore.framework/Versions/A/QuartzCore",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/ApplicationServices",
+            "/System/Library/Frameworks/ColorSync.framework/Versions/A/ColorSync",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics",
+            "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "efb1a03e716040146392e96dbaff7c9443a274762783093b3f99208d2e993fba",
+          "size": 933984,
+          "dependencies": [
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/Carbon.framework/Versions/A/Carbon",
+            "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+            "/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/IOSurface.framework/Versions/A/IOSurface",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "/System/Library/Frameworks/QuartzCore.framework/Versions/A/QuartzCore",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/ApplicationServices",
+            "/System/Library/Frameworks/ColorSync.framework/Versions/A/ColorSync",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics",
+            "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              926592,
+              7392
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/plugins/platforms/libqoffscreen.dylib",
+      "sha256": "cb146d4bd45ddb75dce2dad19e02f27d4fb22dc0068de505aa07612ad5b8fbb5",
+      "slices": {
+        "x86_64": {
+          "sha256": "c3643374f53b94d039f7b74512a8147276a59bde1672ad694e8ea47cce0c765e",
+          "size": 110024,
+          "dependencies": [
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "eb8f3b96c3b5a2aad6ebbd18a5e9d38c94736d32f1200c8f038acd1d5a428972",
+          "size": 135744,
+          "dependencies": [
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              134560,
+              1184
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/plugins/styles/libqmacstyle.dylib",
+      "sha256": "7cfce93a0b049a5d12be1e3841f88fcb147b79556da84d222c7642408f58feb6",
+      "slices": {
+        "x86_64": {
+          "sha256": "8aacb858fa1023f4d40abdf8a4fdd1b93b13e55dcc7103d8c23a43f96e8f9977",
+          "size": 216832,
+          "dependencies": [
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "@rpath/QtWidgets.framework/Versions/A/QtWidgets",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics",
+            "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "f640e9484c28a338e2f0ab39acfc1048b702d053c935048d75eaf1232389c261",
+          "size": 230976,
+          "dependencies": [
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "@rpath/QtWidgets.framework/Versions/A/QtWidgets",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics",
+            "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              229056,
+              1920
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/plugins/tls/libqcertonlybackend.dylib",
+      "sha256": "600e05dea623eac2c3981614767b3ce66a8fbb80a2a8560297cce2d0dc43c5cd",
+      "slices": {
+        "x86_64": {
+          "sha256": "09218e250727b8fb2f94f89b0297853f6c2fb161a79b9384acf7ec682439e841",
+          "size": 85848,
+          "dependencies": [
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "bd05f5d2e7306bf1078642ec1914634021db3a43a253baa19f00afcef7cb24e6",
+          "size": 111416,
+          "dependencies": [
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              110416,
+              1000
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/plugins/tls/libqopensslbackend.dylib",
+      "sha256": "396fdba0bbcfb8679512934c03ea6c68ddcfc66d49bd7cdb159edee477d8666b",
+      "slices": {
+        "x86_64": {
+          "sha256": "ef42a3768cedcea2b63720c8a9abb91c16748caa1db6fed588eecdcf712e306d",
+          "size": 283736,
+          "dependencies": [
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "a755741e166007744703582820e270dd9380a299ec36af555a5f5a7aab501f37",
+          "size": 306216,
+          "dependencies": [
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              303680,
+              2536
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/Qt/plugins/tls/libqsecuretransportbackend.dylib",
+      "sha256": "2aa6382d11e81a1e129e83e5ac40c0fe63eb773f2512517351e87247b277e61d",
+      "slices": {
+        "x86_64": {
+          "sha256": "7b95aa52467c2d9fb8a9bbbd75b947849c64613b4aae0df011b1cfe6dada9f43",
+          "size": 206344,
+          "dependencies": [
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "1be054e22795d74d1ade00bdf029db05fb8613f1fbab2bc3223b8b75e4bbe7d7",
+          "size": 233024,
+          "dependencies": [
+            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              231056,
+              1968
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/QtCore.abi3.so",
+      "sha256": "29763b65a078a5b87688215ce967f43cc9b0b63ff7fce657ecb519abbb757f1c",
+      "slices": {
+        "x86_64": {
+          "sha256": "e65bc474070599010c49a8b34ddbc732a65b701def77f0fc0a4c4163c83d5260",
+          "size": 5798808,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/System/Library/Frameworks/CoreBluetooth.framework/Versions/A/CoreBluetooth",
+            "/System/Library/Frameworks/EventKit.framework/Versions/A/EventKit",
+            "/System/Library/Frameworks/Contacts.framework/Versions/A/Contacts",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/System/Library/Frameworks/AVFoundation.framework/Versions/A/AVFoundation",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "af93201c31a7182040203f0c16b7e6fdd77ed01dc8fade21934f1bc6036f61a0",
+          "size": 5762544,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/System/Library/Frameworks/CoreBluetooth.framework/Versions/A/CoreBluetooth",
+            "/System/Library/Frameworks/EventKit.framework/Versions/A/EventKit",
+            "/System/Library/Frameworks/Contacts.framework/Versions/A/Contacts",
+            "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "/System/Library/Frameworks/AVFoundation.framework/Versions/A/AVFoundation",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib",
+            "/usr/lib/libobjc.A.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              5717744,
+              44800
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/QtDBus.abi3.so",
+      "sha256": "e951417de3c474cc57947d597720016db68e6ba574f42ff0173e4265a6c2dc1c",
+      "slices": {
+        "x86_64": {
+          "sha256": "6731164a1be176848f1624ddd44f17d47dc7e68df9257c8684ccb4c9dbf46261",
+          "size": 503904,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/QtDBus.framework/Versions/A/QtDBus",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "937b32656abdfd229142641204023b89b5d6cddfa926ddebde8bbcea48e94e04",
+          "size": 540864,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/QtDBus.framework/Versions/A/QtDBus",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              536544,
+              4320
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/QtGui.abi3.so",
+      "sha256": "6269f19fb301ee9e172c8d244251d2dee82a6af4ce9843a90472ee154d630e12",
+      "slices": {
+        "x86_64": {
+          "sha256": "c6e57a83632897a938eac26e123f1ea91e61e6ee4e14839979f036bc39b200e8",
+          "size": 6618672,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "9ecfbc3eddbbe042e8ec7a55ed515405e8196da36fb80913224f35e8c7baafc0",
+          "size": 6663824,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              6612016,
+              51808
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/QtNetwork.abi3.so",
+      "sha256": "707104a2fa87a80d21fd7e7d9aaa183eefde23d17011a72a07289dee6e7e3289",
+      "slices": {
+        "x86_64": {
+          "sha256": "aaefa5a531a28aefc2ca39469a8dcabfbfeac4e104e422abc1c970b04896c7e9",
+          "size": 1825096,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "333830a3ded6be3e4f1b5677dd7fa256c9212ad6caf7a7c1ebf863f8fb23de39",
+          "size": 1872880,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/QtNetwork.framework/Versions/A/QtNetwork",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              1858224,
+              14656
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/QtWidgets.abi3.so",
+      "sha256": "fa6b67f41fe667ee0607c2e67a0aa3726eae760afb58193c95f8c3567d6bc486",
+      "slices": {
+        "x86_64": {
+          "sha256": "fdc38f1f8234b6ab974414d2afe8895acc6225c55478260efb3f918e78a70e81",
+          "size": 10023016,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/QtWidgets.framework/Versions/A/QtWidgets",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "74f43d4931bf3c8c4b08bd7b68613024aeb1fdef0013f6f15fe66ddc9cf507ee",
+          "size": 10322112,
+          "dependencies": [
+            "@rpath/libpyside6.abi3.6.8.dylib",
+            "@rpath/QtWidgets.framework/Versions/A/QtWidgets",
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtGui.framework/Versions/A/QtGui",
+            "/System/Library/Frameworks/AGL.framework/Versions/A/AGL",
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+            "/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO",
+            "/System/Library/Frameworks/Metal.framework/Versions/A/Metal",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              10241952,
+              80160
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "PySide6_Essentials-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "PySide6/libpyside6.abi3.6.8.dylib",
+      "sha256": "64e04f2c5f4a5eeb2380871464485c5c70c377761e05fc326b87d460bf0e02c7",
+      "slices": {
+        "x86_64": {
+          "sha256": "0c4bd93f85b4d3cba90ae3c186a11451b99c8fe7172a81db91abae7a5a74aff4",
+          "size": 356576,
+          "dependencies": [
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "17ae13e77511b5ea14daa0bb4f936416c156e9f2acdb822ea71f9321fdc7fd3d",
+          "size": 376424,
+          "dependencies": [
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "@rpath/QtCore.framework/Versions/A/QtCore",
+            "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+            "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+            "/System/Library/Frameworks/UniformTypeIdentifiers.framework/Versions/A/UniformTypeIdentifiers",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              373344,
+              3080
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "cffi-2.1.1-cp312-cp312-macosx_11_0_arm64.whl",
+      "member": "_cffi_backend.cpython-312-darwin.so",
+      "sha256": "90177c34e639a067ee1f5a2028320b3af2940d47dfaf9583727b59abf0b3263f",
+      "slices": {
+        "arm64": {
+          "sha256": "90177c34e639a067ee1f5a2028320b3af2940d47dfaf9583727b59abf0b3263f",
+          "size": 229552,
+          "dependencies": [
+            "/usr/lib/libffi.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              227616,
+              1936
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "cffi-2.1.1-cp312-cp312-macosx_10_15_x86_64.whl",
+      "member": "_cffi_backend.cpython-312-darwin.so",
+      "sha256": "06c2126f671cfd2b366bd22d5ea3f1c4c35675b050cecd89e351f1b9f989e689",
+      "slices": {
+        "x86_64": {
+          "sha256": "06c2126f671cfd2b366bd22d5ea3f1c4c35675b050cecd89e351f1b9f989e689",
+          "size": 192416,
+          "dependencies": [
+            "/usr/lib/libffi.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        }
+      }
+    },
+    {
+      "input": "shiboken6-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "shiboken6/Shiboken.abi3.so",
+      "sha256": "566e82031e550db11e875acac7c145ee4aa5705dc40d2ae92f42ff7fea12afbf",
+      "slices": {
+        "x86_64": {
+          "sha256": "c771dff4f830710d4c1dc18fea72e6bec3a09214fc4af7475ea0b42c05ef142c",
+          "size": 28744,
+          "dependencies": [
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "9e64cd9fa13f81dac6523ee6fa445268b5c0f56565c3627cbf1768b5eb8747ed",
+          "size": 58032,
+          "dependencies": [
+            "@rpath/libshiboken6.abi3.6.8.dylib",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              57424,
+              608
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "shiboken6-6.8.3-cp39-abi3-macosx_12_0_universal2.whl",
+      "member": "shiboken6/libshiboken6.abi3.6.8.dylib",
+      "sha256": "0d4358f9fe49a63eebc292dc59b04df0617301121cfc2f1ee5c1d5d284d2a952",
+      "slices": {
+        "x86_64": {
+          "sha256": "8d1870c3025498a9325ab2b3a07fd31f3a0df00a1a93feaf59af35220110a203",
+          "size": 493520,
+          "dependencies": [
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "c05277183dc740358721b721f8ed994efc9aacebd372510a5cf804e20f5fef7d",
+          "size": 498816,
+          "dependencies": [
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              494800,
+              4016
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "pyinstaller-6.13.0-py3-none-macosx_10_13_universal2.whl",
+      "member": "PyInstaller/bootloader/Darwin-64bit/run",
+      "sha256": "1d0b39d295f1d1f0406d113c273ae3e7a3383891321ee302dbe0872c1453b288",
+      "slices": {
+        "x86_64": {
+          "sha256": "b2e95936b016db1063c3f2540bd3b1d997c761838d4c86c858e290a91dd72fd8",
+          "size": 52280,
+          "dependencies": [
+            "/usr/lib/libSystem.B.dylib",
+            "/usr/lib/libz.1.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "2ffd2c23e6ecdf6cdb9140f56d97e730fb617fbeb0dc7de2814e986315dcd212",
+          "size": 89968,
+          "dependencies": [
+            "/usr/lib/libSystem.B.dylib",
+            "/usr/lib/libz.1.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              89152,
+              816
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "input": "cryptography-44.0.3-cp39-abi3-macosx_10_9_universal2.whl",
+      "member": "cryptography/hazmat/bindings/_rust.abi3.so",
+      "sha256": "cb6ef6f6f747d350fd193e28c9b27a5ab4f97ffd0c8ba0d720db49ec435d184d",
+      "slices": {
+        "x86_64": {
+          "sha256": "02fffe63a61405dc45a1cae20b164ddebb8db34240e9b31d38e1485b5e4cc5be",
+          "size": 10448744,
+          "dependencies": [
+            "/usr/lib/libiconv.2.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": []
+        },
+        "arm64": {
+          "sha256": "67227fe8c9420932eb1d676876914aae38df90a9b721d016f8338efebfd68b34",
+          "size": 9539792,
+          "dependencies": [
+            "/usr/lib/libiconv.2.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ],
+          "codeSignatureRanges": [
+            [
+              9465696,
+              74096
+            ]
+          ]
+        }
+      },
+      "embeddedSupplierMarkers": [
+        "/rust/deps/addr2line-0.24.2",
+        "/rust/deps/gimli-0.31.1",
+        "/rust/deps/hashbrown-0.15.2",
+        "/rust/deps/object-0.36.7",
+        "/rust/deps/rustc-demangle-0.1.24",
+        "OpenSSL 3.4.1 11 Feb 2025",
+        "rustc/05f9846f893b09a1be1fc8560e33fc3c815cfecb"
+      ]
+    }
+  ]
+}

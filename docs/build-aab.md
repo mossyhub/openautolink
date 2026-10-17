@@ -1,168 +1,142 @@
-# One-command personal AAB builder
+# Create your personal OAL car app
 
-The supported self-build path requires **Docker only** on an x86-64 Linux host or x86-64 Windows with WSL. The builder handles source updates, Android tooling, native dependencies, package identity, signing, versioning, and AAB verification inside isolated containers.
+**Personalize the latest supported release AAB** to create a signed bundle for your own Google Play Console app—without compiling OpenAutoLink. The tool applies your app identity, optional user-supplied CarPlay files, and your upload signature.
 
-## Quick start
+## Create your AAB
 
-### Linux
+The desktop tool personalizes precompiled AABs only. It does not compile OpenAutoLink or install the Android SDK/NDK.
 
-Install Docker Engine, then run:
+This tool is for people creating their **own** Play app, not the maintainer's existing app. The maintainer keeps the established release signing and Play publishing process; public releases additionally provide a credential-free AAB template and its verification metadata.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/build-aab.sh | bash
-```
+Your saved personal application ID, upload key, version history and encrypted backup carry forward between updates. Continue with the [dedicated AAOS Internal Test installation guide](install-gm.md) after creating your AAB.
 
-### Windows
+### Easy path: personalize a release AAB
 
-1. Install Docker Desktop.
-2. Enable Docker Desktop integration for your WSL distribution.
-3. Open that WSL terminal and run the same command:
+The planned flow is to verify a supported, credential-free release AAB, apply your unique application ID and package-specific manifest values, optionally include your authorized CarPlay pair, and sign the result with your own upload key. Compiled app code is reused rather than rebuilt, avoiding Gradle and Android SDK/NDK setup for this path. Packaging/signing tools are still needed and will be managed by the tool.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/build-aab.sh | bash
-```
+Use a designated personalization-ready **AAB**, not the release APK renamed to `.aab`. The published template is **unsigned** and contains no private CarPlay authentication files. The tool checks its tag, source commit, format, size and SHA-256 against the release metadata hosted by the official GitHub repository. This trusts that repository and HTTPS; it is not verification against the maintainer's Android signing certificate. Your finished personalized AAB is signed with your own upload key. The maintainer's private key is neither needed nor shared. Google Play separately manages the app-signing key for your own app.
 
-The host needs Docker, `curl`, `flock` (normally supplied by `util-linux`), and an x86-64 CPU; Android Studio, Java, Gradle, the Android SDK, NDK, CMake, Git, OpenSSL, and aasdk are supplied or managed by the builder image. ARM64 hosts are not currently published or supported. The bootstrap defaults to an immutable tested GHCR image digest rather than a mutable `latest` tag.
+**This is not an available download yet.** Local bundle transformation, signing and generated-APK checks pass on the retained test bundle. Latest-release template publication, native personalization qualification and separate Play/car verification remain outstanding. The screenshots below show the AAB-personalization wizard, not proof of release readiness.
 
-## First run
+The steps below follow the AAB-personalization workflow.
 
-The setup screen asks for:
+> [!IMPORTANT]
+> **Desktop packaging preview:** downloadable desktop release files are not published yet. The Windows EXE, Linux single executable, and macOS app in a DMG are packaging targets, not currently available downloads. Do not download the car or companion APK expecting it to be the desktop builder. The steps below describe the desktop workflow; the existing [advanced Docker fallback](manual-build.md) is separate.
 
-- a unique Android application ID, such as `com.yourname.openautolink`;
-- the name to place in the personal signing certificate;
-- a two-letter country code.
-- the highest version code already uploaded to this Play app (`0` for a new app);
-- an optional existing upload keystore, alias, and hidden passwords.
+The result is for **Internal Test on the dedicated Android Automotive OS track**. It is the car app, not an Android phone app. After building, follow [Install through your own Internal Test](install-gm.md).
 
-Do not use `com.openautolink.app`: that ID belongs to the upstream app. The builder passes your ID through Gradle; it does not rename Kotlin source packages because they are not the Play identity.
+## Before you start
 
-The container then:
+- Use a computer and a private local folder you trust, with internet access and room for managed tools, templates, caches and outputs. The tool manages Java/bundle tools, not the Android SDK/NDK. Do not choose a temporary or shared folder.
+- Keep the managed folder between builds. It holds your permanent application identity and upload-signing key as well as replaceable build tools.
+- Review the [Play account registration requirements](install-gm.md#1-register-your-play-console-developer-account), including the one-time registration fee and Android-device verification for new personal accounts. **iPhone owners should check that prerequisite before paying.**
+- For CarPlay, have your own compatible authentication pair ready, with authorization to use and include it. Android Auto does not require these files. Read [CarPlay authentication files](carplay-private-mfi-assets.md).
 
-1. creates a private state directory at `~/.openautolink-builder`;
-2. clones current OpenAutoLink source;
-3. downloads both native dependency archives from the upstream `native-deps` release;
-4. verifies each archive against the SHA-256 digest published by GitHub;
-5. imports your existing upload key, or generates a 4096-bit personal key with a random local password;
-6. builds a minified, unsigned release AAB without mounting the signing secrets;
-7. starts a separate network-disabled signing container with the key mounted read-only;
-8. verifies the AAB signature, signer certificate, application ID, version code, and version name;
-9. writes the AAB, portable checksum, and build metadata to `~/.openautolink-builder/output`.
+## 1. Open the desktop builder
 
-## Later builds
+Once a desktop release is actually published, choose the file for your operating system:
 
-Run the same command again:
+| Computer | Packaging target | How it opens |
+|---|---|---|
+| Windows x86_64 | `OpenAutoLink-Builder.exe` | Open the executable |
+| Linux x86_64 | `OpenAutoLink-Builder` | Allow execution in a supporting file manager, then open it |
+| Mac Intel or Apple Silicon | `OpenAutoLink-Builder.dmg` | Copy the single app to Applications and open it; architecture selection is automatic |
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/build-aab.sh | bash
-```
+You do not install Python or PySide separately. Windows packages are not Authenticode-signed; Mac packages are not Developer ID-signed or notarized. Do not bypass warnings for an unverified download or globally disable OS security protections.
 
-The builder remembers the package ID, signing identity, signing key, Gradle cache, native-dependency cache, and last successful local version. It ensures the pinned builder image is present, fetches current `main`, and creates the next signed AAB.
+Linux targets Ubuntu 22.04 graphical desktops with X11/XWayland and normal graphics libraries. Browser downloads can lose the executable permission, and some file managers do not launch binaries by double-click. A one-time **Properties → Permissions → Allow executing** step may be necessary. See [platform requirements and qualification limits](../desktop-builder/packaging/README.md). Packaging and startup tests are not proof of a successful Android build on every platform.
 
-The version counter advances **only after** the AAB has built and passed verification. A failed build does not consume the next local version code.
+## 2. Choose your managed folder and application identity
 
-## Output
+![The desktop builder's app identity screen](screenshots/builder-identity.png)
 
-A successful build produces files similar to:
+*Actual Linux read-only wizard capture; paths and generated IDs differ on your computer. Controls are disabled only for screenshot testing.*
 
-```text
-~/.openautolink-builder/output/
-├── openautolink-car-0.1.1-1a2b3c4d.aab
-├── openautolink-car-0.1.1-1a2b3c4d.aab.sha256
-├── openautolink-car-0.1.1-1a2b3c4d.json
-├── latest.aab -> openautolink-car-0.1.1-1a2b3c4d.aab
-└── latest.json -> openautolink-car-0.1.1-1a2b3c4d.json
-```
+1. Select a private, permanent **managed folder**. The builder keeps its own tools there rather than changing your system Java installation or global PATH.
+2. For a new app, keep the generated unique **application ID** unless you have a specific reason to change it. It is the package identity Google Play uses, not the display name. Do not use the upstream `com.openautolink.app`.
+3. If you are continuing an app made by this builder on another computer, **restore its encrypted identity backup first**. Do not create a fresh identity and try to use it as an update.
+4. Continue to the optional CarPlay files. No source-build mode or Android SDK consent is needed.
 
-The JSON records the exact source commit, application ID, version, and signing-certificate SHA-256 fingerprint. Check that metadata before uploading to Play.
+The builder remembers your chosen folder on this computer. If that folder or its saved identity disappears, it blocks building and asks you to locate or restore it; it does not silently create a replacement. Only the folder path and application ID are stored in the operating system's per-user preferences. Keys, downloads, and build state stay in the managed folder. Use **Create another app** only when you intentionally want a different Play app.
 
-## Protect and back up the signing identity
+The builder generates an Android **upload-signing key** for a new identity. No source-package renaming or manual keystore commands are needed. Keep that same application ID and key for later builds.
 
-Before uploading the first AAB, back up:
+Already have a Play app from another build system? Stop before making a new key: its existing package ID, accepted upload key, and highest uploaded version code must be preserved. A new desktop identity is not an automatic migration. The [advanced fallback](manual-build.md#existing-apps) describes existing-keystore input.
 
-```text
-~/.openautolink-builder/secrets/
-```
+## 3. Select optional CarPlay authentication files
 
-That directory contains the upload key and its generated local password. It is created with restrictive filesystem permissions and is never copied into the builder image or source repository.
+![The desktop tool’s AAB personalization and optional CarPlay files](screenshots/builder-options.png)
 
-**Losing it can prevent future updates to the same Play app.** Anyone who obtains it can sign updates under your upload identity. Keep at least one encrypted offline backup; do not commit, email, or publicly share it.
+*Actual Linux read-only wizard capture. Disabled controls are a screenshot-test safeguard, not a requirement in normal use.*
 
-The fetched source and Gradle build never receive the real secrets directory. Signing runs separately with networking disabled and the key mounted read-only. The trusted builder image still necessarily handles the key during signing, so use a computer and Docker daemon you trust.
+For CarPlay, select both files using the wizard's file pickers:
 
-## Saved state
+- `identity.pk8` — a matching P-256 private key in PKCS#8 format.
+- `certificate.p7b` — its single X.509 certificate in supported DER or PKCS#7 form.
 
-```text
-~/.openautolink-builder/
-├── config/       # package ID, signer label, country, successful version
-├── secrets/      # upload key and generated password — back this up
-├── source/       # builder-owned OpenAutoLink checkout
-├── cache/        # Gradle and verified native dependencies
-├── staging/      # unsigned bundle handed to the offline signing step
-├── home/         # container user home
-└── output/       # verified AABs, checksums, and metadata
-```
+Use only a compatible pair you are authorized to include. Each file must be nonempty and at most 16 KiB. Choose both or leave both empty; a partial pair is not usable. Renaming unrelated files does not make them valid.
 
-The checkout is builder-owned. Do not make source edits there; every run resets tracked files to the requested upstream ref.
+These are **not** your Android upload-signing key. The builder does not generate or supply a CarPlay authentication identity. A build without them can be used for Android Auto but does not, by itself, enable CarPlay. Bundled files can be extracted from the distributed app; encrypted identity backups do not hide them inside an AAB. See the [authorization and privacy limits](carplay-private-mfi-assets.md).
 
-## Useful commands
+## 4. Build the signed AAB
 
-Show the saved non-secret configuration:
+Start the build and keep the application open while it works. The desktop workflow:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/build-aab.sh | bash -s -- --show-config
-```
+1. Resolves the latest stable GitHub release to its exact source revision and checks compatibility.
+2. Verifies and downloads that release’s template plus managed signing tools.
+3. Changes only the reviewed package-specific bundle fields and optional assets, preserving compiled app code.
+4. Signs the AAB with your saved upload key.
+5. Checks the result and shows the artifact path, package ID, source revision, and version.
 
-Choose a different package ID while retaining the existing signing key:
+Use the **successful build result**, not a partial file left after an error. Select the resulting `.aab` when Play Console asks for an app bundle. Do not upload a desktop executable, companion APK, backup archive, checksum, or metadata file instead.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/build-aab.sh | bash -s -- --reset-config
-```
+Before uploading, record the displayed application ID and version code and locate the AAB on disk. Keep the accompanying build metadata so you can identify the source and signing identity later. A local build is not a Play upload, a rollout, or proof that a particular car is eligible.
 
-The signer name and country are part of the certificate created on the first run; changing labels later cannot rewrite that certificate. To create a different signing identity, use a new state directory and treat it as a separate Play app.
+## 5. Make an encrypted identity backup
 
-Use a different state location:
+Use the desktop backup action **before your first upload**:
 
-```bash
-OAL_BUILDER_STATE_DIR="$HOME/my-oal-builder" \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/build-aab.sh)"
-```
+1. Choose a backup location outside the managed folder, preferably on a separate private drive.
+2. Set a strong backup password and keep it in a password manager separately from the archive.
+3. Keep the encrypted archive and the password safe. Anyone with both can recover the upload-signing identity.
+4. Make a fresh backup after successful updates so the saved version state stays current.
 
-For automation or testing, set `OAL_NONINTERACTIVE=1` with `OAL_APP_ID`, `OAL_SIGNER_NAME`, and `OAL_COUNTRY`.
+To move computers, choose a new managed folder in the builder and use **Restore** with that archive and password before building. Check that the restored application ID matches your existing Play app. Do not overwrite your only working identity while testing a restore. Keep the original folder until the restored copy has been checked.
 
-For an existing Play app, also set `OAL_START_VERSION_CODE` to its highest uploaded version code and provide `OAL_EXISTING_KEYSTORE`, `OAL_KEY_ALIAS`, `OAL_STORE_PASSWORD`, and—when different—`OAL_KEY_PASSWORD`. These values are used only during one-time import; later runs read the protected state directory.
+An identity backup is not a backup of every downloaded tool, build cache, or external CarPlay file. Keep authorized CarPlay originals separately and reselect them when needed. Losing the signing identity can interrupt updates; creating a random replacement key is not a repair for an existing Play app.
 
-## Migrating an existing self-published app
+## 6. Install through Internal Test
 
-Use the exact application ID, upload keystore, key alias, and passwords used for the existing Play app. Enter the highest version code already uploaded, not the version name. The first builder output will use the next code.
+Continue with the [complete Play Console and car installation guide](install-gm.md). It covers registration, a free app, the dedicated **Android Automotive OS** selector, uploading the AAB, tester enrollment, and choosing the **car** in Google Play's web install picker.
 
-The container validates the imported keystore and alias before Gradle runs. After building, it extracts the signer certificate from the AAB and requires its SHA-256 fingerprint to match that imported key.
+The desktop builder does not sign in to Google, create your developer account, accept declarations for you, upload to Play, or install onto the car. Those steps stay under your control.
 
-If the original Play app uses a different app-signing arrangement, confirm in Play Console that the key you import is the accepted **upload key**. A new key cannot update the existing app unless Google Play has completed an upload-key reset.
+## Later updates
 
-## Uploading to Google Play
+1. Open the builder with the **same managed folder**, or restore your latest identity backup first.
+2. Check for the latest stable GitHub release, then personalize its supported AAB template using the saved application ID and upload key. Reselect your authorized CarPlay pair if required.
+3. Check that the new version code is higher than every code already uploaded to this Play app. If another computer or build system uploaded a newer code, reconcile that state before uploading; an old backup cannot know about later uploads.
+4. Back up the updated identity state.
+5. Upload the new `.aab` to the **same app's dedicated Android Automotive OS Internal Test**, then roll it out.
+6. Give the car internet access and confirm the update in its Play Store.
 
-Upload `latest.aab` through your own Play Console app and internal or closed testing track. Continue with the self-publishing instructions in [Installing OpenAutoLink on a locked GM vehicle](install-gm.md#independent-route-self-publish).
+The tool checks the **latest stable GitHub release** at the start of each operation, then uses that resolved revision consistently. It requires a compatible template and verified metadata for that release. If the latest release is unsupported or lacks its template, the tool reports that rather than silently selecting an older release. There is no arbitrary source-ref field in the beginner workflow.
 
-Keep the same builder state directory for every update. Google Play requires each update to retain the application ID and signing lineage and use a higher version code.
+Earlier source-build qualification used **v0.1.526** at `580a68d772afc97e444019504178f1678731feb6`; that historical result does not qualify a newer release or the new mode integration. Installing a newer desktop tool does not update the car by itself: create and upload its AAB using the same identity.
 
-## Troubleshooting
+## Developer source builds
 
-### Docker is not reachable
+The previous source-build implementation is preserved for development, but is not offered by this desktop tool. The maintainer’s existing release/signing and Play publishing workflow is unchanged. [Manual source-build notes](manual-build.md) remain separate from this user guide.
 
-Start Docker Engine or Docker Desktop. On Windows, verify that Docker Desktop WSL integration is enabled for the distribution where the command runs.
+## If something goes wrong
 
-### Package ID rejected
+| Problem | What to check |
+|---|---|
+| A download or build fails | Keep the managed folder, note the failing step, and retry. Do not erase the identity to fix a network problem. |
+| The folder is already in use | Let the other build finish or cancel it; do not run two builders against the same folder. |
+| Only one CarPlay file is selected | Select its matching partner or clear both to build without bundled CarPlay authentication. |
+| Package ID or signing key differs from the existing Play app | Restore the correct identity; do not upload a new identity as an update. |
+| Play rejects a reused version code | Compare with the highest code already uploaded, not just the installed version. |
+| The AAB builds but the car cannot install it | Follow the separate [membership, rollout, eligibility, and propagation checks](install-gm.md#troubleshooting). |
 
-Use at least two lowercase dot-separated segments. Each segment must start with a letter and contain only lowercase letters, digits, or underscores.
-
-### Builder state copied to another machine
-
-Preserve file permissions and copy the entire state directory, especially `secrets/` and `config/build-state.properties`. Run the normal command afterward.
-
-### Build fails while downloading
-
-Run the same command again. Completed Gradle and native archives remain cached. Native archives are not extracted unless their GitHub-published digest verifies.
-
-### Start completely over
-
-Move the existing state directory to a backup location rather than deleting it. A new state directory creates a new signing key and version sequence and should not be used to update an app already published with the old key.
+Never attach upload keys, backup passwords, or CarPlay authentication files to an issue. Review screenshots and logs for personal identifiers before sharing.

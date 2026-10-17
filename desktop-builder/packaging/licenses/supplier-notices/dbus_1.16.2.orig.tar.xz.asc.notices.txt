@@ -1,0 +1,22 @@
+Supplier: https://deb.debian.org/debian/pool/main/d/dbus/dbus_1.16.2.orig.tar.xz.asc
+SHA-256: 108723e6bb2b0655abcb8ec7b06d27918bd7ac215f835ba086b45f9780cb529b
+Notice superset; not an assertion all components are shipped.
+
+===== @file =====
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAABCAAdFiEEegc60a5pT6Jb/2LlI1wJnT6zMHYFAmfAlKUACgkQI1wJnT6z
+MHZm9Q//cRfVL6A8GpWc8cZJEB7lEU+wwyCgqrdPMiTgyEk/WjgEada4LVPuaYsd
+N4jzDw3yXbFD3p5IYV2H6RgdQsgfO0TzWOtNyaIU2rn6VDib6jd7yYYlLBd15LBk
+fihiY9gqWrr/5z9as6fz6MlWIgtPiX9wqYqxCIxid4sJCQu6NKKP6AsrPCZ6PW99
+6yMRLZQOZFB8/temNk8PvsPE3H7vUowy6M2pWKk8HrYrawDNe5t8eyJkj/c5+8AF
+t+Ssic7tYMXPPEcGdIW+71dnqdxBYlU6G/G4/9K4dvro4WIV/1ot2GfSVC8fHi+v
+xUwZ3mB7FKZBcYOE8yxumi8BWbdVpjDbdDARTkkOkDHMRb7w/L8501IVjf14fVmi
+rMlenLgNEjHYz6n9/OlJlmtjOsCnR0vy9nsoItYAUEcRLVXWAbh4GRRRv55ZSmhs
+CxDtf0ExwCcfU+8sOLyHAqSEFIWzd7Fn8dK9wJMxwVJeHJcFefRmEYv/sYP6OWeH
+bx9pF3T2fGAWyZyZ6ZbfjVRCVIyB3QtCHaF6sVpnj5HuzUOfeKMVXJhIuue4BXQg
+sJeDmvixL+zxErkK8pf1YGPLbwrJpg7IThusNa2wmmfdbbZDJWtPG/UJqQBMg4vM
+ieZsaymJYjigVBmf67tGAyJUC3dO59FXur/kE+5Q/cPBGS0nzxE=
+=EmkL
+-----END PGP SIGNATURE-----
+

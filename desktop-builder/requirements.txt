@@ -1,0 +1,3 @@
+# Runtime pins: CPython 3.12; Windows/macOS/Linux.
+PySide6==6.8.3
+cryptography==44.0.3

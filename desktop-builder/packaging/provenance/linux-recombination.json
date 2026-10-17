@@ -1,0 +1,17 @@
+{
+  "status": "replacement-mechanism-tested-not-a-release",
+  "scope": "QtCore non-loaded ELF marker, unchanged machine code; private onefile rebuild using documented --add-binary route",
+  "originalQtCoreSha256": "57ca362897ec9fe2b899ec5fec5e9d26677cdda8730df7299162d92bca4a8ac1",
+  "replacementSha256": "fafc6cc4e5d43fecedb47949342b2bbbda6ac5fb9e2cdbccf747bb7c7e96d894",
+  "frozenQtCore": {
+    "path": "PySide6/Qt/lib/libQt6Core.so.6",
+    "sha256": "fafc6cc4e5d43fecedb47949342b2bbbda6ac5fb9e2cdbccf747bb7c7e96d894",
+    "size": 7244592,
+    "kind": "binary"
+  },
+  "artifactSha256": "9bb7cee08bfc2c7a88cb55f7345600735f7638883caa91cc0f1caea1ee3427cd",
+  "screenshotSha256": "2e7e65e5bcc6b722411c206fdb6a5b7983cb0571992262fde334ee9a81b5de89",
+  "workspaceCreated": false,
+  "ui": "offscreen screenshot visually checked: readable labels, text and controls",
+  "notTested": "full Qt source compilation, XCB desktop session, Windows/Mac"
+}

@@ -1,222 +1,206 @@
-# Installing OpenAutoLink on a locked GM vehicle
+# Install OAL on your car through Internal Test
 
-GM production AAOS head units do not expose ADB and do not permit APK sideloading. The car app must arrive through Google Play.
+For a locked GM Android Automotive OS head unit, install OpenAutoLink through **your own Google Play Console app and its dedicated Android Automotive OS Internal Test**. A GitHub car APK cannot be sideloaded onto these locked head units.
 
-## Build and publish through your own account
+You will build a personal signed `.aab`, upload it to your app, enroll the Google account used in the car as a tester, and tell Google Play to install it **on the car**. Do this while parked. This guide does not change the car's operating system.
 
-To use OpenAutoLink, build the app and publish it through your own Google Play Console developer account. Locked GM vehicles require Google Play delivery; APK sideloading is not supported.
-
-CarPlay requires compatible accessory authentication files that you are authorized to use. These are not included in the public build; building the app alone does not enable CarPlay.
-
-As I publish changes, you’ll need to pull the latest source, rebuild, and publish your own updates.
-
-[Build guide](build-aab.md) · [CarPlay authentication](carplay-private-mfi-assets.md)
-
-## Phone and permission setup for an installed app
-
-These steps apply once you have installed your app through Google Play:
-
-1. For wireless Android Auto only, install the matching companion APK from [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) on the Android phone. USB Android Auto and USB CarPlay do not require the companion. See the [README's phone-specific setup](../README.md#choose-your-phone-and-connection), including leaving the iPhone unpaired from vehicle Bluetooth for USB CarPlay.
-2. While parked, grant supported car permissions in the vehicle's system Settings, then **return to OpenAutoLink**. The process-owned VHAL source rechecks grants and adds newly authorized properties without restarting projection. Continue with [Wireless WPP setup](wireless-wpp.md) or the [README's USB setup](../README.md#android-auto-setup).
-
-`CAR_ENERGY` and `CAR_SPEED` are dangerous permissions on inspected Android 14 / GM firmware; `CAR_INFO` is normal (normally install-granted), not a runtime dialog permission. Mileage, tires and dynamics can be privileged/signature-only and cannot be granted to a normal Play app. Firmware and HAL support vary; granting a permission does not guarantee the vehicle exposes its properties. OpenAutoLink does not repeatedly prompt for car permissions on resume.
-
-Late-grant refresh is an implementation attempt pending vehicle validation. If EV values remain absent after returning, check Diagnostics → VHAL Property Status. A force-stop and reopen remains a fallback workaround until the surviving-process behavior is confirmed on the vehicle; it is not the expected refresh path.
-
-## Independent route: self-publish
-
-You operate your own Play Console app and testing track; Google's review and vehicle availability requirements still apply.
-
-The supported build path is the [one-command personal AAB builder](build-aab.md). On Linux or Windows WSL with Docker available, run:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/mossyhub/openautolink/main/build-aab.sh | bash
-```
-
-The first run collects the package and signing identity, creates the key, clones the source, and produces a verified AAB. Later runs reuse those details, fetch current source, and build the next version. Back up `~/.openautolink-builder/secrets/` before uploading the first AAB.
-
-Continue at [Create the Play Console app](#5-create-the-play-console-app) after the builder succeeds. The manual build steps below remain available for contributors who do not want to use the container.
-
-## Manual build path
-
-The remainder of this section describes the underlying manual process. After the one-time setup, updates use the same application ID, signing key, and Play testing track.
+**Create your AAB first:** follow [Create your AAB](build-aab.md#create-your-aab)—personalize a supported precompiled release—including the current development/download notice. No source editing is needed. For CarPlay, the build also needs your own [authorized authentication pair](carplay-private-mfi-assets.md); building or installing OAL alone does not provide it.
 
 ## Before you begin
 
-You need:
+Have these ready:
 
-- a Google Play Console developer account and completed account verification;
-- a Windows, Linux, or macOS development computer;
-- Git;
-- Android Studio or an Android SDK/NDK installation;
-- JDK 17 or 21;
-- a unique Android application ID you control;
-- an upload keystore that you will preserve and back up;
-- the Google account used by the vehicle's Play Store added as a tester.
+- Your signed car `.aab` and its recorded application ID and version code.
+- A secure backup of your builder identity and upload key.
+- A browser on your computer or phone for Play Console and the tester link.
+- The **exact Google account email used in the vehicle's Play Store**. Check the account in the car rather than assuming it is the one in your phone or desktop browser.
+- An internet connection for **the car itself**, for example home Wi-Fi or your phone's hotspot. A local car hotspot without upstream internet is not enough. [An OnStar data plan is not required](../README.md#car-internet-no-onstar-data-plan-required).
 
-> [!WARNING]
-> Keep the keystore, alias, and passwords backed up securely. A future build signed with a different key cannot update the installed app. Do not commit `secrets/`, keystores, passwords, or service credentials.
+The developer-account email and car tester email may be different. For enrollment and installation, the browser's Google identity must match the car's tester identity.
 
-## 1. Clone and prepare the source
+## 1. Register your Play Console developer account
 
-```bash
-git clone https://github.com/mossyhub/openautolink.git
-cd openautolink
-```
+If you already have a verified developer account, sign in and check for outstanding account requirements. Otherwise:
 
-Build the Android native dependencies once from the repository root:
+1. Open **[Play Console registration](https://play.google.com/apps/publish/signup)** using the Google account that will own your app. You must be at least 18.[1]
+2. Select the account type that truthfully fits you, such as **Personal** for an individual. Do not choose an organization simply to avoid verification.[1]
+3. Review the Developer Distribution Agreement and accept it only if you agree.[1]
+4. Pay Google's **US$25 one-time registration fee** using an accepted payment method. This is paid to Google, not OAL; accepted cards vary by location.[1]
+5. Supply your real identity and contact details, and complete the identity, email, phone, payment-profile, or other verification requests shown for your account. Google may ask for government ID and a card in your legal name. Do not skip outstanding account-verification tasks.[1]
+6. **New personal accounts also need access to an Android device for device verification using Google's Play Console mobile app.** Follow the device-verification task in your Console account.[1]
 
-```bash
-scripts/build-openssl-android.sh
-scripts/setup-ndk-deps.sh
-scripts/build-aasdk-android.sh
-```
+> [!IMPORTANT]
+> **iPhone owners:** you can use CarPlay with OAL, but an iPhone does not satisfy Google's Android-device verification requirement. Arrange access to a qualifying Android device and check Google's current instructions before paying. Do not assume the car's head unit can complete this mobile-app verification.[1]
 
-On Windows, run the three `.sh` dependency builders from WSL. They create the prebuilt native libraries consumed by the Android CMake build. After that, build the Android project and signed AAB from Windows PowerShell or Android Studio.
+Account verification is a Google requirement, not something the desktop builder can perform or bypass. Continue once Console lets your account create and manage the Internal Test.
 
-## 2. Choose a unique application ID
+## 2. Create your free Play Console app
 
-The default application ID is `com.openautolink.app`. Your Play Console app needs an ID unique to your account, for example:
+1. In Play Console, select **Home → Create app**.[6]
+2. Choose your default language and an app name, for example **OpenAutoLink Personal**. The name is a label; your generated package ID is the permanent identity.[6]
+3. Select **App**, not Game, and **Free**.[6]
+4. Provide a contact email you monitor if requested.[6]
+5. Read the declarations shown, including Developer Program Policies, US export laws, and Play App Signing terms. **You must review and answer truthfully**; this guide does not authorize a blanket acceptance or supply legal declarations for you.[6]
+6. Select **Create app**.[6]
 
-```text
-com.example.openautolink
-```
+If the creation form requests a package name/application ID, copy the exact value from your builder. Some Console flows establish it from the first AAB instead. In either case, check that Console and the uploaded AAB show the same ID; after the artifact is uploaded, that package name is fixed.[4]
 
-Set it in `app/build.gradle.kts`:
+![Google Play Console create-app form, including the package-name field](screenshots/play-create-app.png)
 
-```kotlin
-applicationId = findProperty("appId") as? String ?: "com.example.openautolink"
-```
+### Complete only the setup Console requires for this Internal Test
 
-Do not change this ID after publishing. Android and Google Play treat a different application ID as a different app.
+Google explicitly permits an Internal Test before all app setup is complete. Do not assume you must finish a full store listing or a Data safety questionnaire first; apps active only on Internal Test are exempt from inclusion in the Data safety section.[4]
 
-The Kotlin namespace can remain `com.openautolink.app`; it is not the Play identity.
+If Console blocks your next step with a required task, read and complete that task accurately. This can include account verification or declarations appropriate to your app. Use the [OAL privacy policy](privacy-policy.md) to understand OAL's behavior, but review your own build and configuration rather than copying answers blindly. If screenshots or listing material are requested, supply real, current app captures and accurate descriptions—not invented Console or app images.
 
-## 3. Create and preserve an upload key
+A new Internal Test can show a temporary app name/listing while Google processes it. That alone does not mean you uploaded the wrong package.[4]
 
-### Create the key on Windows
+## 3. Enable the dedicated Android Automotive OS track
 
-From PowerShell in the repository root:
+**This selector matters: OAL runs on Android Automotive OS in the car. Do not leave the release form factor set to mobile, and do not select Android Auto instead.**
 
-```powershell
-.\scripts\create-upload-keystore.ps1
-.\scripts\save-signing-credentials.ps1
-```
+In your new app:
 
-The key is written under the gitignored `secrets/` directory. Back it up outside the repository.
+1. Open **Test and release → Advanced settings**.[2]
+2. Select **Form factors**.[2]
+3. Click **+ Add form factor → Android Automotive OS**, if it is not already listed.[2]
+4. Next to **Android Automotive OS**, click **Manage**.[2]
+5. Under **Releases**, select **Use a dedicated release track for Android Automotive OS**.[2]
+6. Click **Save**. Google notes that this dedicated-track choice cannot subsequently be changed.[2]
 
-### Create the key on Linux or macOS
+**Track setup is not the separate car-quality review opt-in.** If the page offers an additional review-policy or distribution opt-in, it is not a required step for this Internal Test. Google's car-distribution documentation lists **Internal testing → Form factor review: None**. Save the dedicated-track setting; do not turn an optional review opt-in into an installation prerequisite.[2][3]
 
-Create `secrets/upload-key.jks` with the JDK `keytool` command:
+Now open **Test and release → Testing → Internal testing**. In the page's form-factor selector choose **Android Automotive OS** (it may be labeled **Android Automotive OS only**). Before uploading, confirm both pieces of context: **Android Automotive OS** and **Internal testing**.[2][4]
 
-```bash
-mkdir -p secrets
-keytool -genkeypair \
-  -keystore secrets/upload-key.jks \
-  -alias upload \
-  -keyalg RSA \
-  -keysize 2048 \
-  -validity 9125
-```
+![Advanced settings: Android Automotive OS form factor](screenshots/play-form-factors.png)
 
-Back up the resulting keystore. Pass its passwords through environment variables when building; do not write them into tracked files.
+![Use a dedicated release track for Android Automotive OS](screenshots/play-aaos-dedicated.png)
 
-## 4. Build a signed AAB
+## 4. Create and roll out the Internal Test release
 
-### Build on Windows
+![Internal testing with Automotive OS only selected](screenshots/play-internal-test.png)
 
-```powershell
-.\scripts\bundle-release.ps1
-```
+1. On that **Android Automotive OS → Internal testing** page, select **Create new release**.[5]
+2. For your first release, follow the **Play App Signing** setup. For a new app, use Google's generated app-signing key option/default after reviewing the terms.[5][7]
+3. In **App bundles**, choose **Upload** and select the signed car `.aab` from the desktop builder's successful result. Wait for processing to finish.[5]
+4. Check that the package ID and version code shown are the ones you recorded. Do not substitute the companion APK, desktop executable, backup archive, or an unfinished build output.
+5. Enter a release name, such as **Personal internal test 1**, and truthful release notes, such as **Initial personal OAL car build**. These are examples, not required names. Use the release-note language field or tags Console supplies.[5]
+6. Select **Save** or **Save as draft**, then **Next** or the review action shown. Saving a draft alone does **not** make the app available.[5]
+7. Review the summary. Resolve blocking errors and read any warnings. Confirm the form factor is still **Android Automotive OS** and the destination is **Internal testing**.
+8. Select **Start rollout to internal testing** (or the equivalent confirmation shown) and confirm. Return to the track's **Releases** tab and verify the release is available to testers, not merely saved as a draft. If Console reports pending processing or another required action, follow that status before expecting installation.[5]
 
-The script uses DPAPI-saved credentials when available and increments the per-clone version stored in `secrets/version.properties`.
+### Two different Android signing keys
 
-### Build on Linux or macOS
+- **Upload key:** generated and saved by your desktop builder; signs the AAB you submit so Google can recognize your upload identity.
+- **App-signing key:** managed by Google with Play App Signing; signs the APKs Play delivers to the car.[7]
 
-```bash
-export OAL_KEYSTORE_PASS='your-keystore-password'
-export OAL_KEY_PASS='your-key-password'
-scripts/linux/bundle-release.sh
-```
+They are not the CarPlay `.pk8`/`.p7b` pair. Keep the same accepted upload identity for updates and protect its backup. A newly generated key is not interchangeable with the one registered for an existing app.[7]
 
-Optional variables:
+## 5. Add and select your tester list
 
-```bash
-export OAL_KEY_ALIAS='upload'
-export OAL_KEYSTORE_PATH='secrets/upload-key.jks'
-```
+Stay on the **dedicated Android Automotive OS Internal testing** track:
 
-The bundle is produced under:
+1. Open the **Testers** tab.[4]
+2. Select **Create email list**, give it a recognizable name such as **My car**, and enter the exact Google account email used in the vehicle's Play Store.[4]
+3. Save the email entries and create the list using **Save changes / Create** as shown.[4]
+4. Back in the **Testers** table, **select the checkbox for that list**. Creating a list without selecting it does not enable it for this track.[4]
+5. Supply a feedback email or URL if requested, then select **Save changes** for the track.[4]
+6. Reopen the tab and confirm the intended list is still selected and contains the car account.
 
-```text
-app/build/outputs/bundle/release/
-```
+Adding an email is only permission to join. The tester still needs to accept the invitation in the next step.[4]
 
-See [`scripts/linux/README.md`](../scripts/linux/README.md) for the Linux environment and native dependency setup.
+## 6. Copy “Join on web” and become a tester
 
-## 5. Create the Play Console app
+1. In the track's **Testers** tab, find **How testers join your test → Join on web** and copy the shareable opt-in link provided by Console. **Copy the complete URL exactly**; do not construct one from the app name or package ID.[4]
+2. Open that copied link in a browser on your computer or phone.
+3. Check the Google profile/account menu: it must be signed in as the **same Google account used by the vehicle's Play Store and saved in your tester list**. Switch accounts if necessary.
+4. Select **Become a tester** or the join/accept action shown, then confirm the page says you are a tester.[4]
+5. Follow the page's **download it on Google Play** / Google Play link. Keep the same Google identity selected there too.[4]
 
-1. Create a new app in Google Play Console.
-2. Use the same unique application ID configured in the build.
-3. Complete the required app-content, data-safety, and automotive declarations.
-4. Create an **Internal testing** or **Closed testing** release.
-5. Upload the signed release AAB.
-6. Add the Google account used by the vehicle's Play Store to the tester list.
-7. Roll out the release to that testing track.
-8. Accept the testing invitation with the same Google account if Play presents one.
+The opt-in link is not the same thing as the store listing URL. Save the real Console link privately for later. Do not depend on a Play Store search to discover an Internal Test app; use the invitation and its Play link.[4]
 
-Google may require account or app review before the release becomes available. That delay is outside OpenAutoLink.
+![Join on the web: copy your own app’s tester opt-in link](screenshots/play-join-link.png)
 
-## 6. Install in the vehicle
+## 7. Install on the car—not just on the phone
 
-1. Sign into the vehicle's Play Store with the tester account.
-2. Open the testing listing or find the app after the test release propagates.
-3. Install OpenAutoLink.
-4. Open **Settings → Apps → OpenAutoLink → Permissions**.
-5. Grant **Car information**, microphone, and any other requested permissions needed for the features you use.
-6. Open OpenAutoLink and continue with [Wireless WPP setup](wireless-wpp.md) or USB.
+1. Turn on the parked car's infotainment system and connect **the car** to working internet. Open its Play Store and confirm the tester Google account is signed in.
+2. In your phone/computer browser, use the Google Play link reached after joining the test.
+3. On that web listing, choose **Install** or **Install on more devices**, depending on the page shown.
+4. Open the device picker and select **your car** by its displayed device name. Check that it is eligible and selectable. A visible **Install** button alone is not proof of car eligibility; it may refer to a different device.[8]
+5. Confirm installation for the car. If Google requests account authentication, complete it directly with Google.
+6. Keep the car online and allow Play to deliver the app. Confirm **OpenAutoLink appears in the car's app launcher**, then open it. A web confirmation or queued request is not the same as installation on the head unit.
 
-## Testing a non-GM AAOS vehicle
+If the car is missing or marked incompatible in the picker, stop and use the eligibility checks below. Installing onto a phone does not install OAL onto the vehicle.
 
-Polestar and other AAOS owners whose vehicles do not include Android Auto can share platform questions and reports through XDA or Reddit. Do not assume the GM result transfers: Play delivery, app permissions, Bluetooth/Wi-Fi topology, audio policy, vehicle APIs, and display zoning differ by manufacturer.
+## 8. Finish phone and permission setup
 
-When reaching out, include the make, model, model year, market, AAOS version, and whether the vehicle permits APK installation. The first goal is to establish a safe installation path and a sustained rendered session before claiming feature support.
+Once the app is installed:
+
+1. While parked, open the vehicle's **Settings → Apps → OpenAutoLink → Permissions** and grant supported permissions needed for the features you use, including microphone and available car-data permissions. Then **return to OpenAutoLink**.
+2. For wireless Android Auto, install the matching companion APK from [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) on the Android phone and follow [Wireless WPP setup](wireless-wpp.md), including the companion's scan-and-send setup.
+3. USB Android Auto needs no companion. Follow the [USB instructions](../README.md#android-auto-setup).
+4. USB CarPlay needs no iPhone companion. Use a data-capable cable, leave the iPhone unpaired from the vehicle's Bluetooth, and follow [CarPlay setup](../README.md#carplay-setup), including USB and VPN consent. Your build must have a valid, authorized CarPlay authentication identity.
+
+`CAR_ENERGY` and `CAR_SPEED` are dangerous permissions on inspected Android 14 / GM firmware; `CAR_INFO` is normal and normally install-granted, not a runtime dialog permission. Some vehicle permissions are privileged/signature-only and cannot be granted to a normal Play app. Available properties vary by firmware and vehicle.
+
+OAL rechecks newly granted vehicle permissions when you return to it, but surviving-process refresh still needs vehicle validation. If EV values remain absent, inspect **Diagnostics → VHAL Property Status**; force-stop and reopen is a fallback. Installation and permission grants alone do not prove support for every vehicle-data or cluster feature. See [Compatibility](compatibility.md).
 
 ## Updating later
 
-For every update:
+1. Open the desktop tool using the **same managed folder and identity**. Check the latest stable release and create a new AAB using its supported personalization template. A missing/unsupported template is not permission to relabel an older build as the new release.
+2. Confirm the application ID is unchanged, the accepted upload key is reused, and the version code is higher than every previously uploaded code.
+3. Make a current encrypted identity backup.
+4. Open the **same Play Console app → dedicated Android Automotive OS → Internal testing**. Create a new release, upload the new `.aab`, add accurate release notes, review, and roll out as in step 4.[5]
+5. Keep the car signed in with the tester account and give it internet access. Use **Update** in its Play Store or allow automatic updates, then check the installed OAL version.
 
-1. Pull the desired source revision.
-2. Keep the same application ID.
-3. Build with the same upload key and alias.
-4. Use a higher version code.
-5. Upload the new AAB to the same Play Console app and test track.
-6. Update from the vehicle's Play Store.
+Existing enrolled testers normally keep their membership; there is no need to create another Play app or another package ID. Building an AAB or updating the desktop builder does not itself update the car.
 
-The supplied bundle scripts maintain per-clone version values in the gitignored `secrets/version.properties` file.
+## Troubleshooting
 
-## What the release APK is for
+### Membership: “not available” or cannot join
 
-GitHub Releases include `openautolink-car-vX.Y.Z.apk` for emulators, development, and AAOS systems that permit sideloading. It is not an alternate installation path for a locked GM production vehicle.
+- Check the actual Google account selected in the invitation browser, Play web listing, and car Play Store.
+- In **Android Automotive OS → Internal testing → Testers**, verify the exact email is in a list, the list is selected, and changes were saved.
+- Open the exact **Join on web** URL copied from that track, and confirm **Become a tester** completed. Do not use a guessed URL or only the store listing.[4]
 
-## Common installation failures
+### Rollout: there is no installable release
 
-### Play says the application ID already exists
+- Confirm you uploaded the signed **car AAB** to the correct app and the dedicated **Android Automotive OS** Internal Test.
+- Confirm you completed rollout, not just **Save as draft**. Check the release's actual status, processing, and outstanding errors in Console.[5]
+- If **Create new release** is disabled, inspect the specific outstanding setup task or unfinished release shown; do not assume every dashboard task must be completed.[4][5]
 
-Choose a genuinely unique application ID. Do not use `com.openautolink.app` for a new self-published Play app.
+### Eligibility: the car is absent or incompatible
 
-### A new build will not update the installed app
+- Open the car's Play Store under the tester identity while the car is online, then retry the web device picker under that same identity.
+- Confirm the dedicated **Android Automotive OS** setting and selector, not mobile or Android Auto.
+- Inspect the uploaded bundle's supported devices/compatibility in Console and compare the exact vehicle and software version. A selectable phone or an **Install** button does not prove the car is eligible.
+- Do not try to solve vehicle incompatibility by changing the package ID or signing key. Google Play eligibility and OEM support are separate from tester membership.
 
-Confirm all three match the original publication:
+### Propagation: settings are correct but the link/update has not arrived
 
-- application ID;
-- upload/app signing lineage;
-- a version code greater than the installed release.
+Test links and changes can take several hours to become available. New apps can temporarily show placeholder naming supplied by Google. Recheck the copied link and car Play Store after processing has had time to complete; no fixed delivery time is guaranteed.[4]
 
-### The app installs but lacks vehicle data or cluster features
+Keep the car online. A remote-install request can remain queued while the infotainment system is asleep or disconnected. If the delay persists, check the exact Console status and Google Play account/device state rather than repeatedly recreating the app.
 
-Installation proves only that Play accepted and delivered the package. Grant the car permissions, then check the exact vehicle in [Compatibility](compatibility.md). Vehicle APIs and display integration vary by AAOS platform.
+### Signing or version rejection
 
-### The app is absent from the vehicle's Play Store
+Use the original package ID and accepted upload key, and a version code greater than all previous uploads. Restore the correct builder identity rather than generating a replacement. If the upload key is lost, follow Google's upload-key recovery process; a different key does not automatically update the same app.[7]
 
-Check tester membership, invitation acceptance, release rollout, review status, application ID, automotive declarations, and whether the vehicle account is the same tester account.
+### Installed but vehicle features are missing
+
+Check car permissions and [Compatibility](compatibility.md). Non-GM AAOS vehicles may have different Play delivery, networking, audio policies, vehicle APIs, and display integration; a GM result is not proof of support elsewhere.
+
+## About the screenshots
+
+These are genuine captures of the blank creation form and an existing OAL app’s Console pages, not mockups. Your app name, version, and tester count will differ. Use your own package name and your own Join-on-web link. The images demonstrate navigation only; account registration, upload, rollout, enrollment, and installation still require completing the steps above. No tester emails are shown.
+
+## Sources
+
+[1] https://support.google.com/googleplay/android-developer/answer/6112435
+[2] https://support.google.com/googleplay/android-developer/answer/13295490
+[3] https://developer.android.com/training/cars/distribute
+[4] https://support.google.com/googleplay/android-developer/answer/9845334
+[5] https://support.google.com/googleplay/android-developer/answer/9859348
+[6] https://support.google.com/googleplay/android-developer/answer/9859152
+[7] https://support.google.com/googleplay/android-developer/answer/9842756
+[8] https://support.google.com/googleplay/answer/14274288?hl=en — Install apps on other devices

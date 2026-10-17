@@ -1,0 +1,1918 @@
+Supplier: https://pypi.org/project/cffi/2.1.1/
+Notice/source-header superset, not an assertion every member is linked.
+
+===== cffi-2.1.1/src/c/libffi_x86_x64/ffi.c =====
+/* -----------------------------------------------------------------------
+   ffi.c - Copyright (c) 1996, 1998, 1999, 2001  Red Hat, Inc.
+           Copyright (c) 2002  Ranjit Mathew
+           Copyright (c) 2002  Bo Thorsen
+           Copyright (c) 2002  Roger Sayle
+   
+   x86 Foreign Function Interface 
+
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files (the
+   ``Software''), to deal in the Software without restriction, including
+   without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to
+   permit persons to whom the Software is furnished to do so, subject to
+   the following conditions:
+
+   The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL CYGNUS SOLUTIONS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+   ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+   OTHER DEALINGS IN THE SOFTWARE.
+   ----------------------------------------------------------------------- */
+
+#include <ffi.h>
+#include <ffi_common.h>
+
+#include <stdlib.h>
+
+/* ffi_prep_args is called by the assembly routine once stack space
+   has been allocated for the function's arguments */
+
+extern void Py_FatalError(const char *msg);
+
+/*@-exportheader@*/
+void ffi_prep_args(char *stack, extended_cif *ecif)
+/*@=exportheader@*/
+{
+  register unsigned int i;
+  register void **p_argv;
+  register char *argp;
+  register ffi_type **p_arg;
+
+  argp = stack;
+  if (ecif->cif->flags == FFI_TYPE_STRUCT)
+    {
+      *(void **) argp = ecif->rvalue;
+      argp += sizeof(void *);
+    }
+
+  p_argv = ecif->avalue;
+
+  for (i = ecif->cif->nargs, p_arg = ecif->cif->arg_types;
+       i != 0;
+       i--, p_arg++)
+    {
+      size_t z;
+
+      /* Align if necessary */
+      if ((sizeof(void *) - 1) & (size_t) argp)
+	argp = (char *) ALIGN(argp, sizeof(void *));
+
+      z = (*p_arg)->size;
+      if (z < sizeof(int))
+	{
+	  z = sizeof(int);
+	  switch ((*p_arg)->type)
+	    {
+	    case FFI_TYPE_SINT8:
+	      *(signed int *) argp = (signed int)*(SINT8 *)(* p_argv);
+	      break;
+
+	    case FFI_TYPE_UINT8:
+	      *(unsigned int *) argp = (unsigned int)*(UINT8 *)(* p_argv);
+	      break;
+
+	    case FFI_TYPE_SINT16:
+	      *(signed int *) argp = (signed int)*(SINT16 *)(* p_argv);
+	      break;
+
+	    case FFI_TYPE_UINT16:
+	      *(unsigned int *) argp = (unsigned int)*(UINT16 *)(* p_argv);
+	      break;
+
+	    case FFI_TYPE_SINT32:
+	      *(signed int *) argp = (signed int)*(SINT32 *)(* p_argv);
+	      break;
+
+	    case FFI_TYPE_UINT32:
+	      *(unsigned int *) argp = (unsigned int)*(UINT32 *)(* p_argv);
+	      break;
+
+	    case FFI_TYPE_STRUCT:
+	      *(unsigned int *) argp = (unsigned int)*(UINT32 *)(* p_argv);
+	      break;
+
+	    default:
+	      FFI_ASSERT(0);
+	    }
+	}
+#ifdef _WIN64
+      else if (z != 1 && z != 2 && z != 4 && z != 8)
+        {
+          /* On Win64, if a single argument takes more than 8 bytes,
+             then it is always passed by reference. */
+          *(void **)argp = *p_argv;
+          z = 8;
+        }
+#endif
+      else
+	{
+	  memcpy(argp, *p_argv, z);
+	}
+      p_argv++;
+      argp += z;
+    }
+
+  if (argp - stack > (long)ecif->cif->bytes)
+    {
+      Py_FatalError("FFI BUG: not enough stack space for arguments");
+    }
+  return;
+}
+
+/* Perform machine dependent cif processing */
+ffi_status ffi_prep_cif_machdep(ffi_cif *cif)
+{
+  /* Set the return type flag */
+  switch (cif->rtype->type)
+    {
+    case FFI_TYPE_VOID:
+    case FFI_TYPE_SINT64:
+    case FFI_TYPE_FLOAT:
+    case FFI_TYPE_DOUBLE:
+    case FFI_TYPE_LONGDOUBLE:
+      cif->flags = (unsigned) cif->rtype->type;
+      break;
+
+    case FFI_TYPE_STRUCT:
+      /* MSVC returns small structures in registers.  Put in cif->flags
+         the value FFI_TYPE_STRUCT only if the structure is big enough;
+         otherwise, put the 4- or 8-bytes integer type. */
+      if (cif->rtype->size == 1 ||
+          cif->rtype->size == 2 ||
+          cif->rtype->size == 4)
+        cif->flags = FFI_TYPE_INT;
+      else if (cif->rtype->size == 8)
+        cif->flags = FFI_TYPE_SINT64;
+      else
+        cif->flags = FFI_TYPE_STRUCT;
+      break;
+
+    case FFI_TYPE_UINT64:
+#ifdef _WIN64
+    case FFI_TYPE_POINTER:
+#endif
+      cif->flags = FFI_TYPE_SINT64;
+      break;
+
+    default:
+      cif->flags = FFI_TYPE_INT;
+      break;
+    }
+
+  return FFI_OK;
+}
+
+#ifdef _WIN32
+extern int
+ffi_call_x86(void (*)(char *, extended_cif *), 
+	     /*@out@*/ extended_cif *, 
+	     unsigned, unsigned, 
+	     /*@out@*/ unsigned *, 
+	     void (*fn)());
+#endif
+
+#ifdef _WIN64
+extern int
+ffi_call_AMD64(void (*)(char *, extended_cif *),
+		 /*@out@*/ extended_cif *,
+		 unsigned, unsigned,
+		 /*@out@*/ unsigned *,
+		 void (*fn)());
+#endif
+
+int
+ffi_call(/*@dependent@*/ ffi_cif *cif, 
+	 void (*fn)(), 
+	 /*@out@*/ void *rvalue, 
+	 /*@dependent@*/ void **avalue)
+{
+  extended_cif ecif;
+
+  ecif.cif = cif;
+  ecif.avalue = avalue;
+  
+  /* If the return value is a struct and we don't have a return	*/
+  /* value address then we need to make one		        */
+
+  if ((rvalue == NULL) && 
+      (cif->flags == FFI_TYPE_STRUCT))
+    {
+      /*@-sysunrecog@*/
+      ecif.rvalue = alloca(cif->rtype->size);
+      /*@=sysunrecog@*/
+    }
+  else
+    ecif.rvalue = rvalue;
+    
+  
+  switch (cif->abi) 
+    {
+#if !defined(_WIN64)
+    case FFI_SYSV:
+    case FFI_STDCALL:
+      return ffi_call_x86(ffi_prep_args, &ecif, cif->bytes, 
+			  cif->flags, ecif.rvalue, fn);
+      break;
+#else
+    case FFI_SYSV:
+      /*@-usedef@*/
+      return ffi_call_AMD64(ffi_prep_args, &ecif, cif->bytes,
+			   cif->flags, ecif.rvalue, fn);
+      /*@=usedef@*/
+      break;
+#endif
+
+    default:
+      FFI_ASSERT(0);
+      break;
+    }
+  return -1; /* theller: Hrm. */
+}
+
+
+/** private members **/
+
+static void ffi_prep_incoming_args_SYSV (char *stack, void **ret,
+					  void** args, ffi_cif* cif);
+/* This function is jumped to by the trampoline */
+
+#ifdef _WIN64
+void *
+#else
+static void __fastcall
+#endif
+ffi_closure_SYSV (ffi_closure *closure, char *argp)
+{
+  // this is our return value storage
+  long double    res;
+
+  // our various things...
+  ffi_cif       *cif;
+  void         **arg_area;
+  unsigned short rtype;
+  void          *resp = (void*)&res;
+  void *args = argp + sizeof(void *);
+
+  cif         = closure->cif;
+  arg_area    = (void**) alloca (cif->nargs * sizeof (void*));  
+
+  /* this call will initialize ARG_AREA, such that each
+   * element in that array points to the corresponding 
+   * value on the stack; and if the function returns
+   * a structure, it will re-set RESP to point to the
+   * structure return address.  */
+
+  ffi_prep_incoming_args_SYSV(args, (void**)&resp, arg_area, cif);
+  
+  (closure->fun) (cif, resp, arg_area, closure->user_data);
+
+  rtype = cif->flags;
+
+#if defined(_WIN32) && !defined(_WIN64)
+#ifdef _MSC_VER
+  /* now, do a generic return based on the value of rtype */
+  if (rtype == FFI_TYPE_INT)
+    {
+	    _asm mov eax, resp ;
+	    _asm mov eax, [eax] ;
+    }
+  else if (rtype == FFI_TYPE_FLOAT)
+    {
+	    _asm mov eax, resp ;
+	    _asm fld DWORD PTR [eax] ;
+//      asm ("flds (%0)" : : "r" (resp) : "st" );
+    }
+  else if (rtype == FFI_TYPE_DOUBLE || rtype == FFI_TYPE_LONGDOUBLE)
+    {
+	    _asm mov eax, resp ;
+	    _asm fld QWORD PTR [eax] ;
+//      asm ("fldl (%0)" : : "r" (resp) : "st", "st(1)" );
+    }
+  else if (rtype == FFI_TYPE_SINT64)
+    {
+	    _asm mov edx, resp ;
+	    _asm mov eax, [edx] ;
+	    _asm mov edx, [edx + 4] ;
+//      asm ("movl 0(%0),%%eax;"
+//	   "movl 4(%0),%%edx" 
+//	   : : "r"(resp)
+//	   : "eax", "edx");
+    }
+  else if (rtype == FFI_TYPE_STRUCT)
+    {
+	    _asm mov eax, resp ;
+    }
+#else
+  /* now, do a generic return based on the value of rtype */
+  if (rtype == FFI_TYPE_INT)
+    {
+      asm ("movl (%0),%%eax" : : "r" (resp) : "eax");
+    }
+  else if (rtype == FFI_TYPE_FLOAT)
+    {
+      asm ("flds (%0)" : : "r" (resp) : "st" );
+    }
+  else if (rtype == FFI_TYPE_DOUBLE || rtype == FFI_TYPE_LONGDOUBLE)
+    {
+      asm ("fldl (%0)" : : "r" (resp) : "st", "st(1)" );
+    }
+  else if (rtype == FFI_TYPE_SINT64)
+    {
+      asm ("movl 0(%0),%%eax;"
+	   "movl 4(%0),%%edx" 
+	   : : "r"(resp)
+	   : "eax", "edx");
+    }
+  else if (rtype == FFI_TYPE_STRUCT)
+    {
+      asm ("movl %0,%%eax" : : "r" (resp) : "eax");
+    }
+#endif
+#endif
+
+#ifdef _WIN64
+  /* The result is returned in rax.  This does the right thing for
+     result types except for floats; we have to 'mov xmm0, rax' in the
+     caller to correct this.
+  */
+  if (rtype == FFI_TYPE_STRUCT)
+      return resp;
+  return *(void **)resp;
+#endif
+}
+
+/*@-exportheader@*/
+static void 
+ffi_prep_incoming_args_SYSV(char *stack, void **rvalue,
+			    void **avalue, ffi_cif *cif)
+/*@=exportheader@*/
+{
+  register unsigned int i;
+  register void **p_argv;
+  register char *argp;
+  register ffi_type **p_arg;
+
+  argp = stack;
+
+  if ( cif->flags == FFI_TYPE_STRUCT ) {
+    *rvalue = *(void **) argp;
+    argp += 4;
+  }
+
+  p_argv = avalue;
+
+  for (i = cif->nargs, p_arg = cif->arg_types; (i != 0); i--, p_arg++)
+    {
+      size_t z;
+
+      /* Align if necessary */
+      if ((sizeof(char *) - 1) & (size_t) argp) {
+	argp = (char *) ALIGN(argp, sizeof(char*));
+      }
+
+      z = (*p_arg)->size;
+
+      /* because we're little endian, this is what it turns into.   */
+
+#ifdef _WIN64
+      if (z != 1 && z != 2 && z != 4 && z != 8)
+        {
+          /* On Win64, if a single argument takes more than 8 bytes,
+             then it is always passed by reference. */
+          *p_argv = *((void**) argp);
+          z = 8;
+        }
+      else
+#endif
+      *p_argv = (void*) argp;
+
+      p_argv++;
+      argp += z;
+    }
+  
+  return;
+}
+
+/* the cif must already be prep'ed */
+extern void ffi_closure_OUTER();
+
+ffi_status
+ffi_prep_closure_loc (ffi_closure* closure,
+					  ffi_cif* cif,
+					  void (*fun)(ffi_cif*,void*,void**,void*),
+					  void *user_data,
+					  void *codeloc)
+{
+  short bytes;
+  char *tramp;
+#ifdef _WIN64
+  int mask = 0;
+#endif
+  FFI_ASSERT (cif->abi == FFI_SYSV);
+  
+  if (cif->abi == FFI_SYSV)
+    bytes = 0;
+#if !defined(_WIN64)
+  else if (cif->abi == FFI_STDCALL)
+    bytes = cif->bytes;
+#endif
+  else
+    return FFI_BAD_ABI;
+
+  tramp = &closure->tramp[0];
+
+#define BYTES(text) memcpy(tramp, text, sizeof(text)), tramp += sizeof(text)-1
+#define POINTER(x) *(void**)tramp = (void*)(x), tramp += sizeof(void*)
+#define SHORT(x) *(short*)tramp = x, tramp += sizeof(short)
+#define INT(x) *(int*)tramp = x, tramp += sizeof(int)
+
+#ifdef _WIN64
+  if (cif->nargs >= 1 &&
+      (cif->arg_types[0]->type == FFI_TYPE_FLOAT
+       || cif->arg_types[0]->type == FFI_TYPE_DOUBLE))
+    mask |= 1;
+  if (cif->nargs >= 2 &&
+      (cif->arg_types[1]->type == FFI_TYPE_FLOAT
+       || cif->arg_types[1]->type == FFI_TYPE_DOUBLE))
+    mask |= 2;
+  if (cif->nargs >= 3 &&
+      (cif->arg_types[2]->type == FFI_TYPE_FLOAT
+       || cif->arg_types[2]->type == FFI_TYPE_DOUBLE))
+    mask |= 4;
+  if (cif->nargs >= 4 &&
+      (cif->arg_types[3]->type == FFI_TYPE_FLOAT
+       || cif->arg_types[3]->type == FFI_TYPE_DOUBLE))
+    mask |= 8;
+
+  /* if we return a non-small struct, then the first argument is a pointer
+   * to the return area, and all real arguments are shifted by one */
+  if (cif->flags == FFI_TYPE_STRUCT)
+    mask = (mask & ~8) << 1;
+
+  /* 41 BB ----         mov         r11d,mask */
+  BYTES("\x41\xBB"); INT(mask);
+
+  /* 48 B8 --------     mov         rax, closure			*/
+  BYTES("\x48\xB8"); POINTER(closure);
+
+  /* 49 BA --------     mov         r10, ffi_closure_OUTER */
+  BYTES("\x49\xBA"); POINTER(ffi_closure_OUTER);
+
+  /* 41 FF E2           jmp         r10 */
+  BYTES("\x41\xFF\xE2");
+
+#else
+
+  /* mov ecx, closure */
+  BYTES("\xb9"); POINTER(closure);
+
+  /* mov edx, esp */
+  BYTES("\x8b\xd4");
+
+  /* call ffi_closure_SYSV */
+  BYTES("\xe8"); POINTER((char*)&ffi_closure_SYSV - (tramp + 4));
+
+  /* ret bytes */
+  BYTES("\xc2");
+  SHORT(bytes);
+  
+#endif
+
+  if (tramp - &closure->tramp[0] > FFI_TRAMPOLINE_SIZE)
+    Py_FatalError("FFI_TRAMPOLINE_SIZE too small in " __FILE__);
+
+  closure->cif  = cif;
+  closure->user_data = user_data;
+  closure->fun  = fun;
+  return FFI_OK;
+}
+
+
+===== cffi-2.1.1/src/c/libffi_x86_x64/ffi.h =====
+/* -----------------------------------------------------------------*-C-*-
+   libffi 2.00-beta - Copyright (c) 1996-2003  Red Hat, Inc.
+
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files (the
+   ``Software''), to deal in the Software without restriction, including
+   without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to
+   permit persons to whom the Software is furnished to do so, subject to
+   the following conditions:
+
+   The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL CYGNUS SOLUTIONS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+   ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+   OTHER DEALINGS IN THE SOFTWARE.
+
+   ----------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------
+   The basic API is described in the README file.
+
+   The raw API is designed to bypass some of the argument packing
+   and unpacking on architectures for which it can be avoided.
+
+   The closure API allows interpreted functions to be packaged up
+   inside a C function pointer, so that they can be called as C functions,
+   with no understanding on the client side that they are interpreted.
+   It can also be used in other cases in which it is necessary to package
+   up a user specified parameter and a function pointer as a single
+   function pointer.
+
+   The closure API must be implemented in order to get its functionality,
+   e.g. for use by gij.  Routines are provided to emulate the raw API
+   if the underlying platform doesn't allow faster implementation.
+
+   More details on the raw and closure API can be found in:
+
+   http://gcc.gnu.org/ml/java/1999-q3/msg00138.html
+
+   and
+
+   http://gcc.gnu.org/ml/java/1999-q3/msg00174.html
+   -------------------------------------------------------------------- */
+
+#ifndef LIBFFI_H
+#define LIBFFI_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Specify which architecture libffi is configured for. */
+//XXX #define X86
+
+/* ---- System configuration information --------------------------------- */
+
+#include <ffitarget.h>
+
+#ifndef LIBFFI_ASM
+
+#include <stddef.h>
+#include <limits.h>
+
+/* LONG_LONG_MAX is not always defined (not if STRICT_ANSI, for example).
+   But we can find it either under the correct ANSI name, or under GNU
+   C's internal name.  */
+#ifdef LONG_LONG_MAX
+# define FFI_LONG_LONG_MAX LONG_LONG_MAX
+#else
+# ifdef LLONG_MAX
+#  define FFI_LONG_LONG_MAX LLONG_MAX
+# else
+#  ifdef __GNUC__
+#   define FFI_LONG_LONG_MAX __LONG_LONG_MAX__
+#  endif
+#  ifdef _MSC_VER
+#   define FFI_LONG_LONG_MAX _I64_MAX
+#  endif
+# endif
+#endif
+
+#if SCHAR_MAX == 127
+# define ffi_type_uchar                ffi_type_uint8
+# define ffi_type_schar                ffi_type_sint8
+#else
+ #error "char size not supported"
+#endif
+
+#if SHRT_MAX == 32767
+# define ffi_type_ushort       ffi_type_uint16
+# define ffi_type_sshort       ffi_type_sint16
+#elif SHRT_MAX == 2147483647
+# define ffi_type_ushort       ffi_type_uint32
+# define ffi_type_sshort       ffi_type_sint32
+#else
+ #error "short size not supported"
+#endif
+
+#if INT_MAX == 32767
+# define ffi_type_uint         ffi_type_uint16
+# define ffi_type_sint         ffi_type_sint16
+#elif INT_MAX == 2147483647
+# define ffi_type_uint         ffi_type_uint32
+# define ffi_type_sint         ffi_type_sint32
+#elif INT_MAX == 9223372036854775807
+# define ffi_type_uint         ffi_type_uint64
+# define ffi_type_sint         ffi_type_sint64
+#else
+ #error "int size not supported"
+#endif
+
+#define ffi_type_ulong         ffi_type_uint64
+#define ffi_type_slong         ffi_type_sint64
+#if LONG_MAX == 2147483647
+# if FFI_LONG_LONG_MAX != 9223372036854775807
+  #error "no 64-bit data type supported"
+# endif
+#elif LONG_MAX != 9223372036854775807
+ #error "long size not supported"
+#endif
+
+/* The closure code assumes that this works on pointers, i.e. a size_t	*/
+/* can hold a pointer.							*/
+
+typedef struct _ffi_type
+{
+  size_t size;
+  unsigned short alignment;
+  unsigned short type;
+  /*@null@*/ struct _ffi_type **elements;
+} ffi_type;
+
+/* These are defined in types.c */
+extern ffi_type ffi_type_void;
+extern ffi_type ffi_type_uint8;
+extern ffi_type ffi_type_sint8;
+extern ffi_type ffi_type_uint16;
+extern ffi_type ffi_type_sint16;
+extern ffi_type ffi_type_uint32;
+extern ffi_type ffi_type_sint32;
+extern ffi_type ffi_type_uint64;
+extern ffi_type ffi_type_sint64;
+extern ffi_type ffi_type_float;
+extern ffi_type ffi_type_double;
+extern ffi_type ffi_type_longdouble;
+extern ffi_type ffi_type_pointer;
+
+
+typedef enum {
+  FFI_OK = 0,
+  FFI_BAD_TYPEDEF,
+  FFI_BAD_ABI 
+} ffi_status;
+
+typedef unsigned FFI_TYPE;
+
+typedef struct {
+  ffi_abi abi;
+  unsigned nargs;
+  /*@dependent@*/ ffi_type **arg_types;
+  /*@dependent@*/ ffi_type *rtype;
+  unsigned bytes;
+  unsigned flags;
+#ifdef FFI_EXTRA_CIF_FIELDS
+  FFI_EXTRA_CIF_FIELDS;
+#endif
+} ffi_cif;
+
+/* ---- Definitions for the raw API -------------------------------------- */
+
+#ifdef _WIN64
+#define FFI_SIZEOF_ARG 8
+#else
+#define FFI_SIZEOF_ARG 4
+#endif
+
+typedef union {
+  ffi_sarg  sint;
+  ffi_arg   uint;
+  float	    flt;
+  char      data[FFI_SIZEOF_ARG];
+  void*     ptr;
+} ffi_raw;
+
+void ffi_raw_call (/*@dependent@*/ ffi_cif *cif, 
+		   void (*fn)(), 
+		   /*@out@*/ void *rvalue, 
+		   /*@dependent@*/ ffi_raw *avalue);
+
+void ffi_ptrarray_to_raw (ffi_cif *cif, void **args, ffi_raw *raw);
+void ffi_raw_to_ptrarray (ffi_cif *cif, ffi_raw *raw, void **args);
+size_t ffi_raw_size (ffi_cif *cif);
+
+/* This is analogous to the raw API, except it uses Java parameter	*/
+/* packing, even on 64-bit machines.  I.e. on 64-bit machines		*/
+/* longs and doubles are followed by an empty 64-bit word.		*/
+
+void ffi_java_raw_call (/*@dependent@*/ ffi_cif *cif, 
+		        void (*fn)(), 
+		        /*@out@*/ void *rvalue, 
+		        /*@dependent@*/ ffi_raw *avalue);
+
+void ffi_java_ptrarray_to_raw (ffi_cif *cif, void **args, ffi_raw *raw);
+void ffi_java_raw_to_ptrarray (ffi_cif *cif, ffi_raw *raw, void **args);
+size_t ffi_java_raw_size (ffi_cif *cif);
+
+/* ---- Definitions for closures ----------------------------------------- */
+
+#if FFI_CLOSURES
+
+typedef struct {
+  char tramp[FFI_TRAMPOLINE_SIZE];
+  ffi_cif   *cif;
+  void     (*fun)(ffi_cif*,void*,void**,void*);
+  void      *user_data;
+} ffi_closure;
+
+void ffi_closure_free(void *);
+void *ffi_closure_alloc (size_t size, void **code);
+
+ffi_status
+ffi_prep_closure_loc (ffi_closure*,
+		  ffi_cif *,
+		  void (*fun)(ffi_cif*,void*,void**,void*),
+		  void *user_data,
+		  void *codeloc);
+
+/* AR: for cffi we need the following API, and not the _loc version */
+#define ffi_prep_closure(a,b,c,d)  ffi_prep_closure_loc(a,b,c,d,a)
+
+typedef struct {
+  char tramp[FFI_TRAMPOLINE_SIZE];
+
+  ffi_cif   *cif;
+
+#if !FFI_NATIVE_RAW_API
+
+  /* if this is enabled, then a raw closure has the same layout 
+     as a regular closure.  We use this to install an intermediate 
+     handler to do the translation, void** -> ffi_raw*. */
+
+  void     (*translate_args)(ffi_cif*,void*,void**,void*);
+  void      *this_closure;
+
+#endif
+
+  void     (*fun)(ffi_cif*,void*,ffi_raw*,void*);
+  void      *user_data;
+
+} ffi_raw_closure;
+
+ffi_status
+ffi_prep_raw_closure (ffi_raw_closure*,
+		      ffi_cif *cif,
+		      void (*fun)(ffi_cif*,void*,ffi_raw*,void*),
+		      void *user_data);
+
+ffi_status
+ffi_prep_java_raw_closure (ffi_raw_closure*,
+		           ffi_cif *cif,
+		           void (*fun)(ffi_cif*,void*,ffi_raw*,void*),
+		           void *user_data);
+
+#endif /* FFI_CLOSURES */
+
+/* ---- Public interface definition -------------------------------------- */
+
+ffi_status ffi_prep_cif(/*@out@*/ /*@partial@*/ ffi_cif *cif, 
+			ffi_abi abi,
+			unsigned int nargs, 
+			/*@dependent@*/ /*@out@*/ /*@partial@*/ ffi_type *rtype, 
+			/*@dependent@*/ ffi_type **atypes);
+
+int
+ffi_call(/*@dependent@*/ ffi_cif *cif, 
+	 void (*fn)(), 
+	 /*@out@*/ void *rvalue, 
+	 /*@dependent@*/ void **avalue);
+
+/* Useful for eliminating compiler warnings */
+#define FFI_FN(f) ((void (*)())f)
+
+/* ---- Definitions shared with assembly code ---------------------------- */
+
+#endif
+
+/* If these change, update src/mips/ffitarget.h. */
+#define FFI_TYPE_VOID       0    
+#define FFI_TYPE_INT        1
+#define FFI_TYPE_FLOAT      2    
+#define FFI_TYPE_DOUBLE     3
+#if 1
+#define FFI_TYPE_LONGDOUBLE 4
+#else
+#define FFI_TYPE_LONGDOUBLE FFI_TYPE_DOUBLE
+#endif
+#define FFI_TYPE_UINT8      5   
+#define FFI_TYPE_SINT8      6
+#define FFI_TYPE_UINT16     7 
+#define FFI_TYPE_SINT16     8
+#define FFI_TYPE_UINT32     9
+#define FFI_TYPE_SINT32     10
+#define FFI_TYPE_UINT64     11
+#define FFI_TYPE_SINT64     12
+#define FFI_TYPE_STRUCT     13
+#define FFI_TYPE_POINTER    14
+
+/* This should always refer to the last type code (for sanity checks) */
+#define FFI_TYPE_LAST       FFI_TYPE_POINTER
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+
+
+===== cffi-2.1.1/src/c/libffi_x86_x64/ffi_common.h =====
+/* -----------------------------------------------------------------------
+   ffi_common.h - Copyright (c) 1996  Red Hat, Inc.
+
+   Common internal definitions and macros. Only necessary for building
+   libffi.
+   ----------------------------------------------------------------------- */
+
+#ifndef FFI_COMMON_H
+#define FFI_COMMON_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <fficonfig.h>
+#include <malloc.h>
+
+/* Check for the existence of memcpy. */
+#if STDC_HEADERS
+# include <string.h>
+#else
+# ifndef HAVE_MEMCPY
+#  define memcpy(d, s, n) bcopy ((s), (d), (n))
+# endif
+#endif
+
+#if defined(FFI_DEBUG) 
+#include <stdio.h>
+#endif
+
+#ifdef FFI_DEBUG
+/*@exits@*/ void ffi_assert(/*@temp@*/ char *expr, /*@temp@*/ char *file, int line);
+void ffi_stop_here(void);
+void ffi_type_test(/*@temp@*/ /*@out@*/ ffi_type *a, /*@temp@*/ char *file, int line);
+
+#define FFI_ASSERT(x) ((x) ? (void)0 : ffi_assert(#x, __FILE__,__LINE__))
+#define FFI_ASSERT_AT(x, f, l) ((x) ? 0 : ffi_assert(#x, (f), (l)))
+#define FFI_ASSERT_VALID_TYPE(x) ffi_type_test (x, __FILE__, __LINE__)
+#else
+#define FFI_ASSERT(x) 
+#define FFI_ASSERT_AT(x, f, l)
+#define FFI_ASSERT_VALID_TYPE(x)
+#endif
+
+#define ALIGN(v, a)  (((((size_t) (v))-1) | ((a)-1))+1)
+
+/* Perform machine dependent cif processing */
+ffi_status ffi_prep_cif_machdep(ffi_cif *cif);
+
+/* Extended cif, used in callback from assembly routine */
+typedef struct
+{
+  /*@dependent@*/ ffi_cif *cif;
+  /*@dependent@*/ void *rvalue;
+  /*@dependent@*/ void **avalue;
+} extended_cif;
+
+/* Terse sized type definitions.  */
+typedef unsigned int UINT8  __attribute__((__mode__(__QI__)));
+typedef signed int   SINT8  __attribute__((__mode__(__QI__)));
+typedef unsigned int UINT16 __attribute__((__mode__(__HI__)));
+typedef signed int   SINT16 __attribute__((__mode__(__HI__)));
+typedef unsigned int UINT32 __attribute__((__mode__(__SI__)));
+typedef signed int   SINT32 __attribute__((__mode__(__SI__)));
+typedef unsigned int UINT64 __attribute__((__mode__(__DI__)));
+typedef signed int   SINT64 __attribute__((__mode__(__DI__)));
+
+typedef float FLOAT32;
+
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+
+
+
+===== cffi-2.1.1/src/c/libffi_x86_x64/fficonfig.h =====
+/* fficonfig.h.  Originally created by configure, now hand_maintained for MSVC. */
+
+/* fficonfig.h.  Generated automatically by configure.  */
+/* fficonfig.h.in.  Generated automatically from configure.in by autoheader.  */
+
+/* Define this for MSVC, but not for mingw32! */
+#ifdef _MSC_VER
+#define __attribute__(x) /* */
+#endif
+#define alloca _alloca
+
+/*----------------------------------------------------------------*/
+
+/* Define if using alloca.c.  */
+/* #undef C_ALLOCA */
+
+/* Define to one of _getb67, GETB67, getb67 for Cray-2 and Cray-YMP systems.
+   This function is required for alloca.c support on those systems.  */
+/* #undef CRAY_STACKSEG_END */
+
+/* Define if you have alloca, as a function or macro.  */
+#define HAVE_ALLOCA 1
+
+/* Define if you have <alloca.h> and it should be used (not on Ultrix).  */
+/* #define HAVE_ALLOCA_H 1 */
+
+/* If using the C implementation of alloca, define if you know the
+   direction of stack growth for your system; otherwise it will be
+   automatically deduced at run-time.
+ STACK_DIRECTION > 0 => grows toward higher addresses
+ STACK_DIRECTION < 0 => grows toward lower addresses
+ STACK_DIRECTION = 0 => direction of growth unknown
+ */
+/* #undef STACK_DIRECTION */
+
+/* Define if you have the ANSI C header files.  */
+#define STDC_HEADERS 1
+
+/* Define if you have the memcpy function.  */
+#define HAVE_MEMCPY 1
+
+/* Define if read-only mmap of a plain file works. */
+//#define HAVE_MMAP_FILE 1
+
+/* Define if mmap of /dev/zero works. */
+//#define HAVE_MMAP_DEV_ZERO 1
+
+/* Define if mmap with MAP_ANON(YMOUS) works. */
+//#define HAVE_MMAP_ANON 1
+
+/* The number of bytes in type double */
+#define SIZEOF_DOUBLE 8
+
+/* The number of bytes in type long double */
+#define SIZEOF_LONG_DOUBLE 12
+
+/* Define if you have the long double type and it is bigger than a double */
+#define HAVE_LONG_DOUBLE 1
+
+/* whether byteorder is bigendian */
+/* #undef WORDS_BIGENDIAN */
+
+/* Define if the host machine stores words of multi-word integers in
+   big-endian order. */
+/* #undef HOST_WORDS_BIG_ENDIAN */
+
+/* 1234 = LIL_ENDIAN, 4321 = BIGENDIAN */
+#define BYTEORDER 1234
+
+/* Define if your assembler and linker support unaligned PC relative relocs. */
+/* #undef HAVE_AS_SPARC_UA_PCREL */
+
+/* Define if your assembler supports .register. */
+/* #undef HAVE_AS_REGISTER_PSEUDO_OP */
+
+/* Define if .eh_frame sections should be read-only. */
+/* #undef HAVE_RO_EH_FRAME */
+
+/* Define to the flags needed for the .section .eh_frame directive. */
+/* #define EH_FRAME_FLAGS "aw" */
+
+/* Define to the flags needed for the .section .eh_frame directive. */
+/* #define EH_FRAME_FLAGS "aw" */
+
+/* Define this if you want extra debugging. */
+/* #undef FFI_DEBUG */
+
+/* Define this is you do not want support for aggregate types. */
+/* #undef FFI_NO_STRUCTS */
+
+/* Define this is you do not want support for the raw API. */
+/* #undef FFI_NO_RAW_API */
+
+/* Define this if you are using Purify and want to suppress spurious messages. */
+/* #undef USING_PURIFY */
+
+
+
+===== cffi-2.1.1/src/c/libffi_x86_x64/ffitarget.h =====
+/* -----------------------------------------------------------------*-C-*-
+   ffitarget.h - Copyright (c) 1996-2003  Red Hat, Inc.
+   Target configuration macros for x86 and x86-64.
+
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files (the
+   ``Software''), to deal in the Software without restriction, including
+   without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to
+   permit persons to whom the Software is furnished to do so, subject to
+   the following conditions:
+
+   The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL CYGNUS SOLUTIONS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+   ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+   OTHER DEALINGS IN THE SOFTWARE.
+
+   ----------------------------------------------------------------------- */
+
+#ifndef LIBFFI_TARGET_H
+#define LIBFFI_TARGET_H
+
+/* ---- System specific configurations ----------------------------------- */
+
+#if defined (X86_64) && defined (__i386__)
+#undef X86_64
+#define X86
+#endif
+
+/* ---- Generic type definitions ----------------------------------------- */
+
+#ifndef LIBFFI_ASM
+#ifndef _WIN64
+typedef unsigned long          ffi_arg;
+#else
+typedef unsigned __int64       ffi_arg;
+#endif
+typedef signed long            ffi_sarg;
+
+typedef enum ffi_abi {
+  FFI_FIRST_ABI = 0,
+
+  /* ---- Intel x86 Win32 ---------- */
+  FFI_SYSV,
+#ifndef _WIN64
+  FFI_STDCALL,
+#endif
+  /* TODO: Add fastcall support for the sake of completeness */
+  FFI_DEFAULT_ABI = FFI_SYSV,
+
+  /* ---- Intel x86 and AMD x86-64 - */
+/* #if !defined(X86_WIN32) && (defined(__i386__) || defined(__x86_64__)) */
+/*   FFI_SYSV, */
+/*   FFI_UNIX64,*/   /* Unix variants all use the same ABI for x86-64  */
+/* #ifdef __i386__ */
+/*   FFI_DEFAULT_ABI = FFI_SYSV, */
+/* #else */
+/*   FFI_DEFAULT_ABI = FFI_UNIX64, */
+/* #endif */
+/* #endif */
+
+  FFI_LAST_ABI = FFI_DEFAULT_ABI + 1
+} ffi_abi;
+#endif
+
+/* ---- Definitions for closures ----------------------------------------- */
+
+#define FFI_CLOSURES 1
+
+#ifdef _WIN64
+#define FFI_TRAMPOLINE_SIZE 29
+#define FFI_NATIVE_RAW_API 0
+#else
+#define FFI_TRAMPOLINE_SIZE 15
+#define FFI_NATIVE_RAW_API 1	/* x86 has native raw api support */
+#endif
+
+#endif
+
+
+
+===== cffi-2.1.1/src/c/libffi_x86_x64/prep_cif.c =====
+/* -----------------------------------------------------------------------
+   prep_cif.c - Copyright (c) 1996, 1998  Red Hat, Inc.
+
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files (the
+   ``Software''), to deal in the Software without restriction, including
+   without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to
+   permit persons to whom the Software is furnished to do so, subject to
+   the following conditions:
+
+   The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL CYGNUS SOLUTIONS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+   ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+   OTHER DEALINGS IN THE SOFTWARE.
+   ----------------------------------------------------------------------- */
+
+#include <ffi.h>
+#include <ffi_common.h>
+#include <stdlib.h>
+
+
+/* Round up to FFI_SIZEOF_ARG. */
+
+#define STACK_ARG_SIZE(x) ALIGN(x, FFI_SIZEOF_ARG)
+
+/* Perform machine independent initialization of aggregate type
+   specifications. */
+
+static ffi_status initialize_aggregate(/*@out@*/ ffi_type *arg)
+{
+  ffi_type **ptr; 
+
+  FFI_ASSERT(arg != NULL);
+
+  /*@-usedef@*/
+
+  FFI_ASSERT(arg->elements != NULL);
+  FFI_ASSERT(arg->size == 0);
+  FFI_ASSERT(arg->alignment == 0);
+
+  ptr = &(arg->elements[0]);
+
+  while ((*ptr) != NULL)
+    {
+      if (((*ptr)->size == 0) && (initialize_aggregate((*ptr)) != FFI_OK))
+	return FFI_BAD_TYPEDEF;
+      
+      /* Perform a sanity check on the argument type */
+      FFI_ASSERT_VALID_TYPE(*ptr);
+
+      arg->size = ALIGN(arg->size, (*ptr)->alignment);
+      arg->size += (*ptr)->size;
+
+      arg->alignment = (arg->alignment > (*ptr)->alignment) ? 
+	arg->alignment : (*ptr)->alignment;
+
+      ptr++;
+    }
+
+  /* Structure size includes tail padding.  This is important for
+     structures that fit in one register on ABIs like the PowerPC64
+     Linux ABI that right justify small structs in a register.
+     It's also needed for nested structure layout, for example
+     struct A { long a; char b; }; struct B { struct A x; char y; };
+     should find y at an offset of 2*sizeof(long) and result in a
+     total size of 3*sizeof(long).  */
+  arg->size = ALIGN (arg->size, arg->alignment);
+
+  if (arg->size == 0)
+    return FFI_BAD_TYPEDEF;
+  else
+    return FFI_OK;
+
+  /*@=usedef@*/
+}
+
+/* Perform machine independent ffi_cif preparation, then call
+   machine dependent routine. */
+
+ffi_status ffi_prep_cif(/*@out@*/ /*@partial@*/ ffi_cif *cif, 
+			ffi_abi abi, unsigned int nargs, 
+			/*@dependent@*/ /*@out@*/ /*@partial@*/ ffi_type *rtype, 
+			/*@dependent@*/ ffi_type **atypes)
+{
+  unsigned bytes = 0;
+  unsigned int i;
+  ffi_type **ptr;
+
+  FFI_ASSERT(cif != NULL);
+  FFI_ASSERT((abi > FFI_FIRST_ABI) && (abi <= FFI_DEFAULT_ABI));
+
+  cif->abi = abi;
+  cif->arg_types = atypes;
+  cif->nargs = nargs;
+  cif->rtype = rtype;
+
+  cif->flags = 0;
+
+  /* Initialize the return type if necessary */
+  /*@-usedef@*/
+  if ((cif->rtype->size == 0) && (initialize_aggregate(cif->rtype) != FFI_OK))
+    return FFI_BAD_TYPEDEF;
+  /*@=usedef@*/
+
+  /* Perform a sanity check on the return type */
+  FFI_ASSERT_VALID_TYPE(cif->rtype);
+
+  /* x86-64 and s390 stack space allocation is handled in prep_machdep.  */
+#if !defined M68K && !defined __x86_64__ && !defined S390
+  /* Make space for the return structure pointer */
+  if (cif->rtype->type == FFI_TYPE_STRUCT
+#ifdef _WIN32
+      && (cif->rtype->size != 1)  /* MSVC returns small structs in registers */
+      && (cif->rtype->size != 2)
+      && (cif->rtype->size != 4)
+      && (cif->rtype->size != 8)
+#endif
+#ifdef SPARC
+      && (cif->abi != FFI_V9 || cif->rtype->size > 32)
+#endif
+      )
+    bytes = STACK_ARG_SIZE(sizeof(void*));
+#endif
+
+  for (ptr = cif->arg_types, i = cif->nargs; i > 0; i--, ptr++)
+    {
+
+      /* Initialize any uninitialized aggregate type definitions */
+      if (((*ptr)->size == 0) && (initialize_aggregate((*ptr)) != FFI_OK))
+	return FFI_BAD_TYPEDEF;
+
+      /* Perform a sanity check on the argument type, do this 
+	 check after the initialization.  */
+      FFI_ASSERT_VALID_TYPE(*ptr);
+
+#if !defined __x86_64__ && !defined S390
+#ifdef SPARC
+      if (((*ptr)->type == FFI_TYPE_STRUCT
+	   && ((*ptr)->size > 16 || cif->abi != FFI_V9))
+	  || ((*ptr)->type == FFI_TYPE_LONGDOUBLE
+	      && cif->abi != FFI_V9))
+	bytes += sizeof(void*);
+      else
+#endif
+	{
+#if !defined(_MSC_VER) && !defined(__MINGW32__)
+		/* Don't know if this is a libffi bug or not.  At least on
+		   Windows with MSVC, function call parameters are *not*
+		   aligned in the same way as structure fields are, they are
+		   only aligned in integer boundaries.
+
+		   This doesn't do any harm for cdecl functions and closures,
+		   since the caller cleans up the stack, but it is wrong for
+		   stdcall functions where the callee cleans.
+		*/
+
+	  /* Add any padding if necessary */
+	  if (((*ptr)->alignment - 1) & bytes)
+	    bytes = ALIGN(bytes, (*ptr)->alignment);
+	  
+#endif
+	  bytes += STACK_ARG_SIZE((*ptr)->size);
+	}
+#endif
+    }
+
+#ifdef _WIN64
+  /* Function call needs at least 40 bytes stack size, on win64 AMD64 */
+  if (bytes < 40)
+      bytes = 40;
+#endif
+
+  cif->bytes = bytes;
+
+  /* Perform machine dependent cif processing */
+  return ffi_prep_cif_machdep(cif);
+}
+
+
+===== cffi-2.1.1/src/c/libffi_x86_x64/types.c =====
+/* -----------------------------------------------------------------------
+   types.c - Copyright (c) 1996, 1998  Red Hat, Inc.
+   
+   Predefined ffi_types needed by libffi.
+
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files (the
+   ``Software''), to deal in the Software without restriction, including
+   without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to
+   permit persons to whom the Software is furnished to do so, subject to
+   the following conditions:
+
+   The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL CYGNUS SOLUTIONS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+   ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+   OTHER DEALINGS IN THE SOFTWARE.
+   ----------------------------------------------------------------------- */
+
+#include <ffi.h>
+#include <ffi_common.h>
+
+/* Type definitions */
+
+#define FFI_INTEGRAL_TYPEDEF(n, s, a, t) ffi_type ffi_type_##n = { s, a, t, NULL }
+#define FFI_AGGREGATE_TYPEDEF(n, e) ffi_type ffi_type_##n = { 0, 0, FFI_TYPE_STRUCT, e }
+
+/* Size and alignment are fake here. They must not be 0. */
+FFI_INTEGRAL_TYPEDEF(void, 1, 1, FFI_TYPE_VOID);
+
+FFI_INTEGRAL_TYPEDEF(uint8, 1, 1, FFI_TYPE_UINT8);
+FFI_INTEGRAL_TYPEDEF(sint8, 1, 1, FFI_TYPE_SINT8);
+FFI_INTEGRAL_TYPEDEF(uint16, 2, 2, FFI_TYPE_UINT16);
+FFI_INTEGRAL_TYPEDEF(sint16, 2, 2, FFI_TYPE_SINT16);
+FFI_INTEGRAL_TYPEDEF(uint32, 4, 4, FFI_TYPE_UINT32);
+FFI_INTEGRAL_TYPEDEF(sint32, 4, 4, FFI_TYPE_SINT32);
+FFI_INTEGRAL_TYPEDEF(float, 4, 4, FFI_TYPE_FLOAT);
+
+#if defined ALPHA || defined SPARC64 || defined X86_64 || defined S390X \
+    || defined IA64 || defined _WIN64
+
+FFI_INTEGRAL_TYPEDEF(pointer, 8, 8, FFI_TYPE_POINTER);
+
+#else
+
+FFI_INTEGRAL_TYPEDEF(pointer, 4, 4, FFI_TYPE_POINTER);
+
+#endif
+
+#if defined X86 || defined X86_WIN32 || defined ARM || defined M68K
+
+FFI_INTEGRAL_TYPEDEF(uint64, 8, 4, FFI_TYPE_UINT64);
+FFI_INTEGRAL_TYPEDEF(sint64, 8, 4, FFI_TYPE_SINT64);
+
+#elif defined SH
+
+FFI_INTEGRAL_TYPEDEF(uint64, 8, 4, FFI_TYPE_UINT64);
+FFI_INTEGRAL_TYPEDEF(sint64, 8, 4, FFI_TYPE_SINT64);
+
+#else
+
+FFI_INTEGRAL_TYPEDEF(uint64, 8, 8, FFI_TYPE_UINT64);
+FFI_INTEGRAL_TYPEDEF(sint64, 8, 8, FFI_TYPE_SINT64);
+
+#endif
+
+
+#if defined X86 || defined X86_WIN32 || defined M68K
+
+FFI_INTEGRAL_TYPEDEF(double, 8, 4, FFI_TYPE_DOUBLE);
+FFI_INTEGRAL_TYPEDEF(longdouble, 12, 4, FFI_TYPE_LONGDOUBLE);
+
+#elif defined ARM || defined SH || defined POWERPC_AIX || defined POWERPC_DARWIN
+
+FFI_INTEGRAL_TYPEDEF(double, 8, 4, FFI_TYPE_DOUBLE);
+FFI_INTEGRAL_TYPEDEF(longdouble, 8, 4, FFI_TYPE_LONGDOUBLE);
+
+#elif defined SPARC
+
+FFI_INTEGRAL_TYPEDEF(double, 8, 8, FFI_TYPE_DOUBLE);
+#ifdef SPARC64
+FFI_INTEGRAL_TYPEDEF(longdouble, 16, 16, FFI_TYPE_LONGDOUBLE);
+#else
+FFI_INTEGRAL_TYPEDEF(longdouble, 16, 8, FFI_TYPE_LONGDOUBLE);
+#endif
+
+#elif defined X86_64
+
+FFI_INTEGRAL_TYPEDEF(double, 8, 8, FFI_TYPE_DOUBLE);
+FFI_INTEGRAL_TYPEDEF(longdouble, 16, 16, FFI_TYPE_LONGDOUBLE);
+
+#else
+
+FFI_INTEGRAL_TYPEDEF(double, 8, 8, FFI_TYPE_DOUBLE);
+FFI_INTEGRAL_TYPEDEF(longdouble, 8, 8, FFI_TYPE_LONGDOUBLE);
+
+#endif
+
+
+
+===== cffi-2.1.1/src/c/libffi_x86_x64/win32.c =====
+/* -----------------------------------------------------------------------
+   win32.S - Copyright (c) 1996, 1998, 2001, 2002  Red Hat, Inc.
+	     Copyright (c) 2001  John Beniton
+	     Copyright (c) 2002  Ranjit Mathew
+			
+ 
+   X86 Foreign Function Interface
+ 
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files (the
+   ``Software''), to deal in the Software without restriction, including
+   without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to
+   permit persons to whom the Software is furnished to do so, subject to
+   the following conditions:
+ 
+   The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+ 
+   THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL CYGNUS SOLUTIONS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+   ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+   OTHER DEALINGS IN THE SOFTWARE.
+   ----------------------------------------------------------------------- */
+
+/* theller: almost verbatim translation from gas syntax to MSVC inline
+   assembler code. */
+
+/* theller: ffi_call_x86 now returns an integer - the difference of the stack
+   pointer before and after the function call.  If everything is ok, zero is
+   returned.  If stdcall functions are passed the wrong number of arguments,
+   the difference will be nonzero. */
+
+#include <ffi.h>
+#include <ffi_common.h>
+
+__declspec(naked) int
+ffi_call_x86(void (* prepfunc)(char *, extended_cif *), /* 8 */
+	     extended_cif *ecif, /* 12 */
+	     unsigned bytes, /* 16 */
+	     unsigned flags, /* 20 */
+	     unsigned *rvalue, /* 24 */
+	     void (*fn)()) /* 28 */
+{
+	_asm {
+		push ebp
+		mov ebp, esp
+
+		push esi // NEW: this register must be preserved across function calls
+// XXX SAVE ESP NOW!
+		mov esi, esp		// save stack pointer before the call
+
+// Make room for all of the new args.
+		mov ecx, [ebp+16]
+		sub esp, ecx		// sub esp, bytes
+		
+		mov eax, esp
+
+// Place all of the ffi_prep_args in position
+		push [ebp + 12] // ecif
+		push eax
+		call [ebp + 8] // prepfunc
+
+// Return stack to previous state and call the function
+		add esp, 8
+// FIXME: Align the stack to a 128-bit boundary to avoid
+// potential performance hits.
+		call [ebp + 28]
+
+// Load ecif->cif->abi
+		mov ecx, [ebp + 12]
+		mov ecx, [ecx]ecif.cif
+		mov ecx, [ecx]ecif.cif.abi
+		
+		cmp ecx, FFI_STDCALL
+		je noclean
+// STDCALL: Remove the space we pushed for the args
+		mov ecx, [ebp + 16]
+		add esp, ecx
+// CDECL: Caller has already cleaned the stack
+noclean:
+// Check that esp has the same value as before!
+		sub esi, esp
+
+// Load %ecx with the return type code
+		mov ecx, [ebp + 20]
+
+// If the return value pointer is NULL, assume no return value.
+/*
+  Intel asm is weird. We have to explicitly specify 'DWORD PTR' in the nexr instruction,
+  otherwise only one BYTE will be compared (instead of a DWORD)!
+ */
+		cmp DWORD PTR [ebp + 24], 0
+		jne sc_retint
+
+// Even if there is no space for the return value, we are
+// obliged to handle floating-point values.
+		cmp ecx, FFI_TYPE_FLOAT
+		jne sc_noretval
+//        fstp  %st(0)
+		fstp st(0)
+
+		jmp sc_epilogue
+
+sc_retint:
+		cmp ecx, FFI_TYPE_INT
+		jne sc_retfloat
+//        # Load %ecx with the pointer to storage for the return value
+		mov ecx, [ebp + 24]
+		mov [ecx + 0], eax
+		jmp sc_epilogue
+
+sc_retfloat:
+		cmp ecx, FFI_TYPE_FLOAT
+		jne sc_retdouble
+// Load %ecx with the pointer to storage for the return value
+		mov ecx, [ebp+24]
+//        fstps (%ecx)
+		fstp DWORD PTR [ecx]
+		jmp sc_epilogue
+
+sc_retdouble:
+		cmp ecx, FFI_TYPE_DOUBLE
+		jne sc_retlongdouble
+//        movl  24(%ebp),%ecx
+		mov ecx, [ebp+24]
+		fstp QWORD PTR [ecx]
+		jmp sc_epilogue
+
+		jmp sc_retlongdouble // avoid warning about unused label
+sc_retlongdouble:
+		cmp ecx, FFI_TYPE_LONGDOUBLE
+		jne sc_retint64
+// Load %ecx with the pointer to storage for the return value
+		mov ecx, [ebp+24]
+//        fstpt (%ecx)
+		fstp QWORD PTR [ecx] /* XXX ??? */
+		jmp sc_epilogue
+
+sc_retint64:
+		cmp ecx, FFI_TYPE_SINT64
+		jne sc_retstruct
+// Load %ecx with the pointer to storage for the return value
+		mov ecx, [ebp+24]
+		mov [ecx+0], eax
+		mov [ecx+4], edx
+
+sc_retstruct:
+// Nothing to do!
+
+sc_noretval:
+sc_epilogue:
+		mov eax, esi
+		pop esi // NEW restore: must be preserved across function calls
+		mov esp, ebp
+		pop ebp
+		ret
+	}
+}
+
+
+===== cffi-2.1.1/src/c/libffi_x86_x64/win64.asm =====
+PUBLIC	ffi_call_AMD64
+
+EXTRN	__chkstk:NEAR
+EXTRN	ffi_closure_SYSV:NEAR
+
+_TEXT	SEGMENT
+
+;;; ffi_closure_OUTER will be called with these registers set:
+;;;    rax points to 'closure'
+;;;    r11 contains a bit mask that specifies which of the
+;;;    first four parameters are float or double
+;;;
+;;; It must move the parameters passed in registers to their stack location,
+;;; call ffi_closure_SYSV for the actual work, then return the result.
+;;; 
+ffi_closure_OUTER PROC FRAME
+	;; save actual arguments to their stack space.
+	test	r11, 1
+	jne	first_is_float	
+	mov	QWORD PTR [rsp+8], rcx
+	jmp	second
+first_is_float:
+	movlpd	QWORD PTR [rsp+8], xmm0
+
+second:
+	test	r11, 2
+	jne	second_is_float	
+	mov	QWORD PTR [rsp+16], rdx
+	jmp	third
+second_is_float:
+	movlpd	QWORD PTR [rsp+16], xmm1
+
+third:
+	test	r11, 4
+	jne	third_is_float	
+	mov	QWORD PTR [rsp+24], r8
+	jmp	forth
+third_is_float:
+	movlpd	QWORD PTR [rsp+24], xmm2
+
+forth:
+	test	r11, 8
+	jne	forth_is_float	
+	mov	QWORD PTR [rsp+32], r9
+	jmp	done
+forth_is_float:
+	movlpd	QWORD PTR [rsp+32], xmm3
+
+done:
+.ALLOCSTACK 40
+	sub	rsp, 40
+.ENDPROLOG
+	mov	rcx, rax	; context is first parameter
+	mov	rdx, rsp	; stack is second parameter
+	add	rdx, 40		; correct our own area
+	mov	rax, ffi_closure_SYSV
+	call	rax		; call the real closure function
+	;; Here, code is missing that handles float return values
+	add	rsp, 40
+	movd	xmm0, rax	; In case the closure returned a float.
+	ret	0
+ffi_closure_OUTER ENDP
+
+
+;;; ffi_call_AMD64
+
+stack$ = 0
+prepfunc$ = 32
+ecif$ = 40
+bytes$ = 48
+flags$ = 56
+rvalue$ = 64
+fn$ = 72
+
+ffi_call_AMD64 PROC FRAME
+
+	mov	QWORD PTR [rsp+32], r9
+	mov	QWORD PTR [rsp+24], r8
+	mov	QWORD PTR [rsp+16], rdx
+	mov	QWORD PTR [rsp+8], rcx
+.PUSHREG rbp
+	push	rbp
+.ALLOCSTACK 48
+	sub	rsp, 48					; 00000030H
+.SETFRAME rbp, 32
+	lea	rbp, QWORD PTR [rsp+32]
+.ENDPROLOG
+
+	mov	eax, DWORD PTR bytes$[rbp]
+	add	rax, 15
+	and	rax, -16
+	call	__chkstk
+	sub	rsp, rax
+	lea	rax, QWORD PTR [rsp+32]
+	mov	QWORD PTR stack$[rbp], rax
+
+	mov	rdx, QWORD PTR ecif$[rbp]
+	mov	rcx, QWORD PTR stack$[rbp]
+	call	QWORD PTR prepfunc$[rbp]
+
+	mov	rsp, QWORD PTR stack$[rbp]
+
+	movlpd	xmm3, QWORD PTR [rsp+24]
+	movd	r9, xmm3
+
+	movlpd	xmm2, QWORD PTR [rsp+16]
+	movd	r8, xmm2
+
+	movlpd	xmm1, QWORD PTR [rsp+8]
+	movd	rdx, xmm1
+
+	movlpd	xmm0, QWORD PTR [rsp]
+	movd	rcx, xmm0
+
+	call	QWORD PTR fn$[rbp]
+ret_int$:
+ 	cmp	DWORD PTR flags$[rbp], 1 ; FFI_TYPE_INT
+ 	jne	ret_float$
+
+	mov	rcx, QWORD PTR rvalue$[rbp]
+	mov	DWORD PTR [rcx], eax
+	jmp	SHORT ret_nothing$
+
+ret_float$:
+ 	cmp	DWORD PTR flags$[rbp], 2 ; FFI_TYPE_FLOAT
+ 	jne	SHORT ret_double$
+
+ 	mov	rax, QWORD PTR rvalue$[rbp]
+ 	movlpd	QWORD PTR [rax], xmm0
+ 	jmp	SHORT ret_nothing$
+
+ret_double$:
+ 	cmp	DWORD PTR flags$[rbp], 3 ; FFI_TYPE_DOUBLE
+ 	jne	SHORT ret_int64$
+
+ 	mov	rax, QWORD PTR rvalue$[rbp]
+ 	movlpd	QWORD PTR [rax], xmm0
+ 	jmp	SHORT ret_nothing$
+
+ret_int64$:
+  	cmp	DWORD PTR flags$[rbp], 12 ; FFI_TYPE_SINT64
+  	jne	ret_nothing$
+
+ 	mov	rcx, QWORD PTR rvalue$[rbp]
+ 	mov	QWORD PTR [rcx], rax
+ 	jmp	SHORT ret_nothing$
+	
+ret_nothing$:
+	xor	eax, eax
+
+	lea	rsp, QWORD PTR [rbp+16]
+	pop	rbp
+	ret	0
+ffi_call_AMD64 ENDP
+_TEXT	ENDS
+END
+
+
+===== cffi-2.1.1/setup.py =====
+import sys, sysconfig, os, platform
+import subprocess
+import errno
+
+# the setuptools distutils shim should make distutils available, but this will definitely do
+# it, since setuptools is now required at build-time
+import setuptools
+
+
+sources = ['src/c/_cffi_backend.c']
+libraries = ['ffi']
+include_dirs = ['/usr/include/ffi',
+                '/usr/include/libffi']    # may be changed by pkg-config
+define_macros = [('FFI_BUILDING', '1')]   # for linking with libffi static library
+library_dirs = []
+extra_compile_args = []
+extra_link_args = []
+
+FREE_THREADED_BUILD = bool(sysconfig.get_config_var('Py_GIL_DISABLED'))
+
+if FREE_THREADED_BUILD and sys.version_info < (3, 14):
+    raise RuntimeError("CFFI does not support the free-threaded build of CPython 3.13. "
+                       "Upgrade to free-threaded 3.14 or newer to use CFFI with the "
+                       "free-threaded build.")
+
+def _ask_pkg_config(resultlist, option, result_prefix='', sysroot=False):
+    pkg_config = os.environ.get('PKG_CONFIG','pkg-config')
+    try:
+        p = subprocess.Popen([pkg_config, option, 'libffi'],
+                             stdout=subprocess.PIPE)
+    except OSError as e:
+        if e.errno not in [errno.ENOENT, errno.EACCES]:
+            raise
+    else:
+        t = p.stdout.read().decode().strip()
+        p.stdout.close()
+        if p.wait() == 0:
+            res = t.split()
+            # '-I/usr/...' -> '/usr/...'
+            for x in res:
+                assert x.startswith(result_prefix)
+            res = [x[len(result_prefix):] for x in res]
+            #print 'PKG_CONFIG:', option, res
+            #
+            sysroot = sysroot and os.environ.get('PKG_CONFIG_SYSROOT_DIR', '')
+            if sysroot:
+                # old versions of pkg-config don't support this env var,
+                # so here we emulate its effect if needed
+                res = [path if path.startswith(sysroot)
+                            else sysroot + path
+                         for path in res]
+            #
+            resultlist[:] = res
+
+no_compiler_found = False
+def no_working_compiler_found():
+    sys.stderr.write("""
+    No working compiler found, or bogus compiler options passed to
+    the compiler from Python's standard "distutils" module.  See
+    the error messages above.  Likely, the problem is not related
+    to CFFI but generic to the setup.py of any Python package that
+    tries to compile C code.  (Hints: on OS/X 10.8, for errors about
+    -mno-fused-madd see http://stackoverflow.com/questions/22313407/
+    Otherwise, see https://wiki.python.org/moin/CompLangPython or
+    the IRC channel #python on irc.libera.chat.)
+
+    Trying to continue anyway.  If you are trying to install CFFI from
+    a build done in a different context, you can ignore this warning.
+    \n""")
+    global no_compiler_found
+    no_compiler_found = True
+
+def get_config():
+    from distutils.core import Distribution
+    from distutils.sysconfig import get_config_vars
+    get_config_vars()      # workaround for a bug of distutils, e.g. on OS/X
+    config = Distribution().get_command_obj('config')
+    return config
+
+def ask_supports_thread():
+    config = get_config()
+    ok = (sys.platform != 'win32' and
+          config.try_compile('__thread int some_threadlocal_variable_42;'))
+    if ok:
+        define_macros.append(('USE__THREAD', None))
+    else:
+        ok1 = config.try_compile('int some_regular_variable_42;')
+        if not ok1:
+            no_working_compiler_found()
+        else:
+            sys.stderr.write("Note: will not use '__thread' in the C code\n")
+            _safe_to_ignore()
+
+def ask_supports_sync_synchronize():
+    if sys.platform == 'win32' or no_compiler_found:
+        return
+    config = get_config()
+    ok = config.try_link('int main(void) { __sync_synchronize(); return 0; }')
+    if ok:
+        define_macros.append(('HAVE_SYNC_SYNCHRONIZE', None))
+    else:
+        sys.stderr.write("Note: will not use '__sync_synchronize()'"
+                         " in the C code\n")
+        _safe_to_ignore()
+
+def _safe_to_ignore():
+    sys.stderr.write("***** The above error message can be safely ignored.\n\n")
+
+def uses_msvc():
+    config = get_config()
+    return config.try_compile('#ifndef _MSC_VER\n#error "not MSVC"\n#endif')
+
+def use_pkg_config():
+    if sys.platform == 'darwin' and os.path.exists('/usr/local/bin/brew'):
+        use_homebrew_for_libffi()
+
+    _ask_pkg_config(include_dirs,       '--cflags-only-I', '-I', sysroot=True)
+    _ask_pkg_config(extra_compile_args, '--cflags-only-other')
+    _ask_pkg_config(library_dirs,       '--libs-only-L', '-L', sysroot=True)
+    _ask_pkg_config(extra_link_args,    '--libs-only-other')
+    _ask_pkg_config(libraries,          '--libs-only-l', '-l')
+
+def use_homebrew_for_libffi():
+    # We can build by setting:
+    # PKG_CONFIG_PATH = $(brew --prefix libffi)/lib/pkgconfig
+    with os.popen('brew --prefix libffi') as brew_prefix_cmd:
+        prefix = brew_prefix_cmd.read().strip()
+    pkgconfig = os.path.join(prefix, 'lib', 'pkgconfig')
+    os.environ['PKG_CONFIG_PATH'] = (
+        os.environ.get('PKG_CONFIG_PATH', '') + ':' + pkgconfig)
+
+if sys.platform == "win32" and uses_msvc():
+    if platform.machine() == "ARM64":
+        include_dirs.append(os.path.join("src/c/libffi_arm64/include"))
+        library_dirs.append(os.path.join("src/c/libffi_arm64"))
+    else:
+        COMPILE_LIBFFI = 'src/c/libffi_x86_x64'    # from the CPython distribution
+        assert os.path.isdir(COMPILE_LIBFFI), "directory not found!"
+        include_dirs[:] = [COMPILE_LIBFFI]
+        libraries[:] = []
+        _filenames = [filename.lower() for filename in os.listdir(COMPILE_LIBFFI)]
+        _filenames = [filename for filename in _filenames
+                            if filename.endswith('.c')]
+        if sys.maxsize > 2**32:
+            # 64-bit: unlist win32.c, and add instead win64.obj.  If the obj
+            # happens to get outdated at some point in the future, you need to
+            # rebuild it manually from win64.asm.
+            _filenames.remove('win32.c')
+            extra_link_args.append(os.path.join(COMPILE_LIBFFI, 'win64.obj'))
+        sources.extend(os.path.join(COMPILE_LIBFFI, filename)
+                    for filename in _filenames)
+else:
+    use_pkg_config()
+    ask_supports_thread()
+    ask_supports_sync_synchronize()
+
+if sysconfig.get_platform().startswith('macosx'):
+    # priority is given to `pkg_config`, but always fall back on SDK's libffi.
+    extra_compile_args += ['-iwithsysroot/usr/include/ffi']
+
+if 'freebsd' in sys.platform:
+    include_dirs.append('/usr/local/include')
+    library_dirs.append('/usr/local/lib')
+
+forced_extra_objs = os.environ.get('CFFI_FORCE_STATIC', [])
+if forced_extra_objs:
+    forced_extra_objs = forced_extra_objs.split(';')
+
+
+if __name__ == '__main__':
+    from setuptools import setup, Distribution, Extension
+
+    class CFFIDistribution(Distribution):
+        def has_ext_modules(self):
+            # Event if we don't have extension modules (e.g. on PyPy) we want to
+            # claim that we do so that wheels get properly tagged as Python
+            # specific.  (thanks dstufft!)
+            return True
+
+    # On PyPy, cffi is preinstalled and it is not possible, at least for now,
+    # to install a different version.  We work around it by making the setup()
+    # arguments mostly empty in this case.
+    cpython = ('_cffi_backend' not in sys.builtin_module_names)
+
+    setup(
+        packages=['cffi'] if cpython else [],
+        package_dir={"": "src"},
+        package_data={'cffi': ['_cffi_include.h', 'parse_c_type.h', 
+                               '_embedding.h', '_cffi_errors.h']}
+                     if cpython else {},
+        zip_safe=False,
+
+        distclass=CFFIDistribution,
+        ext_modules=[Extension(
+            name='_cffi_backend',
+            include_dirs=include_dirs,
+            sources=sources,
+            libraries=libraries,
+            define_macros=define_macros,
+            library_dirs=library_dirs,
+            extra_compile_args=extra_compile_args,
+            extra_link_args=extra_link_args,
+            extra_objects=forced_extra_objs,
+        )] if cpython else [],
+    )
+

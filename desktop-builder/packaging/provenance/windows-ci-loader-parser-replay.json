@@ -1,0 +1,59 @@
+{
+  "scope": "nonresource-PE-sections-with-debug-timestamps-zeroed-and-critical-headers",
+  "supplierSha256": "7ed67be1a51d6d7c6d0d912b77e61c0950f8cdb7b9403f1de4da46c5506b337f",
+  "sections": [
+    {
+      "name": ".text",
+      "rva": 4096,
+      "virtual_size": 173280,
+      "raw_size": 173568,
+      "characteristics": 1610612768,
+      "sha256": "4101274478e59c3926825de8e5f8155900eb89d11f70e0ce06b0cb69f32638f2"
+    },
+    {
+      "name": ".rdata",
+      "rva": 180224,
+      "virtual_size": 77232,
+      "raw_size": 77312,
+      "characteristics": 1073741888,
+      "sha256": "7a1ef5dde3e02b88ba441c9578d1c515631303581d5ded6d658a36c7f8322700"
+    },
+    {
+      "name": ".data",
+      "rva": 258048,
+      "virtual_size": 21328,
+      "raw_size": 3584,
+      "characteristics": 3221225536,
+      "sha256": "dd75173cc36270bf0371eb7e8a838b92b7ff31b81f7e8a25c2320aee8f25be16"
+    },
+    {
+      "name": ".pdata",
+      "rva": 282624,
+      "virtual_size": 8844,
+      "raw_size": 9216,
+      "characteristics": 1073741888,
+      "sha256": "2d32ae885172f4e944d5ba7b44d872bcba9d276211c26cf9a7d0df6e194c46c2"
+    },
+    {
+      "name": ".fptable",
+      "rva": 294912,
+      "virtual_size": 256,
+      "raw_size": 512,
+      "characteristics": 3221225536,
+      "sha256": "076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560"
+    },
+    {
+      "name": ".reloc",
+      "rva": 299008,
+      "virtual_size": 1892,
+      "raw_size": 2048,
+      "characteristics": 1107296320,
+      "sha256": "56ffa85800c374e684df25d91415db63fe8a734456671cdfe61c3eee4aa54592"
+    }
+  ],
+  "resourceSections": [],
+  "status": "offline-supplier-metadata-replay-only",
+  "nativeFrozenQualification": false,
+  "rawBytesChanged": true,
+  "normalizedPrefixEqual": true
+}

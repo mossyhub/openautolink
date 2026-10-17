@@ -21,13 +21,13 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 [![Release](https://github.com/mossyhub/openautolink/actions/workflows/release-apk.yml/badge.svg?event=release)](https://github.com/mossyhub/openautolink/releases/latest)
 
 > [!IMPORTANT]
-> To use OpenAutoLink, build the app and publish it through your own Google Play Console developer account. Locked GM vehicles require Google Play delivery; APK sideloading is not supported.
+> Install on a locked GM vehicle through your own Google Play Console app's **dedicated Android Automotive OS Internal Test**. APK sideloading is not supported on these head units.
 >
-> CarPlay requires compatible accessory authentication files that you are authorized to use. These are not included in the public build; building the app alone does not enable CarPlay.
+> **Personalize a precompiled release AAB** with your own app identity and upload key, without compiling OAL. **AAB personalization is in development, and desktop downloads are not published yet.**
 >
-> As I publish changes, you’ll need to pull the latest source, rebuild, and publish your own updates.
+> CarPlay also requires your own compatible authentication pair that you are authorized to include; the builder does not supply it. Keep your builder identity and encrypted backup for later updates.
 >
-> [Build guide](docs/build-aab.md) · [Installation guide](docs/install-gm.md) · [CarPlay authentication](docs/carplay-private-mfi-assets.md)
+> [Desktop build guide](docs/build-aab.md) · [Internal Test installation](docs/install-gm.md) · [CarPlay authentication](docs/carplay-private-mfi-assets.md)
 
 ## Choose your phone and connection
 
@@ -75,13 +75,13 @@ Check the source revision and release notes for your installed build. USB hot-pl
 
 ### Car app on a locked GM vehicle
 
-To use OpenAutoLink, build the app and publish it through your own Google Play Console developer account. Locked GM vehicles require Google Play delivery; APK sideloading is not supported.
+Start with [Create your AAB](docs/build-aab.md#create-your-aab), then follow the [Internal Test installation guide](docs/install-gm.md). **Personalization is in development and desktop packages remain unpublished.** The desktop tool is AAB-only; source-build work is preserved separately for development.
 
-CarPlay requires compatible accessory authentication files that you are authorized to use. These are not included in the public build; building the app alone does not enable CarPlay.
+The installation guide covers developer registration (including Google's one-time fee and Android-device verification requirement for new personal accounts), creating a free app, selecting **dedicated Android Automotive OS → Internal testing**, enrolling the car's Google account, and choosing the **car** in Google's web install picker. An Install button alone does not prove the car is eligible.
 
-As I publish changes, you’ll need to pull the latest source, rebuild, and publish your own updates.
+For CarPlay, select your own [authorized authentication pair](docs/carplay-private-mfi-assets.md) in the builder; it does not generate those files. Preserve the managed folder and an encrypted identity backup. For updates, preserve the same application ID and upload key, use a supported release/template or qualified source revision, and upload a higher-version AAB to the same Internal Test. Cross-path updates will be verified before switching modes is offered.
 
-Follow the [build guide](docs/build-aab.md) and [installation guide](docs/install-gm.md). See [CarPlay authentication](docs/carplay-private-mfi-assets.md) for the separate file requirement. Preserve your application ID and signing setup for later updates. The car itself needs internet-connected Wi-Fi or its data service; [an OnStar data plan is not required](#car-internet-no-onstar-data-plan-required).
+The car itself needs internet-connected Wi-Fi or its data service; [an OnStar data plan is not required](#car-internet-no-onstar-data-plan-required).
 
 The car APK on [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) is for AAOS systems/emulators that permit APK installation. **It cannot be sideloaded onto a locked GM production head unit.**
 
@@ -196,7 +196,7 @@ Wireless CarPlay is still in development and is not working in the maintainer's 
 
 ### Authentication and source builds
 
-Public GitHub APKs and source builds omit the CarPlay authentication files and require your own compatible files. OAL is **not an Apple-certified CarPlay product**. Never publish authentication files or signing keys. See the [authentication and build policy](docs/carplay-private-mfi-assets.md) for requirements, provenance and redistribution limitations.
+Public GitHub APKs and ordinary source builds omit the CarPlay authentication files and require your own compatible, authorized pair. OAL is **not an Apple-certified CarPlay product**. Bundled files are extractable; never publish authentication files or signing keys. See [CarPlay authentication](docs/carplay-private-mfi-assets.md) for the exact file formats and authorization limits.
 
 ## Adjust text, icons and UI size
 
@@ -311,7 +311,7 @@ Never post passwords, accessory credentials, upload invitation tokens or account
 
 User guides:
 
-- [GM installation](docs/install-gm.md) and [personal AAB builder](docs/build-aab.md)
+- [Internal Test installation on GM](docs/install-gm.md) and [desktop AAB builder](docs/build-aab.md)
 - [Wireless Android Auto](docs/wireless-wpp.md)
 - [Compatibility](docs/compatibility.md), [EV range estimates](docs/ev-range.md) and [phone calls](docs/phone-calls.md)
 - [Troubleshooting](docs/troubleshooting.md) and [privacy policy](docs/privacy-policy.md)
@@ -319,6 +319,7 @@ User guides:
 Developer guides:
 
 - [Architecture](docs/architecture.md)
+- [Advanced Docker build fallback](docs/manual-build.md)
 - [CarPlay authentication/build policy](docs/carplay-private-mfi-assets.md)
 - [Connection modes and USB switching](docs/usb-hotplug-independent-protocol-modes.md)
 - [CarPlay networking](docs/carplay-network-contract.md), [display sizing](docs/carplay-window-safe-area-contract.md) and [cluster integration](docs/carplay-cluster-metadata-handoff.md)

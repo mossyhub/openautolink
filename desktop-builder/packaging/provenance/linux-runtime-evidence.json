@@ -1,0 +1,29 @@
+{
+  "qtBuild": "Qt 6.8.3 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 10.3.1 20210422 (Red Hat 10.3.1-1)) [Python limited API 3.12.15]",
+  "cryptographyOpenSSL": "OpenSSL 3.4.1 11 Feb 2025",
+  "rustCommit": "05f9846f893b09a1be1fc8560e33fc3c815cfecb",
+  "loaderComparison": {
+    "supplier": "pyinstaller-6.13.0 wheel PyInstaller/bootloader/Linux-64bit-intel/run",
+    "frozenPrefixBytes": 53961,
+    "supplierBytes": 56016,
+    "normalizedPrefixSha256": "879a520c4c01070bf60f667d93556dc0bc4c6a74054e310cef86151a09ea090c",
+    "changedByteOffsets": [
+      40,
+      41,
+      42,
+      43,
+      60,
+      62
+    ],
+    "meaning": "ELF section-table offset/count/string-table index only; no code changes in retained prefix",
+    "normalizationForInventory": "e_shoff only; final artifact remains whole-file SHA-256"
+  },
+  "discovery": {
+    "artifactSha256": "7331acc2664d804a6975b8da989285d36933795f5be3417ad76ecd7eb12afb04",
+    "nativePaths": 121,
+    "gate": "expected Uncovered native payload rejection with no coverage manifest"
+  },
+  "newVsHistoricalPayload": [
+    "lib-dynload/_ctypes.cpython-312-x86_64-linux-gnu.so"
+  ]
+}

@@ -1,0 +1,582 @@
+Supplier: https://raw.githubusercontent.com/python-cffi/cffi/v2.1.1/.github/workflows/ci.yaml
+SHA-256: b1910ddbfc69d2fbe41f1493cb564658d0970522bfeb5e6fe93d3288c802736c
+Notice superset; not an assertion all components are shipped.
+
+===== @file =====
+name: CFFI CI
+
+on:
+  push:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+  schedule:
+  - cron: '0 12 * * 1'
+  workflow_dispatch:
+    inputs:
+      skip_artifact_upload:
+        description: Skip (most) job artifact uploads?
+        type: boolean
+        default: true
+      skip_ci_redundant_jobs:
+        description: Skip CI redundant jobs?
+        type: boolean
+        default: true
+      skip_slow_jobs:
+        description: Skip slow/emulated jobs?
+        type: boolean
+        default: true
+
+env:
+  skip_ci_redundant_jobs: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_ci_redundant_jobs) || (github.event_name == 'pull_request' || github.event_name == 'push') }}
+  skip_slow_jobs: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_slow_jobs) || (github.event_name == 'pull_request' || github.event_name == 'push') }}
+  skip_artifact_upload: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_artifact_upload) || github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  python_sdist:
+    runs-on: ubuntu-24.04
+    outputs:
+      sdist_artifact_name: ${{ steps.build_sdist.outputs.sdist_artifact_name }}
+      package_version: ${{ steps.build_sdist.outputs.package_version }}
+    steps:
+    - name: clone repo
+      uses: actions/checkout@v7
+
+    - name: install python
+      uses: actions/setup-python@v6
+      with:
+        python-version: 3.x
+
+    - name: build sdist
+      id: build_sdist
+      run: |
+        rm -rf dist/
+        python -m pip install build
+        python -m build --sdist
+        
+        echo "sdist_artifact_name=$(ls ./dist)" >> "$GITHUB_OUTPUT"
+        echo "package_version=$(ls ./dist | sed -En 's/cffi-(.+)\.tar\.gz/\1/p')" >> "$GITHUB_OUTPUT"
+
+    - name: upload sdist artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.build_sdist.outputs.sdist_artifact_name }}
+        path: dist/${{ steps.build_sdist.outputs.sdist_artifact_name }}
+        if-no-files-found: error
+      # always upload the sdist artifact- all the wheel build jobs require it
+
+  make_linux_matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix_json: ${{ steps.make_matrix.outputs.matrix_json }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: make a matrix
+      id: make_matrix
+      uses: ./.github/actions/dynamatrix
+      with:
+        matrix_yaml: |
+          include:
+          # x86_64 manylinux
+          - { spec: cp310-manylinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-manylinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-manylinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-manylinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }          
+          - { spec: cp314-manylinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314t-manylinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp315-manylinux_x86_64, arch: x86_64 }
+          - { spec: cp315t-manylinux_x86_64, arch: x86_64 }
+
+          # x86_64 musllinux
+          - { spec: cp310-musllinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-musllinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-musllinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-musllinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-musllinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314t-musllinux_x86_64, arch: x86_64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp315-musllinux_x86_64, arch: x86_64 }
+          - { spec: cp315t-musllinux_x86_64, arch: x86_64 }
+
+          # i686 manylinux
+          - { spec: cp310-manylinux_i686, arch: i686, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-manylinux_i686, arch: i686, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-manylinux_i686, arch: i686, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-manylinux_i686, arch: i686 }
+          # omit i686 releases > 3.13
+
+          # i686 musllinux
+          - { spec: cp310-musllinux_i686, arch: i686, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-musllinux_i686, arch: i686 }
+          # omit i686 releases after 3.11
+
+          # aarch64 manylinux
+          - { spec: cp310-manylinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-manylinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-manylinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-manylinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-manylinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314t-manylinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp315-manylinux_aarch64, arch: aarch64 }
+          - { spec: cp315t-manylinux_aarch64, arch: aarch64 }
+
+          # aarch64 musllinux
+          - { spec: cp310-musllinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-musllinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-musllinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-musllinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-musllinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314t-musllinux_aarch64, arch: aarch64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp315-musllinux_aarch64, arch: aarch64 }
+          - { spec: cp315t-musllinux_aarch64, arch: aarch64 }
+
+          # ppc64le manylinux
+          - { spec: cp310-manylinux_ppc64le, arch: ppc64le, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs }} }
+          - { spec: cp311-manylinux_ppc64le, arch: ppc64le, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-manylinux_ppc64le, arch: ppc64le, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-manylinux_ppc64le, arch: ppc64le, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-manylinux_ppc64le, arch: ppc64le, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp314t-manylinux_ppc64le, arch: ppc64le, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp315-manylinux_ppc64le, arch: ppc64le, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs }} }
+          - { spec: cp315t-manylinux_ppc64le, arch: ppc64le, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs }} }
+
+          # s390x manylinux
+          - { spec: cp310-manylinux_s390x, arch: s390x, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs }} }
+          - { spec: cp311-manylinux_s390x, arch: s390x, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-manylinux_s390x, arch: s390x, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-manylinux_s390x, arch: s390x, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-manylinux_s390x, arch: s390x, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp314t-manylinux_s390x, arch: s390x, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }} }
+          - { spec: cp315-manylinux_s390x, arch: s390x, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs }} }
+          - { spec: cp315t-manylinux_s390x, arch: s390x, test_args: '{package}/src/c', omit: ${{ env.skip_slow_jobs }} }
+
+  linux:
+    needs: [python_sdist, make_linux_matrix]
+    runs-on: ${{ (matrix.arch == 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.make_linux_matrix.outputs.matrix_json) }}
+
+    steps:
+    - name: fetch sdist artifact
+      id: fetch_sdist
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ needs.python_sdist.outputs.sdist_artifact_name }}
+
+    - name: configure docker foreign arch support
+      uses: docker/setup-qemu-action@v4.2.0
+      if: matrix.arch != 'x86_64' && matrix.arch != 'i686' && matrix.arch != 'aarch64'
+
+    - name: build/test wheels
+      id: build
+      env:
+        CFLAGS: -Dffi_call=cffistatic_ffi_call  # override name for ffi_call to break hard if we linked against someone else's libffi
+        CIBW_ARCHS_LINUX: all
+        CIBW_BUILD: ${{ matrix.spec }}
+        CIBW_ENABLE: cpython-prerelease
+        CIBW_BEFORE_BUILD: |
+          set -eux && \
+          curl -L -O https://github.com/libffi/libffi/archive/v3.4.6.tar.gz && \
+          tar zxf v3.4.6.tar.gz && cd libffi-3.4.6 && \
+          ((command -v apk && apk add libtool) || true) && \
+          ./autogen.sh && \
+          ./configure --without-gcc-arch --disable-docs --with-pic --enable-shared=no && \
+          make install && \
+          cd .. && \
+          rm -rf libffi-3.4.6
+        CIBW_ENVIRONMENT_PASS_LINUX: CFLAGS  # ensure that the build container can see our overridden build config
+        CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.manylinux_img || 'manylinux2014' }}
+        CIBW_MANYLINUX_I686_IMAGE: ${{ matrix.manylinux_img || 'manylinux2014' }}
+        CIBW_MANYLINUX_AARCH64_IMAGE: ${{ matrix.manylinux_img || 'manylinux2014' }}
+        CIBW_MANYLINUX_PPC64LE_IMAGE: ${{ matrix.manylinux_img || 'manylinux2014' }}
+        CIBW_MANYLINUX_S390X_IMAGE: ${{ matrix.manylinux_img || 'manylinux2014' }}
+        CIBW_MUSLLINUX_X86_64_IMAGE: ${{ matrix.musllinux_img || 'musllinux_1_2' }}
+        CIBW_MUSLLINUX_I686_IMAGE: ${{ matrix.musllinux_img || 'musllinux_1_2' }}
+        CIBW_MUSLLINUX_AARCH64_IMAGE: ${{ matrix.musllinux_img || 'musllinux_1_2' }}
+        CIBW_TEST_REQUIRES: pytest setuptools meson-python ninja # 3.12+ no longer includes distutils, just always ensure setuptools is present
+        CIBW_TEST_COMMAND: PYTHONUNBUFFERED=1 python -m pytest ${{ matrix.test_args || '{project}' }}  # default to test all
+      run: |
+        set -eux
+
+        mkdir cffi
+
+        tar zxf ${{ steps.fetch_sdist.outputs.download-path }}/cffi*.tar.gz --strip-components=1 -C cffi
+        python -m pip install --upgrade "${{ matrix.cibw_version || 'cibuildwheel' }}"
+
+        # actually build libffi + wheel (using env tweaks above)
+        python -m cibuildwheel --output-dir dist ./cffi
+
+        echo "artifact_name=$(ls ./dist/)" >> "$GITHUB_OUTPUT"
+
+    - name: upload artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.build.outputs.artifact_name }}
+        path: dist/*.whl
+        if-no-files-found: error
+      if: ${{ (matrix.skip_artifact_upload != 'true') && (env.skip_artifact_upload != 'true') }}
+
+  make_macos_matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix_json: ${{ steps.make_matrix.outputs.matrix_json }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: make a matrix
+      id: make_matrix
+      uses: ./.github/actions/dynamatrix
+      with:
+        matrix_yaml: |
+          include:
+          # x86_64 macos
+          - { spec: cp310-macosx_x86_64, deployment_target: '10.15', runs_on: macos-15-intel, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-macosx_x86_64, deployment_target: '10.15', runs_on: macos-15-intel, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-macosx_x86_64, deployment_target: '10.15', runs_on: macos-15-intel, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-macosx_x86_64, deployment_target: '10.15', runs_on: macos-15-intel, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-macosx_x86_64, deployment_target: '10.15', runs_on: macos-15-intel, omit: ${{ env.skip_ci_redundant_jobs }}  }
+          - { spec: cp314t-macosx_x86_64, deployment_target: '10.15', runs_on: macos-15-intel, omit: ${{ env.skip_ci_redundant_jobs }}  }
+          - { spec: cp315-macosx_x86_64, deployment_target: '10.15', runs_on: macos-15-intel }
+          - { spec: cp315t-macosx_x86_64, deployment_target: '10.15', runs_on: macos-15-intel }
+
+          # arm64 macos
+          - { spec: cp310-macosx_arm64, deployment_target: '11.0', omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-macosx_arm64, deployment_target: '11.0', omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-macosx_arm64, deployment_target: '11.0', omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-macosx_arm64, deployment_target: '11.0', omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-macosx_arm64, deployment_target: '11.0', omit: ${{ env.skip_ci_redundant_jobs }}  }
+          - { spec: cp314t-macosx_arm64, deployment_target: '11.0', omit: ${{ env.skip_ci_redundant_jobs }}  }
+          - { spec: cp315-macosx_arm64, deployment_target: '11.0' }
+          - { spec: cp315t-macosx_arm64, deployment_target: '11.0' }
+
+  macos:
+    needs: [python_sdist, make_macos_matrix]
+    defaults:
+      run:
+        shell: ${{ matrix.run_wrapper || 'bash --noprofile --norc -eo pipefail {0}' }}
+    runs-on: ${{ matrix.runs_on || 'macos-26' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.make_macos_matrix.outputs.matrix_json) }}
+
+    steps:
+    - name: fetch sdist artifact
+      id: fetch_sdist
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ needs.python_sdist.outputs.sdist_artifact_name }}
+
+    - name: install python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: build wheel prereqs
+      run: |
+        set -eux
+        python3 -m pip install --user --upgrade "${{ matrix.cibw_version || 'cibuildwheel' }}"
+        brew uninstall -f --ignore-dependencies libffi 2>&1 || true
+
+    - name: build/test wheels
+      id: build
+      env:
+        CIBW_BUILD: ${{ matrix.spec }}
+        CIBW_ENABLE: cpython-prerelease
+        CIBW_TEST_REQUIRES: pytest setuptools meson-python ninja
+        CIBW_TEST_COMMAND: pip install pip --upgrade; cd {project}; PYTHONUNBUFFERED=1 pytest
+        MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target || '11.0' }}
+        SDKROOT: ${{ matrix.sdkroot || 'macosx' }}
+      run: |
+        set -eux
+
+        mkdir cffi
+
+        tar zxf ${{ steps.fetch_sdist.outputs.download-path }}/cffi*.tar.gz --strip-components=1 -C cffi
+
+        python3 -m cibuildwheel --output-dir dist cffi
+
+        echo "artifact_name=$(ls ./dist/)" >> "$GITHUB_OUTPUT"
+
+    - name: upload artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.build.outputs.artifact_name }}
+        path: dist/*.whl
+        if-no-files-found: error
+      if: ${{ env.skip_artifact_upload != 'true' }}
+
+  make_windows_matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix_json: ${{ steps.make_matrix.outputs.matrix_json }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: make a matrix
+      id: make_matrix
+      uses: ./.github/actions/dynamatrix
+      with:
+        matrix_yaml: |
+          include:
+          # x86_64 windows
+          - { spec: cp310-win_amd64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-win_amd64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-win_amd64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-win_amd64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-win_amd64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314t-win_amd64, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp315-win_amd64 }
+          - { spec: cp315t-win_amd64 }
+          
+          # x86 windows
+          - { spec: cp310-win32, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp311-win32, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-win32, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-win32, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-win32, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314t-win32, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp315-win32 }
+          - { spec: cp315t-win32 }
+
+          # arm64 windows
+          - { spec: cp311-win_arm64, runs_on: windows-11-arm, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp312-win_arm64, runs_on: windows-11-arm, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp313-win_arm64, runs_on: windows-11-arm, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314-win_arm64, runs_on: windows-11-arm, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp314t-win_arm64, runs_on: windows-11-arm, omit: ${{ env.skip_ci_redundant_jobs }} }
+          - { spec: cp315-win_arm64, runs_on: windows-11-arm }
+          - { spec: cp315t-win_arm64, runs_on: windows-11-arm }
+
+  windows:
+    needs: [python_sdist, make_windows_matrix]
+    runs-on: ${{ matrix.runs_on || 'windows-2022' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.make_windows_matrix.outputs.matrix_json) }}
+
+    steps:
+    - name: fetch sdist artifact
+      id: fetch_sdist
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ needs.python_sdist.outputs.sdist_artifact_name }}
+
+    - name: Install python
+      uses: actions/setup-python@v6
+      with:
+        python-version: 3.x
+
+    - name: build/test wheels
+      id: build
+      env:
+        CIBW_BUILD: ${{ matrix.spec }}
+        CIBW_ENABLE: cpython-prerelease
+        CIBW_TEST_REQUIRES: pytest setuptools meson-python ninja
+        CIBW_TEST_COMMAND: ${{ matrix.test_cmd || 'python -m pytest {package}/src/c' }}
+        # FIXME: /testing takes ~45min on Windows and has some failures...
+        # CIBW_TEST_COMMAND='python -m pytest {package}/src/c {package}/testing'
+      run: |
+        set -eux
+
+        mkdir cffi
+
+        tar zxf cffi*.tar.gz --strip-components=1 -C cffi
+
+        python -m pip install --upgrade pip
+        pip install "${{ matrix.cibw_version || 'cibuildwheel' }}"
+        python -m cibuildwheel --output-dir dist cffi
+
+        echo "artifact_name=$(ls ./dist/)" >> "$GITHUB_OUTPUT"
+
+      shell: bash
+
+    - name: upload artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.build.outputs.artifact_name }}
+        path: dist/*.whl
+        if-no-files-found: error
+      if: ${{ env.skip_artifact_upload != 'true' }}
+
+  make_ios_matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix_json: ${{ steps.make_matrix.outputs.matrix_json }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: make a matrix
+      id: make_matrix
+      uses: ./.github/actions/dynamatrix
+      with:
+        matrix_yaml: |
+          include:
+          # arm64 iOS device
+          - { spec: cp313-ios_arm64_iphoneos, platform: 'iphoneos' }
+          - { spec: cp314-ios_arm64_iphoneos, platform: 'iphoneos' }
+          - { spec: cp315-ios_arm64_iphoneos, platform: 'iphoneos' }
+
+          # arm64 iOS simulator
+          - { spec: cp313-ios_arm64_iphonesimulator, platform: 'iphonesimulator' }
+          - { spec: cp314-ios_arm64_iphonesimulator, platform: 'iphonesimulator' }
+          - { spec: cp315-ios_arm64_iphonesimulator, platform: 'iphonesimulator' }
+
+  ios:
+    needs: [python_sdist, make_ios_matrix]
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.make_ios_matrix.outputs.matrix_json) }}
+
+    steps:
+    - name: fetch sdist artifact
+      id: fetch_sdist
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ needs.python_sdist.outputs.sdist_artifact_name }}
+
+    - name: install python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.13'
+
+    - name: build wheel prereqs
+      run: |
+        set -eux
+        python3 -m pip install --user --upgrade cibuildwheel>=3.1.0
+        brew uninstall -f --ignore-dependencies libffi 2>&1 || true
+
+    - name: download libffi for iOS
+      env:
+        CFFI_IOS_LIBFFI_VERSION: '3.4.7-2'
+      run: |
+        set -eux
+
+        # Download prebuilt libffi from beeware/cpython-apple-source-deps
+        platform="${{ matrix.platform }}"
+        version="${CFFI_IOS_LIBFFI_VERSION}"
+        url="https://github.com/beeware/cpython-apple-source-deps/releases/download/libFFI-${version}/libffi-${version}-${platform}.arm64.tar.gz"
+
+        echo "Downloading libffi for iOS (${platform})..."
+        curl -L -o libffi-ios.tar.gz "${url}"
+
+        # Extract libffi
+        mkdir -p libffi-ios
+        tar zxf libffi-ios.tar.gz -C libffi-ios
+
+        # Set up paths for cibuildwheel
+        echo "LIBFFI_IOS_DIR=$(pwd)/libffi-ios" >> "$GITHUB_ENV"
+
+    - name: build/test wheels
+      id: build
+      env:
+        CIBW_BUILD: ${{ matrix.spec }}
+        CIBW_ENABLE: cpython-prerelease
+        CIBW_PLATFORM: ios
+        SDKROOT: ${{ matrix.platform }}
+        CIBW_TEST_REQUIRES: pytest setuptools
+        CIBW_TEST_SOURCES: cffi
+        # Running tests from `testing/` will not work since they try to compile C code on device
+        CIBW_TEST_COMMAND: python -m pytest -sv cffi/src/c/
+        # Environment variables for the build
+        CIBW_ENVIRONMENT: >
+          CFLAGS="-I${LIBFFI_IOS_DIR}/include"
+          LDFLAGS="-L${LIBFFI_IOS_DIR}/lib"
+          PYTHONUNBUFFERED=1
+        # Pass through our custom env vars
+        CIBW_ENVIRONMENT_PASS_IOS: LIBFFI_IOS_DIR PYTHONUNBUFFERED
+        CIBW_XBUILD_TOOLS: ""
+      run: |
+        set -eux
+
+        mkdir cffi
+
+        tar zxf ${{ steps.fetch_sdist.outputs.download-path }}/cffi*.tar.gz --strip-components=1 -C cffi
+
+        python3 -m cibuildwheel --output-dir dist cffi
+
+        echo "artifact_name=$(ls ./dist/)" >> "$GITHUB_OUTPUT"
+
+    - name: upload artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.build.outputs.artifact_name }}
+        path: dist/*.whl
+        if-no-files-found: error
+      if: ${{ env.skip_artifact_upload != 'true' }}
+
+  merge_artifacts:
+    needs: [python_sdist, linux, macos, windows, ios]
+    runs-on: ubuntu-24.04
+    steps:
+    - name: merge all artifacts
+      uses: actions/upload-artifact/merge@v7
+      with:
+        name: dist-cffi-${{ needs.python_sdist.outputs.package_version }}
+        delete-merged: true
+      if: ${{ env.skip_artifact_upload != 'true' }}
+
+  make_run_parallel_matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix_json: ${{ steps.make_matrix.outputs.matrix_json }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: make a matrix
+      id: make_matrix
+      uses: ./.github/actions/dynamatrix
+      with:
+        matrix_yaml: |
+          include:
+          - { runner: ubuntu-24.04, python-version: 3.15t-dev }
+          - { runner: macos-26, python-version: 3.15t-dev }
+          - { runner: windows-2025, python-version: 3.15t-dev }
+
+  pytest-run-parallel:
+    needs: make_run_parallel_matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.make_run_parallel_matrix.outputs.matrix_json) }}
+
+    runs-on: ${{ matrix.runner }}
+    steps:
+    - name: clone repo
+      uses: actions/checkout@v7
+
+    - name: install python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ matrix.python-version }}
+        allow-prereleases: true
+
+    - name: build and install
+      run: |
+        python -m pip install pytest setuptools meson-python ninja pytest-run-parallel
+        python -m pip install .
+
+    - name: run tests under pytest-run-parallel
+      run: |
+        python -m pytest --parallel-threads=4 --skip-thread-unsafe=True
+
+  clang_TSAN:
+    runs-on: ubuntu-24.04
+    container: ghcr.io/nascheme/numpy-tsan:3.15t-dev
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: build and install
+      run: |
+        python -m pip install setuptools meson-python ninja pytest pytest-run-parallel
+        CFLAGS="-g -O3 -fsanitize=thread" python -m pip install -v .
+
+    - name: run tests under pytest-run-parallel
+      run: |
+        TSAN_OPTIONS="suppressions=$PWD/suppressions_free_threading.txt" \
+        python -m pytest --parallel-threads=4 --skip-thread-unsafe=True -sv
+
+  check:
+    if: always()
+    needs: [python_sdist, linux, macos, windows, ios, clang_TSAN, pytest-run-parallel, merge_artifacts]
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Verify all previous jobs succeeded (provides a single check to sample for gating purposes)
+      uses: re-actors/alls-green@release/v1
+      with:
+        jobs: ${{ toJSON(needs) }}
+

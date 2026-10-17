@@ -1,0 +1,1784 @@
+{
+  "input": "python-3.12.10-macos11.pkg",
+  "sha256": "8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4",
+  "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg",
+  "signature_validation": "not performed; HTTPS retrieval and computed archive SHA-256 only",
+  "installedCandidateMatches": {
+    "arm64": [
+      {
+        "installedMember": "Python",
+        "sha256": "14e61fb22a897d238248dfd8fe3b472b4541338c293368b4747803055b8bb3aa",
+        "supplierMembers": [
+          "./Versions/3.12/Python"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/Python": {
+            "x86_64": [
+              "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/libssl.3.dylib",
+        "sha256": "4278742a962e0b5d6610ca8a6b7082f35d9594c7bb25466e04e7f1f226540f2a",
+        "supplierMembers": [
+          "./Versions/3.12/lib/libssl.3.dylib"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/libssl.3.dylib": {
+            "x86_64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/libcrypto.3.dylib",
+        "sha256": "2b2d14fc8f354e21ff8e613ef1fd74d9a93473ade5dd270eb7e3550720539d92",
+        "supplierMembers": [
+          "./Versions/3.12/lib/libcrypto.3.dylib"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/libcrypto.3.dylib": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_struct.cpython-312-darwin.so",
+        "sha256": "f8660b3d99be1a18510a5e18fc2807b135059d75d571e117129ce260833d1f45",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_struct.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_struct.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/array.cpython-312-darwin.so",
+        "sha256": "b535c88386aaf55ee53da54b84e6b5ef9331c48fcd23114aee930028135264de",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/array.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/array.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_blake2.cpython-312-darwin.so",
+        "sha256": "67957b925922dadeb925b9173201b472a10f835d5be11a9d5b72fefa801cb315",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_blake2.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_blake2.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_sha1.cpython-312-darwin.so",
+        "sha256": "745b75368db576579f2415a6776f0a81c860a474eeb580db18c02e04f6938e21",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha1.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha1.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_hashlib.cpython-312-darwin.so",
+        "sha256": "608094b7e738af5bc2ee8e9632794c258d634a13b24884d46c74e4d10502a506",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_hashlib.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_hashlib.cpython-312-darwin.so": {
+            "x86_64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/grp.cpython-312-darwin.so",
+        "sha256": "334645afb8c59c3aa09753913b6ad7d0c88508dad8cad523916d0f4e6b68688a",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/grp.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/grp.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_socket.cpython-312-darwin.so",
+        "sha256": "3094813918f11ebcbd9b1d6f783257856cec78c1b7c14bc1b4314c0cd58a730d",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_socket.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_socket.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_decimal.cpython-312-darwin.so",
+        "sha256": "c6b833345170f63183b9147704d46b803d808c3870493c8feffda0407609948d",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_decimal.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_decimal.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_csv.cpython-312-darwin.so",
+        "sha256": "7749b386aebda5dad6e8a71756bb038d9acbd53777d98824d4800adb6af76d43",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_csv.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_csv.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_statistics.cpython-312-darwin.so",
+        "sha256": "4f68067de8a73039208b7f34b75a54903e1fe6a2a6b4f40c969488c0b29de0e4",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_statistics.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_statistics.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_sha3.cpython-312-darwin.so",
+        "sha256": "223d71d609ce83aa0536c8c79f608469da2d852a0a2f8a42c3b3a4e8c17cc75b",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha3.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha3.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/fcntl.cpython-312-darwin.so",
+        "sha256": "392e2755da0f40e7b0da2b5fa6ec71708294d61d83e7a238ba68266ab0dda00f",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/fcntl.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/fcntl.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so",
+        "sha256": "8ff1de64adb502314c900c628eca4d2f75ad0b1ae76ed8abf6508e76dbba1056",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so": {
+            "x86_64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libssl.3.dylib",
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libssl.3.dylib",
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/termios.cpython-312-darwin.so",
+        "sha256": "afd6017f37d5e6b19fc91c4bf7d9e3509cc5559e40fcb8da2c81333f737d888c",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/termios.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/termios.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/zlib.cpython-312-darwin.so",
+        "sha256": "d7057dcfe0c168ef75a2189cf77da74b09bd7f3d9f09d51e34628188c95f648e",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/zlib.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/zlib.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libz.1.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libz.1.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/unicodedata.cpython-312-darwin.so",
+        "sha256": "cadcac4ea390842e4e54e158bf2173197ff80af6f8cf823724d90dbf6b5cf72f",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/unicodedata.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/unicodedata.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_bisect.cpython-312-darwin.so",
+        "sha256": "ccf7d0b1622ddc604dc0d1b7ac9d00dd79c1eefec491f6030ba3d8bdb1a8dccd",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_bisect.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_bisect.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_cn.cpython-312-darwin.so",
+        "sha256": "fdd2a85a9a3699301a31c34253d7549a310c063704b495d13dc6c918a010aa91",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_cn.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_cn.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_multibytecodec.cpython-312-darwin.so",
+        "sha256": "d1c5029217cefde1892286b3abf444a146e82903b1a6f0d4d290baeef92f6b2a",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_multibytecodec.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_multibytecodec.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_posixsubprocess.cpython-312-darwin.so",
+        "sha256": "7666854f67cfafa51b6fb85dc207cb42d48592ef9c7050f1d7def77982b2b302",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_posixsubprocess.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_posixsubprocess.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/xxsubtype.cpython-312-darwin.so",
+        "sha256": "6c859abd5e799088bc22f14e66651537ccb0e931ca8151ca737eb819d5761718",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/xxsubtype.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/xxsubtype.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/select.cpython-312-darwin.so",
+        "sha256": "1fbbdf9dea7444608aeafc1d2641480df09efea02aded64d98fcc6416a3f5304",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/select.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/select.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_lzma.cpython-312-darwin.so",
+        "sha256": "1c22e45c681b7f15cd941f612c13a0efbfafaa764a0898bda69e2ab660e0bd37",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_lzma.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_lzma.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/pyexpat.cpython-312-darwin.so",
+        "sha256": "51d51fbf842598d69f0bc899b6fcfef690f11f187a7acfadd470417d78e59ca7",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/pyexpat.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/pyexpat.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_pickle.cpython-312-darwin.so",
+        "sha256": "bfb094e09d26b5e5d4cffbc9ecfd28832d513946f48d83683068d56f7fe290fd",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_pickle.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_pickle.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_jp.cpython-312-darwin.so",
+        "sha256": "5d491bb8c4bcb2165347eede5020f06d05b70fd45a96530579735f7ec688cf47",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_jp.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_jp.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_bz2.cpython-312-darwin.so",
+        "sha256": "9514de3597166ab257bb02fe42f125ee5aa268b558f5be866c593923ca90c888",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_bz2.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_bz2.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libbz2.1.0.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libbz2.1.0.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_ctypes.cpython-312-darwin.so",
+        "sha256": "de692ef60f4acf8145030ee80249cd10abdba06b0938384234b50cb13bb67124",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_ctypes.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_ctypes.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libffi.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libffi.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_datetime.cpython-312-darwin.so",
+        "sha256": "45ee451bcc6b7944f9ea0411acc83d8c84efe0ce7aa8484a8a18e99ce771a457",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_datetime.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_datetime.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/math.cpython-312-darwin.so",
+        "sha256": "b906b4b3da69aaece0456be28fce6f87aaf66ede00ff37342790630764b310c2",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/math.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/math.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_sha2.cpython-312-darwin.so",
+        "sha256": "501d35d24a41d2119c18fe953685406313a529fdeae91915726fa9b9fac74247",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha2.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha2.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_iso2022.cpython-312-darwin.so",
+        "sha256": "fff138240b5248e37b631f8863ad419d2ba5440f300bf506f5f0dde5500ab6c5",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_iso2022.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_iso2022.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_tw.cpython-312-darwin.so",
+        "sha256": "7e28a21e8a679651b9fb86a93323c3a1b876bd880d4e429f957471e9e69d08b9",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_tw.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_tw.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_opcode.cpython-312-darwin.so",
+        "sha256": "f1f17bde5fb7321c03f1efc8b14fe5b4345e739801e001d3a3b3131c7a3ceb5d",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_opcode.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_opcode.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_kr.cpython-312-darwin.so",
+        "sha256": "808751af4507e996d9211f762fece6b571028f1681481d851b89893762c6c306",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_kr.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_kr.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_heapq.cpython-312-darwin.so",
+        "sha256": "715931941212b518e9fd7d713b1460b7a79f58e1e5f9be2e2fd9da4eca24c939",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_heapq.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_heapq.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_scproxy.cpython-312-darwin.so",
+        "sha256": "89a1dac4181b9d3aeeb6ee062437caea31155dee89dacfc48e61673bae653d4e",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_scproxy.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_scproxy.cpython-312-darwin.so": {
+            "x86_64": [
+              "/System/Library/Frameworks/SystemConfiguration.framework/Versions/A/SystemConfiguration",
+              "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/System/Library/Frameworks/SystemConfiguration.framework/Versions/A/SystemConfiguration",
+              "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_md5.cpython-312-darwin.so",
+        "sha256": "977a84cc9b921afdac29819189fd7a35a8684d881cd885582badad924ac9725c",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_md5.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_md5.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_elementtree.cpython-312-darwin.so",
+        "sha256": "6668cde9c6cf0cada78d5053c8918bda61939b68047f4f6d02efa95cfdc76855",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_elementtree.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_elementtree.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_random.cpython-312-darwin.so",
+        "sha256": "db9c6a5bef80261b600aa10c09875f3c41be61d9e47bafcc494a13c290b77018",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_random.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_random.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_contextvars.cpython-312-darwin.so",
+        "sha256": "61ef884eb40a0fb5a53597d6b06f33fdf45b42aa5ed7bf8c4b36ecb934de713e",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_contextvars.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_contextvars.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/resource.cpython-312-darwin.so",
+        "sha256": "75a668fdc6d8023f23c1fc690840dc401786bce589b94a8b5192077bae5bf14e",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/resource.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/resource.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_hk.cpython-312-darwin.so",
+        "sha256": "5f35993a6376d52de5996126851f10f2a02b1d0a1eb5c3b90a2c858846084c14",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_hk.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_hk.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/binascii.cpython-312-darwin.so",
+        "sha256": "636e92fa43f788e946866e7960ede62ddf101f01faebf97e8e8915349004b52d",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/binascii.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/binascii.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libz.1.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libz.1.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_json.cpython-312-darwin.so",
+        "sha256": "3e5ebe3c95b628577cf54af4f70a574aa06f191235c64212f4ce1d0d575c86d8",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_json.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_json.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      }
+    ],
+    "x86_64": [
+      {
+        "installedMember": "Python",
+        "sha256": "14e61fb22a897d238248dfd8fe3b472b4541338c293368b4747803055b8bb3aa",
+        "supplierMembers": [
+          "./Versions/3.12/Python"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/Python": {
+            "x86_64": [
+              "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/libssl.3.dylib",
+        "sha256": "4278742a962e0b5d6610ca8a6b7082f35d9594c7bb25466e04e7f1f226540f2a",
+        "supplierMembers": [
+          "./Versions/3.12/lib/libssl.3.dylib"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/libssl.3.dylib": {
+            "x86_64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/libcrypto.3.dylib",
+        "sha256": "2b2d14fc8f354e21ff8e613ef1fd74d9a93473ade5dd270eb7e3550720539d92",
+        "supplierMembers": [
+          "./Versions/3.12/lib/libcrypto.3.dylib"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/libcrypto.3.dylib": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_struct.cpython-312-darwin.so",
+        "sha256": "f8660b3d99be1a18510a5e18fc2807b135059d75d571e117129ce260833d1f45",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_struct.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_struct.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/array.cpython-312-darwin.so",
+        "sha256": "b535c88386aaf55ee53da54b84e6b5ef9331c48fcd23114aee930028135264de",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/array.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/array.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_blake2.cpython-312-darwin.so",
+        "sha256": "67957b925922dadeb925b9173201b472a10f835d5be11a9d5b72fefa801cb315",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_blake2.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_blake2.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_sha1.cpython-312-darwin.so",
+        "sha256": "745b75368db576579f2415a6776f0a81c860a474eeb580db18c02e04f6938e21",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha1.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha1.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_hashlib.cpython-312-darwin.so",
+        "sha256": "608094b7e738af5bc2ee8e9632794c258d634a13b24884d46c74e4d10502a506",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_hashlib.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_hashlib.cpython-312-darwin.so": {
+            "x86_64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/grp.cpython-312-darwin.so",
+        "sha256": "334645afb8c59c3aa09753913b6ad7d0c88508dad8cad523916d0f4e6b68688a",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/grp.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/grp.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_socket.cpython-312-darwin.so",
+        "sha256": "3094813918f11ebcbd9b1d6f783257856cec78c1b7c14bc1b4314c0cd58a730d",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_socket.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_socket.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_decimal.cpython-312-darwin.so",
+        "sha256": "c6b833345170f63183b9147704d46b803d808c3870493c8feffda0407609948d",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_decimal.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_decimal.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_csv.cpython-312-darwin.so",
+        "sha256": "7749b386aebda5dad6e8a71756bb038d9acbd53777d98824d4800adb6af76d43",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_csv.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_csv.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_statistics.cpython-312-darwin.so",
+        "sha256": "4f68067de8a73039208b7f34b75a54903e1fe6a2a6b4f40c969488c0b29de0e4",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_statistics.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_statistics.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_sha3.cpython-312-darwin.so",
+        "sha256": "223d71d609ce83aa0536c8c79f608469da2d852a0a2f8a42c3b3a4e8c17cc75b",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha3.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha3.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/fcntl.cpython-312-darwin.so",
+        "sha256": "392e2755da0f40e7b0da2b5fa6ec71708294d61d83e7a238ba68266ab0dda00f",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/fcntl.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/fcntl.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so",
+        "sha256": "8ff1de64adb502314c900c628eca4d2f75ad0b1ae76ed8abf6508e76dbba1056",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so": {
+            "x86_64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libssl.3.dylib",
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libssl.3.dylib",
+              "/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.3.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/termios.cpython-312-darwin.so",
+        "sha256": "afd6017f37d5e6b19fc91c4bf7d9e3509cc5559e40fcb8da2c81333f737d888c",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/termios.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/termios.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/zlib.cpython-312-darwin.so",
+        "sha256": "d7057dcfe0c168ef75a2189cf77da74b09bd7f3d9f09d51e34628188c95f648e",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/zlib.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/zlib.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libz.1.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libz.1.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/unicodedata.cpython-312-darwin.so",
+        "sha256": "cadcac4ea390842e4e54e158bf2173197ff80af6f8cf823724d90dbf6b5cf72f",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/unicodedata.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/unicodedata.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_bisect.cpython-312-darwin.so",
+        "sha256": "ccf7d0b1622ddc604dc0d1b7ac9d00dd79c1eefec491f6030ba3d8bdb1a8dccd",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_bisect.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_bisect.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_cn.cpython-312-darwin.so",
+        "sha256": "fdd2a85a9a3699301a31c34253d7549a310c063704b495d13dc6c918a010aa91",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_cn.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_cn.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_multibytecodec.cpython-312-darwin.so",
+        "sha256": "d1c5029217cefde1892286b3abf444a146e82903b1a6f0d4d290baeef92f6b2a",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_multibytecodec.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_multibytecodec.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_posixsubprocess.cpython-312-darwin.so",
+        "sha256": "7666854f67cfafa51b6fb85dc207cb42d48592ef9c7050f1d7def77982b2b302",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_posixsubprocess.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_posixsubprocess.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/xxsubtype.cpython-312-darwin.so",
+        "sha256": "6c859abd5e799088bc22f14e66651537ccb0e931ca8151ca737eb819d5761718",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/xxsubtype.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/xxsubtype.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/select.cpython-312-darwin.so",
+        "sha256": "1fbbdf9dea7444608aeafc1d2641480df09efea02aded64d98fcc6416a3f5304",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/select.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/select.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_lzma.cpython-312-darwin.so",
+        "sha256": "1c22e45c681b7f15cd941f612c13a0efbfafaa764a0898bda69e2ab660e0bd37",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_lzma.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_lzma.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/pyexpat.cpython-312-darwin.so",
+        "sha256": "51d51fbf842598d69f0bc899b6fcfef690f11f187a7acfadd470417d78e59ca7",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/pyexpat.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/pyexpat.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_pickle.cpython-312-darwin.so",
+        "sha256": "bfb094e09d26b5e5d4cffbc9ecfd28832d513946f48d83683068d56f7fe290fd",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_pickle.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_pickle.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_jp.cpython-312-darwin.so",
+        "sha256": "5d491bb8c4bcb2165347eede5020f06d05b70fd45a96530579735f7ec688cf47",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_jp.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_jp.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_bz2.cpython-312-darwin.so",
+        "sha256": "9514de3597166ab257bb02fe42f125ee5aa268b558f5be866c593923ca90c888",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_bz2.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_bz2.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libbz2.1.0.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libbz2.1.0.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_ctypes.cpython-312-darwin.so",
+        "sha256": "de692ef60f4acf8145030ee80249cd10abdba06b0938384234b50cb13bb67124",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_ctypes.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_ctypes.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libffi.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libffi.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_datetime.cpython-312-darwin.so",
+        "sha256": "45ee451bcc6b7944f9ea0411acc83d8c84efe0ce7aa8484a8a18e99ce771a457",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_datetime.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_datetime.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/math.cpython-312-darwin.so",
+        "sha256": "b906b4b3da69aaece0456be28fce6f87aaf66ede00ff37342790630764b310c2",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/math.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/math.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_sha2.cpython-312-darwin.so",
+        "sha256": "501d35d24a41d2119c18fe953685406313a529fdeae91915726fa9b9fac74247",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha2.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_sha2.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_iso2022.cpython-312-darwin.so",
+        "sha256": "fff138240b5248e37b631f8863ad419d2ba5440f300bf506f5f0dde5500ab6c5",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_iso2022.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_iso2022.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_tw.cpython-312-darwin.so",
+        "sha256": "7e28a21e8a679651b9fb86a93323c3a1b876bd880d4e429f957471e9e69d08b9",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_tw.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_tw.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_opcode.cpython-312-darwin.so",
+        "sha256": "f1f17bde5fb7321c03f1efc8b14fe5b4345e739801e001d3a3b3131c7a3ceb5d",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_opcode.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_opcode.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_kr.cpython-312-darwin.so",
+        "sha256": "808751af4507e996d9211f762fece6b571028f1681481d851b89893762c6c306",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_kr.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_kr.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_heapq.cpython-312-darwin.so",
+        "sha256": "715931941212b518e9fd7d713b1460b7a79f58e1e5f9be2e2fd9da4eca24c939",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_heapq.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_heapq.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_scproxy.cpython-312-darwin.so",
+        "sha256": "89a1dac4181b9d3aeeb6ee062437caea31155dee89dacfc48e61673bae653d4e",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_scproxy.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_scproxy.cpython-312-darwin.so": {
+            "x86_64": [
+              "/System/Library/Frameworks/SystemConfiguration.framework/Versions/A/SystemConfiguration",
+              "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/System/Library/Frameworks/SystemConfiguration.framework/Versions/A/SystemConfiguration",
+              "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_md5.cpython-312-darwin.so",
+        "sha256": "977a84cc9b921afdac29819189fd7a35a8684d881cd885582badad924ac9725c",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_md5.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_md5.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_elementtree.cpython-312-darwin.so",
+        "sha256": "6668cde9c6cf0cada78d5053c8918bda61939b68047f4f6d02efa95cfdc76855",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_elementtree.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_elementtree.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_random.cpython-312-darwin.so",
+        "sha256": "db9c6a5bef80261b600aa10c09875f3c41be61d9e47bafcc494a13c290b77018",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_random.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_random.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_contextvars.cpython-312-darwin.so",
+        "sha256": "61ef884eb40a0fb5a53597d6b06f33fdf45b42aa5ed7bf8c4b36ecb934de713e",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_contextvars.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_contextvars.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/resource.cpython-312-darwin.so",
+        "sha256": "75a668fdc6d8023f23c1fc690840dc401786bce589b94a8b5192077bae5bf14e",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/resource.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/resource.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_codecs_hk.cpython-312-darwin.so",
+        "sha256": "5f35993a6376d52de5996126851f10f2a02b1d0a1eb5c3b90a2c858846084c14",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_hk.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_codecs_hk.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/binascii.cpython-312-darwin.so",
+        "sha256": "636e92fa43f788e946866e7960ede62ddf101f01faebf97e8e8915349004b52d",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/binascii.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/binascii.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libz.1.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libz.1.dylib",
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      },
+      {
+        "installedMember": "lib/python3.12/lib-dynload/_json.cpython-312-darwin.so",
+        "sha256": "3e5ebe3c95b628577cf54af4f70a574aa06f191235c64212f4ce1d0d575c86d8",
+        "supplierMembers": [
+          "./Versions/3.12/lib/python3.12/lib-dynload/_json.cpython-312-darwin.so"
+        ],
+        "supplierSliceDependencies": {
+          "./Versions/3.12/lib/python3.12/lib-dynload/_json.cpython-312-darwin.so": {
+            "x86_64": [
+              "/usr/lib/libSystem.B.dylib"
+            ],
+            "arm64": [
+              "/usr/lib/libSystem.B.dylib"
+            ]
+          }
+        },
+        "frozenMatch": false
+      }
+    ]
+  }
+}

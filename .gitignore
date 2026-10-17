@@ -89,3 +89,11 @@ app/src/main/cpp/third_party/
 build-stub/
 external/headunit-revived/
 external/wireless-helper/
+
+# Desktop builder local tooling, packaged binaries and Python caches
+__pycache__/
+.pytest_cache/
+.venv/
+/desktop-builder/dist/
+*.oalbackup
+*.oalidentity

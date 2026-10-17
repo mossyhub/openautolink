@@ -1,0 +1,205 @@
+name: Qualify desktop builder native AABs
+
+on:
+  workflow_dispatch:
+    inputs:
+      template_mode:
+        description: Published latest template or explicit Linux prepublication build
+        type: choice
+        required: true
+        default: published
+        options:
+          - published
+          - local
+  # Called only AFTER release-apk has uploaded and read back template assets.
+  workflow_call:
+    inputs:
+      template_mode:
+        type: string
+        default: published
+      expected_release_tag:
+        type: string
+        required: true
+      expected_source_commit:
+        type: string
+        required: true
+      builder_commit:
+        type: string
+        required: true
+  push:
+    branches: ['feat/**']
+    paths:
+      - 'desktop-builder/**'
+      - '.github/workflows/qualify-desktop-aab.yml'
+  pull_request:
+    paths:
+      - 'desktop-builder/**'
+      - '.github/workflows/qualify-desktop-aab.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualify-desktop-aab-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  BUILDER_COMMIT: ${{ inputs.builder_commit || github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  template-producer:
+    name: Resolve latest once and supply exact intentional AAB
+    runs-on: ubuntu-22.04
+    timeout-minutes: 170
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.builder_commit || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert exact checked-out builder commit
+        run: >-
+          python -c "import os,subprocess; actual=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(); assert actual == os.environ['BUILDER_COMMIT'], 'Checkout commit mismatch'"
+      - name: Install pinned verifier dependencies
+        working-directory: desktop-builder
+        run: python -m pip install -r requirements-dev.txt
+      - name: Producer contract unit tests (not native evidence)
+        working-directory: desktop-builder
+        run: python -m pytest tests/test_ci_template.py tests/test_template_publication.py -q
+      # Only this Linux job may install Android tools and compile once. The
+      # producer uses exact latest source, never the retained historical AAB.
+      # Manual/release mode defaults to actual publication, with no fallback.
+      - name: Produce prepublication template once or fetch published latest
+        id: produce
+        working-directory: desktop-builder
+        shell: bash
+        env:
+          TEMPLATE_MODE: ${{ inputs.template_mode || 'local' }}
+          EXPECTED_RELEASE_TAG: ${{ inputs.expected_release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          args=(--output "$RUNNER_TEMP/oal-template-inputs" --cache "$RUNNER_TEMP/oal-template-cache" --workspace "$RUNNER_TEMP/oal-template-producer" --failure-report "$RUNNER_TEMP/oal-template-failure.json")
+          if [[ -n "$EXPECTED_RELEASE_TAG" || -n "$EXPECTED_SOURCE_COMMIT" ]]; then
+            args+=(--expected-release-tag "$EXPECTED_RELEASE_TAG" --expected-source-commit "$EXPECTED_SOURCE_COMMIT")
+          fi
+          if [[ "$TEMPLATE_MODE" == local ]]; then
+            python -m scripts.ci_template "${args[@]}" --template-mode local --accept-ci-android-licenses
+          else
+            python -m scripts.ci_template "${args[@]}" --template-mode published
+          fi
+      - name: Upload bounded template failure report
+        if: failure() && steps.produce.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: template-producer-failure-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/oal-template-failure.json
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 7
+      - name: Share exact bounded public template inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-template-inputs
+          path: |
+            ${{ runner.temp }}/oal-template-inputs/release.json
+            ${{ runner.temp }}/oal-template-inputs/template.aab
+            ${{ runner.temp }}/oal-template-inputs/openautolink-personalization.json
+            ${{ runner.temp }}/oal-template-inputs/provenance.json
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 0
+          retention-days: 7
+  native-aab:
+    name: AAB-only first and update (${{ matrix.name }})
+    needs: template-producer
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            python-arch: x64
+          - name: windows-x86_64
+            os: windows-2022
+            python-arch: x64
+          - name: macos-x86_64
+            os: macos-15-intel
+            python-arch: x64
+          - name: macos-arm64
+            os: macos-15
+            python-arch: arm64
+    defaults:
+      run:
+        working-directory: desktop-builder
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.builder_commit || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.python-arch }}
+      - name: Assert exact checked-out feature commit
+        run: >-
+          python -c "import os,subprocess; actual=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(); assert actual == os.environ['BUILDER_COMMIT'], 'Checkout commit mismatch'"
+      - name: Install pinned Python test and builder dependencies only
+        run: python -m pip install -r requirements-dev.txt
+      - name: AAB-only contract unit tests (not native qualification)
+        run: >-
+          python -m pytest tests/test_qualification.py
+          tests/test_releases.py tests/test_personalize.py tests/test_personalization_tools.py -q
+      - name: Read identical template descriptor and source metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: native-template-inputs
+          path: ${{ runner.temp }}/oal-template-inputs
+      # Managed Java and bundletool only: no SDK/NDK/Gradle, app source build,
+      # source-mode transitions, host tool setup, or workspace/tool-cache reuse.
+      - name: Real managed AAB-only transformation signing and update
+        id: qualify
+        timeout-minutes: 65
+        run: >-
+          python qualification.py
+          --workspace "${{ runner.temp }}/oal-aab-managed"
+          --output "${{ runner.temp }}/oal-aab-export"
+          --expected-platform "${{ matrix.name }}"
+          --builder-commit "$BUILDER_COMMIT"
+          --template-inputs "${{ runner.temp }}/oal-template-inputs"
+          --timeout-seconds 3600
+      # Missing report after an attempted qualification remains a failure.
+      - name: Upload sanitized result only (including failure if produced)
+        if: always() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure' || steps.qualify.outcome == 'cancelled')
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-aab-result-${{ matrix.name }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/oal-aab-export/result.json
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 7
+      - name: Upload disposable AABs only after full qualification
+        if: success() && steps.qualify.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-aab-disposable-${{ matrix.name }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/oal-aab-export/personalize-first.aab
+            ${{ runner.temp }}/oal-aab-export/personalize-update.aab
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 0
+          retention-days: 7
+# Only allowlisted public inputs, safe reports and disposable signed AABs leave
+# runners. Never export identities, keys, passwords, raw logs, source workspaces
+# or CarPlay credentials. All four native jobs must pass. This qualifies native
+# AAB transformation/signing, not frozen GUI, real-car behavior or Play acceptance.
+# Reports distinguish local prepublication from actual published-template bytes;
+# native jobs consume shared bytes and do not claim live release download proof.

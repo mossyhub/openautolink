@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "nsis": {
+    "version": "3.13",
+    "url": "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip",
+    "sha256": "ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8",
+    "root": "nsis-3.13",
+    "stub": "Stubs/zlib-x86-unicode",
+    "stubSha256": "577beebf93003432c0104641d8a7e49ca8366253eece062dd5bec8ad2ad87a09",
+    "notice": "COPYING",
+    "noticeSha256": "388357c1215ff403c5ebde3a5ecd273e68f8b79a579996775245d1ee65442aba",
+    "licenseScope": "Unmodified NSIS Unicode x86 stub with zlib compression; no external plug-ins or LZMA/bzip2 modules. Zlib/libpng terms. Full upstream COPYING retained.",
+    "crossCheck": "Official SourceForge bytes independently match ScoopInstaller/Extras nsis 3.13 SHA-1 db14f8af2ea346b786c6ae19343f61aaf5e09b8e; SHA-256 calculated from retrieved archive."
+  },
+  "runtime": {
+    "version": "14.44.35211.0",
+    "url": "https://download.visualstudio.microsoft.com/download/pr/73aabf2e-9532-4f68-99f7-3247081a619c/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe",
+    "sha256": "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b",
+    "publisher": "Microsoft Corporation",
+    "distribution": "Never embedded; downloaded directly from Microsoft on recipient machine only when needed; valid Authenticode plus exact digest required before interactive execution."
+  }
+}
