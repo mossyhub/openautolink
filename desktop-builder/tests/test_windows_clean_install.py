@@ -253,7 +253,8 @@ $rows = @(
     @('v14 Redistributable (x64)', 'Unrelated Publisher', '14.51.36247.0'),
     @('v14 Redistributable (x64)', 'Microsoft Corporation', '15.0.0.0'),
     @('v15 Redistributable (x64)', 'Microsoft Corporation', '14.51.36247.0'),
-    @('2022 X86 Minimum Runtime', 'Microsoft Corporation', '14.51.36247.0')
+    @('2022 X86 Minimum Runtime', 'Microsoft Corporation', '14.51.36247.0'),
+    @('2026 X64 Minimum Runtime', 'Microsoft Corporation', '14.51.36247.0')
 )
 $children = @{}
 for ($i = 0; $i -lt $rows.Count; $i++) {
@@ -276,12 +277,68 @@ function Assert-MicrosoftSignature($Path) {
     if ($Path -cne 'CACHEPATH') { throw 'UNEXPECTED_CACHE_PATH' }
     $script:signatures++
 }
-$targets = @(Get-RemovalTargets | Sort-Object id)
+$scan = [ordered]@{candidates=@();truncated=$false}
+$targets = @(Get-RemovalTargets -Diagnostic $scan | Sort-Object id)
+if ($scan.candidates.Count -ne 6) { throw 'DIAGNOSTIC_SCOPE_OR_DEDUPLICATION_WRONG' }
+$unknown = @($scan.candidates | Where-Object family -eq '2026')
+if ($unknown.Count -ne 1 -or $unknown[0].selected -or $unknown[0].role -cne 'minimum') { throw 'UNMATCHED_NEW_YEAR_NOT_OBSERVED' }
+if ($targets[0].receipt.version -cne '14.51.36247.0' -or $targets[0].receipt.family -cne 'v14') { throw 'BUNDLE_VERSION_NOT_BOUND' }
+if (($scan | ConvertTo-Json -Depth 8) -match 'CACHEPATH|Microsoft|00000000') { throw 'DISCOVERY_PRIVATE_DATA_LEAK' }
 if ($targets.Count -ne 4 -or ($targets.kind -join '|') -cne 'bundle|bundle|msi|msi') {
     throw 'OFFICIAL_V14_BUNDLE_MISSING_OR_REMOVAL_SCOPE_WIDENED'
 }
 if ($script:signatures -ne 2) { throw 'BUNDLE_SIGNATURE_CHECK_OR_VIEW_DEDUPLICATION_LOST' }
+# Observation saturation cannot widen the destructive selection or export names.
+for ($i = 100; $i -lt 120; $i++) {
+    $id = '{00000000-0000-0000-0000-' + $i.ToString('D12') + '}'
+    $children[$id] = New-TestRegistryKey @{
+        DisplayName='Microsoft Visual C++ 2026 X64 Minimum Runtime - 14.51.36247 private suffix'
+        DisplayVersion='14.51.36247.0';Publisher='Microsoft Corporation';WindowsInstaller=1
+    } @{}
+}
+$scan = [ordered]@{candidates=@();truncated=$false}
+$targets = @(Get-RemovalTargets -Diagnostic $scan)
+if ($targets.Count -ne 4 -or $scan.candidates.Count -ne 16 -or -not $scan.truncated) { throw 'DISCOVERY_UNBOUNDED' }
+if (($scan | ConvertTo-Json -Depth 8) -match 'private suffix') { throw 'RAW_NAME_LEAK' }
+function Assert-MicrosoftSignature { throw 'SIGNATURE_REJECTED' }
+try { Get-RemovalTargets -Diagnostic $scan; throw 'SIGNATURE_BYPASSED' } catch {
+    if ($_.Exception.Message -ne 'SIGNATURE_REJECTED') { throw }
+}
 '''.replace('CACHEPATH', str(cache).replace("'", "''")))
+
+
+@pytest.mark.parametrize('remaining', [True, False])
+def test_removal_snapshots_are_fresh_and_do_not_reuse_pre_bundle_msis(remaining):
+    run_mocked_powershell(r'''
+$script:report = [ordered]@{removal=@()}
+$script:scans = 0
+$script:trace = @()
+function Get-RemovalTargets($Diagnostic) {
+    $script:scans++
+    $script:trace += 'scan'
+    if ($null -eq $Diagnostic) { throw 'SCAN_RECEIPT_MISSING' }
+    $receipt = @{version='14.51.36247.0';family='2022';role='minimum';selected=$true;windowsInstaller=$true}
+    $Diagnostic.candidates += $receipt
+    if ($script:scans -eq 1) {
+        [pscustomobject]@{kind='bundle';path='private';id='bundle';receipt=$receipt}
+        [pscustomobject]@{kind='msi';path='';id='old';receipt=$receipt}
+    } elseif (REMAINING) {
+        [pscustomobject]@{kind='msi';path='';id='remaining';receipt=$receipt}
+    }
+}
+function Join-Path($Path, $ChildPath) { return $ChildPath }
+function Invoke-LoggedRuntimeOperation($Kind, $File, $Arguments, $Target) {
+    if ($Target.version -cne '14.51.36247.0') { throw 'TARGET_VERSION_LOST' }
+    if ($Kind -eq 'msi' -and $Arguments[1] -cne 'remaining') { throw 'STALE_MSI_SELECTED' }
+    $script:trace += $Kind
+    return 0
+}
+Remove-TestRuntime
+$expected = if (REMAINING) { 'scan,bundle,scan,msi' } else { 'scan,bundle,scan' }
+if (($script:trace -join ',') -cne $expected) { throw 'REMOVAL_ORDER_CHANGED' }
+if ($script:report.discovery.Count -ne 2 -or ($script:report.discovery.stage -join ',') -cne 'pre-bundle,post-bundle' -or
+    ($script:report.discovery.state -join ',') -cne 'complete,complete') { throw 'SCAN_RECEIPTS_LOST' }
+'''.replace('REMAINING', '$true' if remaining else '$false'))
 
 
 @pytest.mark.parametrize('exit_code', [0, 3010, 1603])
@@ -302,12 +359,13 @@ Add-Type 'public class CleanOwnedJob {
  public void Terminate() { }
  public void Dispose() { }
 }'
-function Get-RemovalTargets { [pscustomobject]@{kind='bundle';path='private installer.exe'} }
+function Get-RemovalTargets { [pscustomobject]@{kind='bundle';path='private installer.exe';receipt=@{version='14.51.36247.0'}} }
 $observed = ''
 try { Remove-TestRuntime } catch { $observed = $_.Exception.Message }
 if ((EXITCODE -ne 0) -ne ($observed -eq 'UNINSTALL_FAILED_OR_RESTART_REQUIRED')) { throw 'REMOVAL_RESULT_WEAKENED' }
 if (EXITCODE -eq 0 -and $observed) { throw $observed }
 if ($script:report.removal.Count -ne 1 -or $script:report.removal[0].exitCode -ne EXITCODE) { throw 'REMOVAL_ROW_LOST' }
+if ($script:report.removal[0].target.version -cne '14.51.36247.0') { throw 'REMOVAL_TARGET_VERSION_LOST' }
 if (([CleanOwnedJob]::Captured[0..3] -join '|') -cne '/uninstall|/quiet|/norestart|/log' -or
     [CleanOwnedJob]::Captured.Count -ne 5) { throw 'ACTUAL_CONSTRUCTOR_ARGUMENTS_LOST' }
 '''.replace('REQUESTPATH', request).replace('EXITCODE', str(exit_code)))
@@ -386,6 +444,44 @@ if (($script:report | ConvertTo-Json -Depth 8) -match 'private|machine|1234|5678
 '''.replace('REQUESTPATH', request).replace('KIND', kind)
        .replace('return -not TIMEOUT', 'return -not ' + ('$true' if timeout else '$false'))
        .replace('if (TIMEOUT)', 'if (' + ('$true' if timeout else '$false') + ')'))
+
+
+@pytest.mark.parametrize('encoding', ['utf-8-sig', 'utf-16'])
+def test_burn_package_receipts_distinguish_noop_removal_and_dependents(tmp_path, encoding):
+    # WiX3 engine.mc message formats; parser fixture, NOT a native receipt.
+    log = tmp_path / 'packages.log'
+    lines = [
+        'i101: Detected package: vcRuntimeMinimum_x64, state: Present, cached: Complete',
+        'i201: Planned package: vcRuntimeMinimum_x64, state: Present, default requested: Absent, ba requested: Absent, execute: None, rollback: None, cache: No, uncache: No, dependency: Unregister',
+        'w327: Will not uninstall package: vcRuntimeMinimum_x64, found dependents: 2',
+        'i101: Detected package: vcRuntimeAdditional_x64, state: Absent, cached: None',
+        'i301: Applying execute package: vcRuntimeAdditional_x64, action: Uninstall, path: C:\\private\\cached.msi, arguments: secret',
+        'i319: Applied execute package: vcRuntimeAdditional_x64, result: 0x0, restart: None',
+        'i103: Detected related package: {931A2CF0-2404-45EA-82F5-345735AE6A90}, scope: PerMachine, version: 14.51.36247, language: 1033 operation: Downgrade',
+        'w210: Plan skipped due to 3 remaining dependents',
+        'w328: Found dependent: private-provider, name: private name',
+        'i101: Detected package: private-package, state: Present, cached: Complete',
+        'i101: Detected package: vcRuntimeMinimum_x64, state: private-state, cached: Complete',
+    ]
+    log.write_text('\n'.join('[1234:5678][time]' + line for line in lines), encoding=encoding)
+    path = str(log).replace("'", "''")
+    run_mocked_powershell(r'''
+$s = Read-InstallerLogSummary 'LOGPATH'
+$r = $s.packageReceipts
+if ($r.Count -ne 6) { throw 'PACKAGE_RECEIPTS_MISSING_OR_UNSAFE' }
+if ($r[0].package -cne 'vcRuntimeMinimum_x64' -or $r[0].state -cne 'Present') { throw 'DETECT_LOST' }
+if ($r[1].execute -cne 'None' -or $r[1].dependency -cne 'Unregister') { throw 'NOOP_PLAN_LOST' }
+if ($r[2].dependents -ne 2 -or $r[2].event -cne 'w327') { throw 'REFERENCE_COUNT_EVIDENCE_LOST' }
+if ($r[4].action -cne 'Uninstall' -or $r[5].result -cne '0x0') { throw 'MSI_APPLY_LOST' }
+if ($s.relatedPackages[0].version -cne '14.51.36247' -or $s.relatedPackages[0].operation -cne 'Downgrade') { throw 'NEWER_PRODUCT_LOST' }
+if ($s.planSkippedDependents -ne 3) { throw 'BUNDLE_DEPENDENTS_LOST' }
+if (($s | ConvertTo-Json -Depth 8) -match 'private|secret|931A2CF0|1234|5678') { throw 'RAW_DATA_LEAK' }
+'''.replace('LOGPATH', path))
+    log.write_text('\n'.join('[0][time]' + line for line in lines * 30), encoding=encoding)
+    run_mocked_powershell(r'''
+$s = Read-InstallerLogSummary 'LOGPATH'
+if (-not $s.truncated -or $s.packageReceipts.Count -ne 12 -or $s.relatedPackages.Count -ne 4) { throw 'RECEIPTS_UNBOUNDED' }
+'''.replace('LOGPATH', path))
 
 
 @pytest.mark.parametrize('encoding', ['utf-8-sig', 'utf-16'])

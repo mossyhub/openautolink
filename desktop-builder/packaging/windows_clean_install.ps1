@@ -61,9 +61,10 @@ function Test-GenuineAbsence($Inventory) {
     return $true
 }
 
-function Get-RemovalTargets {
+function Get-RemovalTargets($Diagnostic = $null) {
     # No Win32_Product: it repairs unrelated MSI products. No arbitrary uninstall strings.
     $seen = @{}
+    $observed = @{}
     foreach ($view in @([Microsoft.Win32.RegistryView]::Registry32, [Microsoft.Win32.RegistryView]::Registry64)) {
         $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
         try {
@@ -80,6 +81,25 @@ function Get-RemovalTargets {
                         # Keep x64/version/publisher/cache/signature checks intact.
                         $bundle = $name -match '^Microsoft Visual C\+\+ (?:2015|2017|2019|2022|2015-2019|2015-2022|v14) Redistributable \(x64\) - 14\.'
                         $msi = $name -match '^Microsoft Visual C\+\+ (?:2015|2017|2019|2022|2015-2019|2015-2022) X64 (?:Minimum|Additional) Runtime - 14\.'
+                        # Wider OBSERVATION only: never uninstall an unreviewed name.
+                        # Official 14.51 XML still labels its x64 MSIs '2022'.
+                        $receipt = $null
+                        if ($null -ne $Diagnostic -and -not $observed.ContainsKey($id) -and
+                            $name -match '^Microsoft Visual C\+\+ ' -and $name -match '(\(x64\)| X64 )' -and
+                            $name -match '(Redistributable|Runtime)') {
+                            $observed[$id] = $true
+                            $family = 'other'
+                            if ($name -match '^Microsoft Visual C\+\+ (20[0-9]{2}(?:-20[0-9]{2})?|v14) ') { $family = $Matches[1] }
+                            $role = 'other'
+                            if ($name -match ' X64 Minimum Runtime') { $role = 'minimum' }
+                            elseif ($name -match ' X64 Additional Runtime') { $role = 'additional' }
+                            elseif ($name -match ' Redistributable \(x64\)') { $role = 'bundle' }
+                            $safeVersion = if ($version -match '^14\.[0-9]{1,5}\.[0-9]{1,5}(?:\.[0-9]{1,5})?$') { $version } else { 'unknown' }
+                            $receipt = [ordered]@{ family = $family; role = $role; version = $safeVersion;
+                                windowsInstaller = ([int]$key.GetValue('WindowsInstaller', 0) -eq 1); selected = $false }
+                            if ($Diagnostic.candidates.Count -lt 16) { $Diagnostic.candidates += $receipt }
+                            else { $Diagnostic.truncated = $true }
+                        }
                         if (-not ($bundle -or $msi) -or $seen.ContainsKey($id)) { continue }
                         if ($id -notmatch '^\{[0-9A-Fa-f-]{36}\}$') { throw 'UNINSTALL_ID_INVALID' }
                         $seen[$id] = $true
@@ -87,9 +107,11 @@ function Get-RemovalTargets {
                             $cache = [string]$key.GetValue('BundleCachePath', '')
                             if (-not $cache -or -not (Test-Path -LiteralPath $cache -PathType Leaf)) { throw 'UNINSTALL_CACHE_UNAVAILABLE' }
                             Assert-MicrosoftSignature $cache
-                            [pscustomobject]@{ kind = 'bundle'; id = $id; path = $cache }
+                            if ($null -ne $receipt) { $receipt.selected = $true }
+                            [pscustomobject]@{ kind = 'bundle'; id = $id; path = $cache; receipt = $receipt }
                         } elseif ([int]$key.GetValue('WindowsInstaller', 0) -eq 1) {
-                            [pscustomobject]@{ kind = 'msi'; id = $id; path = '' }
+                            if ($null -ne $receipt) { $receipt.selected = $true }
+                            [pscustomobject]@{ kind = 'msi'; id = $id; path = ''; receipt = $receipt }
                         }
                     } finally { $key.Dispose() }
                 }
@@ -297,10 +319,16 @@ function Get-OwnedStartCount([string]$Name) {
 }
 
 function Read-InstallerLogSummary([string]$Path) {
-    # Private test logs only. Export whitelisted event IDs/numbers, never text,
-    # paths, package names or command lines. A missing/truncated log proves nothing.
+    # Private logs only: fixed VC package IDs/enums and bounded numbers, never
+    # arbitrary names, paths or command lines. Missing/truncated proves nothing.
+    # Message formats: wixtoolset/wix3 src/burn/engine/engine.mc.
     $summary = [ordered]@{ state = 'missing'; bytesRead = 0; truncated = $false;
-        events = @(); errorCodes = @(); resultCodes = @(); restart = 'unknown' }
+        events = @(); errorCodes = @(); resultCodes = @(); restart = 'unknown';
+        packageReceipts = @(); relatedPackages = @(); planSkippedDependents = $null }
+    $package = '(vcRuntimeMinimum_x64|vcRuntimeAdditional_x64|vcRuntime_arm64)'
+    $state = '(Absent|Present|Superseded|Obsolete|Cached|Unknown)'
+    $action = '(None|Install|Uninstall|Repair|Modify|MinorUpgrade|MajorUpgrade)'
+    $requestState = '(None|Absent|Cache|Present|Repair|ForceAbsent|ForcePresent)'
     $stream = $null; $reader = $null
     try {
         if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $summary }
@@ -336,6 +364,31 @@ function Read-InstallerLogSummary([string]$Path) {
                 }
             }
             if ($line -cmatch '\bi399: .*?, restart: (None|Required|Initiated),') { $summary.restart = $Matches[1] }
+            $receipt = $null
+            if ($line -cmatch ('\]i101: Detected package: ' + $package + ', state: ' + $state + ', cached: (None|Partial|Complete)\r?$')) {
+                $receipt = [ordered]@{ event = 'i101'; package = $Matches[1]; state = $Matches[2]; cached = $Matches[3] }
+            } elseif ($line -cmatch ('\]i201: Planned package: ' + $package + ', state: ' + $state + ', default requested: ' + $requestState + ', ba requested: ' + $requestState + ', execute: ' + $action + ', rollback: ' + $action + ', cache: (Yes|No), uncache: (Yes|No), dependency: (None|Register|Unregister)\r?$')) {
+                $receipt = [ordered]@{ event = 'i201'; package = $Matches[1]; state = $Matches[2];
+                    requested = $Matches[4]; execute = $Matches[5]; dependency = $Matches[9] }
+            } elseif ($line -cmatch ('\]i301: Applying (execute|rollback) package: ' + $package + ', action: ' + $action + ', path: ')) {
+                $receipt = [ordered]@{ event = 'i301'; package = $Matches[2]; mode = $Matches[1]; action = $Matches[3] }
+            } elseif ($line -cmatch ('\]i319: Applied (execute|rollback) package: ' + $package + ', result: (0x[0-9a-fA-F]{1,8}), restart: (None|Required|Initiated)\r?$')) {
+                $receipt = [ordered]@{ event = 'i319'; package = $Matches[2]; mode = $Matches[1]; result = $Matches[3].ToLowerInvariant(); restart = $Matches[4] }
+            } elseif ($line -cmatch ('\]w327: Will not uninstall package: ' + $package + ', found dependents: ([0-9]{1,5})\r?$')) {
+                $receipt = [ordered]@{ event = 'w327'; package = $Matches[1]; dependents = [int]$Matches[2] }
+            }
+            if ($null -ne $receipt) {
+                if ($summary.packageReceipts.Count -lt 12) { $summary.packageReceipts += $receipt }
+                else { $summary.truncated = $true }
+            }
+            if ($line -cmatch '\]i103: Detected related package: \{[0-9A-Fa-f-]{36}\}, scope: (PerMachine|PerUser), version: (14\.[0-9]{1,5}\.[0-9]{1,5}(?:\.[0-9]{1,5})?), language: [0-9]{1,5} operation: (None|Downgrade|MajorUpgrade|MinorUpdate|Remove|Install|Repair)\r?$') {
+                if ($summary.relatedPackages.Count -lt 4) {
+                    $summary.relatedPackages += [ordered]@{ version = $Matches[2]; operation = $Matches[3] }
+                } else { $summary.truncated = $true }
+            }
+            if ($line -cmatch '\]w210: Plan skipped due to ([0-9]{1,5}) remaining dependents\r?$') {
+                $summary.planSkippedDependents = [int]$Matches[1]
+            }
         }
         $summary.state = 'read'
     } catch { $summary.state = 'unreadable' }
@@ -347,8 +400,8 @@ function Read-InstallerLogSummary([string]$Path) {
 }
 
 function Invoke-LoggedRuntimeOperation([ValidateSet('bundle', 'msi', 'recovery')][string]$Kind,
-                                       [string]$File, [string[]]$Arguments) {
-    $row = [ordered]@{ kind = $Kind; phase = 'launch'; exitCode = $null;
+                                       [string]$File, [string[]]$Arguments, $Target = $null) {
+    $row = [ordered]@{ kind = $Kind; target = $Target; phase = 'launch'; exitCode = $null;
         rootExited = $null; jobEmpty = $null; failureCode = ''; elapsedMilliseconds = 0; installerLog = $null }
     # Retain the attempt even if launch/wait throws, rather than an empty removal list.
     if ($Kind -eq 'recovery') { $script:report.recoveryOperation = $row }
@@ -379,12 +432,21 @@ function Invoke-LoggedRuntimeOperation([ValidateSet('bundle', 'msi', 'recovery')
 
 function Remove-TestRuntime {
     # Only this guarded ephemeral test uninstalls. Production installer stays interactive.
-    foreach ($item in @(Get-RemovalTargets | Where-Object kind -eq 'bundle')) {
-        $code = Invoke-LoggedRuntimeOperation 'bundle' $item.path @('/uninstall', '/quiet', '/norestart')
+    $scan = [ordered]@{ stage = 'pre-bundle'; state = 'scanning'; candidates = @(); truncated = $false }
+    $script:report.discovery = @($scan)
+    $targets = @(Get-RemovalTargets -Diagnostic $scan)
+    $scan.state = 'complete'
+    foreach ($item in @($targets | Where-Object kind -eq 'bundle')) {
+        $code = Invoke-LoggedRuntimeOperation 'bundle' $item.path @('/uninstall', '/quiet', '/norestart') -Target $item.receipt
         if ($code -ne 0) { throw 'UNINSTALL_FAILED_OR_RESTART_REQUIRED' }
     }
-    foreach ($item in @(Get-RemovalTargets | Where-Object kind -eq 'msi')) {
-        $code = Invoke-LoggedRuntimeOperation 'msi' (Join-Path ([Environment]::SystemDirectory) 'msiexec.exe') @('/x', $item.id, '/qn', '/norestart')
+    # Fresh discovery after all bundles: the earlier MSI list is NOT a work queue.
+    $scan = [ordered]@{ stage = 'post-bundle'; state = 'scanning'; candidates = @(); truncated = $false }
+    $script:report.discovery += $scan
+    $targets = @(Get-RemovalTargets -Diagnostic $scan)
+    $scan.state = 'complete'
+    foreach ($item in @($targets | Where-Object kind -eq 'msi')) {
+        $code = Invoke-LoggedRuntimeOperation 'msi' (Join-Path ([Environment]::SystemDirectory) 'msiexec.exe') @('/x', $item.id, '/qn', '/norestart') -Target $item.receipt
         if ($code -notin @(0, 1605)) { throw 'UNINSTALL_FAILED_OR_RESTART_REQUIRED' }
     }
 }
