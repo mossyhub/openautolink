@@ -283,7 +283,9 @@ if ($scan.candidates.Count -ne 6) { throw 'DIAGNOSTIC_SCOPE_OR_DEDUPLICATION_WRO
 $unknown = @($scan.candidates | Where-Object family -eq '2026')
 if ($unknown.Count -ne 1 -or $unknown[0].selected -or $unknown[0].role -cne 'minimum') { throw 'UNMATCHED_NEW_YEAR_NOT_OBSERVED' }
 if ($targets[0].receipt.version -cne '14.51.36247.0' -or $targets[0].receipt.family -cne 'v14') { throw 'BUNDLE_VERSION_NOT_BOUND' }
-if (($scan | ConvertTo-Json -Depth 8) -match 'CACHEPATH|Microsoft|00000000') { throw 'DISCOVERY_PRIVATE_DATA_LEAK' }
+$diagnosticJson = $scan | ConvertTo-Json -Depth 8
+$encodedCachePath = ('CACHEPATH' | ConvertTo-Json -Compress).Trim('"')
+if ($diagnosticJson.Contains($encodedCachePath) -or $diagnosticJson -match 'Microsoft|00000000') { throw 'DISCOVERY_PRIVATE_DATA_LEAK' }
 if ($targets.Count -ne 4 -or ($targets.kind -join '|') -cne 'bundle|bundle|msi|msi') {
     throw 'OFFICIAL_V14_BUNDLE_MISSING_OR_REMOVAL_SCOPE_WIDENED'
 }
