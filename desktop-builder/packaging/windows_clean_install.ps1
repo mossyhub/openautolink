@@ -76,7 +76,9 @@ function Get-RemovalTargets {
                         $version = [string]$key.GetValue('DisplayVersion', '')
                         $publisher = [string]$key.GetValue('Publisher', '')
                         if ($publisher -cne 'Microsoft Corporation' -or $version -notmatch '^14\.\d+\.\d+(?:\.\d+)?$') { continue }
-                        $bundle = $name -match '^Microsoft Visual C\+\+ (?:2015|2017|2019|2022|2015-2019|2015-2022) Redistributable \(x64\) - 14\.'
+                        # Current Microsoft VC14 bundles use 'v14', not a VS year.
+                        # Keep x64/version/publisher/cache/signature checks intact.
+                        $bundle = $name -match '^Microsoft Visual C\+\+ (?:2015|2017|2019|2022|2015-2019|2015-2022|v14) Redistributable \(x64\) - 14\.'
                         $msi = $name -match '^Microsoft Visual C\+\+ (?:2015|2017|2019|2022|2015-2019|2015-2022) X64 (?:Minimum|Additional) Runtime - 14\.'
                         if (-not ($bundle -or $msi) -or $seen.ContainsKey($id)) { continue }
                         if ($id -notmatch '^\{[0-9A-Fa-f-]{36}\}$') { throw 'UNINSTALL_ID_INVALID' }

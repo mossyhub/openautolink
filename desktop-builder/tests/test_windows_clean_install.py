@@ -224,6 +224,66 @@ def run_mocked_powershell(code):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_removal_discovery_includes_official_v14_bundle_without_widening_scope(tmp_path):
+    # Actual 14.51.36247.0 Microsoft supplier ProductName (SHA-256
+    # 843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c).
+    # Mock only the registry/filesystem/signature boundary, not the filtering.
+    cache = tmp_path / 'cached official installer.exe'
+    cache.write_bytes(b'fake signature-boundary fixture, never executed')
+    run_mocked_powershell(r'''
+function New-TestRegistryKey($Values, $Children) {
+    $key = [pscustomobject]@{Values=$Values;Children=$Children}
+    $key | Add-Member ScriptMethod GetValue {
+        param($name, $fallback)
+        if ($this.Values.ContainsKey($name)) { return $this.Values[$name] }
+        return $fallback
+    }
+    $key | Add-Member ScriptMethod GetSubKeyNames { return [string[]]@($this.Children.Keys) }
+    $key | Add-Member ScriptMethod OpenSubKey { param($name, $writable) return $this.Children[$name] }
+    $key | Add-Member ScriptMethod Dispose { }
+    return $key
+}
+$rows = @(
+    @('v14 Redistributable (x64)', 'Microsoft Corporation', '14.51.36247.0'),
+    @('2015-2022 Redistributable (x64)', 'Microsoft Corporation', '14.44.35211.0'),
+    @('2022 X64 Minimum Runtime', 'Microsoft Corporation', '14.51.36247.0'),
+    @('2022 X64 Additional Runtime', 'Microsoft Corporation', '14.51.36247.0'),
+    @('v14 Redistributable (x86)', 'Microsoft Corporation', '14.51.36247.0'),
+    @('v14 Redistributable (arm64)', 'Microsoft Corporation', '14.51.36247.0'),
+    @('v14 Redistributable (x64)', 'Unrelated Publisher', '14.51.36247.0'),
+    @('v14 Redistributable (x64)', 'Microsoft Corporation', '15.0.0.0'),
+    @('v15 Redistributable (x64)', 'Microsoft Corporation', '14.51.36247.0'),
+    @('2022 X86 Minimum Runtime', 'Microsoft Corporation', '14.51.36247.0')
+)
+$children = @{}
+for ($i = 0; $i -lt $rows.Count; $i++) {
+    $id = '{00000000-0000-0000-0000-' + $i.ToString('D12') + '}'
+    $children[$id] = New-TestRegistryKey @{
+        DisplayName=('Microsoft Visual C++ ' + $rows[$i][0] + ' - 14.51.36247')
+        DisplayVersion=$rows[$i][2];Publisher=$rows[$i][1]
+        BundleCachePath='CACHEPATH';WindowsInstaller=1
+    } @{}
+}
+$root = New-TestRegistryKey @{} $children
+$script:base = New-TestRegistryKey @{} @{'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'=$root}
+function Open-TestRegistry($View) { return $script:base }
+$body = (Get-Command Get-RemovalTargets).ScriptBlock.ToString()
+$boundary = '[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)'
+if (-not $body.Contains($boundary)) { throw 'REGISTRY_TEST_BOUNDARY_CHANGED' }
+Set-Item Function:Get-RemovalTargets ([scriptblock]::Create($body.Replace($boundary, '(Open-TestRegistry $view)')))
+$script:signatures = 0
+function Assert-MicrosoftSignature($Path) {
+    if ($Path -cne 'CACHEPATH') { throw 'UNEXPECTED_CACHE_PATH' }
+    $script:signatures++
+}
+$targets = @(Get-RemovalTargets | Sort-Object id)
+if ($targets.Count -ne 4 -or ($targets.kind -join '|') -cne 'bundle|bundle|msi|msi') {
+    throw 'OFFICIAL_V14_BUNDLE_MISSING_OR_REMOVAL_SCOPE_WIDENED'
+}
+if ($script:signatures -ne 2) { throw 'BUNDLE_SIGNATURE_CHECK_OR_VIEW_DEDUPLICATION_LOST' }
+'''.replace('CACHEPATH', str(cache).replace("'", "''")))
+
+
 @pytest.mark.parametrize('exit_code', [0, 3010, 1603])
 def test_actual_removal_launch_chain_keeps_silent_arguments_and_rejects_nonzero(tmp_path, exit_code):
     request = str(tmp_path / 'request.json').replace("'", "''")
