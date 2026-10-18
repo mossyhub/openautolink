@@ -415,6 +415,17 @@ if ($script:starts.Count -ne 2 -or $script:queue.Count -ne 0) { throw 'FINAL_REC
 """.replace('DELIVERY', delivery))
 
 
+def test_final_monitor_cleanup_preserves_original_failure():
+    run_mocked_powershell(EVENT_REPLAY + r"""
+$script:report = @{status='failed';phase='runtime-removal';failureCode='UNINSTALL_FAILED'}
+function Unregister-Event { param($SourceIdentifier) throw 'cleanup text with private path' }
+Finalize-ProcessMonitor
+if ($script:report.phase -ne 'runtime-removal' -or $script:report.failureCode -ne 'UNINSTALL_FAILED') { throw 'PRIMARY_FAILURE_LOST' }
+if ($script:report.cleanupFailure.code -ne 'PROCESS_MONITOR_FINALIZATION_FAILED') { throw 'CLEANUP_NOT_RECORDED' }
+if (($script:report | ConvertTo-Json -Depth 8) -match 'private path') { throw 'RAW_ERROR_LEAK' }
+""")
+
+
 def test_final_monitor_cleanup_preserves_valid_success():
     run_mocked_powershell(EVENT_REPLAY + r"""
 Queue-Start

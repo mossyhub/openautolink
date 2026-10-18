@@ -377,11 +377,14 @@ function Finalize-ProcessMonitor {
         Drain-ProcessEvents
         [void](Get-OwnedStartCount 'builder.exe')
     } catch {
-        $script:report.status = 'failed'
-        $script:report.phase = 'monitor-finalization'
         $code = $_.Exception.Message
-        if ($code -cmatch '^[A-Z][A-Z0-9_]{2,80}$') { $script:report.failureCode = $code }
-        else { $script:report.failureCode = 'PROCESS_MONITOR_FINALIZATION_FAILED' }
+        if ($code -cnotmatch '^[A-Z][A-Z0-9_]{2,80}$') { $code = 'PROCESS_MONITOR_FINALIZATION_FAILED' }
+        $script:report['cleanupFailure'] = [ordered]@{code=$code;line=[int]$_.InvocationInfo.ScriptLineNumber}
+        if (-not $script:report.failureCode) {
+            $script:report.phase = 'monitor-finalization'
+            $script:report.failureCode = $code
+        }
+        $script:report.status = 'failed'
     }
 }
 
@@ -740,6 +743,9 @@ try {
     $script:report.phase = 'complete'
     $script:report.status = 'passed'
 } catch {
+    $script:report['failureLine'] = [int]$_.InvocationInfo.ScriptLineNumber
+    $type = $_.Exception.GetType().FullName
+    $script:report['failureType'] = if ($type -cmatch '^[A-Za-z.]{1,160}$') { $type } else { 'unknown' }
     $code = $_.Exception.Message
     if ($code -cmatch '^[A-Z][A-Z0-9_]{2,80}$') { $script:report.failureCode = $code }
     else { $script:report.failureCode = 'NATIVE_OPERATION_FAILED' }
