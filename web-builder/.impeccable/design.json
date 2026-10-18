@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-18T15:41:06Z",
+  "title": "Design System: Personal OAL builder — Web",
+  "extensions": {
+    "shadows": [],
+    "motion": [
+      {
+        "name": "control-colors",
+        "value": "background-color .12s ease-out, border-color .12s ease-out",
+        "purpose": "Buttons/download-style controls only, under prefers-reduced-motion: no-preference."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "stacked-workspace",
+        "value": "760px"
+      },
+      {
+        "name": "stacked-fields",
+        "value": "480px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Consequential action; disabled until its prerequisites are met.",
+      "html": "<button class=\"ds-button-primary\" type=\"button\">Build AAB</button>",
+      "css": ".ds-button-primary{font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:15px;font-weight:550;background:#222827;color:#f3f5f4;border:1px solid #3a4340;border-radius:6px;padding:11px 16px;min-height:44px;cursor:pointer;text-decoration:none;text-align:center;line-height:1.4;background:var(--accent,#99d8b6);color:#101c15;border-color:var(--accent,#99d8b6);}.ds-button-primary:hover{background:#2b3430;border-color:#66776e;}.ds-button-primary:disabled{background:#1a1e1c;border-color:#3a4240;color:#9ba49f;cursor:not-allowed;}.ds-button-primary:hover{background:#b1e5ca;border-color:var(--accent,#99d8b6);}.ds-button-primary:disabled{background:#2d4437;border-color:#2d4437;color:#aec1b6;}.ds-button-primary:focus-visible{outline:2px solid #99d8b6;outline-offset:4px;}@media(prefers-reduced-motion:no-preference){.ds-button-primary{transition:background-color .12s ease-out,border-color .12s ease-out;}}"
+    },
+    {
+      "name": "Secondary button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Backup download and secondary actions.",
+      "html": "<button class=\"ds-button-secondary\" type=\"button\">Download initial web backup</button>",
+      "css": ".ds-button-secondary{font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:15px;font-weight:550;background:#222827;color:#f3f5f4;border:1px solid #3a4340;border-radius:6px;padding:11px 16px;min-height:44px;cursor:pointer;text-decoration:none;text-align:center;line-height:1.4;}.ds-button-secondary:hover{background:#2b3430;border-color:#66776e;}.ds-button-secondary:disabled{background:#1a1e1c;border-color:#3a4240;color:#9ba49f;cursor:not-allowed;}.ds-button-secondary:focus-visible{outline:2px solid #99d8b6;outline-offset:4px;}@media(prefers-reduced-motion:no-preference){.ds-button-secondary{transition:background-color .12s ease-out,border-color .12s ease-out;}}"
+    },
+    {
+      "name": "Session action",
+      "kind": "button",
+      "refersTo": "button-session",
+      "description": "Smaller session-reset action; the application requests confirmation.",
+      "html": "<button class=\"ds-button-session\" type=\"button\">Clear & start over</button>",
+      "css": ".ds-button-session{font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:15px;font-weight:550;background:#222827;color:#f3f5f4;border:1px solid #3a4340;border-radius:6px;padding:11px 16px;min-height:44px;cursor:pointer;text-decoration:none;text-align:center;line-height:1.4;font-size:13px;background:transparent;}.ds-button-session:hover{background:#2b3430;border-color:#66776e;}.ds-button-session:disabled{background:#1a1e1c;border-color:#3a4240;color:#9ba49f;cursor:not-allowed;}.ds-button-session:hover{background:transparent;}.ds-button-session:focus-visible{outline:2px solid #99d8b6;outline-offset:4px;}@media(prefers-reduced-motion:no-preference){.ds-button-session{transition:background-color .12s ease-out,border-color .12s ease-out;}}"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Recessed full-width input with visible label; validation uses the shared alert and native form constraints.",
+      "html": "<label class=\"ds-label\" for=\"ds-play-version\">Highest version code in Google Play</label><input class=\"ds-input\" id=\"ds-play-version\" type=\"text\" inputmode=\"numeric\" pattern=\"[0-9]+\" required>",
+      "css": ".ds-label{font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;color:#f3f5f4;font-size:14px;font-weight:550;display:block;margin:18px 0 8px;}.ds-input{font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:15px;width:100%;padding:11px 12px;min-height:44px;color:#f3f5f4;background:#111415;border:1px solid var(--line,#626e68);border-radius:6px;caret-color:var(--accent,#99d8b6);}.ds-input:focus-visible{outline:2px solid #99d8b6;outline-offset:4px;}"
+    },
+    {
+      "name": "Step indicator",
+      "kind": "nav",
+      "refersTo": "step-current",
+      "description": "Non-interactive ordered progress list. Active step is identified with aria-current, not a link.",
+      "html": "<nav class=\"ds-steps\" aria-label=\"Build steps\"><ol><li aria-current=\"step\">1 <span>Latest release</span></li><li>2 <span>Your identity</span></li><li>3 <span>Save &amp; build</span></li><li>4 <span>Downloads</span></li></ol></nav>",
+      "css": ".ds-steps{font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:15px;}.ds-steps ol{padding:0;margin:0;list-style:none;}.ds-steps li{color:var(--muted,#aeb7b4);border-radius:6px;padding:12px;display:flex;gap:14px;margin-bottom:6px;font-variant-numeric:tabular-nums;}.ds-steps li[aria-current]{color:#b7e8d2;background:#1b2b24;font-weight:600;}@media(max-width:760px){.ds-steps ol{display:flex;flex-wrap:wrap;gap:4px;}.ds-steps li{padding:9px;gap:7px;font-size:13px;}}"
+    },
+    {
+      "name": "Work panel and status",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Single flat work area with a bordered polite status region; no elevation shadow.",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-status\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\">Checking latest public release…</div><h2 class=\"ds-title\">Check the latest release</h2><p class=\"ds-copy\">The builder checks GitHub, then downloads and checks the matching public template from this site. Older releases are not used.</p></section>",
+      "css": ".ds-panel{font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:15px;color:#f3f5f4;background:#191c1d;border:1px solid #2d3232;border-radius:10px;padding:28px;min-width:0;}.ds-status{color:#b7e8d2;font-size:14px;line-height:1.6;padding-bottom:20px;margin-bottom:24px;border-bottom:1px solid #2d3232;}.ds-title{font-size:21px;line-height:1.35;margin:0 0 12px;font-weight:650;}.ds-copy{margin:0 0 18px;line-height:1.6;color:var(--muted,#aeb7b4);max-width:72ch;}@media(max-width:760px){.ds-panel{padding:22px;}}"
+    },
+    {
+      "name": "Notice",
+      "kind": "custom",
+      "refersTo": "notice",
+      "description": "Amber explanatory caution, not a decorative badge.",
+      "html": "<p class=\"ds-notice\">This is a web-builder backup, not a desktop/JKS backup. Never create a new identity to update an existing Play app.</p>",
+      "css": ".ds-notice{font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;color:#e2cfaa;background:#2a261e;border:1px solid #655940;border-radius:6px;padding:14px 16px;font-size:14px;margin:0 0 18px;line-height:1.6;max-width:72ch;}"
+    },
+    {
+      "name": "Error alert",
+      "kind": "custom",
+      "refersTo": "error",
+      "description": "Focusable error region; app code reveals and focuses it on failure.",
+      "html": "<div class=\"ds-error\" role=\"alert\" tabindex=\"-1\">Passwords do not match. Enter the same backup password in both fields.</div>",
+      "css": ".ds-error{font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:15px;color:#f0b9a8;background:#2c211e;border:1px solid #715047;border-radius:6px;line-height:1.6;padding:16px;margin-bottom:24px;}.ds-error:focus-visible{outline:2px solid #99d8b6;outline-offset:4px;}"
+    }
+  ],
+  "narrative": {
+    "overview": "The implemented interface inherits the desktop builder’s charcoal background, flat dark panel and mint actions. It is a restrained task interface: a persistent numbered step rail, one active work panel and direct explanatory copy, without marketing imagery or ornamental assets.",
+    "keyCharacteristics": [
+      "Dark tonal separation with fine borders, not shadows.",
+      "System typography, readable labels and explicit status/error text.",
+      "Mint reserved for actions, current progress, links and focus."
+    ],
+    "dos": [
+      "Do preserve the inherited charcoal/mint palette and flat bordered surfaces.",
+      "Do retain visible labels, keyboard focus, current-step semantics and textual status/error feedback.",
+      "Do let long forms and identifiers wrap or scroll without hiding essential instructions."
+    ],
+    "donts": [
+      "Don't turn the step indicator into navigation or imply a disabled backup gate is complete.",
+      "Don't add decorative imagery, shadow-based elevation or a competing visual identity to this extraction.",
+      "Don't place internal review dispositions or raw design-decision metadata in the shipping interface."
+    ]
+  }
+}

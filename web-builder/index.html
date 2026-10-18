@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Personal OAL builder</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#content">Skip to builder</a>
+  <header class="app-header"><span class="brand">OpenAutoLink</span><span class="edition">Personal builder · Web</span></header>
+  <main id="content">
+    <div class="heading"><h1>Personal OAL builder</h1><p>Create or update your own Android App Bundle (AAB).</p></div>
+    <p class="small-screen notice">Use a desktop browser for this task. Keep room for your downloads and use a current Chrome or Edge on Windows, macOS or Linux.</p>
+    <div class="workspace">
+      <nav aria-label="Build steps"><ol id="steps"><li aria-current="step">1 <span>Latest release</span></li><li>2 <span>Your identity</span></li><li>3 <span>Save &amp; build</span></li><li>4 <span>Downloads</span></li></ol><p class="rail-note">Your app ID and signing key must stay the same for every update.</p></nav>
+      <div class="work-area">
+        <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div id="error" class="error" role="alert" tabindex="-1" hidden></div>
+        <section id="release-panel" aria-labelledby="release-title">
+          <h2 id="release-title" tabindex="-1">Check the latest release</h2>
+          <p>The builder checks GitHub, then downloads and checks the matching public template from this site. Older releases are not used.</p>
+          <dl id="release-details" hidden><dt>Release</dt><dd id="release-tag"></dd><dt>Source commit</dt><dd id="release-commit" class="identifier"></dd></dl>
+          <div class="actions"><button id="continue" class="primary" disabled>Continue to identity</button><button id="check">Check latest again</button><button id="cancel" hidden>Cancel</button></div>
+        </section>
+        <div id="wizard"></div>
+        <div class="session-actions"><button id="restart">Clear &amp; start over</button><p class="help">Clears this tab’s private data and downloads. Version reservations are kept. Save your web backup first.</p></div>
+      </div>
+    </div>
+    <footer><p>Private files and passwords are processed in browser memory, not uploaded. Only public app version reservations stay in this browser. No analytics or external scripts.</p><a href="https://github.com/mossyhub/openautolink/blob/feat/desktop-personal-builder/docs/install-gm.md" target="_blank" rel="noopener noreferrer">Installation guide (preview, opens a new tab)</a></footer>
+  </main>
+  <noscript>This builder needs JavaScript to process files locally. No files have been uploaded.</noscript>
+</body>
+</html>
