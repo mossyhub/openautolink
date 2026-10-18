@@ -149,14 +149,17 @@ def test_transform_failure_is_actionable_and_sanitized(real_template, tmp_path, 
 
 
 def test_template_workflow_is_unsigned_same_checkout_and_preserves_apk_outputs():
-    text = (ROOT / '.github/workflows/release-apk.yml').read_text()
+    text = (ROOT / '.github/workflows/publish-personalization-template.yml').read_text()
+    apk = (ROOT / '.github/workflows/release-apk.yml').read_text()
     assert ':app:bundleRelease' in text
     assert '-PappId=com.openautolink.template' in text
     assert '-PoalBuilderUnsigned=true' in text
-    assert text.index('- name: Rename APKs') < text.index(':app:bundleRelease')
-    assert text.index('- name: Verify public APKs') < text.index(':app:bundleRelease')
-    assert text.index('rm -f secrets/upload-key.jks') < text.index(':app:bundleRelease')
-    assert 'python3 -I -S desktop-builder/scripts/publish_template.py' in text
+    assert ':app:bundleRelease' not in apk and 'personalization' not in apk
+    assert 'rm -f secrets/upload-key.jks' not in apk
+    assert 'secrets.' not in text and 'assembleRelease' not in text
+    assert 'ref: refs/tags/${{ steps.tag.outputs.value }}' in text
+    assert text.index('Preflight clean tag and required publisher tree') < text.index(':app:bundleRelease')
+    assert 'python -I -S desktop-builder/scripts/publish_template.py' in text
     assert 'git rev-parse HEAD' in text
     assert 'git rev-parse "refs/tags/${RELEASE_TAG}^{commit}"' in text
     assert 'sha256sum --check' in text

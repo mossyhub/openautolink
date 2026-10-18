@@ -20,9 +20,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      release_tag: ${{ steps.tag.outputs.value }}
-      source_commit: ${{ steps.readback.outputs.source_commit }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -201,60 +198,7 @@ jobs:
               print(f'Verified credential-free public APK: {apk}')
           PY
 
-      # Freeze verified original-identity APKs OUTSIDE Gradle's output tree
-      # before changing appId. Never publish outputs rebuilt with template ID.
-      - name: Preserve public APKs and remove signing key before template build
-        env:
-          RELEASE_TAG: ${{ steps.tag.outputs.value }}
-        run: |
-          mkdir -p public-apks
-          cp "app/build/outputs/apk/release/openautolink-car-${RELEASE_TAG}.apk" public-apks/
-          cp "companion/build/outputs/apk/release/openautolink-companion-${RELEASE_TAG}.apk" public-apks/
-          (cd public-apks && sha256sum "openautolink-car-${RELEASE_TAG}.apk" "openautolink-companion-${RELEASE_TAG}.apk") > "$RUNNER_TEMP/public-apks.sha256"
-          rm -f secrets/upload-key.jks
-
-      - name: Build unsigned credential-free personalization AAB
-        run: |
-          test ! -e secrets/upload-key.jks
-          ./gradlew :app:bundleRelease --no-daemon \
-            -PappId=com.openautolink.template -PoalBuilderUnsigned=true \
-            -PoalVersionCode=${{ steps.version.outputs.code }} \
-            -PoalVersionName=${{ steps.version.outputs.name }}
-
-      - name: Verify template and create bound descriptor
-        env:
-          RELEASE_TAG: ${{ steps.tag.outputs.value }}
-          RELEASE_VERSION_CODE: ${{ steps.version.outputs.code }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Use the same release checkout, and detect a tag moved during build.
-          SOURCE_COMMIT="$(git rev-parse HEAD)"
-          test "$SOURCE_COMMIT" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
-          git fetch --no-tags origin "refs/tags/${RELEASE_TAG}"
-          test "$SOURCE_COMMIT" = "$(git rev-parse 'FETCH_HEAD^{commit}')"
-          gh api "repos/mossyhub/openautolink/releases/tags/${RELEASE_TAG}" \
-            --jq '{tag_name, draft, prerelease}' > "$RUNNER_TEMP/template-release.json"
-          python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/template-release.json")); assert r["tag_name"]==os.environ["RELEASE_TAG"] and r["draft"] is False and r["prerelease"] is False'
-          mkdir -p personalization-release
-          cp app/build/outputs/bundle/release/app-release.aab \
-            "personalization-release/openautolink-template-${RELEASE_TAG}.aab"
-          # Fixed trusted verifier; never an unpinned download or signing key.
-          curl --fail --location --proto '=https' --proto-redir '=https' \
-            https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar \
-            --output "$RUNNER_TEMP/bundletool-1.18.3.jar"
-          printf '%s  %s\n' a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29 \
-            "$RUNNER_TEMP/bundletool-1.18.3.jar" | sha256sum --check -
-          # Stdlib-only verifier: exclude user/site packages and Python env hooks.
-          python3 -I -S desktop-builder/scripts/publish_template.py \
-            --aab "personalization-release/openautolink-template-${RELEASE_TAG}.aab" \
-            --tag "$RELEASE_TAG" --commit "$SOURCE_COMMIT" \
-            --version-code "$RELEASE_VERSION_CODE" --output-dir personalization-release \
-            --java "$JAVA_HOME/bin/java" --javac "$JAVA_HOME/bin/javac" \
-            --bundletool "$RUNNER_TEMP/bundletool-1.18.3.jar"
-          (cd personalization-release && sha256sum --check "openautolink-template-${RELEASE_TAG}.aab.sha256")
-          (cd public-apks && sha256sum --check "$RUNNER_TEMP/public-apks.sha256")
-
-      - name: Upload APKs and intentional personalization template to release
+      - name: Upload APKs to release
         uses: softprops/action-gh-release@v2
         with:
           # Explicit: on workflow_dispatch there is no release in the event
@@ -262,43 +206,5 @@ jobs:
           tag_name: ${{ steps.tag.outputs.value }}
           fail_on_unmatched_files: true
           files: |
-            public-apks/openautolink-car-${{ steps.tag.outputs.value }}.apk
-            public-apks/openautolink-companion-${{ steps.tag.outputs.value }}.apk
-            personalization-release/openautolink-template-${{ steps.tag.outputs.value }}.aab
-            personalization-release/openautolink-personalization.json
-            personalization-release/openautolink-template-${{ steps.tag.outputs.value }}.aab.sha256
-
-      # Upload completion alone is insufficient: qualification must see exactly
-      # the template, descriptor and checksum verified above, not stale assets.
-      - name: Read back exact published template assets
-        id: readback
-        env:
-          RELEASE_TAG: ${{ steps.tag.outputs.value }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/template-readback"
-          for ASSET in "openautolink-template-${RELEASE_TAG}.aab" \
-                       "openautolink-personalization.json" \
-                       "openautolink-template-${RELEASE_TAG}.aab.sha256"; do
-            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --pattern "$ASSET" --dir "$RUNNER_TEMP/template-readback"
-            cmp "personalization-release/$ASSET" "$RUNNER_TEMP/template-readback/$ASSET"
-          done
-          echo "source_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Remove temporary Android signing key
-        if: always()
-        run: rm -f secrets/upload-key.jks
-
-  qualify-desktop-aab:
-    needs: build
-    permissions:
-      contents: read
-    uses: ./.github/workflows/qualify-desktop-aab.yml
-    with:
-      template_mode: published
-      expected_release_tag: ${{ needs.build.outputs.release_tag }}
-      expected_source_commit: ${{ needs.build.outputs.source_commit }}
-      # Same immutable workflow source for producer and all native consumers;
-      # a manual publication may target an older Android tag independently.
-      builder_commit: ${{ github.sha }}
+            app/build/outputs/apk/release/openautolink-car-${{ steps.tag.outputs.value }}.apk
+            companion/build/outputs/apk/release/openautolink-companion-${{ steps.tag.outputs.value }}.apk

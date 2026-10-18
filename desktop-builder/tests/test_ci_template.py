@@ -119,8 +119,12 @@ def test_workflow_uploads_only_producer_failure_json_after_attempt():
     assert '*' not in step and '.log' not in step
 
 
+@pytest.mark.parametrize('tag,commit', [
+    ('v0.1.528', '09c75422b5f0529b7b521c628eefffe9a75273d7'),
+    ('v0.1.530', '808e59bf0d51c36d2ebf54ddee2e5f08fc945930'),
+])
 @pytest.mark.parametrize('mutation', [None, 'changed-bytes', 'changed-size', 'different-commit', 'different-tag'])
-def test_latest_template_affinity_repair_is_exact_source_bound(tmp_path, mutation):
+def test_latest_template_affinity_repair_is_exact_source_bound(tmp_path, mutation, tag, commit):
     h = harness()
     # The reviewed checkout already contains the upstream placeholder fix.
     # Reconstruct the exact released manifest, then bind its real digest.
@@ -128,7 +132,7 @@ def test_latest_template_affinity_repair_is_exact_source_bound(tmp_path, mutatio
     released = reviewed.replace(b'android:taskAffinity="${applicationId}.templates"',
                                 b'android:taskAffinity="com.openautolink.app.templates"')
     assert hashlib.sha256(released).hexdigest() == '93bdf196c22b08f84447dd6ca6010c215a4fc93060743b1322e2c048243d29aa'
-    selected = release() | {'sourceCommit': '09c75422b5f0529b7b521c628eefffe9a75273d7'}
+    selected = release() | {'sourceRef': tag, 'versionName': tag[1:], 'sourceCommit': commit}
     if mutation == 'changed-bytes':
         released = bytes([released[0] ^ 1]) + released[1:]
     elif mutation == 'changed-size':
@@ -149,7 +153,7 @@ def test_latest_template_affinity_repair_is_exact_source_bound(tmp_path, mutatio
         assert h.prepare_template_affinity(tmp_path, selected) == []
         assert manifest.read_bytes() == released
     else:
-        assert h.prepare_template_affinity(tmp_path, selected) == ['ci-template-v0.1.528-cluster-affinity']
+        assert h.prepare_template_affinity(tmp_path, selected) == ['ci-template-' + tag + '-cluster-affinity']
         assert manifest.read_bytes() == reviewed
 
 
@@ -166,7 +170,9 @@ def release():
 def test_release_qualification_waits_for_verified_publication_and_is_read_only():
     root = Path(__file__).resolve().parents[2]
     qualifier = (root / '.github/workflows/qualify-desktop-aab.yml').read_text()
-    publisher = (root / '.github/workflows/release-apk.yml').read_text()
+    publisher = (root / '.github/workflows/publish-personalization-template.yml').read_text()
+    apk = (root / '.github/workflows/release-apk.yml').read_text()
+    assert 'qualify-desktop-aab' not in apk and 'bundleRelease' not in apk
     assert '\n  release:\n' not in qualifier
     assert '\n  workflow_call:\n' in qualifier
     assert '\n  workflow_dispatch:\n' in qualifier and '\n  pull_request:\n' in qualifier
@@ -174,23 +180,24 @@ def test_release_qualification_waits_for_verified_publication_and_is_read_only()
     assert 'contents: read' in qualifier and 'contents: write' not in qualifier
     assert 'secrets:' not in qualifier and 'secrets.' not in qualifier
     call = publisher.split('\n  qualify-desktop-aab:\n', 1)[1]
-    assert 'needs: build' in call and 'if: always()' not in call
+    assert 'needs: [produce, upload]' in call and 'if: always()' not in call
     assert 'uses: ./.github/workflows/qualify-desktop-aab.yml' in call
     assert 'contents: read' in call and 'secrets: inherit' not in call
-    assert 'expected_release_tag: ${{ needs.build.outputs.release_tag }}' in call
-    assert 'expected_source_commit: ${{ needs.build.outputs.source_commit }}' in call
-    assert 'builder_commit: ${{ github.sha }}' in call
+    assert 'expected_release_tag: ${{ needs.produce.outputs.release_tag }}' in call
+    assert 'expected_source_commit: ${{ needs.produce.outputs.source_commit }}' in call
+    assert 'builder_commit: ${{ needs.produce.outputs.source_commit }}' in call
     build = publisher.split('\n  qualify-desktop-aab:\n', 1)[0]
     assert 'release_tag: ${{ steps.tag.outputs.value }}' in build
-    assert 'source_commit: ${{ steps.readback.outputs.source_commit }}' in build
-    assert build.index('uses: softprops/action-gh-release@v2') < build.index('id: readback')
-    readback = build.split('id: readback', 1)[1].split('      - name:', 1)[0]
-    assert 'gh release download "$RELEASE_TAG"' in readback
-    assert 'cmp ' in readback
-    assert readback.index('cmp ') < readback.index('source_commit=')
-    for asset in ('openautolink-template-${RELEASE_TAG}.aab', 'openautolink-personalization.json',
-                  'openautolink-template-${RELEASE_TAG}.aab.sha256'):
-        assert asset in readback
+    assert 'source_commit: ${{ steps.bind.outputs.source_commit }}' in build
+    assert 'release_id: ${{ steps.bind.outputs.release_id }}' in build
+    producer, uploader = build.split('\n  upload:\n', 1)
+    assert 'contents: write' not in producer and 'secrets.' not in build
+    assert 'needs: produce' in uploader and 'contents: write' in uploader
+    assert 'softprops/action-gh-release' not in build
+    assert 'python -I -S desktop-builder/scripts/upload_template.py' in uploader
+    assert '--release-id "$RELEASE_ID" --tag "$RELEASE_TAG" --commit "$SOURCE_COMMIT"' in uploader
+    # Transaction tests exercise byte readback, ID binding and retry semantics.
+    assert (root / 'desktop-builder/tests/test_upload_template.py').is_file()
     assert qualifier.count('ref: ${{ inputs.builder_commit || github.event.pull_request.head.sha || github.sha }}') == 2
     assert 'BUILDER_COMMIT: ${{ inputs.builder_commit || github.event.pull_request.head.sha || github.sha }}' in qualifier
     assert qualifier.count("assert actual == os.environ['BUILDER_COMMIT']") == 2
@@ -328,7 +335,7 @@ def test_real_ci_metadata_adapter_drives_fresh_personalization_twice(tmp_path):
     (tmp_path / 'local-integration-result.json').write_text(json.dumps(evidence, indent=2))
 
 
-@pytest.mark.parametrize('preparation_kind', ['none', 'exact528', 'historical'])
+@pytest.mark.parametrize('preparation_kind', ['none', 'exact528', 'exact530', 'historical'])
 @pytest.mark.parametrize('failure', [None, 'tools', 'source', 'source-contract', 'build',
                                    'template-copy', 'template-verify'])
 def test_linux_producer_compiles_template_once_without_user_identity(tmp_path, monkeypatch, failure,
@@ -342,6 +349,10 @@ def test_linux_producer_compiles_template_once_without_user_identity(tmp_path, m
     if preparation_kind == 'exact528':
         selected['sourceCommit'] = '09c75422b5f0529b7b521c628eefffe9a75273d7'
         expected_preparation = ['ci-template-v0.1.528-cluster-affinity']
+    elif preparation_kind == 'exact530':
+        selected.update(sourceRef='v0.1.530', versionName='0.1.530',
+                        sourceCommit='808e59bf0d51c36d2ebf54ddee2e5f08fc945930')
+        expected_preparation = ['ci-template-v0.1.530-cluster-affinity']
     elif preparation_kind == 'historical':
         selected.update(sourceRef=SOURCE_REF, sourceCommit=SOURCE_COMMIT, versionName=SOURCE_REF[1:])
         prior = ['personal-cluster-task-affinity', OVERLAY_ID]
@@ -378,7 +389,7 @@ def test_linux_producer_compiles_template_once_without_user_identity(tmp_path, m
             (source / 'gradlew').write_text('fixture')
             if failure == 'source-contract':
                 (source / 'app/build.gradle.kts').write_text('unsupported')
-            if preparation_kind == 'exact528':
+            if preparation_kind in {'exact528', 'exact530'}:
                 reviewed = (Path(__file__).resolve().parents[2] / 'app/src/main/AndroidManifest.xml').read_bytes()
                 manifest = source / 'app/src/main/AndroidManifest.xml'
                 manifest.parent.mkdir(parents=True)
@@ -540,11 +551,15 @@ def test_shared_inputs_bind_exact_source_descriptor_and_bundle(tmp_path):
         h.load_inputs(output)
 
 
-def test_success_provenance_roundtrips_exact528_preparation(tmp_path):
+@pytest.mark.parametrize('tag,commit', [
+    ('v0.1.528', '09c75422b5f0529b7b521c628eefffe9a75273d7'),
+    ('v0.1.530', '808e59bf0d51c36d2ebf54ddee2e5f08fc945930'),
+])
+def test_success_provenance_roundtrips_exact_affinity_preparation(tmp_path, tag, commit):
     h = harness()
-    selected = release() | {'sourceCommit': '09c75422b5f0529b7b521c628eefffe9a75273d7'}
+    selected = release() | {'sourceRef': tag, 'versionName': tag[1:], 'sourceCommit': commit}
     template, descriptor = input_fixture(tmp_path / 'input', selected)
-    preparation = ['ci-template-v0.1.528-cluster-affinity']
+    preparation = ['ci-template-' + tag + '-cluster-affinity']
     output = tmp_path / 'shared'
     h.export_inputs(selected, template, descriptor, output,
                     provenance='local-linux-template', source_preparation=preparation)
@@ -559,15 +574,22 @@ def test_success_provenance_roundtrips_exact528_preparation(tmp_path):
         'release.json', 'template.aab', r.DESCRIPTOR_NAME, 'provenance.json'}
 
 
+@pytest.mark.parametrize('tag,commit', [
+    ('v0.1.528', '09c75422b5f0529b7b521c628eefffe9a75273d7'),
+    ('v0.1.530', '808e59bf0d51c36d2ebf54ddee2e5f08fc945930'),
+])
 @pytest.mark.parametrize('boundary', ['export', 'import'])
 @pytest.mark.parametrize('case', ['unknown', 'commit', 'tag', 'historical', 'published',
-                                 'duplicate', 'string', 'object', 'null'])
-def test_source_preparation_rejects_unbound_or_untrusted_claims(tmp_path, boundary, case):
+                                 'duplicate', 'string', 'object', 'null', 'other-release'])
+def test_source_preparation_rejects_unbound_or_untrusted_claims(tmp_path, boundary, case, tag, commit):
     h = harness()
-    selected = release() | {'sourceCommit': '09c75422b5f0529b7b521c628eefffe9a75273d7'}
-    preparation = ['ci-template-v0.1.528-cluster-affinity']
+    selected = release() | {'sourceRef': tag, 'versionName': tag[1:], 'sourceCommit': commit}
+    preparation = ['ci-template-' + tag + '-cluster-affinity']
     provenance = 'local-linux-template'
-    if case == 'unknown':
+    if case == 'other-release':
+        other = 'v0.1.528' if tag == 'v0.1.530' else 'v0.1.530'
+        preparation = ['ci-template-' + other + '-cluster-affinity']
+    elif case == 'unknown':
         preparation = ['SECRET /private/key']
     elif case == 'commit':
         selected['sourceCommit'] = 'c' * 40

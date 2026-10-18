@@ -243,17 +243,24 @@ def create_template(unsigned, result, release, destination, *, tools, run):
     return template, r.resolve_template(selected, lambda _: raw)
 
 
-def prepare_template_affinity(source, release):
-    """One reviewed CI-template-only fix; never widen the historical overlays.
+_TEMPLATE_AFFINITY_REPAIRS = {
+    ('v0.1.528', '09c75422b5f0529b7b521c628eefffe9a75273d7'):
+        'ci-template-v0.1.528-cluster-affinity',
+    ('v0.1.530', '808e59bf0d51c36d2ebf54ddee2e5f08fc945930'):
+        'ci-template-v0.1.530-cluster-affinity',
+}
 
-    The released 528 manifest hardcodes the upstream cluster affinity even
-    under -PappId. Its real unsigned template is rejected by the unchanged
-    protobuf verifier. Apply the exact upstream placeholder edit already in
-    the reviewed builder checkout, bound to tag, commit and entire file bytes.
-    Other releases get no overlay and must pass publication on their own.
+
+def prepare_template_affinity(source, release):
+    """Reviewed CI-template-only fix; never widen the historical overlays.
+
+    Releases 528 and 530 have byte-identical manifests hardcoding the upstream
+    cluster affinity even under -PappId. The unchanged protobuf verifier rejects
+    that identity mismatch. Apply the reviewed placeholder edit only for these
+    exact tag/commit pairs and entire file bytes. Other releases get no overlay.
     """
-    if (release['sourceRef'], release['sourceCommit']) != (
-            'v0.1.528', '09c75422b5f0529b7b521c628eefffe9a75273d7'):
+    repair = _TEMPLATE_AFFINITY_REPAIRS.get((release['sourceRef'], release['sourceCommit']))
+    if repair is None:
         return []
     manifest = Path(source) / 'app/src/main/AndroidManifest.xml'
     if manifest.is_symlink() or not manifest.is_file() or manifest.stat().st_size != 9900:
@@ -266,7 +273,7 @@ def prepare_template_affinity(source, release):
     if hashlib.sha256(fixed).hexdigest() != 'f05bad307b077980aa32cc6709fcd99d73f123abf5c6ce0b2314d71b9e5e4a49':
         raise BuilderError('ci-template-affinity-source-mismatch')
     manifest.write_bytes(fixed)
-    return ['ci-template-v0.1.528-cluster-affinity']
+    return [repair]
 
 
 def compile_template(workspace, release, destination, *, accept_ci_android_licenses=False,
@@ -371,9 +378,8 @@ def validate_source_preparation(preparation, release, provenance):
     local CI repair merely because a published template has the same tag.
     """
     from oal_builder.native_verification import SOURCE_REF, SOURCE_COMMIT, OVERLAY_ID
-    allowed = ({'ci-template-v0.1.528-cluster-affinity'}
-               if (release['sourceRef'], release['sourceCommit']) == (
-                   'v0.1.528', '09c75422b5f0529b7b521c628eefffe9a75273d7') else set())
+    repair = _TEMPLATE_AFFINITY_REPAIRS.get((release['sourceRef'], release['sourceCommit']))
+    allowed = {repair} if repair is not None else set()
     if (release['sourceRef'], release['sourceCommit']) == (SOURCE_REF, SOURCE_COMMIT):
         allowed = {'personal-cluster-task-affinity', OVERLAY_ID}
     if provenance == 'published-release-template':
