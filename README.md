@@ -23,11 +23,11 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 > [!IMPORTANT]
 > Install on a locked GM vehicle through your own Google Play Console app's **dedicated Android Automotive OS Internal Test**. APK sideloading is not supported on these head units.
 >
-> **Personalize a precompiled release AAB** with your own app identity and upload key, without compiling OAL or installing the Android SDK. **The AAB-only desktop builder remains a preview; desktop downloads are not published yet.**
+> **Create your personal AAB at [oal.mossyg.com](https://oal.mossyg.com)** in a desktop Chrome or Edge browser—no source editing, desktop download or Android SDK setup.
 >
-> CarPlay also requires your own compatible authentication pair that you are authorized to include; the builder does not supply it. Keep your builder identity and encrypted backup for later updates.
+> Save the required encrypted web identity backup for updates. CarPlay also needs your own compatible, authorized authentication pair; the builder does not supply it.
 >
-> [Desktop build guide](docs/build-aab.md) · [Internal Test installation](docs/install-gm.md) · [CarPlay authentication](docs/carplay-private-mfi-assets.md)
+> [Create your AAB](docs/build-aab.md) · [Internal Test installation](docs/install-gm.md) · [CarPlay authentication](docs/carplay-private-mfi-assets.md)
 
 ## Choose your phone and connection
 
@@ -75,11 +75,12 @@ Check the source revision and release notes for your installed build. USB hot-pl
 
 ### Car app on a locked GM vehicle
 
-Start with [Create your AAB](docs/build-aab.md#create-your-aab), then follow the [Internal Test installation guide](docs/install-gm.md). **The desktop builder remains a preview and desktop packages remain unpublished.** The desktop tool is AAB-only; source-build work is preserved separately for development.
+1. [Create your AAB on the website](docs/build-aab.md#create-your-aab) and save the required encrypted identity backup.
+2. Follow the [Internal Test installation guide](docs/install-gm.md): register with Google, create a free app, select **dedicated Android Automotive OS → Internal testing**, upload, enroll the car's Google account, and select the **car** in Google's web install picker.
 
-The installation guide covers developer registration (including Google's one-time fee and Android-device verification requirement for new personal accounts), creating a free app, selecting **dedicated Android Automotive OS → Internal testing**, enrolling the car's Google account, and choosing the **car** in Google's web install picker. An Install button alone does not prove the car is eligible.
+Check Google's **US$25 one-time registration fee and Android-device verification requirement for new personal accounts before paying**, especially if you only own an iPhone. A completed build does not prove Play acceptance or car eligibility.
 
-For CarPlay, select your own [authorized authentication pair](docs/carplay-private-mfi-assets.md) in the builder; it does not generate those files. Preserve the managed folder and an encrypted identity backup. For updates, preserve the same application ID and upload key, personalize the latest stable release's supported template, and upload a higher-version AAB to the same Internal Test. If that release lacks a compatible template, the builder stops rather than selecting an older release or compiling source.
+For CarPlay, include your own [authorized authentication pair](docs/carplay-private-mfi-assets.md). For updates, restore your latest web backup, keep the **same application ID and upload key**, and upload a higher-version AAB to the same Internal Test. [Desktop builder documentation](docs/desktop-builder.md) remains available, but desktop downloads are not published yet.
 
 The car itself needs internet-connected Wi-Fi or its data service; [an OnStar data plan is not required](#car-internet-no-onstar-data-plan-required).
 
@@ -313,7 +314,8 @@ Never post passwords, accessory credentials, upload invitation tokens or account
 
 User guides:
 
-- [Internal Test installation on GM](docs/install-gm.md) and [desktop AAB builder](docs/build-aab.md)
+- [Create your AAB on the website](docs/build-aab.md) and [Internal Test installation on GM](docs/install-gm.md)
+- [Desktop AAB builder preview](docs/desktop-builder.md) (downloads not yet available)
 - [Wireless Android Auto](docs/wireless-wpp.md)
 - [Compatibility](docs/compatibility.md), [EV range estimates](docs/ev-range.md) and [phone calls](docs/phone-calls.md)
 - [Troubleshooting](docs/troubleshooting.md) and [privacy policy](docs/privacy-policy.md)
