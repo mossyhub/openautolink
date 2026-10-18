@@ -57,9 +57,9 @@ class CarPlayOrdinaryEnrollmentTest {
         assertTrue(admission.authenticate(next, "first"))
     }
 
-    @Test fun existingTrustAllowsProofOnlyPairSetupButNeverNewEnrollmentEvenWithWindow() {
+    @Test fun existingTrustWithoutAuthorizedWindowNeverAllowsNewEnrollment() {
         val admission = CarPlayPeerAdmission(CarPlayNetworkSelection(local, 1, null), setOf("trusted"),
-            trustedOnly = true, enrollmentWindowMillis = 120_000)
+            trustedOnly = true)
         val token = Any(); assertTrue(admission.claim(token, peer, local))
         assertTrue(admission.allowsPairSetup(token))
         assertFalse(admission.persistEnrollment(token, "new", key(), PairingStore()))
@@ -131,6 +131,61 @@ class CarPlayOrdinaryEnrollmentTest {
             assertFalse(admission.authenticate(token, "first"))
             assertNull(admission.authenticatedBinding(token))
         } finally { unblock.countDown(); executor.shutdownNow() }
+    }
+
+    @Test fun authorizedBootstrapCanEnrollAnotherPhoneAndBothReconnectAfterRestart() {
+        val directory = java.nio.file.Files.createTempDirectory("multi-phone-admission").toFile()
+        try {
+            com.openautolink.carplaylab.pairing.PairingPersistence.openReceiver(directory).use { state ->
+                state.pairings.save("phone-a", ByteArray(32) { 1 })
+            }
+            com.openautolink.carplaylab.pairing.PairingPersistence.openReceiver(directory).use { state ->
+                val admission = CarPlayPeerAdmission(CarPlayNetworkSelection(local, 1, null),
+                    state.pairings.controllerIdentifiers(), trustedOnly = true, enrollmentWindowMillis = 120_000)
+                val owner = Any()
+                assertTrue(admission.claim(owner, peer, local))
+                assertTrue(admission.persistEnrollment(owner, "phone-b", ByteArray(32) { 2 }, state.pairings))
+                assertTrue(admission.authenticate(owner, "phone-b"))
+                assertFalse(admission.persistEnrollment(owner, "phone-c", key(), state.pairings))
+            }
+            com.openautolink.carplaylab.pairing.PairingPersistence.openReceiver(directory).use { state ->
+                for (phone in listOf("phone-a", "phone-b", "phone-a")) {
+                    val admission = CarPlayPeerAdmission(CarPlayNetworkSelection(local, 1, null),
+                        state.pairings.controllerIdentifiers(), trustedOnly = true)
+                    val owner = Any()
+                    assertTrue(admission.claim(owner, peer, local))
+                    assertTrue(admission.authenticate(owner, phone))
+                    assertFalse(admission.persistEnrollment(owner, "phone-c", key(), state.pairings))
+                }
+            }
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun newlyEnrolledSecondPhoneCanRepeatSetupOnTheSameReceiver() {
+        val store = PairingStore().also { it.save("phone-a", key()) }
+        val admission = CarPlayPeerAdmission(CarPlayNetworkSelection(local, 1, null), setOf("phone-a"),
+            trustedOnly = true, enrollmentWindowMillis = 120_000)
+        val first = Any(); assertTrue(admission.claim(first, peer, local))
+        assertTrue(admission.persistEnrollment(first, "phone-b", ByteArray(32) { 2 }, store))
+        admission.release(first)
+        val next = Any(); assertTrue(admission.claim(next, peer, local))
+        assertTrue(admission.persistEnrollment(next, "phone-b", ByteArray(32) { 2 }, store))
+        assertFalse(admission.persistEnrollment(next, "phone-b", key(), store))
+        assertFalse(admission.persistEnrollment(next, "phone-c", key(), store))
+        assertTrue(admission.authenticate(next, "phone-b"))
+    }
+
+    @Test fun existingPhoneDoesNotExtendAnExpiredAdditionalEnrollmentWindow() {
+        var now = 0L
+        val store = PairingStore().also { it.save("phone-a", key()) }
+        val admission = CarPlayPeerAdmission(CarPlayNetworkSelection(local, 1, null), setOf("phone-a"),
+            trustedOnly = true, enrollmentWindowMillis = 100, nanoTime = { now })
+        val owner = Any(); assertTrue(admission.claim(owner, peer, local))
+        now = 100_000_000L
+        assertFalse(admission.persistEnrollment(owner, "phone-b", key(), store))
+        assertTrue(admission.persistEnrollment(owner, "phone-a", key(), store))
+        assertTrue(admission.authenticate(owner, "phone-a"))
+        assertFalse(admission.persistEnrollment(owner, "phone-a", ByteArray(32) { 2 }, store))
     }
 
     private fun fresh(clock: () -> Long = System::nanoTime) = CarPlayPeerAdmission(

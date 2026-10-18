@@ -181,6 +181,8 @@ If you previously turned off iPhone projection, OAL retains that choice. Only in
 
 USB CarPlay does not require Bluetooth pairing or Wi-Fi setup. The VPN permission is used locally for the USB connection—not an Internet VPN service. Another active VPN can conflict. USB access and permission support vary by head unit.
 
+OAL can remember more than one iPhone's CarPlay trust. Connect the iPhone you want to use and approve its own permission/Trust prompts; you do not need to erase OAL's settings or remove the previous iPhone. Only one phone projects at a time. WPP phone selection remains managed by the vehicle's Bluetooth system, not an OAL preferred-phone list.
+
 ### Wireless CarPlay
 
 Wireless CarPlay is still in development and is not working in the maintainer's vehicle. Use USB for now. Advanced wireless configuration is covered in the [network guide](docs/carplay-network-contract.md).

@@ -24,6 +24,23 @@ class ReceiverPairingIdentityTest {
         } finally { root.deleteRecursively() }
     }
 
+    @Test fun multiplePhoneKeysVerifyIndependentlyAfterReceiverReopen() {
+        val root = Files.createTempDirectory("receiver-multiple-identity").toFile()
+        try {
+            val phoneA = AirPlayCrypto.ed25519Generate()
+            val phoneB = AirPlayCrypto.ed25519Generate()
+            PairingPersistence.openReceiver(root).use { it.pairings.save("phone-a", phoneA.publicKey) }
+            PairingPersistence.openReceiver(root).use { it.pairings.save("phone-b", phoneB.publicKey) }
+            PairingPersistence.openReceiver(root).use {
+                assertTrue(verify(it.identity, it.pairings, "phone-a", phoneA.privateKey))
+                assertTrue(verify(it.identity, it.pairings, "phone-b", phoneB.privateKey))
+                assertTrue(verify(it.identity, it.pairings, "phone-a", phoneA.privateKey))
+                assertFalse(verify(it.identity, it.pairings, "phone-a", phoneB.privateKey))
+                assertFalse(verify(it.identity, it.pairings, "unknown-phone", phoneB.privateKey))
+            }
+        } finally { root.deleteRecursively() }
+    }
+
     private fun verify(identity: AirPlayIdentity, store: PairingStore, id: String, privateKey: ByteArray): Boolean {
         val responder = PairVerify(identity, store)
         val ephemeral = AirPlayCrypto.x25519Generate()

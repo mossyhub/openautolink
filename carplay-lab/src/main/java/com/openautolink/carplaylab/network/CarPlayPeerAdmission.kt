@@ -16,7 +16,7 @@ class CarPlaySocketBinding(val local: InetAddress, val peer: InetAddress) {
 }
 
 /** One live pre-auth candidate, 32 attempts, exact interface/family/scope.
- * Default reconnect uses immutable startup trust. Explicit first enrollment is bounded by the
+ * Default reconnect uses immutable startup trust. Additional enrollment is bounded by the
  * caller's selected, consent-qualified bootstrap lifetime, NOT a cryptographic BT/key binding.
  * Call persistEnrollment ONLY after real PairSetup M5 proof; authenticate ONLY after PairVerify.
  * Tokens must be the exact control owner. Retirement serializes against durable enrollment.
@@ -29,16 +29,18 @@ class CarPlayPeerAdmission(private val selection: CarPlayNetworkSelection, trust
     private val trusted = trustedControllers.toSet()
     private val enrollmentStartedNanos = nanoTime()
     private val firstEnrollment = enrollmentWindowMillis > 0 && trusted.isEmpty()
+    private fun enrollmentOpen(): Boolean {
+        val elapsed = nanoTime() - enrollmentStartedNanos
+        return enrollmentWindowMillis > 0 && enrolledController == null &&
+            elapsed >= 0 && elapsed < enrollmentWindowMillis * 1_000_000
+    }
     private var enrolledController: String? = null
     @Synchronized fun allowsPairSetup(token: Any): Boolean {
         if (retired || owner !== token) return false
         // Pinned DiPlay accepts PairSetup before PairVerify even with persisted trust. M1 has
         // no controller identity: defer authorization to genuine SRP/Ed25519 M5, not HTTP403.
         // Existing trust permits only read-only proof of the exact startup controller/key.
-        if (trusted.size == 1) return true
-        val elapsed = nanoTime() - enrollmentStartedNanos
-        return firstEnrollment && enrolledController == null &&
-            elapsed >= 0 && elapsed < enrollmentWindowMillis * 1_000_000
+        return trusted.isNotEmpty() || enrollmentOpen()
     }
     /** Called ONLY after real SRP/Ed25519 M5. Under the retirement fence, acknowledge an exact
      * existing startup key without writing, or commit the explicitly authorized first key.
@@ -46,9 +48,9 @@ class CarPlayPeerAdmission(private val selection: CarPlayNetworkSelection, trust
     @Synchronized fun persistEnrollment(token: Any, identifier: String, publicKey: ByteArray,
         store: com.shilapi.xcertplay.airplay.PairingStore): Boolean {
         if (!allowsPairSetup(token)) return false
-        if (trusted.size == 1) return identifier in trusted && publicKey.size == 32 &&
-            store.controllerIdentifiers() == trusted && store.get(identifier)?.contentEquals(publicKey) == true
-        if (store.controllerIdentifiers().isNotEmpty()) return false
+        if (identifier in trusted || trusted.isNotEmpty() && identifier == enrolledController) return publicKey.size == 32 &&
+            store.get(identifier)?.contentEquals(publicKey) == true
+        if (!enrollmentOpen() || store.controllerIdentifiers() != trusted || publicKey.size != 32) return false
         store.save(identifier, publicKey)
         enrolledController = identifier
         return true
@@ -61,10 +63,10 @@ class CarPlayPeerAdmission(private val selection: CarPlayNetworkSelection, trust
     init {
         require(enrollmentWindowMillis in 0..120_000) { "Invalid first-enrollment window" }
         require(enrollmentWindowMillis == 0L || trustedOnly) { "First enrollment requires explicit trust admission" }
-        require(!trustedOnly || trusted.size == 1 || firstEnrollment) {
+        require(!trustedOnly || trusted.isNotEmpty() || enrollmentWindowMillis > 0) {
             "Existing controller trust or authorized first-enrollment window required"
         }
-        require(selection.manualPeer != null || trusted.size == 1 || firstEnrollment) { "Existing trusted controller required for unknown AP peer" }
+        require(selection.manualPeer != null || trusted.isNotEmpty() || enrollmentWindowMillis > 0) { "Existing trusted controller required for unknown AP peer" }
     }
     @Synchronized fun claim(token: Any, peer: InetAddress, local: InetAddress): Boolean {
         val elapsed = nanoTime() - enrollmentStartedNanos

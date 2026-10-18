@@ -20,7 +20,7 @@ class CarPlayConnectionFailureTest {
         val runtime=listOf(Path.of(".."),Path.of(".")).map {it.resolve(relative)}.first { Files.exists(it) }.toFile().readText()
         assertTrue("manual joined-AP choice must not await auto Wi-Fi request",runtime.contains("if (network.manualPeer == null)"))
         assertTrue(runtime.contains("explicit-manual-peer"))
-        assertTrue(runtime.contains("projection.authorizeFirstEnrollment(120_000)"))
+        assertTrue(runtime.contains("projection.authorizeControllerEnrollment(120_000)"))
         assertTrue(runtime.contains("CarPlayConnectionFailure(CarPlayFailureKind.RUNTIME_STARTUP_TIMEOUT"))
         assertTrue(runtime.contains("projection.runtimeFailureStage"))
     }

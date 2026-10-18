@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.530
+
+### Multiple iPhones with CarPlay
+- Remove the persistent first-iPhone-only pairing restriction. Preserve the existing receiver identity and remembered phone keys when another iPhone connects; no app-data reset is required.
+- Allow one additional cryptographically verified phone within each bounded, authorized USB or wireless bootstrap. Keep existing-key replacement forbidden, trusted reconnects available, exact transport/owner checks and one active projection session.
+- USB continues to use the attached phone rather than a saved preferred-phone list. WPP continues to follow the incoming phone selected by the vehicle; its identity correlation and active-session protection are unchanged.
+- Wireless CarPlay retains explicit bootstrap selection. This does not add automatic wireless-phone arbitration, resolve GM wireless ingress, change Bluetooth profiles, or fix the separate CarPlay audio issues.
+- Add persistence/restart, A → B → A cryptographic verification, enrollment deadline/capacity and real receiver/socket pairing regressions. Physical two-iPhone vehicle acceptance remains pending.
+- No companion behavior changes; the matching companion APK is version-aligned only.
+
 ## 0.1.528
 
 ### USB permission retry after explicit selection

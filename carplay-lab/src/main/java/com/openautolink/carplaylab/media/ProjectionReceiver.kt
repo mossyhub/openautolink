@@ -32,7 +32,7 @@ class ProjectionReceiver(
     surface: Surface,
     private val mfi: MfiAuthenticator,
     display: CarPlayDisplayPreferences = CarPlayDisplayPreferences(),
-    // Production cannot enroll until the selected BT link proves the controller key. Bench stays explicit.
+    // Production enrollment requires a bounded, authenticated bootstrap. Bench stays explicit.
     private val trustedOnly: Boolean = false,
     private val runtimeCarDataFactory: ((AirPlaySession, (Iap2Frame) -> Unit, (String) -> Unit) -> RuntimeCarDataLink)? = null,
     private val runtimeMetadataFactory: ((AirPlaySession, (String) -> Unit) -> com.openautolink.carplaylab.metadata.RuntimeMetadataLink)? = null,
@@ -206,11 +206,12 @@ class ProjectionReceiver(
         runtimeIdentification = config.copy(locationInformationEnabled = false, vehicleStatusEnabled = false, vehicleSpeedEnabled = false)
     }
 
-    /** Explicit selected + MFi + native/OAL opt-in + real phone wireless request authorization.
+    /** Exact USB or selected wireless bootstrap has completed MFi authentication and consent.
+     * Authorize at most one additional verified controller, without replacing existing phone trust.
      * No cross-transport key-binding guarantee is claimed; default remains trusted reconnect only. */
-    fun authorizeFirstEnrollment(windowMillis: Long) = synchronized(lock) {
+    fun authorizeControllerEnrollment(windowMillis: Long) = synchronized(lock) {
         check(!closed.get() && !admissionRevoked.get() && server == null && trustedOnly)
-        require(trustedControllers.isEmpty() && windowMillis in 1..120_000)
+        require(windowMillis in 1..120_000)
         firstEnrollmentWindowMillis = windowMillis
     }
 
@@ -234,7 +235,7 @@ class ProjectionReceiver(
         check(runtimeIdentification != null) { "Set exact transport identification before start" }
         status("BENCH_DIAG displayOffer codec=H264 width=${displayConfiguration.width} height=${displayConfiguration.height} fps=${displayConfiguration.fps} fallback=${displaySelection.usedFallback}")
         val admission = try {
-            require(!trustedOnly || trustedControllers.size == 1 || firstEnrollmentWindowMillis > 0) {
+            require(!trustedOnly || trustedControllers.isNotEmpty() || firstEnrollmentWindowMillis > 0) {
                 "Existing controller trust or explicit first-enrollment authorization required"
             }
             require(!trustedOnly || admissionNetwork != null) { "Trusted admission requires exact local and peer policy" }

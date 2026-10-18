@@ -40,7 +40,7 @@ internal class PairingPersistence(private val directory: File) : Closeable {
             pairings = PairingStore { id, key ->
                 if (!loading) synchronized(this) {
                     check(!closed) { "Pairing state closed" }
-                    require(controllers.isEmpty() || controllers.containsKey(id)) { "Single selected controller only" }
+                    require(controllers.containsKey(id) || controllers.size < MAX_CONTROLLERS) { "Controller limit" }
                     val next = linkedMapOf<String, ByteArray>().also { it.putAll(controllers); it[id] = key.copyOf() }
                     persist(identity, next)
                     controllers.clear(); controllers.putAll(next)
@@ -52,7 +52,8 @@ internal class PairingPersistence(private val directory: File) : Closeable {
     }
 
     private fun load(): AirPlayIdentity {
-        require(state.length() in 50..2048) { "Invalid pairing state size" }
+        // DataOutput.writeUTF uses modified UTF-8 (NUL occupies two bytes).
+        require(state.length() in 50..65536) { "Invalid pairing state size" }
         privatePermissions(state, false)
         DataInputStream(FileInputStream(state)).use { input ->
             require(input.readInt() == MAGIC) { "Invalid pairing state version" }
@@ -61,10 +62,11 @@ internal class PairingPersistence(private val directory: File) : Closeable {
             val seed = ByteArray(32).also(input::readFully)
             val pub = Ed25519PrivateKeyParameters(seed, 0).generatePublicKey().encoded
             val count = input.readInt()
-            require(count in 0..1) { "Controller limit" }
+            require(count in 0..MAX_CONTROLLERS) { "Controller limit" }
             repeat(count) {
                 val controllerId = input.readUTF()
                 require(controllerId.isNotEmpty() && controllerId.toByteArray(Charsets.UTF_8).size <= 256)
+                require(!controllers.containsKey(controllerId)) { "Duplicate controller" }
                 controllers[controllerId] = ByteArray(32).also(input::readFully)
             }
             require(input.read() == -1) { "Trailing pairing state" }
@@ -106,6 +108,7 @@ internal class PairingPersistence(private val directory: File) : Closeable {
     }
     companion object {
         private const val MAGIC = 0x50425031
+        private const val MAX_CONTROLLERS = 64
         /** Accessory identity is locally generated, not an MFi credential or proof of phone trust.
          * Keep the same exclusive owner across admission/control retirement; never import or reset state. */
         fun openReceiver(directory: File): PairingPersistence = PairingPersistence(directory)

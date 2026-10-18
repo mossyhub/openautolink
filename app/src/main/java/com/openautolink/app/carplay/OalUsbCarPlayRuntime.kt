@@ -376,7 +376,7 @@ class OalUsbCarPlayRuntime(
         status("CarPlay phone identification accepted")
         Iap2MfiAuthenticationClient(auth).run(csm,30000,onOtherFrame=vehicleBootstrap::handle) {}
         active();status("CarPlay receiver MFi authentication accepted · phone AirPlay trust pending")
-        if(projection.requiresControllerEnrollment) projection.authorizeFirstEnrollment(120000)
+        projection.authorizeControllerEnrollment(120000)
         projection.start(CarPlayNetworkSelection(local,exactNic.index,null))
         projection.setRuntimeReply { frame ->
             if(frame.messageId==0x4300) Iap2CarPlayMessages.startSession(wiredIpv6Addresses=listOf(address),

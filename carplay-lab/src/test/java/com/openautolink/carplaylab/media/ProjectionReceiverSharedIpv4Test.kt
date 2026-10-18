@@ -31,10 +31,11 @@ class ProjectionReceiverSharedIpv4Test {
     @Test fun sharedIpv4RejectsInvalidExistingSignature() = runReconnect(invalidSignature = true)
     @Test fun manualSharedIpv4FirstEnrollmentIsBoundedAndRequiresPairVerify() = runReconnect(firstEnrollment = true)
     @Test fun eachAcceptedControlGetsItsOwnClaimAndOldTokenCannotAuthorizeSuccessor() = runReconnect(reconnect = true)
+    @Test fun secondPhoneCanEnrollThroughRealReceiverWithoutReplacingFirstPhone() = runReconnect(additionalEnrollment = true)
 
     private fun runReconnect(replacement: Boolean = false, unrelated: Boolean = false,
         invalidSignature: Boolean = false, retireBeforeM5: Boolean = false,
-        firstEnrollment: Boolean = false, reconnect: Boolean = false) {
+        firstEnrollment: Boolean = false, reconnect: Boolean = false, additionalEnrollment: Boolean = false) {
         // Use a real unicast host endpoint: the production policy deliberately rejects loopback.
         val ip = NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp }
             .flatMap { it.inetAddresses.toList() }.filterIsInstance<Inet4Address>()
@@ -84,7 +85,7 @@ class ProjectionReceiverSharedIpv4Test {
                 receiver.setRuntimeIdentification(Iap2IdentificationConfig(name = "test", modelIdentifier = "test",
                     manufacturer = "test", serialNumber = "test", firmwareVersion = "test", hardwareVersion = "test",
                     wireless = Iap2WirelessIdentification("02:00:00:00:00:01", "test")))
-                if (firstEnrollment) receiver.authorizeFirstEnrollment(120_000)
+                if (firstEnrollment || additionalEnrollment) receiver.authorizeControllerEnrollment(120_000)
                 receiver.startSharedIpv4(CarPlayNetworkSelection(ip, NetworkInterface.getByInetAddress(ip).index, peer))
                 @Suppress("UNCHECKED_CAST")
                 fun session(): AirPlaySession = (ProjectionReceiver::class.java.getDeclaredField("allSessions")
@@ -163,8 +164,8 @@ class ProjectionReceiverSharedIpv4Test {
                         val proof = h(xor, h("Pair-Setup".toByteArray()), salt, publicA, publicB, key)
                         val m4 = setup(tlv(6 to byteArrayOf(3), 3 to publicA, 4 to proof))
                         assertArrayEquals(h(publicA, proof, key), m4.getValue(4))
-                        val candidate = if (replacement || unrelated) AirPlayCrypto.ed25519Generate() else trusted
-                        val id = (if (unrelated) "unrelated" else "trusted").toByteArray()
+                        val candidate = if (replacement || unrelated || additionalEnrollment) AirPlayCrypto.ed25519Generate() else trusted
+                        val id = (if (additionalEnrollment) "second-phone" else if (unrelated) "unrelated" else "trusted").toByteArray()
                         val signature = AirPlayCrypto.ed25519Sign(candidate.privateKey, derive(key, "Pair-Setup-Controller-Sign") + id + candidate.publicKey)
                         if (invalidSignature) signature[0] = (signature[0].toInt() xor 1).toByte()
                         val encrypt = derive(key, "Pair-Setup-Encrypt")
@@ -183,7 +184,7 @@ class ProjectionReceiverSharedIpv4Test {
                                     derive(key, "Pair-Setup-Accessory-Sign") + sub.getValue(1) + sub.getValue(3), sub.getValue(10)))
                             }
                         }
-                        if (firstEnrollment) assertNotEquals(startupFileKey, Files.readAttributes(state.toPath(), BasicFileAttributes::class.java).fileKey())
+                        if (firstEnrollment || additionalEnrollment) assertNotEquals(startupFileKey, Files.readAttributes(state.toPath(), BasicFileAttributes::class.java).fileKey())
                         else {
                             assertEquals("Reconnect must perform zero durable trust writes", startupFileKey, Files.readAttributes(state.toPath(), BasicFileAttributes::class.java).fileKey())
                             assertArrayEquals(startupState, state.readBytes())
@@ -203,7 +204,7 @@ class ProjectionReceiverSharedIpv4Test {
                             val remote = pv2.getValue(3)
                             val shared = AirPlayCrypto.x25519Shared(ephemeral.privateKey, remote)
                             val pvKey = derive(shared, "Pair-Verify-Encrypt")
-                            val sig = AirPlayCrypto.ed25519Sign(trusted.privateKey, ephemeral.publicKey + id + remote)
+                            val sig = AirPlayCrypto.ed25519Sign(candidate.privateKey, ephemeral.publicKey + id + remote)
                             val pv4 = verify(tlv(6 to byteArrayOf(3), 5 to AirPlayCrypto.chachaSeal(pvKey,
                                 AirPlayCrypto.nonceLabel("PV-Msg03"), tlv(1 to id, 10 to sig))))
                             assertEquals(4, pv4.getValue(6).single().toInt())
@@ -219,7 +220,7 @@ class ProjectionReceiverSharedIpv4Test {
                 }
             } finally { receiver.close(); assertTrue(receiver.awaitClosed(5000)) }
             PairingPersistence.openReceiver(directory).use {
-                assertEquals(setOf("trusted"), it.pairings.controllerIdentifiers())
+                assertEquals(if (additionalEnrollment) setOf("trusted", "second-phone") else setOf("trusted"), it.pairings.controllerIdentifiers())
                 assertArrayEquals(trusted.publicKey, it.pairings.get("trusted"))
             }
         }

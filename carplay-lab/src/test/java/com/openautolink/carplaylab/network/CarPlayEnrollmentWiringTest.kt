@@ -30,11 +30,11 @@ class CarPlayEnrollmentWiringTest {
 
     @Test fun runtimeAuthorizesBoundedConsentQualifiedEnrollmentWithoutCallingMfiPhoneTrust() {
         val runtime = source("app/src/main/java/com/openautolink/app/carplay/OalCarPlayRuntime.kt")
-        assertTrue(runtime.contains("projection.requiresControllerEnrollment"))
+        assertFalse(runtime.contains("if (projection.requiresControllerEnrollment)"))
         assertFalse(runtime.contains("CarPlay enrollment blocked: Bluetooth-to-AirPlay controller binding unavailable"))
-        assertTrue(runtime.contains("projection.authorizeFirstEnrollment(120_000)"))
+        assertTrue(runtime.contains("projection.authorizeControllerEnrollment(120_000)"))
         assertTrue(runtime.contains("WirelessEnrollmentConsentGate"))
-        assertTrue(runtime.indexOf("projection.authorizeFirstEnrollment") > runtime.indexOf("Iap2MfiAuthenticationClient(auth).run"))
+        assertTrue(runtime.indexOf("projection.authorizeControllerEnrollment") > runtime.indexOf("Iap2MfiAuthenticationClient(auth).run"))
         assertTrue(runtime.contains("selected-bootstrap-request; first-client race remains possible"))
         assertFalse(runtime.contains("CarPlay phone authentication accepted"))
         assertTrue(runtime.contains("CarPlay receiver MFi authentication accepted"))
@@ -48,5 +48,15 @@ class CarPlayEnrollmentWiringTest {
         assertTrue(receiver.contains("peerAdmission?.retire()"))
         assertTrue(receiver.contains("admission.persistEnrollment(session, id, key, persistence.pairings)"))
         assertTrue(receiver.contains("!admissionRevoked.get() && session in sessions"))
+    }
+
+    @Test fun usbBootstrapAuthorizesAdditionalPhonesNotJustEmptyInstall() {
+        val runtime = source("app/src/main/java/com/openautolink/app/carplay/OalUsbCarPlayRuntime.kt")
+        assertFalse(runtime.contains("if(projection.requiresControllerEnrollment)"))
+        assertTrue(runtime.contains("projection.authorizeControllerEnrollment(120000)"))
+        assertTrue(runtime.indexOf("projection.authorizeControllerEnrollment") > runtime.indexOf("Iap2MfiAuthenticationClient(auth).run"))
+        val receiver = source("carplay-lab/src/main/java/com/openautolink/carplaylab/media/ProjectionReceiver.kt")
+        assertFalse(receiver.contains("require(trustedControllers.isEmpty()"))
+        assertFalse(receiver.contains("trustedControllers.size == 1"))
     }
 }
