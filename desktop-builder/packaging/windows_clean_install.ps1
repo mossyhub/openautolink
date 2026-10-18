@@ -245,21 +245,34 @@ function Start-OwnedOperation([string]$File, [string[]]$Arguments = @()) {
     return $script:operation
 }
 
-function Wait-Exit($Process, [int]$Seconds = 180) {
+function Wait-Exit($Process, [int]$Seconds = 180, $Diagnostic = $null) {
     try {
         $milliseconds = Get-RemainingMilliseconds $Seconds
         $clock = [Diagnostics.Stopwatch]::StartNew()
         if ($script:scenarioActive) { Drain-ProcessEvents }
-        if (-not $Process.WaitForExit($milliseconds)) { throw 'PROCESS_TIMEOUT' }
+        if ($null -ne $Diagnostic) { $Diagnostic.phase = 'root-wait' }
+        $exited = $Process.WaitForExit($milliseconds)
+        if ($null -ne $Diagnostic) { $Diagnostic.rootExited = [bool]$exited }
+        if (-not $exited) { throw 'PROCESS_TIMEOUT' }
+        # Capture the root's real exit before teardown (never report STILL_ACTIVE
+        # or our own termination code as an installer result).
+        $code = $Process.ExitCode
+        if ($null -ne $Diagnostic) { $Diagnostic.exitCode = $code; $Diagnostic.phase = 'tree-wait' }
         # Root exit is not tree exit. Do not permit the next mutation while a
         # Burn/MSI descendant is still live, even after its launcher exited.
-        while (-not $Process.Empty) {
+        while ($true) {
+            $empty = $Process.Empty
+            if ($null -ne $Diagnostic) { $Diagnostic.jobEmpty = [bool]$empty }
+            if ($empty) { break }
             if ($clock.ElapsedMilliseconds -ge $milliseconds) { throw 'PROCESS_TREE_TIMEOUT' }
             Start-Sleep -Milliseconds 100
         }
         if ($script:scenarioActive) { Drain-ProcessEvents }
-        $code = $Process.ExitCode
     } catch {
+        if ($null -ne $Diagnostic) {
+            $message = $_.Exception.Message
+            $Diagnostic.failureCode = if ($message -cmatch '^[A-Z][A-Z0-9_]{2,80}$') { $message } else { 'OWNED_WAIT_FAILED' }
+        }
         Stop-OwnedOperation
         throw
     }
@@ -268,6 +281,7 @@ function Wait-Exit($Process, [int]$Seconds = 180) {
         Drain-ProcessEvents
         [void](Get-OwnedStartCount 'builder.exe')
     }
+    if ($null -ne $Diagnostic) { $Diagnostic.phase = 'complete' }
     return $code
 }
 
@@ -280,18 +294,95 @@ function Get-OwnedStartCount([string]$Name) {
     return @($script:starts | Where-Object { $_.owned -and $_.name -ieq $Name }).Count
 }
 
+function Read-InstallerLogSummary([string]$Path) {
+    # Private test logs only. Export whitelisted event IDs/numbers, never text,
+    # paths, package names or command lines. A missing/truncated log proves nothing.
+    $summary = [ordered]@{ state = 'missing'; bytesRead = 0; truncated = $false;
+        events = @(); errorCodes = @(); resultCodes = @(); restart = 'unknown' }
+    $stream = $null; $reader = $null
+    try {
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $summary }
+        $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        $size = [int][Math]::Min(1048576, $stream.Length)
+        $summary.truncated = $stream.Length -gt $size
+        $buffer = [byte[]]::new($size)
+        while ($summary.bytesRead -lt $size) {
+            $read = $stream.Read($buffer, $summary.bytesRead, $size - $summary.bytesRead)
+            if ($read -eq 0) { break }
+            $summary.bytesRead += $read
+        }
+        $reader = [IO.StreamReader]::new([IO.MemoryStream]::new($buffer, 0, $summary.bytesRead), [Text.Encoding]::UTF8, $true)
+        $text = $reader.ReadToEnd()
+        # Ignore a cut line rather than parsing an incomplete numeric result.
+        if ($summary.truncated) {
+            $last = $text.LastIndexOf("`n")
+            $text = if ($last -ge 0) { $text.Substring(0, $last + 1) } else { '' }
+        }
+        foreach ($line in ($text -split "`n")) {
+            if ($line.Length -gt 4096) { $summary.truncated = $true; continue }
+            if ($line -match '\]((?:i010|i011|i012|i100|i199|i200|i299|i300|i301|i319|i399|i500)):\s') {
+                if ($summary.events -cnotcontains $Matches[1]) { $summary.events += $Matches[1] }
+            }
+            foreach ($pair in @(@('errorCodes', '\bError (0x[0-9a-fA-F]{1,8}|[0-9]{3,5})\b'),
+                                @('resultCodes', '(?:result: |exit code: |MainEngineThread is returning )(0x[0-9a-fA-F]{1,8}|[0-9]{1,5})\b'))) {
+                if ($line -match $pair[1]) {
+                    $value = $Matches[1].ToLowerInvariant()
+                    if ($summary[$pair[0]] -cnotcontains $value) {
+                        if ($summary[$pair[0]].Count -lt 16) { $summary[$pair[0]] += $value }
+                        else { $summary.truncated = $true }
+                    }
+                }
+            }
+            if ($line -cmatch '\bi399: .*?, restart: (None|Required|Initiated),') { $summary.restart = $Matches[1] }
+        }
+        $summary.state = 'read'
+    } catch { $summary.state = 'unreadable' }
+    finally {
+        if ($null -ne $reader) { $reader.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+    return $summary
+}
+
+function Invoke-LoggedRuntimeOperation([ValidateSet('bundle', 'msi', 'recovery')][string]$Kind,
+                                       [string]$File, [string[]]$Arguments) {
+    $row = [ordered]@{ kind = $Kind; phase = 'launch'; exitCode = $null;
+        rootExited = $null; jobEmpty = $null; failureCode = ''; elapsedMilliseconds = 0; installerLog = $null }
+    # Retain the attempt even if launch/wait throws, rather than an empty removal list.
+    if ($Kind -eq 'recovery') { $script:report.recoveryOperation = $row }
+    else {
+        if ($script:report.removal.Count -ge 16) { throw 'REMOVAL_OPERATION_LIMIT' }
+        $script:report.removal += $row
+    }
+    $log = Join-Path (Split-Path -Parent $Request) ($Kind + '-' + [Guid]::NewGuid().ToString('N') + '.log')
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        # Microsoft's redistributable supports /log filename; MSI additionally
+        # supports verbose + flush-per-line. Neither switch changes consent in
+        # production: this helper is called only by the disposable test worker.
+        $flag = if ($Kind -eq 'msi') { '/L*v!' } else { '/log' }
+        $p = Start-OwnedOperation -File $File -Arguments ($Arguments + @($flag, $log))
+        return Wait-Exit $p -Diagnostic $row
+    } catch {
+        if (-not $row.failureCode) {
+            $message = $_.Exception.Message
+            $row.failureCode = if ($message -cmatch '^[A-Z][A-Z0-9_]{2,80}$') { $message } else { 'RUNTIME_OPERATION_FAILED' }
+        }
+        throw
+    } finally {
+        $row.elapsedMilliseconds = [long]$clock.ElapsedMilliseconds
+        $row.installerLog = Read-InstallerLogSummary $log
+    }
+}
+
 function Remove-TestRuntime {
     # Only this guarded ephemeral test uninstalls. Production installer stays interactive.
     foreach ($item in @(Get-RemovalTargets | Where-Object kind -eq 'bundle')) {
-        $p = Start-OwnedOperation $item.path @('/uninstall', '/quiet', '/norestart')
-        $code = Wait-Exit $p
-        $script:report.removal += [ordered]@{ kind = 'bundle'; exitCode = $code }
+        $code = Invoke-LoggedRuntimeOperation 'bundle' $item.path @('/uninstall', '/quiet', '/norestart')
         if ($code -ne 0) { throw 'UNINSTALL_FAILED_OR_RESTART_REQUIRED' }
     }
     foreach ($item in @(Get-RemovalTargets | Where-Object kind -eq 'msi')) {
-        $p = Start-OwnedOperation (Join-Path ([Environment]::SystemDirectory) 'msiexec.exe') @('/x', $item.id, '/qn', '/norestart')
-        $code = Wait-Exit $p
-        $script:report.removal += [ordered]@{ kind = 'msi'; exitCode = $code }
+        $code = Invoke-LoggedRuntimeOperation 'msi' (Join-Path ([Environment]::SystemDirectory) 'msiexec.exe') @('/x', $item.id, '/qn', '/norestart')
         if ($code -notin @(0, 1605)) { throw 'UNINSTALL_FAILED_OR_RESTART_REQUIRED' }
     }
 }
@@ -375,7 +466,9 @@ function Finalize-ProcessMonitor {
     try {
         Unregister-Event -SourceIdentifier OALCleanStarts -ErrorAction Stop
         Drain-ProcessEvents
-        [void](Get-OwnedStartCount 'builder.exe')
+        # Before the first UI scenario these are runtime-removal/machine starts,
+        # not rejection/acceptance evidence. Never validate them as a UI scenario.
+        if ($script:scenarioActive) { [void](Get-OwnedStartCount 'builder.exe') }
     } catch {
         $code = $_.Exception.Message
         if ($code -cnotmatch '^[A-Z][A-Z0-9_]{2,80}$') { $code = 'PROCESS_MONITOR_FINALIZATION_FAILED' }
@@ -520,10 +613,13 @@ function Start-WorkerJob([string]$Mode) {
     return [CleanOwnedJob]::new($shell, [string[]]@('-NoLogo', '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Request', $Request, '-Mode', $Mode))
 }
 
-function Read-ScenarioReport {
-    $path = Join-Path (Split-Path -Parent $Request) 'scenario-report.json'
+function Read-ScenarioReport([ValidateSet('Scenario', 'Recovery')][string]$Mode = 'Scenario') {
+    $path = Join-Path (Split-Path -Parent $Request) ($Mode.ToLowerInvariant() + '-report.json')
     if ((Get-Item -LiteralPath $path).Length -gt 65536) { throw 'REPORT_BOUND_EXCEEDED' }
-    return Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    $child = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    if ($child.identity.checkoutCommit -cne $script:req.identity.checkoutCommit -or
+        $child.binding.workerSha256 -cne $script:req.binding.workerSha256) { throw 'CHILD_REPORT_BINDING_INVALID' }
+    return $child
 }
 
 function Invoke-Supervisor {
@@ -532,8 +628,6 @@ function Invoke-Supervisor {
         $job = Start-WorkerJob 'Scenario'
         if (-not $job.WaitForExit(900000)) { throw 'SCENARIO_DEADLINE_EXCEEDED' }
         $child = Read-ScenarioReport
-        if ($child.identity.checkoutCommit -cne $script:req.identity.checkoutCommit -or
-            $child.binding.workerSha256 -cne $script:req.binding.workerSha256) { throw 'CHILD_REPORT_BINDING_INVALID' }
         $script:report = $child
         if ($job.ExitCode -ne 0 -and $script:report.status -eq 'passed') { throw 'SCENARIO_EXIT_FAILED' }
     } catch {
@@ -562,8 +656,17 @@ function Invoke-Supervisor {
                 elseif (-not (Wait-MsiQuiescent)) { $script:report.recovery = 'skipped-msi-not-quiescent' }
                 else {
                     $recoveryJob = Start-WorkerJob 'Recovery'
-                    if ($recoveryJob.WaitForExit(240000) -and $recoveryJob.ExitCode -eq 0) {
-                        $script:report.recovery = 'restored-not-qualification'
+                    if ($recoveryJob.WaitForExit(240000)) {
+                        if ($recoveryJob.ExitCode -eq 0) { $script:report.recovery = 'restored-not-qualification' }
+                        # Diagnostics cannot replace the original scenario failure
+                        # or determine success; that still requires recovery exit 0.
+                        try {
+                            $detail = Read-ScenarioReport -Mode Recovery
+                            $script:report.recoveryOperation = $detail.recoveryOperation
+                            $script:report.recoveryFailureCode = $detail.failureCode
+                        } catch { $script:report.recoveryFailureCode = 'RECOVERY_REPORT_UNAVAILABLE' }
+                    } else {
+                        $script:report.recoveryFailureCode = 'RECOVERY_WORKER_TIMEOUT'
                     }
                 }
             } catch { $script:report.recovery = 'failed-dispose-vm' }
@@ -583,6 +686,8 @@ function Write-BoundedReport([string]$Path) {
 }
 
 $script:scenarioActive = $false
+# The monitor is registered before runtime removal, not only at Start-Scenario.
+$script:starts = [Collections.Generic.List[object]]::new()
 $script:scenarioStarted = 0L
 $script:monitorStarted = 0L
 if ($MyInvocation.InvocationName -eq '.') { return }
@@ -592,7 +697,8 @@ $script:report = [ordered]@{ schema = 1; status = 'failed'; notQualification = $
     scope = 'real-clean-runtime-ci-ui'; testAcceptance = 'disposable-ci-only-not-user-consent';
     identity = $null; binding = $null; phase = 'guard'; failureCode = ''; desktop = $null;
     before = $null; absent = $null; after = $null; removal = @(); scenarios = [ordered]@{};
-    screenshots = [ordered]@{}; recovery = 'not-needed'; uacCancellation = 'not-tested'; restart = 'not-tested' }
+    screenshots = [ordered]@{}; recovery = 'not-needed'; recoveryOperation = $null; recoveryFailureCode = '';
+    uacCancellation = 'not-tested'; restart = 'not-tested' }
 $script:req = $null
 $script:outerProcess = $null
 $script:operation = $null
@@ -624,9 +730,9 @@ try {
         $recoveryLock = [IO.File]::Open($recovery, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
         Assert-FileHash $recovery $script:RuntimeHash
         Assert-MicrosoftSignature $recovery
-        $p = Start-OwnedOperation $recovery @('/install', '/quiet', '/norestart')
-        $code = Wait-Exit $p 180
+        $code = Invoke-LoggedRuntimeOperation 'recovery' $recovery @('/install', '/quiet', '/norestart')
         if ($code -ne 0 -or -not (Test-RuntimeReady)) { throw 'RECOVERY_FAILED' }
+        $script:report.status = 'passed'
         exit 0
     }
     foreach ($entry in @(@($script:req.outer, $script:req.binding.outerSha256), @($script:req.builder, $script:req.binding.artifactSha256))) {
@@ -760,9 +866,11 @@ try {
         $script:report.failureCode = 'OWNED_TEARDOWN_UNCONFIRMED'
     }
     if ($null -ne $recoveryLock) { $recoveryLock.Dispose() }
-    if ($null -ne $script:req -and $Mode -ne 'Recovery') {
+    if ($null -ne $script:req) {
         if ($Mode -eq 'Supervisor') {
             Write-BoundedReport (Join-Path $script:req.output 'windows-clean-install.json')
+        } elseif ($Mode -eq 'Recovery') {
+            Write-BoundedReport (Join-Path (Split-Path -Parent $Request) 'recovery-report.json')
         } else {
             Write-BoundedReport (Join-Path (Split-Path -Parent $Request) 'scenario-report.json')
         }

@@ -224,6 +224,214 @@ def run_mocked_powershell(code):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.parametrize('exit_code', [0, 3010, 1603])
+def test_actual_removal_launch_chain_keeps_silent_arguments_and_rejects_nonzero(tmp_path, exit_code):
+    request = str(tmp_path / 'request.json').replace("'", "''")
+    run_mocked_powershell(r'''
+$Request = 'REQUESTPATH'
+$script:clock = [Diagnostics.Stopwatch]::StartNew()
+$script:budgetSeconds = 840
+$script:operation = $null
+$script:report = [ordered]@{removal=@()}
+Add-Type 'public class CleanOwnedJob {
+ public static string[] Captured;
+ public int ExitCode { get { return EXITCODE; } }
+ public bool Empty { get { return true; } }
+ public CleanOwnedJob(string file, string[] arguments) { Captured=arguments; }
+ public bool WaitForExit(int ms) { return true; }
+ public void Terminate() { }
+ public void Dispose() { }
+}'
+function Get-RemovalTargets { [pscustomobject]@{kind='bundle';path='private installer.exe'} }
+$observed = ''
+try { Remove-TestRuntime } catch { $observed = $_.Exception.Message }
+if ((EXITCODE -ne 0) -ne ($observed -eq 'UNINSTALL_FAILED_OR_RESTART_REQUIRED')) { throw 'REMOVAL_RESULT_WEAKENED' }
+if (EXITCODE -eq 0 -and $observed) { throw $observed }
+if ($script:report.removal.Count -ne 1 -or $script:report.removal[0].exitCode -ne EXITCODE) { throw 'REMOVAL_ROW_LOST' }
+if (([CleanOwnedJob]::Captured[0..3] -join '|') -cne '/uninstall|/quiet|/norestart|/log' -or
+    [CleanOwnedJob]::Captured.Count -ne 5) { throw 'ACTUAL_CONSTRUCTOR_ARGUMENTS_LOST' }
+'''.replace('REQUESTPATH', request).replace('EXITCODE', str(exit_code)))
+
+
+def test_recovery_diagnostic_is_bound_and_exported_without_replacing_primary(tmp_path):
+    request = str(tmp_path / 'request.json').replace("'", "''")
+    run_mocked_powershell(r'''
+$Request = 'REQUESTPATH'
+$script:req = [pscustomobject]@{identity=@{checkoutCommit='exact'};binding=@{workerSha256='exact'}}
+$script:report = [ordered]@{status='failed';phase='supervisor';failureCode='';recovery='not-needed'}
+function Test-MutationStarted { return $true }
+function Test-ControllerTimeout { return $false }
+function Stop-JobTree { return $true }
+function Wait-MsiQuiescent { return $true }
+function Start-WorkerJob($Mode) {
+    $job = [pscustomobject]@{Mode=$Mode;ExitCode=1}
+    $job | Add-Member ScriptMethod WaitForExit {
+        param($ms)
+        if ($this.Mode -eq 'Scenario') { return $false }
+        $child = @{identity=$script:req.identity;binding=$script:req.binding;failureCode='RECOVERY_FAILED';
+                   recoveryOperation=@{kind='recovery';phase='complete';exitCode=-2147023258}}
+        [IO.File]::WriteAllText((Join-Path (Split-Path -Parent $Request) 'recovery-report.json'), ($child | ConvertTo-Json -Depth 8))
+        return $true
+    }
+    return $job
+}
+Invoke-Supervisor
+if ($script:report.failureCode -ne 'SCENARIO_DEADLINE_EXCEEDED' -or $script:report.recovery -ne 'failed-dispose-vm') { throw 'PRIMARY_FAILURE_LOST' }
+if ($script:report.recoveryOperation.exitCode -ne -2147023258 -or $script:report.recoveryFailureCode -ne 'RECOVERY_FAILED') { throw 'RECOVERY_DIAGNOSTIC_LOST' }
+$script:req.binding.workerSha256 = 'different'
+try { Read-ScenarioReport -Mode Recovery; throw 'UNBOUND_DIAGNOSTIC_ACCEPTED' } catch {
+    if ($_.Exception.Message -ne 'CHILD_REPORT_BINDING_INVALID') { throw }
+}
+'''.replace('REQUESTPATH', request))
+    source = (PACKAGING / 'windows_clean_install.ps1').read_text()
+    assert "Invoke-LoggedRuntimeOperation 'recovery'" in source
+    assert "Write-BoundedReport (Join-Path (Split-Path -Parent $Request) 'recovery-report.json')" in source
+
+
+@pytest.mark.parametrize('kind', ['bundle', 'msi', 'recovery'])
+@pytest.mark.parametrize('timeout', [True, False])
+def test_logged_runtime_operation_records_attempt_before_launch_and_keeps_failure(tmp_path, kind, timeout):
+    request = str(tmp_path / 'request.json').replace("'", "''")
+    run_mocked_powershell(r'''
+$Request = 'REQUESTPATH'
+$script:report = [ordered]@{removal=@()}
+$script:operation = $null
+$script:clock = [Diagnostics.Stopwatch]::StartNew()
+$script:budgetSeconds = 840
+function Start-OwnedOperation([string]$File, [string[]]$Arguments) {
+    $d = if ('KIND' -eq 'recovery') { $script:report.recoveryOperation } else { $script:report.removal[0] }
+    if ($d.kind -ne 'KIND' -or $d.phase -ne 'launch' -or $null -ne $d.exitCode) { throw 'ATTEMPT_NOT_RECORDED_BEFORE_LAUNCH' }
+    $flag = if ('KIND' -eq 'msi') { '/L*v!' } else { '/log' }
+    if ($Arguments.Count -ne 5 -or $Arguments[3] -cne $flag -or
+        (Split-Path -Parent $Arguments[4]) -cne (Split-Path -Parent $Request)) { throw 'LOG_NOT_PRIVATE_OR_ARGUMENTS_LOST' }
+    [IO.File]::WriteAllText($Arguments[4], '[1234:5678][time]e000: Error 0x80070020: private machine path')
+    $script:operation = [pscustomobject]@{Empty=$true;ExitCode=3010}
+    $script:operation | Add-Member ScriptMethod WaitForExit { param($ms) return -not TIMEOUT }
+    $script:operation | Add-Member ScriptMethod Terminate { }
+    $script:operation | Add-Member ScriptMethod Dispose { }
+    return $script:operation
+}
+$observed = ''
+try { $code = Invoke-LoggedRuntimeOperation 'KIND' 'private-installer' @('/uninstall','/quiet','/norestart') }
+catch { $observed = $_.Exception.Message }
+$d = if ('KIND' -eq 'recovery') { $script:report.recoveryOperation } else { $script:report.removal[0] }
+if (TIMEOUT) {
+    if ($observed -ne 'PROCESS_TIMEOUT' -or $d.failureCode -ne 'PROCESS_TIMEOUT' -or
+        $d.phase -ne 'root-wait' -or $null -ne $d.exitCode) { throw 'TIMEOUT_DETAIL_LOST' }
+} else {
+    if ($observed -or $code -ne 3010 -or $d.exitCode -ne 3010 -or $d.phase -ne 'complete') { throw 'EXIT_DETAIL_LOST' }
+}
+if ($d.installerLog.errorCodes[0] -ne '0x80070020' -or $null -ne $script:operation) { throw 'LOG_OR_TEARDOWN_LOST' }
+if (($script:report | ConvertTo-Json -Depth 8) -match 'private|machine|1234|5678') { throw 'PRIVATE_DATA_LEAK' }
+'''.replace('REQUESTPATH', request).replace('KIND', kind)
+       .replace('return -not TIMEOUT', 'return -not ' + ('$true' if timeout else '$false'))
+       .replace('if (TIMEOUT)', 'if (' + ('$true' if timeout else '$false') + ')'))
+
+
+@pytest.mark.parametrize('encoding', ['utf-8-sig', 'utf-16'])
+def test_installer_log_summary_is_bounded_numeric_and_path_free(tmp_path, encoding):
+    # Explicit parser fixture, not a native installer report.
+    log = tmp_path / 'installer.log'
+    log.write_text('''[1234:5678][2026-10-17T01:00:00]i009: Command Line: C:\\private\\machine /quiet
+[1234:5678][2026-10-17T01:00:00]i100: Detect begin, 2 packages
+[1234:5678][2026-10-17T01:00:00]i200: Plan begin, action: Uninstall
+[1234:5678][2026-10-17T01:00:00]i010: Launching elevated engine process.
+[1234:5678][2026-10-17T01:00:00]e000: Error 0x80070020: C:\\private\\machine in use
+[1234:5678][2026-10-17T01:00:00]e000: Error 0x80070020: repeated
+[1234:5678][2026-10-17T01:00:00]i399: Apply complete, result: 0x80070643, restart: Required, ba requested restart: No
+MSI (s) (10:00) [01:00:00:000]: MainEngineThread is returning 1603
+Error 1714. Private product name must not escape.
+''', encoding=encoding)
+    path = str(log).replace("'", "''")
+    run_mocked_powershell(r'''
+$s = Read-InstallerLogSummary 'LOGPATH'
+if ($s.state -ne 'read' -or $s.truncated) { throw 'LOG_NOT_READ' }
+if (($s.events -join ',') -cne 'i100,i200,i010,i399') { throw 'LIFECYCLE_LOST' }
+if (($s.errorCodes -join ',') -cne '0x80070020,1714') { throw 'ERROR_CODES_LOST' }
+if (($s.resultCodes -join ',') -cne '0x80070643,1603' -or $s.restart -ne 'Required') { throw 'RESULT_CODES_LOST' }
+if (($s | ConvertTo-Json -Depth 8) -match 'private|machine|product|1234|5678|2026') { throw 'RAW_LOG_LEAK' }
+$s = Read-InstallerLogSummary 'LOGPATH.missing'
+if ($s.state -ne 'missing') { throw 'MISSING_LOG_FALSE_READ' }
+'''.replace('LOGPATH', path))
+    log.write_text('Error 1714. bounded\n' * 100000, encoding=encoding)
+    run_mocked_powershell(r'''
+$s = Read-InstallerLogSummary 'LOGPATH'
+if (-not $s.truncated -or $s.bytesRead -gt 1048576 -or $s.errorCodes.Count -ne 1) { throw 'UNBOUNDED_LOG' }
+if (($s | ConvertTo-Json -Depth 8).Length -gt 2048) { throw 'UNBOUNDED_SUMMARY' }
+'''.replace('LOGPATH', path))
+    log.write_text(''.join(f'Error {1000 + i}. result: 0x{i:08x}\n' for i in range(40)), encoding=encoding)
+    run_mocked_powershell(r'''
+$s = Read-InstallerLogSummary 'LOGPATH'
+if (-not $s.truncated -or $s.errorCodes.Count -ne 16 -or $s.resultCodes.Count -ne 16) { throw 'UNBOUNDED_CODE_SETS' }
+'''.replace('LOGPATH', path))
+
+
+@pytest.mark.parametrize('outcome,phase,code,failure', [
+    ('root-timeout', 'root-wait', None, 'PROCESS_TIMEOUT'),
+    ('tree-timeout', 'tree-wait', 0, 'PROCESS_TREE_TIMEOUT'),
+    ('restart', 'complete', 3010, ''),
+    ('failure', 'complete', -2147023293, ''),
+])
+def test_wait_diagnostics_preserve_root_exit_before_owned_teardown(outcome, phase, code, failure):
+    run_mocked_powershell(r'''
+$script:operation = $null
+$d = [ordered]@{phase='launch';exitCode=$null;rootExited=$null;jobEmpty=$null;failureCode='';teardownFailure=''}
+function Get-RemainingMilliseconds { return 1 }
+$p = [pscustomobject]@{Empty=('OUTCOME' -ne 'tree-timeout');ExitCode=CODE}
+$p | Add-Member ScriptMethod WaitForExit { param($ms) return 'OUTCOME' -ne 'root-timeout' }
+function Stop-OwnedOperation {
+    # Disposal/termination may change the exit code; it must already be captured.
+    $p.ExitCode = 1
+}
+$observed = ''
+try { $null = Wait-Exit $p -Diagnostic $d } catch { $observed = $_.Exception.Message }
+if ($observed -cne 'FAILURE' -or $d.failureCode -cne 'FAILURE') { throw 'WRONG_FAILURE' }
+if ($d.phase -cne 'PHASE' -or $d.exitCode -ne EXPECTED) { throw 'DIAGNOSTIC_EXIT_OR_PHASE_LOST' }
+if ($d.rootExited -ne ('OUTCOME' -ne 'root-timeout')) { throw 'ROOT_STATE_LOST' }
+'''.replace('OUTCOME', outcome).replace('PHASE', phase).replace('FAILURE', failure)
+       .replace('CODE', str(code or 0)).replace('EXPECTED', '$null' if code is None else str(code)))
+
+
+def test_owned_operation_preserves_array_arguments_at_constructor_boundary():
+    run_mocked_powershell(r'''
+# Replace only the Win32 owner; run the actual PowerShell launch function.
+Add-Type 'public class CleanOwnedJob {
+ public string File; public string[] Arguments;
+ public CleanOwnedJob(string file, string[] arguments) { File=file; Arguments=arguments; }
+}'
+$script:clock = [Diagnostics.Stopwatch]::StartNew()
+$script:budgetSeconds = 840
+$script:operation = $null
+$file = 'C:\private cache\VC_redist.x64.exe'
+$p = Start-OwnedOperation $file @('/uninstall', '/quiet', '/norestart')
+if ($p.File -cne $file -or ($p.Arguments -join '|') -cne '/uninstall|/quiet|/norestart') { throw 'ARGUMENT_BINDING_LOST' }
+$script:operation = $null
+$p = Start-OwnedOperation $file @('/x', '{01234567-89AB-CDEF-0123-456789ABCDEF}', '/qn', '/norestart', '/log', 'C:\private cache\test.log')
+if ($p.Arguments.Count -ne 6 -or $p.Arguments[5] -cne 'C:\private cache\test.log') { throw 'LOG_ARGUMENT_BINDING_LOST' }
+$script:operation = $null
+$p = Start-OwnedOperation $file
+if ($p.Arguments.Count -ne 0) { throw 'EMPTY_ARGUMENTS_LOST' }
+''')
+
+
+@pytest.mark.parametrize('name', ['unrelated.exe', 'VC_redist.x64.exe', 'builder.exe'])
+def test_pre_scenario_monitor_cleanup_has_initialized_receipts(name):
+    run_mocked_powershell(r'''
+$script:operation = $null
+$script:report = @{status='failed';phase='runtime-removal';failureCode='PROCESS_TIMEOUT'}
+function Unregister-Event { param($SourceIdentifier) }
+function Get-Event {
+    [pscustomobject]@{EventIdentifier=1;SourceEventArgs=[pscustomobject]@{
+        NewEvent=[pscustomobject]@{ProcessID=12;ProcessName='NAME';TIME_CREATED=1L}}}
+}
+function Remove-Event { param($EventIdentifier) }
+Finalize-ProcessMonitor
+if ($script:report.ContainsKey('cleanupFailure')) { throw 'PRE_SCENARIO_CLEANUP_FAILED' }
+if ($script:starts.Count -ne 1) { throw 'RECEIPT_NOT_SAVED' }
+if ($script:report.failureCode -ne 'PROCESS_TIMEOUT' -or $script:report.phase -ne 'runtime-removal') { throw 'PRIMARY_FAILURE_LOST' }
+'''.replace('NAME', name))
+
+
 def test_mutation_timeout_tears_down_owned_job_before_throwing():
     run_mocked_powershell(r"""
 $script:clock = [Diagnostics.Stopwatch]::StartNew()
