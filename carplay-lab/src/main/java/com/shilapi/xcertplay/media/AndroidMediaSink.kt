@@ -47,6 +47,8 @@ class AndroidMediaSink(
     private val videoSelection: CarPlayVideoSelection = CarPlayVideoSelection(display.display.width,
         display.display.height,display.display.fps,display.decoderName),
     private val videoCodecFactory: (String) -> MediaCodec = MediaCodec::createByCodecName,
+    private val microphoneExperiment: CarPlayMicrophoneExperimentProfile? = null,
+    private val microphoneCapability: MicrophoneCapability? = null,
 ) : MediaSink, Closeable {
     private val closed = AtomicBoolean()
     init { AndroidMicrophoneSupport.initialize(context) }
@@ -282,12 +284,12 @@ class AndroidMediaSink(
     override fun supportsAudio(format: AudioFormat): Boolean = AndroidAudioDecoderSupport.supports(format)
     override fun supportsMicrophone(format: AudioFormat): Boolean = !closed.get() &&
         MicrophoneSupport.source(format.audioType) != null &&
-        MicrophoneSupport.bits(format)?.let { it in AndroidMicrophoneSupport.capability.bits(format.audioType) } == true
+        MicrophoneSupport.bits(format)?.let { it in (microphoneCapability ?: AndroidMicrophoneSupport.capability).bits(format.audioType) } == true
     @Synchronized override fun onMicrophoneStarted(id: MicrophoneStreamId, config: MicrophoneConfig) {
         if (closed.get() || id.session.isClosed || id.type != 100 || id.audioType != config.audioType ||
             !AndroidMicrophoneSupport.permissionGranted()) { config.key.fill(0); return }
         microphoneOwners.removeIf { it.isRetired }
-        val accepted = microphones.start(id) { MicrophoneUplink(config, ::report).apply {
+        val accepted = microphones.start(id) { MicrophoneUplink(config, ::report, microphoneExperiment, microphoneCapability).apply {
             microphoneOwners.add(this); start()
         } }
         if (!accepted) { config.key.fill(0); report("media stage=microphone-owner-busy") }

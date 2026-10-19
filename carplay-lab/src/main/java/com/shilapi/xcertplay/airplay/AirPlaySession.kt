@@ -87,7 +87,9 @@ class AirPlaySession @JvmOverloads constructor(
     microphoneCapability: com.shilapi.xcertplay.media.MicrophoneCapability =
         if (config.microphone) com.shilapi.xcertplay.media.AndroidMicrophoneSupport.capability
         else com.shilapi.xcertplay.media.MicrophoneCapability.NONE,
+    availableAudioFormats: Set<Long>? = null,
 ) : Closeable {
+    private val outputAudioFormats = availableAudioFormats?.toSet()
     // Freeze the exact source/rate qualification used by this session's /info and SETUP.
     internal val offeredMicrophone = if (config.microphone && !config.lpcmOnly && !config.disableAudioOutput)
         microphoneCapability else com.shilapi.xcertplay.media.MicrophoneCapability.NONE
@@ -648,10 +650,13 @@ class AirPlaySession @JvmOverloads constructor(
                 else RtspMessage.Response(headers = mapOf("Content-Type" to OCTET_CONTENT_TYPE), body = body)
             }
             path.endsWith("/info") -> {
-                val info = AirPlayInfoPlist.build(config, microphoneCapability = offeredMicrophone, videoSelection = videoSelection)
+                val info = AirPlayInfoPlist.build(config,
+                    availableAudioFormats = outputAudioFormats ?: if (config.lpcmOnly || config.disableAudioOutput) emptySet()
+                        else com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits,
+                    microphoneCapability = offeredMicrophone, videoSelection = videoSelection)
                 val audioRows = info["audioFormats"] as? List<*> ?: emptyList<Any>()
                 AudioOfferDiagnostics.lines(info).forEach(listener::onDebugLog)
-                listener.onDebugLog("BENCH_DIAG audioOfferRows=${audioRows.size} codecBits=${com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits.sorted().joinToString(",")}")
+                listener.onDebugLog("BENCH_DIAG audioOfferRows=${audioRows.size} codecBits=${(outputAudioFormats ?: com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits).sorted().joinToString(",")}")
                 if (request.body.isNotEmpty()) {
                     Unit
                     Unit

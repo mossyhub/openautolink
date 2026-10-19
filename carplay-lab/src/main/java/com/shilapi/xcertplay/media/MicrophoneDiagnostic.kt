@@ -20,22 +20,27 @@ class MicrophoneDiagnostic internal constructor(
     private val lock = Any()
     @Volatile var state = MicrophoneDiagnosticState()
         private set
-    private class Run(val comparison: MicrophoneDiagnosticComparison?, val lease: MicrophoneCaptureFence.Lease) {
+    private class Run(val comparison: MicrophoneDiagnosticComparison?, val lease: MicrophoneCaptureFence.Lease,
+        val custom: MicrophoneDiagnosticCustom?) {
         val reason = AtomicReference(MicrophoneDiagnosticReason.NONE)
         var arm: Int? = null // accessed under lock, including deadline callbacks
     }
     private var active: Run? = null
+    // Test barrier at the publication/delivery boundary; never invoked under the owner lock.
+    internal var beforeTerminalNotification: (() -> Unit)? = null
     private class Abort(val reason: MicrophoneDiagnosticReason) : Exception()
 
     fun inspect(): Boolean = begin(null)
-    fun start(comparison: MicrophoneDiagnosticComparison): Boolean = begin(comparison)
+    fun start(comparison: MicrophoneDiagnosticComparison): Boolean =
+        comparison != MicrophoneDiagnosticComparison.CUSTOM && begin(comparison)
+    fun startCustom(config: MicrophoneDiagnosticCustom): Boolean = begin(MicrophoneDiagnosticComparison.CUSTOM, config)
     fun cancel() { synchronized(lock) { active }?.let { stop(it, MicrophoneDiagnosticReason.CANCELLED) } }
 
-    private fun begin(comparison: MicrophoneDiagnosticComparison?): Boolean {
+    private fun begin(comparison: MicrophoneDiagnosticComparison?, custom: MicrophoneDiagnosticCustom? = null): Boolean {
         val run = synchronized(lock) {
             if (active != null) return false
             val lease = MicrophoneCaptureFence.tryDiagnostic() ?: return false
-            Run(comparison, lease).also {
+            Run(comparison, lease, custom).also {
                 active = it
                 state = MicrophoneDiagnosticState(MicrophoneDiagnosticPhase.INSPECTING, comparison)
             }
@@ -85,12 +90,13 @@ class MicrophoneDiagnostic internal constructor(
             val comparison = run.comparison
             if (comparison != null) {
                 check(run)
-                if (comparison == MicrophoneDiagnosticComparison.PREFERRED && inventory.match != MicrophoneDiagnosticMatch.UNIQUE)
+                if ((comparison == MicrophoneDiagnosticComparison.PREFERRED || run.custom?.preferredNamedInput == true) &&
+                    inventory.match != MicrophoneDiagnosticMatch.UNIQUE)
                     throw Abort(MicrophoneDiagnosticReason.PREFERRED_UNAVAILABLE)
-                for (ordinal in 0..2) {
+                for (ordinal in 0 until if (run.custom != null) 1 else 3) {
                     check(run)
-                    val requested = shape(comparison, ordinal)
-                    val preferred = comparison == MicrophoneDiagnosticComparison.PREFERRED && ordinal == 1
+                    val requested = run.custom?.shape() ?: shape(comparison, ordinal)
+                    val preferred = run.custom?.preferredNamedInput ?: (comparison == MicrophoneDiagnosticComparison.PREFERRED && ordinal == 1)
                     val stats = MicrophoneDiagnosticAccumulator(requested.channelCount)
                     var record: MicrophoneDiagnosticRecord? = null
                     var observed: MicrophoneDiagnosticObservation? = null
@@ -194,7 +200,7 @@ class MicrophoneDiagnostic internal constructor(
         }
     }
     private fun finish(run: Run, result: MicrophoneDiagnosticResult) {
-        synchronized(lock) {
+        val terminalState = synchronized(lock) {
             if (active !== run) return
             val terminalReason = run.reason.get()
             val completed = if (terminalReason == MicrophoneDiagnosticReason.NONE) result
@@ -203,8 +209,11 @@ class MicrophoneDiagnostic internal constructor(
             active = null
             state = MicrophoneDiagnosticState(MicrophoneDiagnosticPhase.COMPLETE, run.comparison,
                 reason = completed.reason, result = completed)
+            state
         }
-        notifyState()
+        runCatching { beforeTerminalNotification?.invoke() }
+        // A successor may already have replaced state; deliver this exact completion outside the lock.
+        runCatching { onState(terminalState) }
     }
     private companion object {
         val deadlines = ScheduledThreadPoolExecutor(1) { task ->
@@ -214,7 +223,8 @@ class MicrophoneDiagnostic internal constructor(
         fun elapsedMillis(start: Long) = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
         fun shape(comparison: MicrophoneDiagnosticComparison, ordinal: Int): MicrophoneDiagnosticShape {
             val channels = if (comparison == MicrophoneDiagnosticComparison.CHANNELS && ordinal == 1) 2 else 1
-            return MicrophoneDiagnosticShape(6,
+            return MicrophoneDiagnosticShape(
+                if (comparison == MicrophoneDiagnosticComparison.SOURCES && ordinal == 1) 7 else 6,
                 if (comparison == MicrophoneDiagnosticComparison.RATE && ordinal == 1) 48000 else 24000,
                 channels, if (channels == 2) 12 else 16, 0)
         }

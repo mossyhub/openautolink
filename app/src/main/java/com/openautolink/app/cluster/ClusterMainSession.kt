@@ -27,7 +27,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import java.time.Duration
 import java.time.ZonedDateTime
 
 /**
@@ -322,6 +321,14 @@ class ClusterMainSession : Session() {
                 withdrawGuidance(navManager, AvailabilityOutcome.UNAVAILABLE)
                 return
             }
+            // AAOS NavigationStateConverter dereferences every step estimate's distance.
+            // Unknown distance is source unavailability, not a rejected cue or route end.
+            if (toOptionalDistance(maneuver.distanceMeters, ClusterNavigationState.distanceUnits,
+                    maneuver.displayDistance, maneuver.displayDistanceUnit) == null) {
+                rejectedManeuver = null
+                withdrawGuidance(navManager, AvailabilityOutcome.UNAVAILABLE)
+                return
+            }
             if (maneuver == rejectedManeuver) return
             // A concrete, buildable instruction is required before claiming host ownership.
             val trip = try {
@@ -452,12 +459,12 @@ class ClusterMainSession : Session() {
             }
         }
 
-        val distance = maneuver.distanceMeters?.let { meters -> toDistance(
-            meters,
+        val distance = toOptionalDistance(
+            maneuver.distanceMeters,
             ClusterNavigationState.distanceUnits,
             maneuver.displayDistance,
             maneuver.displayDistanceUnit
-        ) }
+        )
         val stepEstimate = if (distance != null && eta != null) TravelEstimate.Builder(distance, eta).build()
             else ClusterTravelEstimate.buildDistance(distance, maneuver.etaSeconds?.toLong(), now)
         tripBuilder.addStep(stepBuilder.build(), stepEstimate)
@@ -468,18 +475,17 @@ class ClusterMainSession : Session() {
             destBuilder.setName(destAddress)
             destBuilder.setAddress(destAddress)
 
-            val destDistance = toDistance(
-                maneuver.destDistanceMeters ?: maneuver.distanceMeters ?: 0,
+            val destDistance = toOptionalDistance(
+                maneuver.destDistanceMeters,
                 ClusterNavigationState.distanceUnits,
                 maneuver.destDistanceDisplay,
                 maneuver.destDistanceUnit
-            )
-            val destEta = if (maneuver.timeToArrivalSeconds != null && maneuver.timeToArrivalSeconds > 0) {
-                ZonedDateTime.now().plus(Duration.ofSeconds(maneuver.timeToArrivalSeconds))
-            } else {
-                eta
+            ) ?: return@let
+            val destSeconds = maneuver.timeToArrivalSeconds?.takeIf { it >= 0 }
+            val destEta = destSeconds?.let { now.plusSeconds(it) }
+            val destEstimateBuilder = destEta?.let {
+                TravelEstimate.Builder(destDistance, it).setRemainingTimeSeconds(destSeconds!!)
             }
-            val destEstimateBuilder = destEta?.let { TravelEstimate.Builder(destDistance, it) }
             val forecast = ClusterNavigationState.vehicleEnergyForecast.value
             if (VehicleEnergyForecastPolicy.isFresh(forecast, SystemClock.elapsedRealtime())) {
                 VehicleEnergyForecastPolicy.tripText(
@@ -487,7 +493,7 @@ class ClusterMainSession : Session() {
                     ClusterNavigationState.batteryCapacityWh,
                 )?.let { destEstimateBuilder?.setTripText(CarText.create(it)) }
             }
-            val destEstimate = destEstimateBuilder?.build() ?: ClusterTravelEstimate.buildDistance(destDistance, maneuver.timeToArrivalSeconds, now)
+            val destEstimate = destEstimateBuilder?.build() ?: ClusterTravelEstimate.buildDistance(destDistance, destSeconds, now)
             tripBuilder.addDestination(destBuilder.build(), destEstimate)
         }
 

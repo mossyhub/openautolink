@@ -201,7 +201,7 @@ class CarPlayMetadataIntakeTest {
         }
     }
 
-    @Test fun retainedDefinitionsRemainBoundedAndProtectQuietSelectedId() {
+    @Test fun retainedDefinitionsAreLatestEightWithOneQuietDisplaySnapshot() {
         var now = 0L
         val intake = CarPlayMetadataIntake { now }.apply { authenticate() }
         intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1,7); u8(3,2) })
@@ -212,11 +212,14 @@ class CarPlayMetadataIntakeTest {
             intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1,id); u8(3,3) })
             assertEquals("future details cannot replace selected instruction", 2, intake.navigation?.maneuverType)
         }
+        // Leaving the displayed ID discards its separate snapshot: it must not
+        // be available for arbitrary later reselection outside the sender window.
+        intake.handle(Iap2Messages.buildRaw(0x5201) { u16List(13,listOf(0)) })
         val retained = (listOf(7) + futureIds).filter { id ->
             intake.handle(Iap2Messages.buildRaw(0x5201) { u16List(13,listOf(id)) })
             intake.navigation != null
         }.toSet()
-        assertEquals("cache is exactly eight entries and selected ID survives churn", (listOf(7) + futureIds.takeLast(7)).toSet(), retained)
+        assertEquals("exactly the latest eight definitions remain selectable", futureIds.takeLast(8).toSet(), retained)
     }
 
     @Test fun stopArrivalAndEmptyCurrentCannotReplayRetainedStaleSelection() {
@@ -365,7 +368,8 @@ class CarPlayMetadataIntakeTest {
         assertTrue(lines.any { it.startsWith("carplay-nav kind=route parsed=1 failed=1 result=failed") })
         assertTrue(lines.any { it.startsWith("carplay-nav kind=maneuver parsed=1 failed=1 result=failed") })
         repeat(100) { intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1,8) }) }
-        assertEquals("same-window failures must remain bounded",4,lines.size)
+        assertEquals("same-window failures must remain bounded",4,lines.count { it.startsWith("carplay-nav kind=") })
+        assertEquals("each gated receipt has exactly one cache snapshot",8,lines.size)
         assertNull(intake.navigation)
     }
 
@@ -385,9 +389,11 @@ class CarPlayMetadataIntakeTest {
         assertNull(intake.navigation) // no speculative empty-list grace
         route(); assertNotNull(intake.navigation)
         for (id in 8..15) intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1,id); u8(3,2) })
-        assertNotNull(intake.navigation) // future entries cannot evict selected index
+        assertNotNull(intake.navigation) // separate display survives FIFO eviction
         intake.handle(Iap2Messages.buildRaw(0x5201) { u16List(13,listOf(8)) })
-        assertNull(intake.navigation) // oldest unselected entry was evicted
+        assertNotNull(intake.navigation) // entering window evicted stale 7, not next 8
+        route()
+        assertNull(intake.navigation) // evicted old display cannot be reselected
         assertTrue(lines.any { it.contains("transition=clear reason=cache_miss") })
         intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1,7); u8(3,2) })
         route()

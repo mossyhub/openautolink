@@ -73,6 +73,117 @@ class MicrophoneDiagnosticTest {
             return state.result!!
         }
     }
+    private fun sources(): MicrophoneDiagnosticComparison {
+        val comparison = MicrophoneDiagnosticComparison.values().firstOrNull { it.name == "SOURCES" }
+        assertNotNull("optional parked SOURCES comparison must exist", comparison)
+        return comparison!!
+    }
+    @Test fun customCaptureRunsExactlyOneValidatedArmThroughExistingOwner() {
+        val configType = runCatching { Class.forName("com.shilapi.xcertplay.media.MicrophoneDiagnosticCustom") }.getOrNull()
+        assertNotNull("immutable custom capture arguments must exist", configType)
+        val constructor = configType!!.getConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+        for ((source, rate, channels, named) in listOf(
+            listOf(1, 16000, 2, 0), listOf(6, 24000, 1, 1), listOf(7, 48000, 2, 0))) {
+            val p = Platform(); val done = CountDownLatch(1)
+            val owner = MicrophoneDiagnostic(p, { true }, {
+                if (it.phase == MicrophoneDiagnosticPhase.COMPLETE) done.countDown()
+            }, MicrophoneDiagnosticTiming(30, 300, 1000, 10))
+            val config = constructor.newInstance(source, rate, channels, named == 1)
+            assertTrue(owner.javaClass.getMethod("startCustom", configType).invoke(owner, config) as Boolean)
+            assertTrue(done.await(2, TimeUnit.SECONDS))
+            assertEquals(MicrophoneDiagnosticReason.NONE, owner.state.result!!.reason)
+            assertEquals("CUSTOM", owner.state.result!!.comparison!!.name)
+            assertEquals(listOf(MicrophoneDiagnosticShape(source, rate, channels, if (channels == 2) 12 else 16, 0)), p.requests.toList())
+            assertEquals(1, owner.state.result!!.arms.size)
+            assertEquals(named, p.events.count { it == "prefer" })
+            assertEquals(1, p.events.count { it == "release" })
+            MicrophoneCaptureFence.tryNormal()!!.release()
+        }
+        for ((source, rate, channels) in listOf(listOf(0, 24000, 1), listOf(6, 44100, 1), listOf(6, 24000, 3))) {
+            val failure = runCatching { constructor.newInstance(source, rate, channels, false) }.exceptionOrNull()
+            assertTrue("invalid custom configuration is rejected, never normalized", failure?.cause is IllegalArgumentException)
+        }
+    }
+
+    @Test fun terminalSnapshotSurvivesReplacementBeforeCallbackDelivery() {
+        val published = CountDownLatch(1); val deliver = CountDownLatch(1)
+        val received = CountDownLatch(2); val secondReceived = CountDownLatch(1)
+        val deliveries = CopyOnWriteArrayList<MicrophoneDiagnosticResult>()
+        val callbacksUnderLock = CopyOnWriteArrayList<Boolean>()
+        val monitor = java.util.concurrent.atomic.AtomicReference<Any>()
+        val owner = MicrophoneDiagnostic(Platform(), { true }, { state ->
+            callbacksUnderLock.add(Thread.holdsLock(monitor.get()))
+            if (state.phase == MicrophoneDiagnosticPhase.COMPLETE) {
+                deliveries.add(state.result!!); secondReceived.countDown(); received.countDown()
+            }
+        }, MicrophoneDiagnosticTiming(40, 300, 1000, 10))
+        monitor.set(MicrophoneDiagnostic::class.java.getDeclaredField("lock").apply { isAccessible = true }.get(owner))
+        val terminals = AtomicInteger()
+        owner.beforeTerminalNotification = {
+            if (terminals.incrementAndGet() == 1) { published.countDown(); deliver.await() }
+        }
+        try {
+            assertTrue(owner.inspect())
+            assertTrue("A published before notification", published.await(2, TimeUnit.SECONDS))
+            val first = owner.state.result!!
+            assertTrue("replacement admitted while A delivery is paused outside lock", owner.inspect())
+            assertTrue("B delivered before releasing A", secondReceived.await(2, TimeUnit.SECONDS))
+            val second = owner.state.result!!
+            assertNotSame(first, second)
+            deliver.countDown()
+            assertTrue(received.await(2, TimeUnit.SECONDS))
+            assertEquals(2, deliveries.size)
+            assertTrue("A terminal snapshot must not be replaced by B's current state", deliveries.any { it === first })
+            assertEquals(1, deliveries.count { it === second })
+            assertFalse("callbacks remain outside owner lock", callbacksUnderLock.any { it })
+        } finally { deliver.countDown(); owner.cancel() }
+    }
+    @Test fun sourceComparisonSequentiallyChangesOnlySourceAndRestoresRecognition() {
+        val p = Platform(); val d = Driver(p)
+        assertTrue(d.start(sources()))
+        val result = d.result()
+        assertEquals(MicrophoneDiagnosticReason.NONE, result.reason)
+        assertEquals(listOf(6, 7, 6), p.requests.map { it.source })
+        assertTrue(p.requests.all { it.sampleRate == 24000 && it.channelCount == 1 && it.channelMask == 16 && it.channelIndexMask == 0 })
+        assertEquals(listOf("open", "start", "stop", "release", "open", "start", "stop", "release", "open", "start", "stop", "release"), p.events.toList())
+        assertEquals(p.requests.toList(), result.arms.map { it.requested })
+        assertEquals(listOf(6, 7, 6), result.arms.map { it.actual?.source })
+        assertEquals(listOf(6, 7, 6), result.arms.map { it.client?.source })
+        assertTrue(result.arms.all { it.device?.channelCount == 2 })
+        MicrophoneCaptureFence.tryNormal()!!.release()
+    }
+    @Test fun sourceComparisonPolicyLossInCommunicationAbortsWithoutRestoringRecorder() {
+        val p = Platform()
+        p.onPolicy = { if (p.requests.lastOrNull()?.source == 7) p.policyReason = MicrophoneDiagnosticReason.MODE }
+        val d = Driver(p); assertTrue(d.start(sources()))
+        assertEquals(MicrophoneDiagnosticReason.MODE, d.result().reason)
+        assertEquals(listOf(6, 7), p.requests.map { it.source })
+        assertEquals(2, p.events.count { it == "release" })
+        assertEquals(0, p.live.get())
+        MicrophoneCaptureFence.tryNormal()!!.release()
+    }
+    @Test fun sourceComparisonCancellationKeepsFenceUntilCommunicationRelease() {
+        val p = Platform(); val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        p.onPolicy = {
+            if (p.requests.lastOrNull()?.source == 7 && p.live.get() > 0) {
+                p.releaseEntered = entered; p.allowRelease = release
+            }
+        }
+        val d = Driver(p)
+        assertTrue(d.start(sources()))
+        try {
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            d.cancel()
+            assertEquals(MicrophoneDiagnosticPhase.STOPPING, d.state.phase)
+            assertNull(d.state.result)
+            assertNull(MicrophoneCaptureFence.tryNormal())
+            assertEquals(listOf(6, 7), p.requests.map { it.source })
+        } finally { release.countDown() }
+        assertEquals(MicrophoneDiagnosticReason.CANCELLED, d.result().reason)
+        assertEquals(listOf(6, 7), p.requests.map { it.source })
+        MicrophoneCaptureFence.tryNormal()!!.release()
+    }
     @Test fun cancellationAtFinalPublicationCannotPublishSuccessfulResult() {
         val p=Platform();val atFinal=CountDownLatch(1);val proceed=CountDownLatch(1)
         val worker=java.util.concurrent.atomic.AtomicReference<Thread>()
@@ -95,7 +206,8 @@ class MicrophoneDiagnosticTest {
         assertEquals("cancellation wins until result is published",MicrophoneDiagnosticReason.CANCELLED,d.result().reason)
     }
     @Test fun threeComparisonsKeepSourceAndRestoreControlOnlyAfterRelease() {
-        for (comparison in MicrophoneDiagnosticComparison.values()) {
+        for (comparison in listOf(MicrophoneDiagnosticComparison.CHANNELS, MicrophoneDiagnosticComparison.RATE,
+            MicrophoneDiagnosticComparison.PREFERRED)) {
             val platform=Platform(); val owner=Driver(platform)
             assertTrue(owner.start(comparison))
             val result=owner.result()

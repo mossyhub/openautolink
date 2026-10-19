@@ -14,11 +14,14 @@ import android.media.MediaRecorder
 object AndroidMicrophoneSupport {
     @Volatile private var context: Context? = null
     private var configured: Map<Long, String>? = null
+    // Encoder PCM is always converted 48k mono, independent of recorder qualification.
+    private var configuredEncoders: Map<Long, String>? = null
     private var qualified = MicrophoneCapability.NONE
     @Synchronized fun initialize(context: Context) {
         val app = context.applicationContext
         if (this.context !== app) {
             configured = null
+            configuredEncoders = null
             qualified = MicrophoneCapability.NONE
         }
         this.context = app
@@ -43,6 +46,23 @@ object AndroidMicrophoneSupport {
         return listOf("default", "telephony", "speechrecognition").flatMap { current.bits(it) }.toSet()
     }
     fun encoderName(bits: Long): String? = if (permissionGranted()) runCatching { names()[bits] }.getOrNull() else null
+
+    /** Only experimental owners may use encoder evidence independent of legacy capture. */
+    @Synchronized internal fun experimentEncoderName(bits: Long): String? =
+        if (permissionGranted()) runCatching { encoderNames()[bits] }.getOrNull() else null
+
+    @Synchronized private fun encoderNames(): Map<Long, String> {
+        if (!permissionGranted()) return emptyMap()
+        configuredEncoders?.let { return it }
+        val inventory = runCatching { OpusEncoder.inventory() }.getOrDefault(emptyList())
+        val result = linkedMapOf<Long, String>()
+        MicrophoneSupport.opusBits.forEach { bit ->
+            inventory.firstOrNull { OpusEncoder.probe(it, MicrophoneSupport.bitrate(bit)) }
+                ?.let { result[bit] = it }
+        }
+        configuredEncoders = result
+        return if (permissionGranted()) result else emptyMap()
+    }
 
     @Synchronized private fun names(): Map<Long, String> {
         if (!permissionGranted()) return emptyMap()
@@ -91,23 +111,50 @@ object AndroidMicrophoneSupport {
         return valid && permissionGranted()
     }
 
+    @Synchronized fun experimentCapability(context: Context, profile: CarPlayMicrophoneExperimentProfile): MicrophoneCapability {
+        initialize(context)
+        if (!permissionGranted()) return MicrophoneCapability.NONE
+        val encoders = encoderNames()
+        return MicrophoneCapability.of(listOf("default", "telephony", "speechrecognition").associateWith { kind ->
+            val source = profile.source ?: checkNotNull(MicrophoneSupport.source(kind))
+            MicrophoneSupport.implementedBits.filter { bit ->
+                val wireRate = if (bit in MicrophoneSupport.pcmBits) 24000 else 48000
+                val converter = CarPlayMicrophonePcmConverter(profile, wireRate)
+                val lease = MicrophoneCaptureFence.tryNormal() ?: return MicrophoneCapability.NONE
+                var record: AudioRecord? = null
+                var released = false
+                val valid = try {
+                    record = recorder(source, converter.captureRate, converter.captureChannels)
+                    record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == converter.captureRate &&
+                        record.channelCount == converter.captureChannels && record.audioFormat == AudioFormat.ENCODING_PCM_16BIT
+                } catch (_: Exception) { false }
+                finally {
+                    try { record?.release(); released = true } catch (_: Exception) { }
+                    if (released) lease.release()
+                }
+                valid && released && (bit in MicrophoneSupport.pcmBits || encoders.containsKey(bit))
+            }.toSet()
+        })
+    }
+
     internal fun policyDiagnostics(record: AudioRecord, source: MicrophoneSource, rate: Int,
         report: (String) -> Unit): MicrophonePolicyDiagnostics =
         MicrophonePolicyDiagnostics.forRecorder(checkNotNull(context), record, source, rate, report)
 
-    internal fun recorder(source: MicrophoneSource, sampleRate: Int = 48000): AudioRecord {
-        require(sampleRate in setOf(24000,48000))
+    internal fun recorder(source: MicrophoneSource, sampleRate: Int = 48000, channels: Int = 1): AudioRecord {
+        require(sampleRate in setOf(24000,48000) && channels in 1..2)
         val app = checkNotNull(context)
         if (app.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             throw SecurityException("Microphone consent unavailable")
-        val minimum = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val mask = if (channels == 2) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
+        val minimum = AudioRecord.getMinBufferSize(sampleRate, mask, AudioFormat.ENCODING_PCM_16BIT)
         require(minimum > 0)
         return AudioRecord.Builder().setAudioSource(when (source) {
             MicrophoneSource.MIC -> MediaRecorder.AudioSource.MIC
             MicrophoneSource.VOICE_COMMUNICATION -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
             MicrophoneSource.VOICE_RECOGNITION -> MediaRecorder.AudioSource.VOICE_RECOGNITION
         }).setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate)
-            .setChannelMask(AudioFormat.CHANNEL_IN_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-            .setBufferSizeInBytes(maxOf(minimum * 2, sampleRate / 50 * 2 * 4)).build()
+            .setChannelMask(mask).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+            .setBufferSizeInBytes(maxOf(minimum * 2, sampleRate / 50 * channels * 2 * 4)).build()
     }
 }

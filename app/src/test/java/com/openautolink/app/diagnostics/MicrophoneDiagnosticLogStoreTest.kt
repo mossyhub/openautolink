@@ -36,6 +36,40 @@ class MicrophoneDiagnosticLogStoreTest {
                 MicrophoneDiagnosticStatistics(2,1,listOf(MicrophoneDiagnosticLevel(2,1,100,70.0)),null,null,null),
                 shape,shape.copy(channelCount=2,channelMask=12),true)),MicrophoneDiagnosticReason.CANCELLED)
     }
+    @Test fun sequentialComparisonsSurviveTogetherInManualUploadAndRetentionIsBounded() {
+        val app = RuntimeEnvironment.getApplication()
+        val result = fixture()
+        val dir = File(app.getExternalFilesDir(null), "openautolink/logs")
+        assertTrue(save(app, result))
+        val first = dir.listFiles()!!.filter { it.name.startsWith("microphone_diagnostic_run_") && it.extension == "log" }
+        assertEquals("Each completed comparison needs an independent summary", 1, first.size)
+        val firstBytes = first.single().readBytes()
+        assertTrue(save(app, result.copy(comparison = MicrophoneDiagnosticComparison.RATE)))
+        assertTrue(save(app, result.copy(comparison = MicrophoneDiagnosticComparison.PREFERRED)))
+        val bytes = ByteArrayOutputStream()
+        val connection = object: HttpURLConnection(URL("https://example.invalid/upload")) {
+            override fun disconnect() {}
+            override fun usingProxy() = false
+            override fun connect() {}
+            override fun getOutputStream() = bytes
+            override fun getResponseCode() = 200
+        }
+        assertTrue(LogUploader(app, { connection }, { true }).upload("https://example.invalid/upload", "fixture", "fixture") is UploadResult.Success)
+        val members = mutableMapOf<String,ByteArray>()
+        ZipInputStream(bytes.toByteArray().inputStream()).use { zip ->
+            while (true) { val entry = zip.nextEntry ?: break; members[entry.name] = zip.readBytes() }
+        }
+        val runs = members.filterKeys { it.startsWith("microphone_diagnostic_run_") }
+        assertEquals(3, runs.size)
+        assertEquals(setOf("CHANNELS", "RATE", "PREFERRED"), runs.values.map { JSONObject(it.toString(Charsets.UTF_8)).getString("comparison") }.toSet())
+        assertArrayEquals(firstBytes, members[first.single().name])
+        repeat(12) { assertTrue(save(app, result.copy(comparison = null))) }
+        val retained = dir.listFiles()!!.filter { it.name.startsWith("microphone_diagnostic_run_") && it.extension == "log" }
+        assertEquals(12, retained.size)
+        assertFalse(first.single().exists())
+        assertTrue(retained.all { it.length() <= 32768 && JSONObject(it.readText()).getString("comparison") == "INSPECT" })
+    }
+
     @Test fun invalidOrOversizedNumericResultDoesNotReplaceLastGoodSummary() {
         val app = RuntimeEnvironment.getApplication()
         val good = fixture()

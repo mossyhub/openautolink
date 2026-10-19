@@ -126,12 +126,14 @@ class ClusterLateRecoveryTest {
         try {
             link.authenticate()
             link.handle(com.shilapi.xcertplay.iap2.message.Iap2Messages.buildRaw(0x5202) { u16(1,7); u8(3,2) })
-            link.handle(com.shilapi.xcertplay.iap2.message.Iap2Messages.buildRaw(0x5201) { u8(1,1); u16List(13,listOf(7)) })
+            link.handle(com.shilapi.xcertplay.iap2.message.Iap2Messages.buildRaw(0x5201) { u8(1,1); u16List(13,listOf(7)); u32(10,350) })
             awaitPublication(receipts, true)
             advance(300)
+            assertEquals(1, trips.size)
+            assertNotNull(trips.single().stepTravelEstimates.single().remainingDistance)
             val epoch = ClusterNavigationState.recoveryDemand.value
             assertNotNull(epoch)
-            link.handle(com.shilapi.xcertplay.iap2.message.Iap2Messages.buildRaw(0x5201) { u8(1,1); u16List(13,listOf(8)) })
+            link.handle(com.shilapi.xcertplay.iap2.message.Iap2Messages.buildRaw(0x5201) { u8(1,1); u16List(13,listOf(8)); u32(10,200) })
             awaitPublication(receipts, false)
             advance(300)
             verify(exactly = 1) { navigation.navigationEnded() }

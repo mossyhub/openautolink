@@ -54,6 +54,39 @@ class ProjectionReceiver(
             fps = videoSelection.fps), videoSelection.avcDecoderName, videoSelection.usedFallback)
     /** Actual advertised/sink/input configuration, including a capability-qualified fallback. */
     val displayConfiguration: CarPlayDisplayPreferences get() = displaySelection.display
+    private val microphoneExperiment = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
+    // Experimental preflight and every session's /info share this actual device inventory.
+    // Leave the normal, unarmed path's qualification/offer behavior unchanged.
+    private val outputAudioFormats = microphoneExperiment?.let {
+        com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits.toSet()
+    }
+    private val microphoneCapability = run {
+        val profile = microphoneExperiment
+        val baseline = if (profile == null) com.shilapi.xcertplay.media.AndroidMicrophoneSupport.probe(context)
+            else com.shilapi.xcertplay.media.AndroidMicrophoneSupport.experimentCapability(context, profile)
+        try {
+            val rows = com.shilapi.xcertplay.media.AudioOutputSupport.wirelessRows(
+                outputAudioFormats ?: com.shilapi.xcertplay.media.AudioOutputSupport.implementedBits)
+            val admitted = if (profile == null) baseline else {
+                // AUTO also needs an actual advertised input, not merely a capture/encoder.
+                val offers = com.shilapi.xcertplay.media.MicrophoneSupport.addInputOffers(rows, baseline)
+                com.shilapi.xcertplay.media.MicrophoneCapability.of(
+                    listOf("default", "telephony", "speechrecognition").associateWith { kind ->
+                        val mask = offers.filter { it["type"] == 100 &&
+                            (it["audioType"] as? String)?.lowercase(java.util.Locale.ROOT) == kind }
+                            .fold(0L) { bits, row -> bits or ((row["audioInputFormats"] as? Number)?.toLong() ?: 0L) }
+                        baseline.bits(kind).filter { it and mask != 0L }.toSet()
+                    })
+            }
+            val result = com.shilapi.xcertplay.media.CarPlayMicrophoneExperimentPolicy.resolveCapability(
+                profile, wired, admitted, rows)
+            require(profile == null || result.available)
+            result
+        } catch (failure: IllegalArgumentException) {
+            if (profile != null) runCatching { onStatus("media stage=microphone-experiment-rejected codec=${profile.codec} reason=no-qualified-input") }
+            throw failure
+        }
+    }
     private val persistence = PairingPersistence.openReceiver(File(context.noBackupFilesDir, "pairing-probe"))
     private val trustedControllers = persistence.pairings.controllerIdentifiers()
     val requiresControllerEnrollment: Boolean get() = trustedControllers.isEmpty()
@@ -124,10 +157,10 @@ class ProjectionReceiver(
             ?.removeSurrounding("\"")?.takeIf { it.isNotBlank() && it != "<unknown ssid>" }
         ssid?.let { defaultIdentification(it) }
     }.getOrNull()
-    private val microphoneCapability = com.shilapi.xcertplay.media.AndroidMicrophoneSupport.probe(context)
     private val telemetry = ReceiverTelemetry(telemetryGenerations.incrementAndGet())
     fun telemetrySnapshot(): ReceiverTelemetrySnapshot = telemetry.snapshot(System.nanoTime())
-    private val sink = AndroidMediaSink(context, surface, display = displaySelection, onStatus = ::status, telemetry = telemetry, videoSelection = videoSelection)
+    private val sink = AndroidMediaSink(context, surface, display = displaySelection, onStatus = ::status, telemetry = telemetry, videoSelection = videoSelection,
+        microphoneExperiment = microphoneExperiment, microphoneCapability = microphoneCapability)
     /** Presentation receipts do not take the session/control lifecycle lock or retire transport. */
     fun attachSurface(surface: Surface) { if (!closed.get() && !admissionRevoked.get()) sink.attachSurface(surface) }
     fun detachSurface(surface: Surface) { sink.detachSurface(surface) }
@@ -311,7 +344,8 @@ class ProjectionReceiver(
                                 status("carplay-enrollment stage=commit accepted=$committed")
                                 committed
                             }) else null,
-                            videoSelection = videoSelection, microphoneCapability = microphoneCapability)
+                            videoSelection = videoSelection, microphoneCapability = microphoneCapability,
+                            availableAudioFormats = outputAudioFormats)
                         if (peerAdmission?.claim(session, socket.inetAddress, socket.localAddress) == false) {
                             socket.close(); status("CarPlay network stage=accept-declined reason=peer-interface-scope")
                             return@synchronized

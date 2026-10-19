@@ -38,7 +38,11 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
         lastReceiptMs = now
         runCatching { onDiagnostic("carplay-nav kind=$kind parsed=$parsed failed=$failed result=$result " +
             "state=$state current=$current cached=${index != null && maneuvers.containsKey(index)} " +
-            "publishable=${navigation != null} transition=$transition reason=$reason") }
+            "publishable=${navigation != null} transition=$transition reason=$reason")
+            // Same receipt gate; opaque local route epoch, never maneuver IDs/roads.
+            onDiagnostic("carplay-nav-cache epoch=$routeEpoch size=${maneuvers.size} " +
+                "selected=${selectedManeuver != null} inserts=$cacheInserts replacements=$cacheReplacements " +
+                "evictions=$cacheEvictions eviction=${if (cacheEvictions == 0L) "none" else "oldest"}") }
     }
     private var cover: ByteArray? = null
     val artwork: ByteArray? @Synchronized get() = cover?.copyOf()
@@ -48,6 +52,14 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
     }
     private data class Maneuver(val type: Int, val side: Int?, val road: String?, val junction: Int?, val exitAngle: Int?, val angles: List<Int>?)
     private val maneuvers = LinkedHashMap<Int, Maneuver>()
+    // Representative 24A446 sender advances its definition window before the
+    // current-ID delta and does not resend existing keys. TLV0's 42 is a
+    // component ID, not a prefetch count; IDs remain opaque (no modulo guesses).
+    // Keep only the displayed definition outside that eight-entry FIFO window.
+    private var selectedManeuver: Maneuver? = null
+    private var cacheInserts = 0L
+    private var cacheReplacements = 0L
+    private var cacheEvictions = 0L
     private var route = false
     private var index: Int? = null
     private data class Estimate<T>(val value: T, val receivedMs: Long)
@@ -87,10 +99,11 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
     }
     private fun clearRoute() {
         route = false; index = null; clearEstimates()
-        lastRoute = null; maneuvers.clear(); navigation = null
+        lastRoute = null; maneuvers.clear(); selectedManeuver = null; navigation = null
+        cacheInserts = 0; cacheReplacements = 0; cacheEvictions = 0
     }
     private fun publishRoute() {
-        val m = maneuvers[index]
+        val m = selectedManeuver
         navigation = if (route && m != null && lastRoute?.let { elapsedMs() - it < ROUTE_EXPIRES_MS } == true) CarPlayNavigationMetadata(m.type,m.side,distance?.value,m.road ?: road?.value,seconds?.value,meters?.value,m.junction,m.exitAngle,m.angles) else null
     }
     private fun navigationFrame(frame: Iap2Frame) {
@@ -111,11 +124,14 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
             }?.let { java.util.Collections.unmodifiableList(it) }
             // Enforce the prior route deadline only after every field is validated.
             tick()
+            if (maneuvers.containsKey(id)) cacheReplacements++ else cacheInserts++
             if (maneuvers.size >= 8 && !maneuvers.containsKey(id)) {
-                // Future details must not evict the route's currently selected instruction.
-                maneuvers.keys.firstOrNull { it != index }?.let(maneuvers::remove)
+                maneuvers.remove(maneuvers.keys.first())
+                cacheEvictions++
             }
-            maneuvers[id] = Maneuver(type,side,name,junction,exitAngle,angles)
+            val definition = Maneuver(type,side,name,junction,exitAngle,angles)
+            maneuvers[id] = definition
+            if (id == index) selectedManeuver = definition
         } else {
             val state = b.optionalU8(1)
             val name = text(b,3,null)
@@ -135,7 +151,10 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
             // on omission. Never replace that protocol delta with a 30s ID TTL.
             if (current != null) {
                 val selected = current.firstOrNull()
-                if (selected != index || selected == null) clearEstimates()
+                if (selected != index || selected == null) {
+                    clearEstimates()
+                    selectedManeuver = maneuvers[selected]
+                }
                 index = selected
             }
             if (state != null || current?.isNotEmpty() == true) {

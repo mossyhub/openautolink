@@ -17,13 +17,28 @@ class MicrophoneDiagnosticLogStore(context: Context) {
             val base = app.getExternalFilesDir(null) ?: return false
             val directory = File(base, "openautolink/logs")
             check(directory.isDirectory || directory.mkdirs())
-            val file = AtomicFile(File(directory, "microphone_diagnostic.log"))
-            val stream = file.startWrite()
-            try { stream.write(bytes); file.finishWrite(stream) }
-            catch (failure: Exception) { file.failWrite(stream); throw failure }
+            val previous = runs(directory)
+            val last = previous.maxOfOrNull { sequence(it) } ?: 0L
+            require(last < Long.MAX_VALUE)
+            val next = maxOf(System.currentTimeMillis().coerceAtLeast(1), last + 1)
+            val run = File(directory, "microphone_diagnostic_run_${next.toString().padStart(19, '0')}.log")
+            write(run, bytes)
+            previous.sortedByDescending(::sequence).drop(11).forEach { check(it.delete()) }
+            write(File(directory, "microphone_diagnostic.log"), bytes)
             true
         } catch (_: Exception) { false }
     }
+    private fun write(destination: File, bytes: ByteArray) {
+        val file = AtomicFile(destination)
+        val stream = file.startWrite()
+        try { stream.write(bytes); file.finishWrite(stream) }
+        catch (failure: Exception) { file.failWrite(stream); throw failure }
+    }
+    private fun runs(directory: File): List<File> = directory.listFiles().orEmpty()
+        .filter { it.isFile && runName.matches(it.name) }
+    private fun sequence(file: File): Long = file.name.removePrefix("microphone_diagnostic_run_")
+        .removeSuffix(".log").toLongOrNull() ?: 0L
+
     private fun encode(result: MicrophoneDiagnosticResult): JSONObject {
         require(result.arms.size <= 3 && result.inventory.inputs.size <= 16)
         return JSONObject().put("schema", 1).put("kind", "microphone_diagnostic")
@@ -69,5 +84,8 @@ class MicrophoneDiagnosticLogStore(context: Context) {
             .put("channels",JSONArray().apply { value.channels.forEach { put(level(it)) } })
             .put("sum",level(value.sum)).put("difference",level(value.difference)).put("mean",level(value.mean))
     }
-    private companion object { val writeLock = Any() }
+    private companion object {
+        val writeLock = Any()
+        val runName = Regex("microphone_diagnostic_run_[0-9]{19}\\.log")
+    }
 }

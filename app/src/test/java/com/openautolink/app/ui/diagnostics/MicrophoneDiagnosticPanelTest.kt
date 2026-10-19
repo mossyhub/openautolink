@@ -19,6 +19,24 @@ import org.robolectric.annotation.Config
 class MicrophoneDiagnosticPanelTest {
     @get:Rule val compose = createOalComposeRule()
 
+    @Test fun optionalParkedSourcesButtonIsGatedAndStartsSelectedComparison() {
+        val backend = FakeMicrophoneBackend()
+        var park = false
+        val controller = MicrophoneDiagnosticController(backend, automotive = true, eligibility = { true }, freshPark = { park })
+        compose.setContent { MaterialTheme { MicrophoneDiagnosticPanel(controller) } }
+        val button = compose.onNodeWithTag("mic-start-SOURCES")
+        button.assertExists().assertIsNotEnabled()
+        button.assertTextEquals("Optional parked sources · recognition (6) → communication (7) → recognition (6) · 24 kHz mono")
+        compose.onNodeWithTag("mic-consent").performScrollTo().performClick()
+        button.assertIsNotEnabled()
+        compose.runOnIdle { park = true; controller.refresh() }
+        button.performScrollTo().assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(listOf("SOURCES"), backend.starts.map { it.name }) }
+        button.assertIsNotEnabled()
+        compose.runOnIdle { park = false; controller.refresh(); assertEquals(1, backend.cancellations) }
+        compose.onNodeWithText("Stopping · waiting for microphone release").assertExists()
+    }
+
     @Test fun automotiveRequiresParkCallbackAndRevokesOnParkLoss() {
         val backend = FakeMicrophoneBackend()
         var park = false

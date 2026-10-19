@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.535 — cluster guidance recovery and microphone comparisons
+
+- Keep CarPlay's advancing maneuver-definition window from evicting the upcoming turn while protecting the previous selection. Retain a bounded current-display snapshot separately; preserve explicit clear, stop, arrival and ownership expiry.
+- Preserve valid formatted-only navigation distances, including sourced zero feet. On the AAOS publication path, withdraw guidance when step distance is missing and resume when it returns; omit destinations without their own distance rather than inventing zero or borrowing step distance.
+- Keep destination ETA independent of the next turn's ETA. Unknown destination times stay unknown; sourced zero and positive times remain valid. These changes avoid a null-distance failure found in an archived host serializer; installed-host crash causality and physical cluster recovery remain unverified.
+- Add an optional parked microphone-source comparison at fixed 24 kHz mono: recognition → communication → recognition. Retain up to twelve immutable numeric diagnostic summaries for manual upload, including completion delivered after another run begins. No audio recordings are stored or uploaded.
+- Preserve permission, Park, foreground, projection and capture-exclusion gates. Normal CarPlay/Android Auto microphone routing and automatic projection handoff are unchanged. This is diagnostic support, not a claimed call-microphone repair.
+- Verification: full app, receiver and companion debug/release suites completed 4,804 test cases with zero failures/errors and two existing optional skips. Both native build variants, app release lint, corrected receiver release lint and independent combined-source review passed. Final permission-boundary change additionally passed fifteen focused tests per variant.
+- Missing Android Auto music metadata remains unresolved. Vehicle cluster rendering, installed-host compatibility and physical microphone/call outcomes require owner testing. Distribution remains the original and Groups 2–5 Automotive Internal listings; Community and tester lists are unchanged.
+
 ## 0.1.534 — microphone diagnostics and connection recovery
 
 - Add an explicit, foreground-only parked microphone diagnostic with passive input inspection and separate channel, sample-rate and preferred-input comparisons. Report requested/recorder/client/device formats, route stability and numeric signal aggregates without recording or uploading audio.
