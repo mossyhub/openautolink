@@ -54,6 +54,29 @@ class MicrophoneDiagnosticBindingTest {
         }
         assertFalse(controller.canStart)
     }
+    @Test fun completedRunsAreRetainedEvenWhenMainNotificationsAreDelayed() {
+        val app = RuntimeEnvironment.getApplication()
+        val binding = MicrophoneDiagnosticBinding(app, { true }, false, { false })
+        val controller = binding.controller
+        fun histories() = File(app.getExternalFilesDir(null), "openautolink/logs").listFiles().orEmpty()
+            .filter { it.name.startsWith("microphone_diagnostic_run_") && it.extension == "log" }
+        try {
+            controller.updateForeground(true);controller.updateConsent(true);controller.updateStationary(true)
+            repeat(3) {
+                controller.inspect()
+                val end = System.nanoTime() + 3_000_000_000L
+                while (controller.backend!!.state.phase != MicrophoneDiagnosticPhase.COMPLETE && System.nanoTime() < end) Thread.sleep(5)
+                assertEquals(MicrophoneDiagnosticPhase.COMPLETE, controller.backend!!.state.phase)
+                // Do not drain Main before the next explicit attempt replaces current state.
+            }
+            val end = System.nanoTime() + 3_000_000_000L
+            while (histories().size < 3 && System.nanoTime() < end) {
+                shadowOf(Looper.getMainLooper()).idle();Thread.sleep(10)
+            }
+            assertEquals("Capture every completion, not only the latest callback-visible result", 3, histories().size)
+        } finally { binding.close();shadowOf(Looper.getMainLooper()).idle() }
+    }
+
     @Test fun bothProductionDiagnosticEntrypointsReceiveSameBinding() {
         val source = File("src/main/java/com/openautolink/app/ui/navigation/AppNavHost.kt").readText()
         assertEquals("Both overlay and navigation diagnostics must use real binding",2,

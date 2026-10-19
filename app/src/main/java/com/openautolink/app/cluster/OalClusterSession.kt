@@ -253,12 +253,12 @@ class OalClusterSession : Session() {
             }
         }
 
-        val distance = maneuver.distanceMeters?.let { meters -> toDistance(
-            meters,
+        val distance = toOptionalDistance(
+            maneuver.distanceMeters,
             ClusterNavigationState.distanceUnits,
             maneuver.displayDistance,
             maneuver.displayDistanceUnit
-        ) }
+        )
         val stepEstimate = ClusterTravelEstimate.buildDistance(distance, maneuver.etaSeconds?.toLong(), now)
         tripBuilder.addStep(stepBuilder.build(), stepEstimate)
 
@@ -314,7 +314,12 @@ class OalClusterScreen(carContext: CarContext) : Screen(carContext) {
     override fun onGetTemplate(): Template {
         // RoutingInfo requires a real distance. Trip still carries the retained step/cue
         // when an estimate expires; no model-supported unknown distance exists here.
-        val maneuver = currentManeuver?.takeIf { it.distanceMeters != null } ?: return NavigationTemplate.Builder()
+        val maneuver = currentManeuver
+        val distance = maneuver?.let {
+            toOptionalDistance(it.distanceMeters, ClusterNavigationState.distanceUnits,
+                it.displayDistance, it.displayDistanceUnit)
+        }
+        if (maneuver == null || distance == null) return NavigationTemplate.Builder()
             .setActionStrip(actionStrip)
             .build()
 
@@ -330,12 +335,6 @@ class OalClusterScreen(carContext: CarContext) : Screen(carContext) {
             // supplied. Our transport carries no lanes image; do not let optional
             // lanes blank otherwise usable maneuver/road/distance guidance here.
             // Trips retain the primitives for hosts that can consume them.
-            val distance = toDistance(
-                requireNotNull(maneuver.distanceMeters),
-                ClusterNavigationState.distanceUnits,
-                maneuver.displayDistance,
-                maneuver.displayDistanceUnit
-            )
             val routingInfo = RoutingInfo.Builder()
                 .setCurrentStep(stepBuilder.build(), distance)
                 .build()
@@ -490,13 +489,27 @@ internal fun buildLanes(lanes: List<LaneInfo>): List<Lane> {
     }
 }
 
-/**
- * Convert distance to Car App Distance, preferring pre-formatted values from the phone.
- *
- * When [displayValue] and [displayUnit] are available (from modern NavigationState),
- * use them directly — they match what the phone shows and avoid conversion errors.
- * Falls back to converting raw [meters] using locale-based unit selection.
- */
+/** Admit sourced display distance independently of optional raw meters; unknown stays unknown. */
+internal fun toOptionalDistance(
+    meters: Int?,
+    distanceUnits: String = "auto",
+    displayValue: String? = null,
+    displayUnit: String? = null
+): androidx.car.app.model.Distance? {
+    val value = displayValue?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }
+    val unit = when (displayUnit) {
+        "meters" -> androidx.car.app.model.Distance.UNIT_METERS
+        "kilometers", "kilometers_p1" -> androidx.car.app.model.Distance.UNIT_KILOMETERS
+        "miles", "miles_p1" -> androidx.car.app.model.Distance.UNIT_MILES
+        "feet" -> androidx.car.app.model.Distance.UNIT_FEET
+        "yards" -> androidx.car.app.model.Distance.UNIT_YARDS
+        else -> null
+    }
+    if (value != null && unit != null) return androidx.car.app.model.Distance.create(value, unit)
+    return meters?.takeIf { it >= 0 }?.let { toDistance(it, distanceUnits) }
+}
+
+/** Convert known raw meters, retaining the existing locale and display-unit behavior. */
 internal fun toDistance(
     meters: Int,
     distanceUnits: String = "auto",

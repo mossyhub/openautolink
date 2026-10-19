@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.shilapi.xcertplay.media
 
-enum class MicrophoneDiagnosticComparison { CHANNELS, RATE, PREFERRED }
+enum class MicrophoneDiagnosticComparison { CHANNELS, RATE, PREFERRED, SOURCES }
 enum class MicrophoneDiagnosticPhase { IDLE, INSPECTING, RUNNING, STOPPING, COMPLETE }
 enum class MicrophoneDiagnosticReason {
     NONE, CANCELLED, INELIGIBLE, BUSY, PERMISSION, MUTED, MODE,

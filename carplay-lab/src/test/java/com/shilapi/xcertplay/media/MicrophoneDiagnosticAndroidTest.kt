@@ -30,6 +30,24 @@ class MicrophoneDiagnosticAndroidTest {
         return type!!.getDeclaredConstructor(Context::class.java,kotlin.jvm.functions.Function1::class.java)
             .newInstance(RuntimeEnvironment.getApplication(),factory) as MicrophoneDiagnosticPlatform
     }
+    @Test fun productionFactoryUsesEachRequestedSupportedSource() {
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        val platform = MicrophoneDiagnosticAndroid(app)
+        for (source in listOf(6, 7, 6)) {
+            val requested = MicrophoneDiagnosticShape(source, 24000, 1, 16, 0)
+            val opened = runCatching { platform.open(requested) }
+            assertTrue("production factory must accept requested supported source $source", opened.isSuccess)
+            val record = opened.getOrThrow()
+            try {
+                record.start()
+                assertEquals("real AudioRecord.Builder source, not an injected factory", requested, record.observe().actual)
+            } finally { runCatching { record.stop() }; record.release() }
+        }
+        assertTrue("other sources remain unsupported", runCatching {
+            platform.open(MicrophoneDiagnosticShape(1, 24000, 1, 16, 0))
+        }.exceptionOrNull() is IllegalArgumentException)
+    }
     @Test fun inventoryUsesExactAddressBoundsAndEmptyArraysMeanUnconstrainedWithoutPrivateOutput() {
         val app=RuntimeEnvironment.getApplication();val manager=shadowOf(app.getSystemService(AudioManager::class.java))
         val exact=device("Call_In_Mic");val near=device("Call_In_Mic ",42)

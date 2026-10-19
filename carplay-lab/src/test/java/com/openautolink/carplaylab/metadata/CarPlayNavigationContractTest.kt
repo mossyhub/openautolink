@@ -109,14 +109,16 @@ class CarPlayNavigationContractTest {
         assertEquals("unknown route states remain transactional rejects", before, intake.navigation)
     }
 
-    @Test fun futureManeuverBurstCannotEvictSelectedManeuver() {
+    @Test fun futureManeuverBurstRetainsDisplayOutsideStrictLatestEightWindow() {
         val intake = CarPlayMetadataIntake { 0L }.apply { authenticate() }
         intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1, 7); u8(3, 2) })
         intake.handle(Iap2Messages.buildRaw(0x5201) { u8(1, 1); u16List(13, listOf(7)) })
         for (id in 8..40) intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1, id); u8(3, 1) })
-        assertEquals("bounded cache must retain the selected instruction", 2, intake.navigation?.maneuverType)
+        assertEquals("one separate display snapshot survives FIFO window churn", 2, intake.navigation?.maneuverType)
         intake.handle(Iap2Messages.buildRaw(0x5201) { u16List(13, listOf(40)) })
         assertEquals(1, intake.navigation?.maneuverType)
+        intake.handle(Iap2Messages.buildRaw(0x5201) { u16List(13, listOf(7)) })
+        assertNull("old display is not protected as a reusable ninth cache entry", intake.navigation)
         intake.handle(Iap2Messages.buildRaw(0x5201) { u16List(13, listOf(8)) })
         assertNull("unselected future entries still have bounded eviction", intake.navigation)
     }

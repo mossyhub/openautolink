@@ -34,6 +34,7 @@ fun MicrophoneDiagnosticPanel(controller: MicrophoneDiagnosticController) {
         Text("Microphone diagnostic", style = MaterialTheme.typography.headlineSmall)
         Text("Disconnect all projection phones. Leave the iPhone unpaired. No native calls during this test.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Opt-in only · up to 3 seconds per arm · 15-second comparison deadline. A stalled recorder may take longer to release. No audio saved or played; normal capture settings stay unchanged.", style = MaterialTheme.typography.bodySmall)
+        Text("Up to 12 completed numeric comparisons are retained for manual Upload Logs; ordinary upload age/size limits apply.", style = MaterialTheme.typography.bodySmall)
         Confirmation("mic-consent", "I consent to this bounded microphone test", controller.consent, controller::updateConsent)
         if (!controller.automotive) Confirmation("mic-stationary", "I confirm the vehicle is stationary", controller.stationary, controller::updateStationary)
         if (controller.busy) {
@@ -49,17 +50,18 @@ fun MicrophoneDiagnosticPanel(controller: MicrophoneDiagnosticController) {
             MicrophoneDiagnosticComparison.CHANNELS to "Compare channels · mono → 2ch → mono (24 kHz)",
             MicrophoneDiagnosticComparison.RATE to "Compare rate · 24 → 48 → 24 kHz (mono)",
             MicrophoneDiagnosticComparison.PREFERRED to "Compare input · default → named → default (24 kHz mono)",
+            MicrophoneDiagnosticComparison.SOURCES to "Optional parked sources · recognition (6) → communication (7) → recognition (6) · 24 kHz mono",
         )
         comparisons.forEach { (comparison, label) ->
             Button(onClick = { controller.start(comparison) }, enabled = controller.canStart,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-start-${comparison.name}")) { Text(label) }
         }
-        Text("Source: VOICE_RECOGNITION (6) · no effects attached", style = MaterialTheme.typography.bodySmall)
+        Text("Channels, rate and input: VOICE_RECOGNITION (6). Sources: VOICE_RECOGNITION (6) → VOICE_COMMUNICATION (7) → VOICE_RECOGNITION (6). No effects attached; no active-projection capture.", style = MaterialTheme.typography.bodySmall)
         if (controller.state.phase == MicrophoneDiagnosticPhase.COMPLETE) controller.state.result?.let {
             Text(when (controller.summaryStored) {
-                true -> "Latest numeric summary saved for manual Upload Logs. Upload before running another comparison."
+                true -> "Numeric summary saved for manual Upload Logs."
                 false -> "Summary could not be saved. The onscreen results remain available."
-                null -> "Numeric summary · only the latest completed comparison is retained."
+                null -> "Numeric summary · storage confirmation pending."
             }, style = MaterialTheme.typography.bodySmall)
             MicrophoneDiagnosticSummary(it)
         }

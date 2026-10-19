@@ -7,12 +7,13 @@ This opt-in tool measures the head unit's microphone capture. **It is not a micr
 1. Park safely. End calls, disconnect projection phones, and leave the iPhone unpaired from vehicle Bluetooth. If wireless CarPlay still owns a live session, stop it first. Android Auto must be idle.
 2. Open **OAL Settings → Diagnostics → Open Diagnostics Dashboard → Microphone**.
 3. Leave the panel visible and check the consent box. An automotive device requires fresh, valid actual Park information; the CarPlay Always-in-Park override does not qualify. A nonautomotive test tablet instead requires explicit stationary confirmation.
-4. **Inspect inputs** performs a passive input/capability census without recording. The three separate comparisons each run control → test → control:
+4. **Inspect inputs** performs a passive input/capability census without recording. Four separate comparisons each run control → test → control:
    - **Channels:** 24 kHz mono → two channels → mono.
    - **Rate:** mono 24 → 48 → 24 kHz.
    - **Input:** default → the uniquely exposed native named input → default, at 24 kHz mono. An absent/ambiguous input or rejected preference ends the test rather than guessing an ID.
-5. Start with **Compare channels** and speak throughout the short comparison. Keep the source and environment unchanged. All comparisons use `VOICE_RECOGNITION`; they do not validate the telephony source.
-6. Wait for completion and the summary-storage message, then use the existing **Upload Logs** menu action. **Upload before another comparison: only the latest completed numeric result is retained.** Upload authorization/configuration and internet access are still required.
+   - **Optional parked sources:** `VOICE_RECOGNITION` (6) → `VOICE_COMMUNICATION` (7) → `VOICE_RECOGNITION` (6), all at 24 kHz mono with default input selection. Recorders run sequentially; each must release before the next opens. This compares source requests without entering call mode or changing routing policy.
+5. Choose the comparison needed for the investigation and speak throughout the short comparison. Keep the environment unchanged. Channels, rate and input remain recognition-source-only. The sources comparison tests standalone communication-source capture, **not active CarPlay telephony**; it never opens a recorder during projection or bypasses the projection gate.
+6. Wait for completion and the summary-storage message, then use the existing **Upload Logs** menu action. **Up to 12 completed numeric comparisons are retained for manual Upload Logs; ordinary upload age/size limits apply.** Upload authorization/configuration and internet access are still required. Nothing uploads automatically.
 
 The microphone permission must be granted to OAL. Non-normal audio mode, system mute, client silencing, unknown recording policy, changed route or changed eligibility aborts the comparison. Leaving the panel or backgrounding OAL cancels it. Each arm has a three-second deadline and the comparison a fifteen-second deadline; a stalled platform call can leave **Stopping** until actual recorder release. OAL does not pretend interruption means release and will not overlap another recorder.
 
@@ -27,7 +28,7 @@ The microphone permission must be granted to OAL. Non-normal audio mode, system 
 
 ## Privacy and scope
 
-No live audio is recorded to a file, played, recognized or transmitted by the tool. It keeps only bounded numeric aggregates, finite classifications and Boolean observations. Device names, addresses, IDs and raw exception text are excluded. The latest completed summary is atomically saved as `microphone_diagnostic.log` in OAL's ordinary log directory for the existing manual uploader; retention and upload selection limits still apply.
+No live audio is recorded to a file, played, recognized or transmitted by the tool. It keeps only bounded numeric aggregates, finite classifications and Boolean observations. Device names, addresses, IDs and raw exception text are excluded. Completed numeric summaries are atomically saved as bounded per-run `microphone_diagnostic_run_*.log` files in OAL's ordinary log directory for the existing manual uploader (up to 12 runs). `microphone_diagnostic.log` is a compatibility alias for the latest completed result, not the retained history. Ordinary upload age/size limits still apply.
 
 Normal capture sources, rates, channels, effects and negotiated CarPlay formats are unchanged when the tool is idle. During testing, a process-wide reservation excludes OAL's normal microphone recorders until actual release. There are no audio-mode, output-device, Bluetooth/SCO or vendor-parameter writes.
 

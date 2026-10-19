@@ -20,11 +20,11 @@ import org.robolectric.annotation.GraphicsMode
 class MicrophoneDiagnosticSummaryTest {
     @get:Rule val compose = createOalComposeRule()
     @Test fun completedSummaryShowsBoundedNumericEvidenceNotSpeechProof() {
-        val shape = MicrophoneDiagnosticShape(6, 24000, 2, 12, 0)
+        val shape = MicrophoneDiagnosticShape(7, 24000, 2, 12, 0)
         val level = MicrophoneDiagnosticLevel(4, 3, 32768, 123.5)
         val arm = MicrophoneDiagnosticArm(1, shape, shape, true, true, false, true,
             MicrophoneDiagnosticStatistics(4, 3, listOf(level, level, level), level, level, level),
-            client = shape, device = shape.copy(sampleRate = 48000), routeStable = false)
+            client = shape.copy(source = 6), device = shape.copy(source = 1, sampleRate = 48000), routeStable = false)
         val caps = MicrophoneDiagnosticCapabilities(emptyList(), (1..40).toList(), emptyList(), true, false, true, true)
         val backend = FakeMicrophoneBackend().apply {
             state = MicrophoneDiagnosticState(phase = MicrophoneDiagnosticPhase.COMPLETE,
@@ -40,7 +40,11 @@ class MicrophoneDiagnosticSummaryTest {
         compose.onNodeWithTag("mic-capabilities-17").assertDoesNotExist()
         compose.onNodeWithTag("mic-arm-4").assertDoesNotExist()
         compose.onNodeWithTag("mic-arm-1-requested").assertTextContains("24000 Hz", substring = true)
-        compose.onNodeWithTag("mic-arm-1-actual").assertTextContains("source 6", substring = true)
+        compose.onNodeWithTag("mic-arm-1-requested").assertTextContains("source 7", substring = true)
+        compose.onNodeWithTag("mic-arm-1-actual").assertTextContains("source 7", substring = true)
+        compose.onNodeWithTag("mic-arm-1-client").assertTextContains("source 6", substring = true)
+        compose.onNodeWithTag("mic-arm-1-device").assertTextContains("source 1", substring = true)
+        compose.onNodeWithText("Up to 12 completed numeric comparisons are retained for manual Upload Logs; ordinary upload age/size limits apply.").assertExists()
         compose.onNodeWithTag("mic-arm-1-client").assertTextContains("mask 12", substring = true)
         compose.onNodeWithTag("mic-arm-1-device").assertTextContains("48000 Hz", substring = true)
         compose.onNodeWithTag("mic-arm-1-route").assertTextContains("stable: no", substring = true)

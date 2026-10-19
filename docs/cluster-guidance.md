@@ -8,6 +8,16 @@ A live route can temporarily lack a usable selected instruction. OAL withdraws d
 
 CarPlay route updates are deltas. An omitted current-instruction list preserves selection; an explicitly empty list clears selection. The selected definition can remain available during quiet portions of a route. Dynamic distance/time fields expire independently after 30 seconds without their own updates. The local source-route/cache ownership expires after 120 seconds without an accepted route update; maneuver-definition traffic alone cannot extend it. These are OAL policies, not claimed Apple protocol deadlines.
 
+### Advancing CarPlay maneuver windows
+
+The phone can send the next maneuver definition before changing the selected turn. OAL keeps an eight-entry insertion-order definition window and, separately, at most one displayed-current snapshot. Advancing the window retires its oldest definition rather than protecting the previous selection at the expense of the upcoming turn. The separate snapshot is display-only: selecting another ID cannot reuse it as a cached fallback. Explicit clear, route retirement and ownership expiry still withdraw the display.
+
+### Sourced formatted distances
+
+A complete, valid display distance can be supplied without numeric metres. OAL preserves that observation—including a real zero feet—in both Trip builders and the navigation screen. Invalid or partial display pairs fall back only to a valid sourced numeric distance. Missing distance and ETA remain unknown; they do not become an invented zero-distance turn or arrival time.
+
+The AAOS host publication path additionally requires a valid sourced step distance before submitting a Trip. If it is missing or expires, OAL withdraws guidance while keeping bounded source-route ownership; a fresh valid distance can resume the same route. A destination without its own valid distance is omitted rather than borrowing the step distance. This avoids a null-distance failure found in an archived host serializer; it is not proof of the installed host's version or the cause of a particular vehicle disconnect.
+
 ## Maneuvers and pictures
 
 - Prefer bounded, decode-validated artwork associated with the current instruction. New turn events clear omitted artwork and instruction-only fields, even when the maneuver type repeats; distance-only updates retain their association.

@@ -108,6 +108,7 @@ object CarPlayAudioDiagnostics {
         "media stage=audio-track stream=$number type=(100|101|102) audioType=$audioType codec=$codec rate=$number channels=(1|2) capacity=$number",
         "media stage=audio-stats stream=$number type=(100|101|102) audioType=$audioType codec=$codec packets=$number queue=$number queueDrops=$number decoderDrops=$number written=$number zero=$number partial=$number errors=$number droppedBytes=$number underruns=$optional route=$optional ended=$bool",
         "carplay-nav kind=(route|maneuver|lifecycle) parsed=$number failed=$number result=(parsed|failed|rejected|cleared) state=(unknown|active|stopped|arrived) current=(absent|empty|nonempty) cached=$bool publishable=$bool transition=(none|start|change|clear) reason=(none|stop|arrived|empty|cache_miss|stale|expired|revoke)",
+        "carplay-nav-cache epoch=$number size=[0-8] selected=$bool inserts=$number replacements=$number evictions=$number eviction=(none|oldest)",
         "carplay-nav publication=returned guidance=$bool transition=(start|change|clear)",
         "carplay-route publication=returned active=$bool instruction=(ready|loading|none) transition=(start|change|end)",
         "media stage=(audio-decoder-configured|audio-output-failed) codec=$codec",

@@ -21,10 +21,15 @@ class MicrophoneDiagnosticBinding(
     private val logStore = MicrophoneDiagnosticLogStore(context)
     @Volatile private var closed = false
     private lateinit var target: MicrophoneDiagnosticController
-    private var lastResult: MicrophoneDiagnosticResult? = null
-    private val engine = MicrophoneDiagnostic(context,
+    private val completionLock = Any()
+    private val retainedResults = java.util.ArrayDeque<MicrophoneDiagnosticResult>()
+    private val engine: MicrophoneDiagnostic = MicrophoneDiagnostic(context,
         eligibility = { !closed && ::target.isInitialized && target.isEligibleNow() },
-        onState = { main.post { if (!closed) changed() } })
+        onState = { state ->
+            // Preserve the exact immutable completion before a later attempt replaces engine.state.
+            if (state.phase == MicrophoneDiagnosticPhase.COMPLETE) state.result?.let(::retain)
+            main.post { if (!closed) target.refresh() }
+        })
     val controller: MicrophoneDiagnosticController get() = target
     init {
         val backend = object : MicrophoneDiagnosticBackend {
@@ -35,20 +40,21 @@ class MicrophoneDiagnosticBinding(
         }
         target = MicrophoneDiagnosticController(backend, automotive, eligibility, freshPark)
     }
-    private fun changed() {
-        target.refresh()
-        val state = engine.state
-        val result = state.result
-        if (state.phase == MicrophoneDiagnosticPhase.COMPLETE && result != null && result !== lastResult) {
-            lastResult = result
-            target.summaryStored = null
-            // Only the newest completed summary is retained; no audio enters this queue.
+    private fun retain(result: MicrophoneDiagnosticResult) = synchronized(completionLock) {
+        if (retainedResults.any { it === result }) return@synchronized
+        retainedResults.addLast(result)
+        while (retainedResults.size > 12) retainedResults.removeFirst()
+        main.post { if (!closed && engine.state.result === result) target.summaryStored = null }
+        try {
             writer.execute {
                 val saved = logStore.save(result)
                 main.post {
                     if (!closed && engine.state.result === result) target.summaryStored = saved
                 }
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Saturation must not silently discard another completed result or claim it was saved.
+            main.post { if (!closed && engine.state.result === result) target.summaryStored = false }
         }
     }
     override fun close() {
@@ -58,8 +64,8 @@ class MicrophoneDiagnosticBinding(
         engine.cancel()
     }
     private companion object {
-        val writer = ThreadPoolExecutor(1,1,0L,TimeUnit.MILLISECONDS,ArrayBlockingQueue(1),
+        val writer = ThreadPoolExecutor(1,1,0L,TimeUnit.MILLISECONDS,ArrayBlockingQueue(12),
             { task -> Thread(task,"oal-mic-summary").apply { isDaemon = true } },
-            ThreadPoolExecutor.DiscardOldestPolicy())
+            ThreadPoolExecutor.AbortPolicy())
     }
 }
