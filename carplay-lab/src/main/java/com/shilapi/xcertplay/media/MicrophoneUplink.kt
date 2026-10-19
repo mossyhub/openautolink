@@ -16,7 +16,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Capture/codec/socket release share one owner; at most four pending wire-ready 20ms frames. */
 internal class MicrophoneUplink(private val config: MicrophoneConfig,
-    private val report: (String) -> Unit = {}) : Closeable {
+    private val report: (String) -> Unit = {},
+    private val experiment: CarPlayMicrophoneExperimentProfile? = null,
+    private val qualifiedCapability: MicrophoneCapability? = null) : Closeable {
     private val closed = AtomicBoolean()
     private val retired = AtomicBoolean()
     private val started = AtomicBoolean()
@@ -29,6 +31,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
     val isRetired: Boolean get() = retired.get()
     val isClosed: Boolean get() = closed.get()
     private val thread = Thread(::run, "lab-carplay-mic").apply { isDaemon = true }
+    constructor(config: MicrophoneConfig, report: (String) -> Unit) : this(config, report, null, null)
     fun start() {
         if (!started.compareAndSet(false, true)) return
         if (closed.get() || !physicalOwner.compareAndSet(null, this)) {
@@ -69,19 +72,23 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
         }
         try {
             if (closed.get() || !AndroidMicrophoneSupport.permissionGranted()) return
-            if (config.formatBits !in AndroidMicrophoneSupport.capability.bits(config.audioType)) return
+            if (config.formatBits !in (qualifiedCapability ?: AndroidMicrophoneSupport.capability).bits(config.audioType)) return
             val codec = if (config.codec == com.shilapi.xcertplay.airplay.AudioCodecKind.OPUS) {
-                val name = AndroidMicrophoneSupport.encoderName(config.formatBits) ?: return
+                val name = (if (experiment == null) AndroidMicrophoneSupport.encoderName(config.formatBits)
+                    else AndroidMicrophoneSupport.experimentEncoderName(config.formatBits)) ?: return
                 OpusEncoder(name, config.bitrate)
             } else null
             encoder = codec
             if (closed.get()) return
             // The helper wires MIC, VOICE_COMMUNICATION and VOICE_RECOGNITION to actual AudioRecord sources.
-            val source = checkNotNull(MicrophoneSupport.source(config.audioType))
-            val record = AndroidMicrophoneSupport.recorder(source, config.sampleRate)
+            val source = experiment?.source ?: checkNotNull(MicrophoneSupport.source(config.audioType))
+            val converter = experiment?.let { CarPlayMicrophonePcmConverter(it, config.sampleRate) }
+            val captureRate = converter?.captureRate ?: config.sampleRate
+            val captureChannels = converter?.captureChannels ?: config.channels
+            val record = AndroidMicrophoneSupport.recorder(source, captureRate, captureChannels)
             capture = record
-            require(record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == config.sampleRate &&
-                record.channelCount == config.channels && record.audioFormat == android.media.AudioFormat.ENCODING_PCM_16BIT)
+            require(record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == captureRate &&
+                record.channelCount == captureChannels && record.audioFormat == android.media.AudioFormat.ENCODING_PCM_16BIT)
             val udp = if (config.socketBinding == null) DatagramSocket()
                 else DatagramSocket(java.net.InetSocketAddress(config.socketBinding.local, 0))
             transport = udp; socket = udp
@@ -95,9 +102,10 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             check(record.recordingState == AudioRecord.RECORDSTATE_RECORDING)
             report("media stage=microphone-format type=100 audioType=${config.audioType} codec=${config.codec} rate=${config.sampleRate} channels=${config.channels} spf=${config.rtpSamplesPerPacket} source=$source")
             report("media stage=microphone-started type=100; uplink audibility unverified")
-            policy = AndroidMicrophoneSupport.policyDiagnostics(record, source, config.sampleRate, report)
+            if (experiment != null) report("media stage=microphone-experiment source=$source captureRate=$captureRate captureChannels=$captureChannels selection=${experiment.selection} wireRate=${config.sampleRate}")
+            policy = AndroidMicrophoneSupport.policyDiagnostics(record, source, captureRate, report)
             if (closed.get()) { policy?.close(); return }
-            val pcm = ByteArray(config.frameBytes)
+            val pcm = ByteArray(converter?.captureFrameBytes ?: config.frameBytes)
             // Same connection-ID re-SETUP can reuse a key: randomized counters avoid restarting nonce0.
             val counters = MicrophoneCounters(nonce = SecureRandom().nextLong().ushr(1))
             var filled = 0
@@ -113,12 +121,13 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
                 if (pcm.any { it != 0.toByte() }) nonzeroFrames++
                 if (capturedFrames == 1L || capturedFrames == 250L || capturedFrames == 500L) policy?.sample()
                 if (capturedFrames == 1L || capturedFrames % 250 == 0L) captureReceipt(false)
+                val wirePcm = converter?.convert(pcm) ?: pcm
                 val frames = if (codec == null) {
                     // AudioRecord PCM16 is little endian; CarPlay LPCM payloads are big endian.
-                    val body = pcm.copyOf()
+                    val body = wirePcm.copyOf()
                     for (i in body.indices step 2) { val b = body[i]; body[i] = body[i+1]; body[i+1] = b }
                     listOf(OpusEncoder.Frame(body, sent * 20000))
-                } else codec.encode(pcm)
+                } else codec.encode(wirePcm)
                 frames.forEach { frame ->
                     if (!pending.offer(frame)) {
                         pending.poll(); pending.offer(frame)

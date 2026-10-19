@@ -1,7 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.shilapi.xcertplay.media
 
-enum class MicrophoneDiagnosticComparison { CHANNELS, RATE, PREFERRED, SOURCES }
+enum class MicrophoneDiagnosticComparison { CHANNELS, RATE, PREFERRED, SOURCES, CUSTOM }
+/** Finite local-only choices. Never infer or normalize a configuration. */
+data class MicrophoneDiagnosticCustom(
+    val source: Int = 6,
+    val sampleRate: Int = 24000,
+    val channelCount: Int = 1,
+    val preferredNamedInput: Boolean = false,
+) {
+    init {
+        require(source in setOf(1, 6, 7))
+        require(sampleRate in setOf(16000, 24000, 48000))
+        require(channelCount in 1..2)
+    }
+    internal fun shape() = MicrophoneDiagnosticShape(source, sampleRate, channelCount,
+        if (channelCount == 2) 12 else 16, 0)
+}
 enum class MicrophoneDiagnosticPhase { IDLE, INSPECTING, RUNNING, STOPPING, COMPLETE }
 enum class MicrophoneDiagnosticReason {
     NONE, CANCELLED, INELIGIBLE, BUSY, PERMISSION, MUTED, MODE,

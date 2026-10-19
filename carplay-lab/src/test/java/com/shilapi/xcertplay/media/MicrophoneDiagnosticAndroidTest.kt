@@ -34,8 +34,8 @@ class MicrophoneDiagnosticAndroidTest {
         val app = RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         val platform = MicrophoneDiagnosticAndroid(app)
-        for (source in listOf(6, 7, 6)) {
-            val requested = MicrophoneDiagnosticShape(source, 24000, 1, 16, 0)
+        for ((source, rate, channels) in listOf(listOf(6, 24000, 1), listOf(7, 48000, 2), listOf(1, 16000, 2))) {
+            val requested = MicrophoneDiagnosticShape(source, rate, channels, if (channels == 2) 12 else 16, 0)
             val opened = runCatching { platform.open(requested) }
             assertTrue("production factory must accept requested supported source $source", opened.isSuccess)
             val record = opened.getOrThrow()
@@ -45,7 +45,7 @@ class MicrophoneDiagnosticAndroidTest {
             } finally { runCatching { record.stop() }; record.release() }
         }
         assertTrue("other sources remain unsupported", runCatching {
-            platform.open(MicrophoneDiagnosticShape(1, 24000, 1, 16, 0))
+            platform.open(MicrophoneDiagnosticShape(0, 24000, 1, 16, 0))
         }.exceptionOrNull() is IllegalArgumentException)
     }
     @Test fun inventoryUsesExactAddressBoundsAndEmptyArraysMeanUnconstrainedWithoutPrivateOutput() {

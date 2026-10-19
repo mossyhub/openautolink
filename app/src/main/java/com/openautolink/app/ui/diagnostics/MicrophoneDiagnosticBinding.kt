@@ -36,6 +36,7 @@ class MicrophoneDiagnosticBinding(
             override val state get() = engine.state
             override fun inspect() = !closed && engine.inspect()
             override fun start(comparison: MicrophoneDiagnosticComparison) = !closed && engine.start(comparison)
+            override fun startCustom(config: MicrophoneDiagnosticCustom) = !closed && engine.startCustom(config)
             override fun cancel() = engine.cancel()
         }
         target = MicrophoneDiagnosticController(backend, automotive, eligibility, freshPark)

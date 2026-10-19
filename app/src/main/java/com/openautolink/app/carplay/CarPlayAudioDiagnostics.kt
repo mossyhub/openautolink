@@ -147,6 +147,8 @@ object CarPlayAudioDiagnostics {
         "media stage=microphone-policy scope=own source=(MIC|VOICE_COMMUNICATION|VOICE_RECOGNITION) rate=(24000|48000) permission=(granted|denied|unknown) mute=(true|false|unknown) route=(builtin|wired|usb|bluetooth|other|none|unknown) silenced=(true|false|unknown) result=(ok|partial|unavailable)",
         "media stage=microphone-config scope=own requested=$micRequestedSource rate=(24000|48000) recorder=($micObservedSources|unknown|unavailable) mode=(normal|ringtone|call|communication|unknown|unavailable) config=(present|absent|unavailable) client=($micObservedSources|$micMissing) active=($micObservedSources|$micMissing) clientRate=$micRate deviceRate=$micRate clientChannels=$micChannels deviceChannels=$micChannels clientEncoding=$micEncoding deviceEncoding=$micEncoding route=(builtin|wired|usb|bluetooth|bus|none|$micMissing)",
         "media stage=microphone-effects scope=own source=$micRequestedSource rate=(24000|48000) chain=(client|capture) result=(ok|partial|truncated|absent|unavailable) examined=$micEffectCount truncated=$bool aec=(true|false|unknown) ns=(true|false|unknown) agc=(true|false|unknown) other=$micEffectCount",
+        "media stage=microphone-experiment source=(MIC|VOICE_RECOGNITION|VOICE_COMMUNICATION) captureRate=(24000|48000) captureChannels=(1|2) selection=(AVERAGE|FIRST|SECOND) wireRate=(24000|48000)",
+        "media stage=microphone-experiment-rejected codec=(AUTO|LPCM|OPUS) reason=no-qualified-input",
         "media stage=microphone-started type=100; uplink audibility unverified",
         "media stage=microphone-datagram-sent packets=$number; phone receipt unverified",
         "media stage=microphone-failed type=100 errorType=$failure",

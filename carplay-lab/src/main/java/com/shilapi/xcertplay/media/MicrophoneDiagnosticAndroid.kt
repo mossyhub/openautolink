@@ -106,9 +106,9 @@ internal class MicrophoneDiagnosticAndroid(
             format.channelMask.takeIf { it == 0 || it in MASKS } ?: -1,
             format.channelIndexMask.takeIf { it == 0 || it in INDEX_MASKS } ?: -1)
         fun createRecord(shape: MicrophoneDiagnosticShape): AudioRecord {
-            require(shape.source in setOf(MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            require(shape.source in setOf(MediaRecorder.AudioSource.MIC, MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 MediaRecorder.AudioSource.VOICE_COMMUNICATION))
-            require(shape.sampleRate in setOf(24000,48000) && shape.channelCount in 1..2)
+            require(shape.sampleRate in setOf(16000,24000,48000) && shape.channelCount in 1..2)
             val minimum = AudioRecord.getMinBufferSize(shape.sampleRate, shape.channelMask, AudioFormat.ENCODING_PCM_16BIT)
             require(minimum > 0 && minimum <= 1024 * 1024)
             return try {

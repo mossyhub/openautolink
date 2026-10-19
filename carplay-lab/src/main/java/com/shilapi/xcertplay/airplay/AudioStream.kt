@@ -189,7 +189,8 @@ class AudioStream(
 
     private fun bindAnyPort(): DatagramSocket {
         val socket = DatagramSocket(null)
-        socket.reuseAddress = true
+        // Each live data/control socket must exclusively reserve its UDP endpoint.
+        socket.reuseAddress = false
         socket.bind(InetSocketAddress(socketBinding?.local ?: InetAddress.getByName("::"), 0))
         return socket
     }

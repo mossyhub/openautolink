@@ -2,6 +2,7 @@ package com.openautolink.app.ui.diagnostics
 
 // Share the aggregate-only library contract: no lossy duplicate DTO conversion.
 typealias MicrophoneDiagnosticComparison = com.shilapi.xcertplay.media.MicrophoneDiagnosticComparison
+typealias MicrophoneDiagnosticCustom = com.shilapi.xcertplay.media.MicrophoneDiagnosticCustom
 typealias MicrophoneDiagnosticPhase = com.shilapi.xcertplay.media.MicrophoneDiagnosticPhase
 typealias MicrophoneDiagnosticReason = com.shilapi.xcertplay.media.MicrophoneDiagnosticReason
 typealias MicrophoneDiagnosticMatch = com.shilapi.xcertplay.media.MicrophoneDiagnosticMatch
@@ -18,5 +19,6 @@ interface MicrophoneDiagnosticBackend {
     val state: MicrophoneDiagnosticState
     fun inspect(): Boolean
     fun start(comparison: MicrophoneDiagnosticComparison): Boolean
+    fun startCustom(config: MicrophoneDiagnosticCustom): Boolean = false
     fun cancel()
 }

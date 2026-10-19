@@ -78,6 +78,34 @@ class MicrophoneDiagnosticTest {
         assertNotNull("optional parked SOURCES comparison must exist", comparison)
         return comparison!!
     }
+    @Test fun customCaptureRunsExactlyOneValidatedArmThroughExistingOwner() {
+        val configType = runCatching { Class.forName("com.shilapi.xcertplay.media.MicrophoneDiagnosticCustom") }.getOrNull()
+        assertNotNull("immutable custom capture arguments must exist", configType)
+        val constructor = configType!!.getConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+        for ((source, rate, channels, named) in listOf(
+            listOf(1, 16000, 2, 0), listOf(6, 24000, 1, 1), listOf(7, 48000, 2, 0))) {
+            val p = Platform(); val done = CountDownLatch(1)
+            val owner = MicrophoneDiagnostic(p, { true }, {
+                if (it.phase == MicrophoneDiagnosticPhase.COMPLETE) done.countDown()
+            }, MicrophoneDiagnosticTiming(30, 300, 1000, 10))
+            val config = constructor.newInstance(source, rate, channels, named == 1)
+            assertTrue(owner.javaClass.getMethod("startCustom", configType).invoke(owner, config) as Boolean)
+            assertTrue(done.await(2, TimeUnit.SECONDS))
+            assertEquals(MicrophoneDiagnosticReason.NONE, owner.state.result!!.reason)
+            assertEquals("CUSTOM", owner.state.result!!.comparison!!.name)
+            assertEquals(listOf(MicrophoneDiagnosticShape(source, rate, channels, if (channels == 2) 12 else 16, 0)), p.requests.toList())
+            assertEquals(1, owner.state.result!!.arms.size)
+            assertEquals(named, p.events.count { it == "prefer" })
+            assertEquals(1, p.events.count { it == "release" })
+            MicrophoneCaptureFence.tryNormal()!!.release()
+        }
+        for ((source, rate, channels) in listOf(listOf(0, 24000, 1), listOf(6, 44100, 1), listOf(6, 24000, 3))) {
+            val failure = runCatching { constructor.newInstance(source, rate, channels, false) }.exceptionOrNull()
+            assertTrue("invalid custom configuration is rejected, never normalized", failure?.cause is IllegalArgumentException)
+        }
+    }
+
     @Test fun terminalSnapshotSurvivesReplacementBeforeCallbackDelivery() {
         val published = CountDownLatch(1); val deliver = CountDownLatch(1)
         val received = CountDownLatch(2); val secondReceived = CountDownLatch(1)

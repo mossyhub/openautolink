@@ -77,6 +77,33 @@ class MicrophoneDiagnosticBindingTest {
         } finally { binding.close();shadowOf(Looper.getMainLooper()).idle() }
     }
 
+    @Test fun customProductionBindingUsesRealEngineAndRetainsNumericSummary() {
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val binding = MicrophoneDiagnosticBinding(app, { true }, false, { false })
+        val controller = binding.controller
+        try {
+            controller.updateForeground(true); controller.updateConsent(true); controller.updateStationary(true)
+            val configType = runCatching { Class.forName("com.shilapi.xcertplay.media.MicrophoneDiagnosticCustom") }.getOrNull()
+            assertNotNull("custom immutable capture arguments must exist", configType)
+            val config = configType!!.getConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType).newInstance(1, 16000, 2, false)
+            val method = controller.backend!!.javaClass.methods.firstOrNull { it.name == "startCustom" }
+            assertNotNull("binding must expose the real custom engine", method)
+            method!!.isAccessible = true
+            assertEquals(true, method.invoke(controller.backend, config))
+            val file = File(app.getExternalFilesDir(null), "openautolink/logs/microphone_diagnostic.log")
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while ((controller.state.phase != MicrophoneDiagnosticPhase.COMPLETE || !file.exists()) && System.nanoTime() < deadline) {
+                shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10)
+            }
+            assertEquals(MicrophoneDiagnosticPhase.COMPLETE, controller.state.phase)
+            assertEquals("CUSTOM", controller.state.result!!.comparison!!.name)
+            assertEquals(MicrophoneDiagnosticShape(1, 16000, 2, 12, 0), controller.state.result!!.arms.single().requested)
+            assertTrue(file.readText().contains("\"comparison\":\"CUSTOM\""))
+        } finally { binding.close(); shadowOf(Looper.getMainLooper()).idle() }
+    }
+
     @Test fun bothProductionDiagnosticEntrypointsReceiveSameBinding() {
         val source = File("src/main/java/com/openautolink/app/ui/navigation/AppNavHost.kt").readText()
         assertEquals("Both overlay and navigation diagnostics must use real binding",2,

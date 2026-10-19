@@ -20,7 +20,8 @@ class MicrophoneDiagnostic internal constructor(
     private val lock = Any()
     @Volatile var state = MicrophoneDiagnosticState()
         private set
-    private class Run(val comparison: MicrophoneDiagnosticComparison?, val lease: MicrophoneCaptureFence.Lease) {
+    private class Run(val comparison: MicrophoneDiagnosticComparison?, val lease: MicrophoneCaptureFence.Lease,
+        val custom: MicrophoneDiagnosticCustom?) {
         val reason = AtomicReference(MicrophoneDiagnosticReason.NONE)
         var arm: Int? = null // accessed under lock, including deadline callbacks
     }
@@ -30,14 +31,16 @@ class MicrophoneDiagnostic internal constructor(
     private class Abort(val reason: MicrophoneDiagnosticReason) : Exception()
 
     fun inspect(): Boolean = begin(null)
-    fun start(comparison: MicrophoneDiagnosticComparison): Boolean = begin(comparison)
+    fun start(comparison: MicrophoneDiagnosticComparison): Boolean =
+        comparison != MicrophoneDiagnosticComparison.CUSTOM && begin(comparison)
+    fun startCustom(config: MicrophoneDiagnosticCustom): Boolean = begin(MicrophoneDiagnosticComparison.CUSTOM, config)
     fun cancel() { synchronized(lock) { active }?.let { stop(it, MicrophoneDiagnosticReason.CANCELLED) } }
 
-    private fun begin(comparison: MicrophoneDiagnosticComparison?): Boolean {
+    private fun begin(comparison: MicrophoneDiagnosticComparison?, custom: MicrophoneDiagnosticCustom? = null): Boolean {
         val run = synchronized(lock) {
             if (active != null) return false
             val lease = MicrophoneCaptureFence.tryDiagnostic() ?: return false
-            Run(comparison, lease).also {
+            Run(comparison, lease, custom).also {
                 active = it
                 state = MicrophoneDiagnosticState(MicrophoneDiagnosticPhase.INSPECTING, comparison)
             }
@@ -87,12 +90,13 @@ class MicrophoneDiagnostic internal constructor(
             val comparison = run.comparison
             if (comparison != null) {
                 check(run)
-                if (comparison == MicrophoneDiagnosticComparison.PREFERRED && inventory.match != MicrophoneDiagnosticMatch.UNIQUE)
+                if ((comparison == MicrophoneDiagnosticComparison.PREFERRED || run.custom?.preferredNamedInput == true) &&
+                    inventory.match != MicrophoneDiagnosticMatch.UNIQUE)
                     throw Abort(MicrophoneDiagnosticReason.PREFERRED_UNAVAILABLE)
-                for (ordinal in 0..2) {
+                for (ordinal in 0 until if (run.custom != null) 1 else 3) {
                     check(run)
-                    val requested = shape(comparison, ordinal)
-                    val preferred = comparison == MicrophoneDiagnosticComparison.PREFERRED && ordinal == 1
+                    val requested = run.custom?.shape() ?: shape(comparison, ordinal)
+                    val preferred = run.custom?.preferredNamedInput ?: (comparison == MicrophoneDiagnosticComparison.PREFERRED && ordinal == 1)
                     val stats = MicrophoneDiagnosticAccumulator(requested.channelCount)
                     var record: MicrophoneDiagnosticRecord? = null
                     var observed: MicrophoneDiagnosticObservation? = null
