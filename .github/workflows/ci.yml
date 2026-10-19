@@ -19,6 +19,8 @@ on:
       - '.github/workflows/ci.yml'
       - '.github/workflows/release-apk.yml'
       - '.github/workflows/tests/**'
+      - '.github/workflows/refresh-website-template.yml'
+      - 'website-release/**'
   pull_request:
     branches: [main]
 
@@ -26,6 +28,18 @@ permissions:
   contents: read
 
 jobs:
+  website-release-tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -I -S -m unittest discover -s website-release/tests -v
+
   # ── Car App Unit Tests ──────────────────────────────────────────
   unit-tests:
     runs-on: ubuntu-latest

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "url": "https://github.com/mossyhub/openautolink/releases/download/web-builder-runtime/website-runtime-534-support.zip",
+  "size": 245579,
+  "sha256": "0de6eda407fa7993171f0d35b8bfbf2bce237a0734836b3d7de0df7958a6dced",
+  "files": {
+    "assets/build.worker-CO5fXyJx.js": {
+      "size": 329446,
+      "sha256": "e50ef35527b8b237b289a3335204e8e74892a7d24e1e2380b72264ce06c6a46b"
+    },
+    "assets/index-BLgC4A59.css": {
+      "size": 5530,
+      "sha256": "1eb9ff33499cf420a9d7c30704f5b5ef0e20d5139a4eafcca84e62f1ba3819f2"
+    },
+    "assets/index-uZX9U-XQ.js": {
+      "size": 331429,
+      "sha256": "2a8ff7ebe15a6797ad337ee10abd083dfc243728078808337b5c59a1beffba5b"
+    },
+    "brand/oal-logo.png": {
+      "size": 55524,
+      "sha256": "7a19df6f8d9cf5ebbe55c9c662e3cd08086baea289b561e0630c177d5bc4f9ec"
+    },
+    "index.html": {
+      "size": 3317,
+      "sha256": "fd914768201cd879393fd9723e7a648a0da07403f72182f6a30209e4ae774e6c"
+    },
+    "staticwebapp.config.json": {
+      "size": 737,
+      "sha256": "7dc54d391eb59a5511f19ab74e14792d0ca22df3bd65faaf79cd2b8cb39d9b7f"
+    }
+  }
+}
