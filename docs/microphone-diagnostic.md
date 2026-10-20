@@ -2,6 +2,12 @@
 
 The local opt-in tool measures the head unit's microphone capture without transmitting it. The separate **CarPlay microphone experiment** below can change explicitly armed future CarPlay capture. **Neither is a microphone fix or a phone-microphone selector.** Neither changes Android Auto.
 
+## Normal CarPlay calls
+
+Normal TELEPHONY now uses the owner-vehicle-verified local capture: `VOICE_RECOGNITION`, 48 kHz, two channels, averaged and converted to the unchanged negotiated mono wire format. No diagnostic arming is required. Default-purpose MIC and Siri's existing capture behavior are unchanged. Exact two-channel initialization and, for Opus, independent encoder qualification are required; there is no mono or silence-triggered runtime fallback and no audio-mode change.
+
+An explicitly armed receiver-frozen experiment overrides this normal call profile. Disarm + Reconnect restores the proven normal call profile, not legacy communication-source capture. The console remains available for remaining experiments. The owner reported recognition 24 kHz mono distorted, 48 kHz mono better, and 48 kHz two-channel average sounding good. That is this owner's vehicle evidence, **not universal GM proof or general echo/noise acceptance**. Host tests prove conversion, qualification, encrypted transport and retirement, not acoustic quality.
+
 ## Run a parked test
 
 1. Park safely. End calls, disconnect projection phones, and leave the iPhone unpaired from vehicle Bluetooth. If wireless CarPlay still owns a live session, stop it first. Android Auto must be idle.
@@ -27,7 +33,7 @@ This separate opt-in group arms an experiment for the **next CarPlay connection 
 
 Select automatic (existing purpose-specific source), MIC, recognition or communication; negotiated, 24 or 48 kHz local capture; mono or two channels. Two channels permit average, first or second channel selection. The receiver adapts experimental PCM to its exact negotiated wire format; requested local rate is not the selected wire codec or RTP clock. The live codec preference is Auto, LPCM or Opus. It restricts only existing qualified microphone offers, never adds wireless PCM or changes output offers. The phone still selects the actual wire format; the preference is not a claim that a particular encoder was selected. A restriction with no matching input can deliberately prevent experimental CarPlay connection: **Disarm + Reconnect** restores default offers. No silent microphone-free fallback or midstream codec change is performed. Existing microphone setup/capture receipts remain the source of actual selected wire codec evidence.
 
-Arm while disconnected, then leave the page and connect CarPlay within the expiry window. Leaving/backgrounding clears local and live consent and cancels standalone capture, but **intentionally retains the armed future-session profile**. Disarm/reset or expiry affects future sessions only, not a recorder already started. Stop/reconnect CarPlay to apply a new choice. Call intelligibility, caller audio and echo behavior remain unverified until a real parked test; this is not an automatic fallback or a microphone fix.
+Arm while disconnected, then leave the page and connect CarPlay within the expiry window. Leaving/backgrounding clears local and live consent and cancels standalone capture, but **intentionally retains the armed future-session profile**. Disarm/reset or expiry affects future sessions only, not a recorder already started. Stop/reconnect CarPlay to apply a new choice. Other experimental profiles' call intelligibility, caller audio and echo behavior still require real parked testing; this is not an automatic fallback.
 
 ## Interpret results
 
@@ -42,6 +48,6 @@ Arm while disconnected, then leave the page and connect CarPlay within the expir
 
 The standalone local diagnostic never records audio to a file, plays, recognizes or transmits it. It keeps only bounded numeric aggregates, finite classifications and Boolean observations. An explicitly armed live experiment still sends microphone audio through the normal CarPlay session to the connected iPhone; it is not a private local-only capture. Device names, addresses, IDs and raw exception text are excluded. Completed numeric summaries are atomically saved as bounded per-run `microphone_diagnostic_run_*.log` files in OAL's ordinary log directory for the existing manual uploader (up to 12 runs). `microphone_diagnostic.log` is a compatibility alias for the latest completed result, not the retained history. Ordinary upload age/size limits still apply.
 
-Normal capture sources, rates, channels, effects and negotiated CarPlay formats are unchanged when the tool is idle. During testing, a process-wide reservation excludes OAL's normal microphone recorders until actual release. There are no audio-mode, output-device, Bluetooth/SCO or vendor-parameter writes.
+When the tool is idle, normal capture uses the purpose-specific production policy described above; the diagnostic itself does not change it. Negotiated CarPlay formats and effects are unchanged. During testing, a process-wide reservation excludes OAL's normal microphone recorders until actual release. There are no audio-mode, output-device, Bluetooth/SCO or vendor-parameter writes.
 
 A successful tablet test does not prove GM capture or CarPlay cellular-call audio. Final vehicle acceptance still requires isolated car-microphone speech reaching Siri or the far-end caller.

@@ -55,8 +55,8 @@ class ProjectionReceiver(
     /** Actual advertised/sink/input configuration, including a capability-qualified fallback. */
     val displayConfiguration: CarPlayDisplayPreferences get() = displaySelection.display
     private val microphoneExperiment = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
-    // Experimental preflight and every session's /info share this actual device inventory.
-    // Leave the normal, unarmed path's qualification/offer behavior unchanged.
+    // Manual experiments retain their receiver-wide exact output inventory.
+    // Normal calls qualify against actual output rows without changing noncall offers.
     private val outputAudioFormats = microphoneExperiment?.let {
         com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits.toSet()
     }
@@ -67,7 +67,17 @@ class ProjectionReceiver(
         try {
             val rows = com.shilapi.xcertplay.media.AudioOutputSupport.wirelessRows(
                 outputAudioFormats ?: com.shilapi.xcertplay.media.AudioOutputSupport.implementedBits)
-            val admitted = if (profile == null) baseline else {
+            val admitted = if (profile == null) {
+                val callMask = com.shilapi.xcertplay.media.AudioOutputSupport.wirelessRows(
+                    com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits.toSet())
+                    .filter { it["type"] == 100 && it["audioType"] == "telephony" }
+                    .fold(0L) { bits, row -> bits or ((row["audioOutputFormats"] as? Number)?.toLong() ?: 0L) }
+                com.shilapi.xcertplay.media.MicrophoneCapability.of(
+                    listOf("default", "telephony", "speechrecognition").associateWith { kind ->
+                        if (kind == "telephony") baseline.bits(kind).filter { it and callMask != 0L }.toSet()
+                        else baseline.bits(kind)
+                    })
+            } else {
                 // AUTO also needs an actual advertised input, not merely a capture/encoder.
                 val offers = com.shilapi.xcertplay.media.MicrophoneSupport.addInputOffers(rows, baseline)
                 com.shilapi.xcertplay.media.MicrophoneCapability.of(

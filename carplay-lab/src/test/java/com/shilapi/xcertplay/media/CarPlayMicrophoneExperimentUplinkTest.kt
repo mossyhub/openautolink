@@ -39,8 +39,11 @@ class CarPlayMicrophoneExperimentUplinkTest {
             rate=CarPlayMicrophoneCaptureRate.HZ_48000,channels=CarPlayMicrophoneChannels.TWO,
             selection=CarPlayMicrophoneChannelSelection.SECOND), 3840, 2000)
     }
-    @Test fun disabledPipelineKeepsMono24CaptureAndWireBytesUnchanged() { exercise(null,960,-1000) }
-    private fun exercise(profile: CarPlayMicrophoneExperimentProfile?, expectedReadBytes: Int, expectedSample: Int) {
+    @Test fun unarmedTelephonyUsesProvenStereoAverageWithoutExperimentUx() { exercise(null,3840,500) }
+    @Test fun disabledDefaultKeepsMono24CaptureAndWireBytesUnchanged() { exercise(null,960,-1000,"default") }
+    @Test fun disabledSiriKeepsMono24CaptureAndWireBytesUnchanged() { exercise(null,960,-1000,"speechrecognition") }
+    private fun exercise(profile: CarPlayMicrophoneExperimentProfile?, expectedReadBytes: Int, expectedSample: Int,
+        kind: String = "telephony") {
         val capability=prepare(); val reads=CopyOnWriteArrayList<Int>(); val lines=CopyOnWriteArrayList<String>()
         val count=AtomicInteger()
         ShadowAudioRecord.setSource(object : ShadowAudioRecord.AudioRecordSource {
@@ -48,7 +51,7 @@ class CarPlayMicrophoneExperimentUplinkTest {
                 if(count.incrementAndGet()>2) { Thread.sleep(10); return 0 }
                 reads.add(n)
                 val data=ByteBuffer.wrap(b).order(ByteOrder.LITTLE_ENDIAN)
-                for (i in o until o+n step 2) data.putShort(i, (if ((i/2)%2==0 || profile==null) -1000 else 2000).toShort())
+                for (i in o until o+n step 2) data.putShort(i, (if ((i/2)%2==0 || kind!="telephony") -1000 else 2000).toShort())
                 // Changing global arming after the actual owner starts must not affect this owner.
                 CarPlayMicrophoneExperiments.arm(CarPlayMicrophoneExperimentProfile(source=MicrophoneSource.MIC))
                 CarPlayMicrophoneExperiments.disarm()
@@ -66,8 +69,8 @@ class CarPlayMicrophoneExperimentUplinkTest {
         try {
             DatagramSocket(0,InetAddress.getLoopbackAddress()).use { peer ->
                 peer.soTimeout=3000
-                val config=MicrophoneSupport.negotiate(capability,100,"telephony",0x40L,peer.localPort,480,peer.localAddress,key)!!
-                sink.onMicrophoneStarted(MicrophoneStreamId(session,100,"telephony",1),config)
+                val config=MicrophoneSupport.negotiate(capability,100,kind,0x40L,peer.localPort,480,peer.localAddress,key)!!
+                sink.onMicrophoneStarted(MicrophoneStreamId(session,100,kind,1),config)
                 repeat(2) { index ->
                     val packet=DatagramPacket(ByteArray(4096),4096);peer.receive(packet)
                     val bytes=packet.data.copyOf(packet.length)
@@ -80,7 +83,8 @@ class CarPlayMicrophoneExperimentUplinkTest {
                 }
             }
             assertEquals(listOf(expectedReadBytes,expectedReadBytes),reads.toList())
-            assertTrue(lines.any { it.contains("source=${profile?.source ?: MicrophoneSource.VOICE_COMMUNICATION}") })
+            assertTrue(lines.any { it.contains("source=${profile?.source ?: if (kind=="telephony") MicrophoneSource.VOICE_RECOGNITION else MicrophoneSupport.source(kind)}") })
+            if (profile==null) assertFalse(lines.any { it.contains("stage=microphone-experiment ") })
         } finally {
             sink.close();assertTrue(sink.awaitRetired(3000));session.close();ShadowAudioRecord.clearSource()
             CarPlayMicrophoneExperiments.disarm()

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.537 — CarPlay call microphone audio
+
+- Restore normal CarPlay call capture using Voice Recognition at 48 kHz, two channels averaged to the negotiated mono uplink. No experiment arming is required. Explicit manual experiment overrides remain available; Siri/default capture and Android Auto routing are unchanged. Advertise call input only when the exact capture shape and encoder qualify; no speculative fallback or mid-call source switching.
+- Owner testing of the selected configuration produced usable call audio. Software verification covers authenticated transport, conversion, sample-clock progression, permissions and exact-owner retirement; echo, double-talk, other vehicles and the installed production default still require validation.
+- Preserve the bounded maneuver-definition window across local route expiry without preserving displayed guidance, ownership or stale estimates. Reacquisition requires explicit active state and a nonempty current selection; stop, arrival and session retirement still purge definitions.
+- Keep destination guidance until source arrival/stop/clear instead of ending it on a guessed ten-second arrival timer. Preserve deliberate host-stop suppression and unavailable-distance safety.
+- Avoid redundant unchanged-volume platform calls during audio write retries, preserving gain changes, mute restoration, track replacement and failed-call retry behavior.
+- Combined app, receiver and companion debug/release gates: 4,922 test cases, zero failures/errors, two existing optional skips. Release lint and native debug/release gates passed with stable inputs; each production delta independently reviewed.
+- Remaining limits: the brief stoplight distance-expiry dropout, missing AA music metadata and the initiating cause of the earlier whole-head-unit freeze are not claimed fixed. No companion runtime changes. Original and Groups 2–5 Automotive Internal only; Community and tester lists unchanged.
+
 ## 0.1.535 — cluster guidance recovery and microphone comparisons
 
 - Keep CarPlay's advancing maneuver-definition window from evicting the upcoming turn while protecting the previous selection. Retain a bounded current-display snapshot separately; preserve explicit clear, stop, arrival and ownership expiry.

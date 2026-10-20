@@ -352,7 +352,7 @@ class ClusterLateRecoveryTest {
     }
 
     @Test
-    fun restoredTerminalWithinLoadingDebounceGetsANewArrivalDeadline() {
+    fun restoredTerminalWithinLoadingDebounceRetainsSourceAuthority() {
         ClusterMainSession().onCreateScreen(Intent())
         val terminal = maneuver.copy(type = ManeuverType.DESTINATION)
         ClusterNavigationState.update(terminal)
@@ -369,12 +369,17 @@ class ClusterLateRecoveryTest {
         advance(9_999)
         verify(exactly = 0) { navigation.navigationEnded() }
         advance(1)
+        verify(exactly = 0) { navigation.navigationEnded() }
+        assertFalse(ClusterNavigationState.isRouteSuppressed)
+        assertEquals(epoch, ClusterNavigationState.recoveryDemand.value)
+        verify(exactly = 2) { navigation.updateTrip(any()) }
+        ClusterNavigationState.clearHost()
+        advance(300)
         verify(exactly = 1) { navigation.navigationEnded() }
-        assertTrue(ClusterNavigationState.isRouteSuppressed)
     }
 
     @Test
-    fun restoredTerminalWithinNonterminalDebounceGetsANewArrivalDeadline() {
+    fun terminalNonterminalTerminalAbaCannotInventArrival() {
         ClusterMainSession().onCreateScreen(Intent())
         val terminal = maneuver.copy(type = ManeuverType.DESTINATION)
         ClusterNavigationState.update(terminal)
@@ -386,29 +391,112 @@ class ClusterLateRecoveryTest {
         verify(exactly = 0) { navigation.navigationEnded() }
         assertFalse(ClusterNavigationState.isRouteSuppressed)
         advance(10_100)
-        verify(exactly = 1) { navigation.navigationEnded() }
-        assertTrue(ClusterNavigationState.isRouteSuppressed)
-    }
-
-    @Test
-    fun unchangedTerminalRefreshKeepsOriginalArrivalDeadline() {
-        ClusterMainSession().onCreateScreen(Intent())
-        val terminal = maneuver.copy(type = ManeuverType.DESTINATION)
-        ClusterNavigationState.update(terminal)
-        advance(5_000)
-        ClusterNavigationState.update(terminal.copy(distanceMeters = 90))
-        advance(5_199)
         verify(exactly = 0) { navigation.navigationEnded() }
-        advance(1)
+        assertFalse(ClusterNavigationState.isRouteSuppressed)
+        verify(exactly = 2) { navigation.updateTrip(any()) }
+        ClusterNavigationState.clearHost()
+        advance(300)
         verify(exactly = 1) { navigation.navigationEnded() }
-        assertTrue(ClusterNavigationState.isRouteSuppressed)
+    }
+
+    private fun assertActiveTerminalUntilClear(type: ManeuverType) {
+        ClusterMainSession().onCreateScreen(Intent())
+        val trips = mutableListOf<androidx.car.app.navigation.model.Trip>()
+        every { navigation.updateTrip(capture(trips)) } just Runs
+        val terminal = maneuver.copy(type = type)
+        ClusterNavigationState.updateHost(terminal)
+        advance(300)
+        val epoch = ClusterNavigationState.recoveryDemand.value
+        repeat(49) {
+            ClusterNavigationState.updateHost(terminal.copy(distanceMeters = 100 - it))
+            advance(1_000)
+            assertTrue(ClusterNavigationState.isActive)
+            assertEquals(epoch, ClusterNavigationState.recoveryDemand.value)
+            assertFalse("ACTIVE terminal cue is not source ARRIVED", ClusterNavigationState.isRouteSuppressed)
+            verify(exactly = 0) { navigation.navigationEnded() }
+        }
+        assertTrue(trips.size >= 49)
+        assertTrue(trips.all { !it.isLoading && it.stepTravelEstimates.single().remainingDistance != null })
+        ClusterNavigationState.clearHost()
+        advance(30_000)
+        verify(exactly = 1) { navigation.navigationEnded() }
+        assertFalse(ClusterNavigationState.isActive)
+    }
+
+    @Test fun freshActiveTerminalGuidanceRemainsNavigatingUntilSourceClear() =
+        assertActiveTerminalUntilClear(ManeuverType.DESTINATION)
+
+    @Test fun activeDestinationLeftIsNotArrival() = assertActiveTerminalUntilClear(ManeuverType.DESTINATION_LEFT)
+    @Test fun activeDestinationRightIsNotArrival() = assertActiveTerminalUntilClear(ManeuverType.DESTINATION_RIGHT)
+    @Test fun activeDestinationStraightIsNotArrival() = assertActiveTerminalUntilClear(ManeuverType.DESTINATION_STRAIGHT)
+
+    private fun assertWireStatusClearsTerminal(status: Int) {
+        ClusterMainSession().onCreateScreen(Intent())
+        val (link, receipts) = metadataLink { now }
+        try {
+            link.authenticate()
+            link.handle(com.shilapi.xcertplay.iap2.message.Iap2Messages.buildRaw(0x5202) { u16(1,7); u8(3,10) })
+            link.handle(com.shilapi.xcertplay.iap2.message.Iap2Messages.buildRaw(0x5201) { u8(1,1); u16List(13,listOf(7)); u32(10,100) })
+            awaitPublication(receipts, true)
+            advance(300)
+            repeat(12) {
+                link.handle(com.shilapi.xcertplay.iap2.message.Iap2Messages.buildRaw(0x5201) { u8(1,1); u32(10,99-it) })
+                awaitPublication(receipts, true)
+                advance(1_000)
+            }
+            verify(exactly = 0) { navigation.navigationEnded() }
+            assertFalse(ClusterNavigationState.isRouteSuppressed)
+            link.handle(com.shilapi.xcertplay.iap2.message.Iap2Messages.buildRaw(0x5201) { u8(1,status) })
+            awaitPublication(receipts, false)
+            advance(30_000)
+            assertFalse(ClusterNavigationState.isActive)
+            assertNull(ClusterNavigationState.state.value)
+            assertNull(ClusterNavigationState.recoveryDemand.value)
+            verify(exactly = 1) { navigation.navigationEnded() }
+        } finally { link.close() }
+        advance(300)
+        verify(exactly = 1) { navigation.navigationEnded() }
+    }
+
+    @Test fun sourceArrivedEndsTerminalGuidanceOnce() = assertWireStatusClearsTerminal(2)
+    @Test fun sourceStopEndsTerminalGuidanceOnce() = assertWireStatusClearsTerminal(0)
+
+    @Test
+    fun revokedTerminalOwnerRejectsLateHostStopAndGuidance() {
+        ClusterMainSession().onCreateScreen(Intent())
+        ClusterNavigationState.updateHost(maneuver.copy(type = ManeuverType.DESTINATION))
+        advance(300)
+        val oldCallback = hostCallbacks.last()
+        manager.release()
+        advance(300)
+        verify(exactly = 1) { navigation.navigationEnded() }
+        ClusterNavigationState.clearHost()
+        ClusterNavigationState.updateHost(maneuver)
+        oldCallback.onStopNavigation()
+        advance(30_000)
+        assertFalse(ClusterNavigationState.isRouteSuppressed)
+        verify(exactly = 1) { navigation.updateTrip(any()) }
+        verify(exactly = 1) { navigation.navigationEnded() }
     }
 
     @Test
-    fun unavailableSnapshotRevokesArrivalBeforeDebouncedWithdrawal() {
+    fun hostStopReenteredFromTerminalUpdateRemainsSuppressed() {
+        ClusterMainSession().onCreateScreen(Intent())
+        every { navigation.updateTrip(any()) } answers { hostCallbacks.last().onStopNavigation() }
+        ClusterNavigationState.updateHost(maneuver.copy(type = ManeuverType.DESTINATION))
+        advance(30_000)
+        assertTrue(ClusterNavigationState.isRouteSuppressed)
+        ClusterNavigationState.updateHost(maneuver.copy(distanceMeters = 90))
+        advance(300)
+        verify(exactly = 1) { navigation.updateTrip(any()) }
+        verify(exactly = 0) { navigation.navigationEnded() }
+    }
+
+    @Test
+    fun unavailableTerminalSnapshotWithdrawsOnlyAtDebounceWithoutSuppression() {
         ClusterMainSession().onCreateScreen(Intent())
         ClusterNavigationState.update(maneuver.copy(type = ManeuverType.DESTINATION))
-        advance(10_100) // Timer is due at 10_200; withdrawal is due at 10_300.
+        advance(10_100) // Withdrawal is due at 10_300, not the obsolete 10_200 deadline.
         ClusterNavigationState.updateHost(null)
         advance(100)
         verify(exactly = 0) { navigation.navigationEnded() }
@@ -526,38 +614,42 @@ class ClusterLateRecoveryTest {
     }
 
     @Test
-    fun oldArrivalTimerCannotTerminateANewRoute() {
+    fun terminalToNormalNewRouteHasNoLateTermination() {
         val original = ClusterMainSession()
         original.onCreateScreen(Intent())
         ClusterNavigationState.update(maneuver.copy(type = ManeuverType.DESTINATION))
         advance(10_100)
         ClusterNavigationState.clear()
         ClusterNavigationState.update(maneuver)
-        advance(500)
-        assertFalse("arrival belongs only to the route that scheduled it", ClusterNavigationState.isRouteSuppressed)
+        advance(30_000)
+        assertFalse("old terminal guidance cannot terminate a new route", ClusterNavigationState.isRouteSuppressed)
+        verify(exactly = 1) { navigation.navigationEnded() }
         verify(exactly = 2) { navigation.updateTrip(any()) }
     }
 
     @Test
-    fun terminalReplacementGetsItsOwnArrivalTimerWithoutAnotherPacket() {
+    fun terminalReplacementStaysLiveUntilOwnerRetiresWithoutAnotherPacket() {
         val session = ClusterMainSession()
         session.onCreateScreen(Intent())
         (session.lifecycle as LifecycleRegistry).handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         advance(5_000)
         ClusterNavigationState.update(maneuver.copy(type = ManeuverType.DESTINATION))
         advance(1_000)
-        // Clear and replace inside debounce while route A's arrival job is active.
+        // Clear and replace inside debounce while route A is displayed.
         ClusterNavigationState.clear()
         ClusterNavigationState.update(maneuver.copy(type = ManeuverType.DESTINATION, roadName = "Replacement"))
         advance(300)
         verify(exactly = 2) { navigation.navigationStarted() }
         verify(exactly = 2) { navigation.updateTrip(any()) }
         verify(exactly = 1) { navigation.navigationEnded() }
-        advance(9_000) // Route A's deadline must not terminate route B.
+        advance(9_000) // The old guessed deadline must not terminate route B.
         assertFalse(ClusterNavigationState.isRouteSuppressed)
         verify(exactly = 1) { navigation.navigationEnded() }
-        advance(1_000) // Route B's own deadline, with no additional packets.
-        assertTrue("replacement terminal route must reach arrival suppression", ClusterNavigationState.isRouteSuppressed)
+        advance(30_000)
+        assertFalse("replacement terminal route is still source-active", ClusterNavigationState.isRouteSuppressed)
+        verify(exactly = 1) { navigation.navigationEnded() }
+        ClusterNavigationState.clearHost()
+        advance(300)
         verify(exactly = 2) { navigation.navigationEnded() }
         (session.lifecycle as LifecycleRegistry).handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         advance(30_000)
@@ -627,6 +719,9 @@ class ClusterLateRecoveryTest {
         advance(5_000)
         ClusterNavigationState.update(maneuver.copy(type = ManeuverType.DESTINATION))
         advance(10_500)
+        verify(exactly = 0) { navigation.navigationEnded() }
+        ClusterNavigationState.clearHost() // Source arrival, not terminal maneuver duration.
+        advance(300)
         verify(exactly = 1) { navigation.navigationEnded() }
         (session.lifecycle as LifecycleRegistry).handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         advance(30_000)

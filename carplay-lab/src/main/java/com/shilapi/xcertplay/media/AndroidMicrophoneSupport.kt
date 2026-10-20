@@ -47,7 +47,7 @@ object AndroidMicrophoneSupport {
     }
     fun encoderName(bits: Long): String? = if (permissionGranted()) runCatching { names()[bits] }.getOrNull() else null
 
-    /** Only experimental owners may use encoder evidence independent of legacy capture. */
+    /** Replacement capture owners use encoder evidence independent of legacy mono capture. */
     @Synchronized internal fun experimentEncoderName(bits: Long): String? =
         if (permissionGranted()) runCatching { encoderNames()[bits] }.getOrNull() else null
 
@@ -74,35 +74,34 @@ object AndroidMicrophoneSupport {
             return emptyMap<Long, String>().also { qualified = MicrophoneCapability.NONE; configured = null }
         configured?.let { return it }
         // A recorder/encoder qualified for 48k MIC says nothing about 24k VOICE_RECOGNITION.
-        val rates = MicrophoneSource.values().associateWith { source ->
+        val rates = listOf(MicrophoneSource.MIC, MicrophoneSource.VOICE_RECOGNITION).associateWith { source ->
             // A diagnostic reservation is temporary, not a negative capability to cache.
             setOf(24000, 48000).filter { rate -> qualifies(source, rate) ?: return emptyMap() }.toSet()
         }
-        val names = runCatching { OpusEncoder.inventory() }.getOrDefault(emptyList())
-        val result = linkedMapOf<Long, String>()
-        if (rates.values.any { 48000 in it }) MicrophoneSupport.opusBits.forEach { bit ->
-            names.firstOrNull { OpusEncoder.probe(it, MicrophoneSupport.bitrate(bit)) }
-                ?.let { result[bit] = it }
-        }
+        val call = checkNotNull(CarPlayMicrophoneCapturePolicy.profile("telephony", null))
+        val converter = CarPlayMicrophonePcmConverter(call, 24000)
+        val callQualified = qualifies(checkNotNull(call.source), converter.captureRate, converter.captureChannels)
+            ?: return emptyMap()
+        val result = if (callQualified || rates.values.any { 48000 in it }) encoderNames() else emptyMap()
         qualified = MicrophoneCapability.of(listOf("default", "telephony", "speechrecognition").associateWith { kind ->
             val sourceRates = rates[MicrophoneSupport.source(kind)].orEmpty()
             buildSet {
-                if (24000 in sourceRates) add(0x40L)
-                if (48000 in sourceRates) addAll(result.keys)
+                if (if (kind == "telephony") callQualified else 24000 in sourceRates) add(0x40L)
+                if (if (kind == "telephony") callQualified else 48000 in sourceRates) addAll(result.keys)
             }
         })
         configured = result
         return if (permissionGranted()) result else emptyMap()
     }
 
-    private fun qualifies(source: MicrophoneSource, rate: Int): Boolean? {
+    private fun qualifies(source: MicrophoneSource, rate: Int, channels: Int = 1): Boolean? {
         val lease = MicrophoneCaptureFence.tryNormal() ?: return null
         var record: AudioRecord? = null
         var valid = false
         try {
-            record = recorder(source, rate)
+            record = recorder(source, rate, channels)
             valid = record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == rate &&
-                record.channelCount == 1 && record.audioFormat == AudioFormat.ENCODING_PCM_16BIT
+                record.channelCount == channels && record.audioFormat == AudioFormat.ENCODING_PCM_16BIT
         } catch (_: Exception) { valid = false }
         finally {
             try { record?.release(); lease.release() }
@@ -120,19 +119,9 @@ object AndroidMicrophoneSupport {
             MicrophoneSupport.implementedBits.filter { bit ->
                 val wireRate = if (bit in MicrophoneSupport.pcmBits) 24000 else 48000
                 val converter = CarPlayMicrophonePcmConverter(profile, wireRate)
-                val lease = MicrophoneCaptureFence.tryNormal() ?: return MicrophoneCapability.NONE
-                var record: AudioRecord? = null
-                var released = false
-                val valid = try {
-                    record = recorder(source, converter.captureRate, converter.captureChannels)
-                    record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == converter.captureRate &&
-                        record.channelCount == converter.captureChannels && record.audioFormat == AudioFormat.ENCODING_PCM_16BIT
-                } catch (_: Exception) { false }
-                finally {
-                    try { record?.release(); released = true } catch (_: Exception) { }
-                    if (released) lease.release()
-                }
-                valid && released && (bit in MicrophoneSupport.pcmBits || encoders.containsKey(bit))
+                val valid = qualifies(source, converter.captureRate, converter.captureChannels)
+                    ?: return MicrophoneCapability.NONE
+                valid && (bit in MicrophoneSupport.pcmBits || encoders.containsKey(bit))
             }.toSet()
         })
     }

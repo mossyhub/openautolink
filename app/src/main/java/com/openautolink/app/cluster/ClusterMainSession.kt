@@ -49,8 +49,6 @@ class ClusterMainSession : Session() {
     companion object {
         private const val TAG = "ClusterMain"
 
-        private const val ARRIVAL_TIMEOUT_MS = 10_000L
-
         private val primarySessions = GenerationOwnedSlot<ClusterMainSession>()
 
         /**
@@ -85,8 +83,6 @@ class ClusterMainSession : Session() {
     private var navigationManager: NavigationManager? = null
     private var scope: CoroutineScope? = null
     private val navigationLifecycle = ClusterNavigationLifecyclePolicy()
-    private var arrivalTimeoutJob: Job? = null
-    private var arrivalTerminalValidity: Long? = null
     private var bindingLease: ClusterBindingRegistry.SessionLease? = null
     private var tripOutcomeLogged = false
     private var observedRoute: Long? = null
@@ -111,9 +107,6 @@ class ClusterMainSession : Session() {
 
     /** Caller holds the lifecycle lock; this never clears/suppresses source demand. */
     private fun withdrawGuidance(navManager: NavigationManager, outcome: AvailabilityOutcome) {
-        arrivalTimeoutJob?.cancel()
-        arrivalTimeoutJob = null
-        arrivalTerminalValidity = null
         tripOutcomeLogged = false
         logAvailability(outcome)
         if (navigationLifecycle.onGuidanceUnavailable() == ClusterNavigationLifecyclePolicy.Action.END) {
@@ -198,8 +191,6 @@ class ClusterMainSession : Session() {
                     observedRoute != ClusterNavigationState.recoveryDemand.value
                 ) return@synchronized
                 Log.i(TAG, "onStopNavigation callback from Templates Host")
-                arrivalTimeoutJob?.cancel()
-                arrivalTimeoutJob = null
                 navigationLifecycle.onHostStop()
                 ClusterNavigationState.suppressCurrentRoute()
                 DiagnosticLog.i(
@@ -248,8 +239,6 @@ class ClusterMainSession : Session() {
                 Log.e(TAG, "navigationEnded() failed during $reason: ${e.message}")
             }
         }
-        arrivalTimeoutJob?.cancel()
-        arrivalTimeoutJob = null
         scope?.cancel()
         scope = null
         navigationManager = null
@@ -306,8 +295,6 @@ class ClusterMainSession : Session() {
                 return
             }
             if (observedRoute != route) {
-                arrivalTimeoutJob?.cancel()
-                arrivalTimeoutJob = null
                 if (navigationLifecycle.onRouteCleared() == ClusterNavigationLifecyclePolicy.Action.END) {
                     try { navManager.navigationEnded() } catch (_: Exception) {}
                     if (!isSnapshotCurrent()) return
@@ -387,43 +374,11 @@ class ClusterMainSession : Session() {
                 return
             }
 
-            if (!isSnapshotCurrent()) return
-
-            // Arrival timeout for terminal maneuver types
-            if (ClusterNavigationState.isTerminal(maneuver)) {
-                if (arrivalTerminalValidity != terminalValidity) {
-                    arrivalTimeoutJob?.cancel()
-                    arrivalTimeoutJob = null
-                }
-                if (arrivalTimeoutJob?.isActive != true) {
-                    arrivalTerminalValidity = terminalValidity
-                    arrivalTimeoutJob = scope?.launch {
-                        delay(ARRIVAL_TIMEOUT_MS)
-                        synchronized(ClusterBindingLifecycle.lock) {
-                            if (!isCurrentPrimary() || route != ClusterNavigationState.recoveryDemand.value) return@synchronized
-                            // A restored terminal type cannot revive a revoked timer (ABA).
-                            if (terminalValidity != ClusterNavigationState.terminalValidity.value ||
-                                !ClusterNavigationState.isTerminal(ClusterNavigationState.state.value)
-                            ) return@synchronized
-                            if (navigationLifecycle.onRouteTerminated() ==
-                                ClusterNavigationLifecyclePolicy.Action.END
-                            ) {
-                                ClusterNavigationState.suppressCurrentRoute()
-                                Log.i(TAG, "Arrival timeout — ending navigation")
-                                try { navManager.navigationEnded() } catch (_: Exception) {}
-                            }
-                        }
-                    }
-                }
-            } else {
-                arrivalTimeoutJob?.cancel()
-                arrivalTimeoutJob = null
-            }
+            // A destination maneuver is guidance, not source ARRIVED. Keep it live
+            // until source clear/unavailability, host stop, or owner retirement.
         } else {
             rejectedManeuver = null
             logAvailability(AvailabilityOutcome.IDLE)
-            arrivalTimeoutJob?.cancel()
-            arrivalTimeoutJob = null
             if (navigationLifecycle.onRouteCleared() ==
                 ClusterNavigationLifecyclePolicy.Action.END
             ) {
