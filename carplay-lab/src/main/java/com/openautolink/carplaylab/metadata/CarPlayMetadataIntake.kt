@@ -61,6 +61,9 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
     private var cacheReplacements = 0L
     private var cacheEvictions = 0L
     private var route = false
+    // Local ownership expiry is not a sender dictionary reset. Retained exact
+    // definitions grant no ownership until one fresh ACTIVE/current admission.
+    private var requiresActiveSelection = false
     private var index: Int? = null
     private data class Estimate<T>(val value: T, val receivedMs: Long)
     private var distance: Estimate<Int>? = null
@@ -81,7 +84,7 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
         val age = lastRoute?.let { now - it } ?: return
         val before = navigation
         if (retired || age >= ROUTE_EXPIRES_MS) {
-            clearRoute()
+            clearRoute(preserveDefinitions = !retired)
             observe("lifecycle", "cleared", before, reason = if (retired) "revoke" else "expired")
         } else {
             // A selected maneuver is a route-scoped definition, not a periodic
@@ -97,10 +100,14 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
     private fun clearEstimates() {
         distance = null; road = null; seconds = null; meters = null
     }
-    private fun clearRoute() {
+    private fun clearRoute(preserveDefinitions: Boolean = false) {
         route = false; index = null; clearEstimates()
-        lastRoute = null; maneuvers.clear(); selectedManeuver = null; navigation = null
-        cacheInserts = 0; cacheReplacements = 0; cacheEvictions = 0
+        lastRoute = null; selectedManeuver = null; navigation = null
+        requiresActiveSelection = preserveDefinitions
+        if (!preserveDefinitions) {
+            maneuvers.clear()
+            cacheInserts = 0; cacheReplacements = 0; cacheEvictions = 0
+        }
     }
     private fun publishRoute() {
         val m = selectedManeuver
@@ -144,6 +151,10 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
             // omitted-field inheritance against the post-expiry state, not old data.
             tick()
             if (state == 0 || state == 2) { clearRoute(); return }
+            if (requiresActiveSelection) {
+                if (state != 1 || current.isNullOrEmpty()) return
+                requiresActiveSelection = false
+            }
             // accessoryd24A446 @0x100002c64-0x100002c8c omits TLV13
             // for an absent dictionary key; a present empty array is a distinct
             // empty TLV (_iAP2MsgAddCFU16ArrayParam @0x1000040d0).

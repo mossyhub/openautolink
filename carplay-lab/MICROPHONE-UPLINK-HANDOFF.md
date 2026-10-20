@@ -8,7 +8,7 @@ Experimental `carplay-lab` / app `carplayBench` only. The capture, platform-enco
 - `shared/src/main/java/com/shilapi/xcertplay/media/{MicrophoneUplink,OpusEncoder}.kt`.
 - `shared/src/main/java/com/shilapi/xcertplay/airplay/CarPlayMediaEngine.kt:537-590`.
 
-Default input is implemented as actual MIC capture; unlike the pinned engine's default omission it is not an advertised-but-discarded input. Calls use VOICE_COMMUNICATION and Siri uses VOICE_RECOGNITION. There is no microphone-capture requirement for establishing video/output projection and no AA production connection-loop change.
+Default input is implemented as actual MIC capture; unlike the pinned engine's default omission it is not an advertised-but-discarded input. Normal calls now use owner-vehicle-verified VOICE_RECOGNITION at 48k two-channel AVERAGE, converted to the unchanged negotiated mono format without arming. Siri retains its existing VOICE_RECOGNITION behavior. Manual frozen experiments override normal capture; disarm/reconnect restores the production call profile. This is not universal GM proof or echo/noise acceptance. Exact two-channel initialization failure removes call inputs; no mono/runtime-silence fallback is added. See `docs/microphone-diagnostic.md` for current policy; the remaining sections record the original compressed-uplink integration. There is no microphone-capture requirement for establishing video/output projection and no AA production connection-loop change.
 
 ## Exact supported device contract
 

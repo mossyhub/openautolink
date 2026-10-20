@@ -74,10 +74,16 @@ class CarPlayPcmMicrophoneExportTest {
                 assertTrue("actual exact-recorder policy omitted by sanitizer",policy.await(3,TimeUnit.SECONDS))
                 assertTrue("actual exact-recorder configuration omitted by sanitizer",configuration.await(3,TimeUnit.SECONDS))
                 assertTrue("actual exact-recorder effects omitted by sanitizer",effects.await(3,TimeUnit.SECONDS))
-                assertTrue(lines.any { it.contains("microphone-config scope=own requested=VOICE_COMMUNICATION rate=24000 recorder=VOICE_COMMUNICATION") })
+                // Normal telephony owns VR48 stereo/AVERAGE capture, independently of
+                // the negotiated LPCM24 mono wire format. No manual experiment is armed.
+                assertTrue(lines.any { it.contains("microphone-config scope=own requested=VOICE_RECOGNITION rate=48000 recorder=VOICE_RECOGNITION") })
                 assertEquals(2,lines.count { it.contains("microphone-effects ") })
-                assertTrue(lines.any { it.contains("microphone-policy scope=own source=VOICE_COMMUNICATION rate=24000 permission=granted") })
-                assertTrue(lines.any { it.endsWith("media stage=microphone-format type=100 audioType=telephony codec=LPCM rate=24000 channels=1 spf=480 source=VOICE_COMMUNICATION") })
+                listOf("client","capture").forEach { chain ->
+                    assertTrue(lines.any { it.contains("microphone-effects scope=own source=VOICE_RECOGNITION rate=48000 chain=$chain ") })
+                }
+                assertTrue(lines.any { it.contains("microphone-policy scope=own source=VOICE_RECOGNITION rate=48000 permission=granted") })
+                assertTrue(lines.any { it.endsWith("media stage=microphone-format type=100 audioType=telephony codec=LPCM rate=24000 channels=1 spf=480 source=VOICE_RECOGNITION") })
+                assertFalse(lines.any { it.contains("media stage=microphone-experiment ") })
                 assertTrue("actual capture aggregate omitted by sanitizer",lines.any {
                     it.endsWith("media stage=microphone-capture type=100 audioType=telephony frames=1 nonzeroFrames=0 state=3 ended=false")
                 })

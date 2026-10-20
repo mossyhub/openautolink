@@ -80,9 +80,9 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             } else null
             encoder = codec
             if (closed.get()) return
-            // The helper wires MIC, VOICE_COMMUNICATION and VOICE_RECOGNITION to actual AudioRecord sources.
-            val source = experiment?.source ?: checkNotNull(MicrophoneSupport.source(config.audioType))
-            val converter = experiment?.let { CarPlayMicrophonePcmConverter(it, config.sampleRate) }
+            val profile = CarPlayMicrophoneCapturePolicy.profile(config.audioType, experiment)
+            val source = profile?.source ?: checkNotNull(MicrophoneSupport.source(config.audioType))
+            val converter = profile?.let { CarPlayMicrophonePcmConverter(it, config.sampleRate) }
             val captureRate = converter?.captureRate ?: config.sampleRate
             val captureChannels = converter?.captureChannels ?: config.channels
             val record = AndroidMicrophoneSupport.recorder(source, captureRate, captureChannels)

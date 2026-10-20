@@ -58,15 +58,18 @@ class CarPlayMetadataIntakeTest {
         val epoch = intake.routeMetadata?.epoch
         now = 120_000
         intake.handle(Iap2Messages.buildRaw(0x5201) { u8(1,1); u32(10,44) })
-        assertNotEquals(epoch, intake.routeMetadata?.epoch)
+        assertNull(intake.routeMetadata)
         assertNull(intake.navigation)
         intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1,7); u8(3,3) })
         assertNull("details cannot choose the expired selected ID", intake.navigation)
         intake.handle(Iap2Messages.buildRaw(0x5201) { u16List(13,listOf(7)) })
+        assertNull("current-only cannot unlock expiry", intake.routeMetadata)
+        intake.handle(Iap2Messages.buildRaw(0x5201) { u8(1,1); u16List(13,listOf(7)) })
+        assertNotEquals(epoch, intake.routeMetadata?.epoch)
         assertEquals(3, intake.navigation?.maneuverType)
     }
 
-    @Test fun explicitCurrentOrEmptyAtOwnershipDeadlineCannotReuseExpiredCache() {
+    @Test fun explicitActiveCurrentAtDeadlineReusesCacheButEmptyCannotAcquire() {
         for (current in listOf(emptyList(), listOf(7))) {
             var now = 0L
             val intake = CarPlayMetadataIntake { now }.apply { authenticate() }
@@ -75,8 +78,11 @@ class CarPlayMetadataIntakeTest {
             val epoch = intake.routeMetadata?.epoch
             now = 120_000
             intake.handle(Iap2Messages.buildRaw(0x5201) { u8(1,1); u16List(13,current) })
-            assertNotEquals(epoch, intake.routeMetadata?.epoch)
-            assertNull("expiry purges cache before applying current/empty delta", intake.navigation)
+            if (current.isEmpty()) assertNull(intake.routeMetadata)
+            else {
+                assertNotEquals(epoch, intake.routeMetadata?.epoch)
+                assertEquals("fresh active/current reuses bounded definitions", 2, intake.navigation?.maneuverType)
+            }
             intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1,7); u8(3,3) })
             if (current.isEmpty()) assertNull("empty selection stays empty despite fresh details", intake.navigation)
             else assertEquals(3, intake.navigation?.maneuverType)
@@ -194,7 +200,7 @@ class CarPlayMetadataIntakeTest {
                 assertEquals("definition remains owned at $deadline", 2, intake.navigation?.maneuverType)
                 assertEquals(epoch, intake.routeMetadata?.epoch)
             } else {
-                assertNull("ownership expires exactly at 120s even without a prior tick", intake.navigation)
+                assertEquals("fresh active/current reacquires after exact expiry", 2, intake.navigation?.maneuverType)
                 assertNotEquals(epoch, intake.routeMetadata?.epoch)
             }
             assertNull("pre-deadline estimate cannot survive renewal", intake.navigation?.distanceMeters)
@@ -268,7 +274,7 @@ class CarPlayMetadataIntakeTest {
         assertNull(fresh.remainingSeconds); assertNull(fresh.remainingMeters)
     }
 
-    @Test fun acceptedRouteCrossingOwnershipDeadlineCreatesNewEpochWithoutOldCache() {
+    @Test fun acceptedRouteCrossingOwnershipDeadlineCreatesNewEpochWithBoundedCache() {
         var now = 0L
         val intake = CarPlayMetadataIntake { now }.apply { authenticate() }
         intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1,7); u8(3,2) })
@@ -278,7 +284,7 @@ class CarPlayMetadataIntakeTest {
         now = 120_001
         intake.handle(Iap2Messages.buildRaw(0x5201) { u8(1,1); u16List(13,listOf(7)) })
         assertNotEquals("route renewal cannot erase a crossed ownership deadline", epoch, intake.routeMetadata?.epoch)
-        assertNull(intake.navigation)
+        assertEquals(2, intake.navigation?.maneuverType)
         intake.handle(Iap2Messages.buildRaw(0x5202) { u16(1,7); u8(3,3) })
         assertEquals(3, intake.navigation?.maneuverType)
     }
@@ -295,7 +301,7 @@ class CarPlayMetadataIntakeTest {
         assertNull("maneuver traffic must enforce old ownership expiry", intake.routeMetadata)
         intake.handle(Iap2Messages.buildRaw(0x5201) { u8(1,1); u16List(13,listOf(7)) })
         assertNotEquals(epoch, intake.routeMetadata?.epoch)
-        assertNull("old selected detail must be purged", intake.navigation)
+        assertEquals("fresh active/current may reuse the exact retained definition", 2, intake.navigation?.maneuverType)
     }
 
     @Test fun invalidFramesCrossingDeadlinesLeaveOldSnapshotUntouchedUntilTick() {
@@ -351,7 +357,7 @@ class CarPlayMetadataIntakeTest {
         now = 119_999; intake.tick(); assertNotNull(intake.routeMetadata)
         now = 120_000; intake.tick(); assertNull(intake.routeMetadata)
         route()
-        assertNull("expired route cannot reuse previous cached instruction", intake.navigation)
+        assertEquals("fresh active/current may reacquire the retained exact instruction", 2, intake.navigation?.maneuverType)
         assertNotEquals(epoch, intake.routeMetadata?.epoch)
         details(); assertNotNull(intake.navigation)
     }

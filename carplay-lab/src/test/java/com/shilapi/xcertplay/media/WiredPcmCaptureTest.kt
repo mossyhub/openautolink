@@ -21,6 +21,37 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[32], manifest=Config.NONE)
 class WiredPcmCaptureTest {
+    @Test fun twoChannelInitializationFailureOmitsCallsWithoutMonoFallbackOrNoncallChanges() {
+        val app=RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        val device=mock(AudioDeviceInfo::class.java)
+        `when`(device.isSource).thenReturn(true); `when`(device.type).thenReturn(AudioDeviceInfo.TYPE_BUILTIN_MIC)
+        shadowOf(app.getSystemService(AudioManager::class.java)).setInputDevices(listOf(device))
+        val shapes=mutableListOf<Pair<Int,Int>>()
+        mockConstruction(AudioRecord.Builder::class.java,withSettings().defaultAnswer(RETURNS_SELF)) { builder, _ ->
+            var source=0
+            var rate=0
+            var channels=0
+            doAnswer { source=it.getArgument(0); builder }.`when`(builder).setAudioSource(anyInt())
+            doAnswer { val f=it.getArgument<android.media.AudioFormat>(0); rate=f.sampleRate; channels=f.channelCount; builder }
+                .`when`(builder).setAudioFormat(any(android.media.AudioFormat::class.java))
+            `when`(builder.build()).thenAnswer {
+                assertNotEquals(MediaRecorder.AudioSource.VOICE_COMMUNICATION,source)
+                shapes.add(rate to channels)
+                mock(AudioRecord::class.java).also {
+                    `when`(it.state).thenReturn(if(channels==1) AudioRecord.STATE_INITIALIZED else AudioRecord.STATE_UNINITIALIZED)
+                    `when`(it.sampleRate).thenReturn(rate); `when`(it.channelCount).thenReturn(channels)
+                    `when`(it.audioFormat).thenReturn(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                }
+            }
+        }.use {
+            val cap=AndroidMicrophoneSupport.probe(app)
+            assertTrue(cap.bits("telephony").isEmpty())
+            assertTrue(0x40L in cap.bits("default")); assertTrue(0x40L in cap.bits("speechrecognition"))
+            assertEquals(listOf(24000 to 1,48000 to 1,24000 to 1,48000 to 1,48000 to 2),shapes)
+        }
+        MicrophoneCaptureFence.tryDiagnostic()!!.release()
+    }
     @Test fun qualificationNeverPromotesAnotherSourceOrCaptureRateIntoPcm() {
         val app=RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
@@ -28,17 +59,19 @@ class WiredPcmCaptureTest {
         `when`(device.isSource).thenReturn(true); `when`(device.type).thenReturn(AudioDeviceInfo.TYPE_BUILTIN_MIC)
         shadowOf(app.getSystemService(AudioManager::class.java)).setInputDevices(listOf(device))
         val records=mutableListOf<AudioRecord>()
+        val sources=mutableListOf<Int>()
         // Only the OS builder/recorder is replaced. The production source/rate probe and capability filtering run unchanged.
         mockConstruction(AudioRecord.Builder::class.java,withSettings().defaultAnswer(RETURNS_SELF)) { builder, _ ->
             var source=MediaRecorder.AudioSource.MIC
             var rate=48000
-            doAnswer { source=it.getArgument(0); builder }.`when`(builder).setAudioSource(anyInt())
-            doAnswer { rate=it.getArgument<android.media.AudioFormat>(0).sampleRate; builder }.`when`(builder).setAudioFormat(any(android.media.AudioFormat::class.java))
+            var channels=1
+            doAnswer { source=it.getArgument(0); sources.add(source); builder }.`when`(builder).setAudioSource(anyInt())
+            doAnswer { val format=it.getArgument<android.media.AudioFormat>(0); rate=format.sampleRate; channels=format.channelCount; builder }.`when`(builder).setAudioFormat(any(android.media.AudioFormat::class.java))
             `when`(builder.build()).thenAnswer {
                 val record=mock(AudioRecord::class.java); records.add(record)
-                `when`(record.state).thenReturn(if (rate==24000 && source!=MediaRecorder.AudioSource.VOICE_COMMUNICATION) AudioRecord.STATE_UNINITIALIZED else AudioRecord.STATE_INITIALIZED)
+                `when`(record.state).thenReturn(if (rate==48000 && source!=MediaRecorder.AudioSource.VOICE_COMMUNICATION) AudioRecord.STATE_INITIALIZED else AudioRecord.STATE_UNINITIALIZED)
                 `when`(record.sampleRate).thenReturn(rate)
-                `when`(record.channelCount).thenReturn(1)
+                `when`(record.channelCount).thenReturn(channels)
                 `when`(record.audioFormat).thenReturn(android.media.AudioFormat.ENCODING_PCM_16BIT)
                 record
             }
@@ -47,7 +80,7 @@ class WiredPcmCaptureTest {
             assertTrue(0x40L in cap.bits("telephony"))
             assertFalse(0x40L in cap.bits("default"))
             assertFalse(0x40L in cap.bits("speechrecognition"))
-            assertEquals(6,records.size)
+            assertFalse("Normal qualification must never request legacy source7",sources.contains(MediaRecorder.AudioSource.VOICE_COMMUNICATION))
             records.forEach { verify(it).release(); verify(it,never()).startRecording() }
         }
         shadowOf(app).denyPermissions(Manifest.permission.RECORD_AUDIO)
@@ -65,9 +98,9 @@ class WiredPcmCaptureTest {
         val captured = CountDownLatch(1)
         val pcm = ByteArray(960) { if (it % 2 == 0) 0x34 else 0x12 }
         ShadowAudioRecord.setSourceProvider { recorder ->
-            assertEquals(24000, recorder.sampleRate)
-            assertEquals(1,recorder.channelCount)
-            assertEquals(MediaRecorder.AudioSource.VOICE_COMMUNICATION,recorder.audioSource)
+            assertEquals(48000, recorder.sampleRate)
+            assertEquals(2,recorder.channelCount)
+            assertEquals(MediaRecorder.AudioSource.VOICE_RECOGNITION,recorder.audioSource)
             object : ShadowAudioRecord.AudioRecordSource {
                 override fun readInByteArray(bytes: ByteArray, offset: Int, size: Int, blocking: Boolean): Int {
                     captured.countDown()

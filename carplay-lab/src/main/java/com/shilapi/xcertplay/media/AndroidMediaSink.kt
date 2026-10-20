@@ -679,6 +679,9 @@ private class AudioOutputTrack(
     private data class VolumeObservation(val requestedPercent: Int, val mute: String, val revision: Long)
     @Volatile private var volumeObservation = VolumeObservation((initialVolume * 100).toInt(), initialMuteReason, initialFocusRevision)
     @Volatile private var appliedPercent: Int? = null
+    // Only the output worker accesses this cache. A new platform track must receive its own gain.
+    private var volumeAppliedTrack: AudioTrack? = null
+    private var volumeAppliedValue: Float? = null
     val isClosed: Boolean get() = closed.get()
     val isRetired: Boolean get() = retired.get() && !thread.isAlive
     private val thread = Thread(::run, "lab-audio-output").apply { isDaemon = true; start() }
@@ -700,7 +703,13 @@ private class AudioOutputTrack(
     }
     private fun applyVolume(built: AudioTrack) {
         val value = requestedVolume
-        if (built.setVolume(value) == AudioTrack.SUCCESS) appliedPercent = (value * 100).toInt()
+        if (volumeAppliedTrack === built && volumeAppliedValue == value) return
+        if (built.setVolume(value) == AudioTrack.SUCCESS) {
+            // Cache the value actually sent, not a newer focus request arriving during the call.
+            volumeAppliedTrack = built
+            volumeAppliedValue = value
+            appliedPercent = (value * 100).toInt()
+        }
     }
     fun routeReceipt(): String? {
         val current = track ?: return null
@@ -713,6 +722,7 @@ private class AudioOutputTrack(
         var codec: MediaCodec? = null
         fun releaseTrack() {
             track = null
+            volumeAppliedTrack = null; volumeAppliedValue = null; appliedPercent = null
             runCatching { current?.stop() }; runCatching { current?.release() }; current = null
         }
         fun createTrack(rate: Int, channels: Int, encoding: Int) {

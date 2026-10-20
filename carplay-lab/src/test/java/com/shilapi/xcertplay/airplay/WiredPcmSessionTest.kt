@@ -80,12 +80,12 @@ class WiredPcmSessionTest {
                         ShadowAudioRecord.setSourceProvider { recorder ->
                             val expectedSource=when (kind) {
                                 "default" -> MediaRecorder.AudioSource.MIC
-                                "telephony" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                                "telephony" -> MediaRecorder.AudioSource.VOICE_RECOGNITION
                                 else -> MediaRecorder.AudioSource.VOICE_RECOGNITION
                             }
                             assertEquals(expectedSource,recorder.audioSource)
-                            assertEquals(24000,recorder.sampleRate)
-                            assertEquals(1,recorder.channelCount)
+                            assertEquals(if (kind=="telephony") 48000 else 24000,recorder.sampleRate)
+                            assertEquals(if (kind=="telephony") 2 else 1,recorder.channelCount)
                             object : ShadowAudioRecord.AudioRecordSource {
                                 override fun readInByteArray(b: ByteArray,o: Int,n: Int,blocking: Boolean): Int {
                                     val count=minOf(n,pcm.size); pcm.copyInto(b,o,0,count); return count
