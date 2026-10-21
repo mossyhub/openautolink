@@ -1,10 +1,10 @@
 # Privacy Policy — OpenAutoLink
 
-**Last updated:** August 26, 2026
+**Last updated:** October 21, 2026
 
 ## Overview
 
-OpenAutoLink consists of an Android Automotive OS car app and an Android phone companion. The apps carry an Android Auto projection session across the local connection between the phone and vehicle. OpenAutoLink has no advertising or analytics SDK and does not sell user data.
+OpenAutoLink consists of an Android Automotive OS car app and an Android phone companion. The apps support Android Auto and Apple CarPlay projection sessions across the local connection between the phone and vehicle. OpenAutoLink has no advertising or analytics SDK and does not sell user data.
 
 Most operation is local. Two optional features can contact an external server: manual EV-profile refresh and invited diagnostic-log upload. Both are described below.
 
@@ -12,7 +12,7 @@ Most operation is local. Two optional features can contact an external server: m
 
 While a projection session is active, OpenAutoLink can process:
 
-- Android Auto video, audio, and control messages;
+- Android Auto or CarPlay video, audio, and control messages;
 - microphone audio used for voice commands;
 - touch and steering-wheel input;
 - navigation and media metadata;
@@ -26,7 +26,7 @@ This data is used to operate the projection session and related vehicle integrat
 
 ### Microphone
 
-The car app uses `RECORD_AUDIO` to supply the vehicle microphone to Android Auto voice features. On the validated GM call topology, native Bluetooth hands-free service carries phone-call voice audio.
+The car app uses `RECORD_AUDIO` for supported Android Auto voice features and CarPlay microphone transport to the connected phone. No microphone audio is saved as a recording or uploaded to the developer. Normal projection can retain bounded numeric capture/playback and retirement observations; opt-in parked diagnostics retain numeric summaries, not audio. Live experiments transmit microphone audio only through the normal CarPlay session to the connected iPhone. These observations use the existing manual diagnostic-log upload path, never automatic audio upload. On the validated GM call topology, native Bluetooth hands-free service carries phone-call voice audio.
 
 ### Location and Wi-Fi
 

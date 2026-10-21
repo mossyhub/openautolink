@@ -6,7 +6,13 @@ USB CarPlay carries call audio independently of vehicle Bluetooth. Music playbac
 
 **Do not pair the iPhone to the vehicle's Bluetooth for USB CarPlay.** If already paired, forget/remove that pairing so it does not reconnect. GM's native Bluetooth playback control competes with CarPlay when the iPhone is also Bluetooth-connected, causing media to constantly pause after pressing Play. Leave the car's Bluetooth adapter available for other phones; only the iPhone's vehicle pairing needs to be removed.
 
-This advice is specific to **USB CarPlay**. It does not replace Android Auto's Bluetooth requirements below.
+This advice is specific to **USB CarPlay**. It does not replace Android Auto's Bluetooth requirements below. For an explicitly agreed paired diagnostic experiment, record the chosen topology and keep it unchanged between arms rather than unpairing mid-experiment.
+
+**Reliable two-way CarPlay call microphone audio remains unverified. Siri is not fixed.** Audible caller playback, nonzero samples or successful packet sends do not establish understood speech or far-end audibility. Bluetooth pairing alone does not prove which audio route the vehicle selected.
+
+### Alternate Android Bluetooth settings launcher
+
+**OAL → Settings → Connection → CarPlay → Android Bluetooth settings** opens an alternate system screen on supported vehicles. It may expose separate per-phone controls absent from the usual vehicle settings screen. Availability requires an installed, permitted exported screen, foreground OAL and fresh actual Park. OAL does not change profiles. This feature description does not recommend a paired USB CarPlay configuration or claim persistent GM settings; Media audio ON with Playing-status suppression still requires a parked experiment and owner acceptance.
 
 ## Android Auto: native Bluetooth hands-free audio
 
