@@ -72,6 +72,11 @@
       "drivingWhPerKm": 203,
       "maxChargeKw": 150
     },
+     "Chevrolet|C223|2026": {
+      "displayName": "Equinox EV (FWD)",
+      "drivingWhPerKm": 192,
+      "maxChargeKw": 150
+    },
     "Ford|F-150 Lightning|2023": {
       "drivingWhPerKm": 305,
       "maxChargeKw": 155
