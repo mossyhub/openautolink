@@ -55,12 +55,15 @@ class ProjectionReceiver(
     /** Actual advertised/sink/input configuration, including a capability-qualified fallback. */
     val displayConfiguration: CarPlayDisplayPreferences get() = displaySelection.display
     private val microphoneExperiment = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
+    private val captureLedger = com.shilapi.xcertplay.media.CaptureAcquisitionLedger(microphoneExperiment != null)
     // Manual experiments retain their receiver-wide exact output inventory.
     // Normal calls qualify against actual output rows without changing noncall offers.
     private val outputAudioFormats = microphoneExperiment?.let {
-        com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits.toSet()
+        com.shilapi.xcertplay.media.CaptureAcquisitionLedger.observe(captureLedger) {
+            com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits.toSet()
+        }
     }
-    private val microphoneCapability = run {
+    private val microphoneCapability = com.shilapi.xcertplay.media.CaptureAcquisitionLedger.observe(captureLedger) {
         val profile = microphoneExperiment
         val baseline = if (profile == null) com.shilapi.xcertplay.media.AndroidMicrophoneSupport.probe(context)
             else com.shilapi.xcertplay.media.AndroidMicrophoneSupport.experimentCapability(context, profile)
@@ -152,6 +155,7 @@ class ProjectionReceiver(
             if (!executor.isShutdown) statusQueueDrops.incrementAndGet()
             throw RejectedExecutionException("bounded status queue unavailable")
         })
+    init { captureLedger.bind(statuses, onStatus) }
     private val diagnosticLock = Any()
     private var diagnosticOwner: AirPlaySession? = null
     private var diagnosticWindowNs = 0L
@@ -170,7 +174,8 @@ class ProjectionReceiver(
     private val telemetry = ReceiverTelemetry(telemetryGenerations.incrementAndGet())
     fun telemetrySnapshot(): ReceiverTelemetrySnapshot = telemetry.snapshot(System.nanoTime())
     private val sink = AndroidMediaSink(context, surface, display = displaySelection, onStatus = ::status, telemetry = telemetry, videoSelection = videoSelection,
-        microphoneExperiment = microphoneExperiment, microphoneCapability = microphoneCapability)
+        microphoneExperiment = microphoneExperiment, microphoneCapability = microphoneCapability,
+        captureLedger = captureLedger, audioDiagnostic = { line, current -> enqueueStatus(line, current) })
     /** Presentation receipts do not take the session/control lifecycle lock or retire transport. */
     fun attachSurface(surface: Surface) { if (!closed.get() && !admissionRevoked.get()) sink.attachSurface(surface) }
     fun detachSurface(surface: Surface) { sink.detachSurface(surface) }
@@ -602,7 +607,7 @@ class ProjectionReceiver(
         // Reach actual transport cancellation before any callback/OS cleanup can wait for focus.
         retiring.forEach { it.cancelPendingIo() }
         sink.revokePendingWork()
-        deadlines.shutdownNow(); input.shutdownNow(); runtime.shutdownNow(); statuses.shutdownNow()
+        deadlines.shutdownNow(); input.shutdownNow(); runtime.shutdownNow()
         retryRetirement()
     }
     /** Only the runtime worker, or retirement after that worker stops, closes exact car-data owners. */
@@ -635,6 +640,20 @@ class ProjectionReceiver(
                 while (!sink.awaitRetired(1_000)) {
                     // Coalesce Retry onto this cleanup owner, never the lifecycle caller.
                     if (retirementRetryRequested.getAndSet(false)) sink.close()
+                }
+                // A terminal raw receipt is not release. Keep the same passive export worker
+                // alive until the exact sink (including stalled microphone release) retires.
+                // Retirement has one cleanup worker at a time. Once the final drain is
+                // accepted and shutdown begins, a later storage-close retry must neither
+                // duplicate RETIRED nor submit to this permanently closed executor.
+                if (!statuses.isShutdown) {
+                    captureLedger.root.event(com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Action.RETIRED,
+                        com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Result.OK)
+                    while (true) {
+                        try { statuses.execute { captureLedger.drain() }; break }
+                        catch (_: RejectedExecutionException) { Thread.sleep(10) }
+                    }
+                    statuses.shutdown()
                 }
                 persistence.close()
                 retirement.countDown()

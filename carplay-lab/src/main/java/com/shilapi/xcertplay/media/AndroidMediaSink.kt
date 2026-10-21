@@ -49,6 +49,8 @@ class AndroidMediaSink(
     private val videoCodecFactory: (String) -> MediaCodec = MediaCodec::createByCodecName,
     private val microphoneExperiment: CarPlayMicrophoneExperimentProfile? = null,
     private val microphoneCapability: MicrophoneCapability? = null,
+    private val captureLedger: CaptureAcquisitionLedger? = null,
+    private val audioDiagnostic: ((String, () -> Boolean) -> Boolean)? = null,
 ) : MediaSink, Closeable {
     private val closed = AtomicBoolean()
     init { AndroidMicrophoneSupport.initialize(context) }
@@ -289,7 +291,7 @@ class AndroidMediaSink(
         if (closed.get() || id.session.isClosed || id.type != 100 || id.audioType != config.audioType ||
             !AndroidMicrophoneSupport.permissionGranted()) { config.key.fill(0); return }
         microphoneOwners.removeIf { it.isRetired }
-        val accepted = microphones.start(id) { MicrophoneUplink(config, ::report, microphoneExperiment, microphoneCapability).apply {
+        val accepted = microphones.start(id) { MicrophoneUplink(config, ::report, microphoneExperiment, microphoneCapability, captureLedger).apply {
             microphoneOwners.add(this); start()
         } }
         if (!accepted) { config.key.fill(0); report("media stage=microphone-owner-busy") }
@@ -346,7 +348,8 @@ class AndroidMediaSink(
         reportMute(owner,"stream-start")
         trackPurposes[id] = purpose
         val (volume, mute) = focusAttenuation(owner,alternate = purpose == null)
-        tracks[id] = AudioOutputTrack(format, firstSample, writtenBytes, telemetry, ::report, qualification, volume, mute, owner.revision)
+        tracks[id] = AudioOutputTrack(format, firstSample, writtenBytes, telemetry, ::report, qualification, volume, mute, owner.revision,
+            stream, audioDiagnostic ?: { line, current -> if (current()) { report(line); true } else false })
     }
     override fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {
         tracks[id]?.submit(rtp, sample)
@@ -650,7 +653,10 @@ private class AudioOutputTrack(
     initialVolume: Float,
     initialMuteReason: String,
     initialFocusRevision: Long,
+    stream: Long,
+    enqueuePcm: (String, () -> Boolean) -> Boolean,
 ) : Closeable {
+    private val pcmDiagnostics = OutputPcmDiagnostics(format,stream,enqueuePcm)
     private val packets = AtomicLong()
     private val queueDrops = AtomicLong()
     private var decoderDrops = 0L
@@ -748,14 +754,16 @@ private class AudioOutputTrack(
                 .setTransferMode(AudioTrack.MODE_STREAM).build()
             current = built; track = built
             require(built.state == AudioTrack.STATE_INITIALIZED)
+            pcmDiagnostics.configure(rate,channels)
             report("media stage=audio-track $qualification rate=$rate channels=$channels capacity=${built.bufferSizeInFrames}")
             if (!closed.get()) { applyVolume(built); report(volumeReceipt()); built.play() }
         }
         fun writePcm(pcm: ByteArray) {
             val built = checkNotNull(current)
+            pcmDiagnostics.decoded(pcm)
             var offset = 0
             val deadline = System.nanoTime() + 250_000_000L
-            while (offset < pcm.size && !closed.get()) {
+            try { while (offset < pcm.size && !closed.get()) {
                 applyVolume(built)
                 // Nonblocking writes allow the owner to observe retirement without cross-thread codec calls.
                 val count = built.write(pcm,offset,pcm.size-offset,AudioTrack.WRITE_NON_BLOCKING)
@@ -767,13 +775,14 @@ private class AudioOutputTrack(
                     Thread.sleep(2); continue
                 }
                 if (count < pcm.size - offset) partialWrites++
+                pcmDiagnostics.accepted(pcm,offset,count)
                 streamWritten += count
                 telemetry.audioWritten(count)
                 offset += count
                 val total = writtenBytes.getAndAdd(count.toLong())
                 if (total == 0L || total / 1_048_576 != (total + count) / 1_048_576)
                     report("media stage=audiotrack-written bytes=${total + count}; human audibility unverified")
-            }
+            } } finally { pcmDiagnostics.acceptedTail(pcm,offset) }
         }
         fun drain(decoder: MediaCodec) {
             val info = MediaCodec.BufferInfo()
@@ -818,6 +827,7 @@ private class AudioOutputTrack(
                 val packet = queue.poll(10,TimeUnit.MILLISECONDS)
                 val decoder = codec
                 stats()
+                pcmDiagnostics.tick()
                 if (packet != null) {
                     if (decoder == null) writePcm(packet.bytes)
                     else {
@@ -841,6 +851,7 @@ private class AudioOutputTrack(
         } catch (_: InterruptedException) { /* owner retirement */
         } catch (_: Exception) { if (!closed.get()) report("media stage=audio-output-failed codec=${format.codec}")
         } finally {
+            pcmDiagnostics.finish()
             stats(ended = true)
             closed.set(true); queue.clear()
             runCatching { codec?.stop() }; runCatching { codec?.release() }
@@ -848,6 +859,7 @@ private class AudioOutputTrack(
         }
     }
     override fun close() {
+        pcmDiagnostics.revoke()
         closed.set(true); queue.clear(); thread.interrupt()
         if (Thread.currentThread() !== thread) {
             try { thread.join(500) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }

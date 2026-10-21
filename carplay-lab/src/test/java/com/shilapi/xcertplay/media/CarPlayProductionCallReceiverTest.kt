@@ -112,8 +112,9 @@ class CarPlayProductionCallReceiverTest {
         CarPlayMicrophoneExperiments.disarm()
         File(app.noBackupFilesDir,"pairing-probe").deleteRecursively()
         val surface=mock(Surface::class.java);`when`(surface.isValid).thenReturn(true)
+        val ledgerLines=java.util.concurrent.CopyOnWriteArrayList<String>()
         val receiver=ProjectionReceiver(app,"00:11:22:33:44:55",surface,mock(MfiAuthenticator::class.java),
-            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),onStatus={})
+            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),onStatus=ledgerLines::add)
         fun field(owner: Any, name: String): Any? = owner.javaClass.getDeclaredField(name).apply { isAccessible=true }.get(owner)
         try {
             assertNull(field(receiver,"outputAudioFormats"))
@@ -176,9 +177,32 @@ class CarPlayProductionCallReceiverTest {
                     assertEquals(960,pcm.size)
                     val samples=ByteBuffer.wrap(pcm).order(ByteOrder.BIG_ENDIAN).asShortBuffer()
                     while(samples.hasRemaining()) assertEquals(500,samples.get().toInt())
+                    val policyDeadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+                    while (ledgerLines.none { "stage=microphone-owned " in it } && System.nanoTime()<policyDeadline) Thread.sleep(5)
+                    assertTrue("existing passive exact-recorder policy must carry the ledger owner",ledgerLines.any {
+                        "stage=microphone-owned " in it && "media stage=microphone-config scope=own " in it
+                    })
                 }
             }
         } finally { CarPlayMicrophoneExperiments.disarm();receiver.close();assertTrue(receiver.awaitClosed(5000)) }
         MicrophoneCaptureFence.tryDiagnostic()!!.release()
+        assertTrue("raw per-channel census is pre-conversion",ledgerLines.any {
+            "stage=microphone-pcm" in it && "boundary=raw phase=released" in it &&
+                "observed=960 scanned=960" in it && "ch0Peak=1000 ch0Rms=1000" in it && "ch1Peak=2000 ch1Rms=2000" in it
+        })
+        assertTrue("converted mono census is separate from capture blocks",ledgerLines.any {
+            "stage=microphone-pcm" in it && "boundary=converted phase=released" in it &&
+                "observed=480 scanned=480" in it && "ch0Peak=500 ch0Rms=500" in it && "ch1Samples=0" in it
+        })
+        assertFalse("production profile must not produce experimental UX",ledgerLines.any { "stage=microphone-experiment " in it })
+        val creates=ledgerLines.filter { "kind=probe action=create " in it }
+        assertEquals("actual normal qualification must retain all five attempts",5,creates.size)
+        assertEquals(listOf("MIC:24000:1","MIC:48000:1","VOICE_RECOGNITION:24000:1",
+            "VOICE_RECOGNITION:48000:1","VOICE_RECOGNITION:48000:2"),creates.map {
+            val source=Regex("source=([A-Z_]+)").find(it)!!.groupValues[1]
+            val rate=Regex("rate=([0-9]+)").find(it)!!.groupValues[1]
+            val channels=Regex("channels=([0-9]+)").find(it)!!.groupValues[1]
+            "$source:$rate:$channels"
+        })
     }
 }

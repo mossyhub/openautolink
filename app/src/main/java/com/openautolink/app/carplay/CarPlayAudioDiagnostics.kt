@@ -3,7 +3,8 @@ package com.openautolink.app.carplay
 /** Pure fail-closed export boundary. Never forward arbitrary receiver text to diagnostic sinks. */
 object CarPlayAudioDiagnostics {
     const val MAX_INPUT_LENGTH = 384
-    const val MAX_LINE_LENGTH = 500
+    const val MAX_LINE_LENGTH = 1152
+    private const val MAX_NUMERIC_INPUT_LENGTH = 1024
     private const val number = "[0-9]{1,19}"
     private const val optional = "($number|null)"
     private const val bool = "(true|false)"
@@ -22,10 +23,18 @@ object CarPlayAudioDiagnostics {
     private const val networkClass = "next=(tcp|icmpv6|udp|none|unknown) icmp=(ns|na|unknown) flags=([0-7]|1[6-9]|2[0-3]|unknown)"
     private const val networkAttempt = "([1-9]|1[0-6])"
     private const val packetBytes = "([0-9]{1,4}|[0-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])"
+    private const val ledgerEvent = "([1-9]|[1-9][0-9]|1[0-8][0-9]|19[0-3])"
+    private const val pcmCount = "(?:[0-9]|[1-9][0-9]{1,2}|1[0-9]{3}|20[0-3][0-9]|204[0-8])"
+    private const val pcmAmplitude = "(?:[0-9]|[1-9][0-9]{1,3}|[12][0-9]{4}|3[01][0-9]{3}|32[0-6][0-9]{2}|327[0-5][0-9]|3276[0-8])"
+    private const val pcmChannels = "ch0Samples=$pcmCount ch0Nonzero=$pcmCount ch0Peak=$pcmAmplitude ch0Rms=$pcmAmplitude ch0Clip=$pcmCount ch1Samples=$pcmCount ch1Nonzero=$pcmCount ch1Peak=$pcmAmplitude ch1Rms=$pcmAmplitude ch1Clip=$pcmCount"
     private val accepted = Regex("BENCH_DIAG streamReply type=([0-9]{1,3}) port=$optional streamId=$optional")
     // Full-string matches: unknown fields, suffixes, control characters and upstream free text fail closed.
     private const val usbByte = "(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])"
     private val schemas = listOf(
+        "media stage=audio-pcm stream=$number type=(100|101|102) audioType=(default|media|telephony|speechrecognition|alert|compatibility) codec=$codec purpose=(media|call|siri|ring|nav) phase=(decoded|accepted) event=(start|periodic|terminal) window=$number rate=(8000|16000|24000|32000|44100|48000) channels=(1|2) observed=$number scanned=$pcmCount tail=$number limit=2048 coverage=(full|prefix) $pcmChannels queueDrops=$number",
+        "media stage=microphone-pcm receiver=$number event=$ledgerEvent owner=$number boundary=(raw|converted) phase=(first|ended|released) rate=(24000|48000) channels=(1|2) observed=$number scanned=$pcmCount tail=$number limit=2048 coverage=(full|prefix) $pcmChannels",
+        "media stage=microphone-ledger receiver=$number event=$ledgerEvent owner=$number history=(manual|normal) kind=(receiver|probe|live) action=(snapshot|inputs|recorder-cache|encoder-cache|decoder-cache|create|buffer|validate|start|end|stop|release-begin|released|release-failed|retired|limit) result=(attempt|ok|failed|hit|miss|absent|blocked|cancelled|dropped) source=(NONE|MIC|VOICE_RECOGNITION|VOICE_COMMUNICATION) rate=(0|24000|48000) channels=[0-2] bytes=[0-9]{1,10} elapsedUs=$number",
+        "media stage=microphone-signal receiver=$number event=$ledgerEvent owner=$number blocks=$number nonzeroBlocks=$number partialBytes=[0-9]{1,10} reason=(cancelled|permission|failed|ineligible) phase=(ended|released) elapsedUs=$number",
         "CarPlay USB configuration found=$bool appleEthernet=$bool transitions=[01] decision=(reuse-descriptors|reuse-without-apple-ethernet|request-transition|reject-missing-configuration)",
         "CarPlay USB transition attempt=1 result=(accepted|rejected) fallback=$bool",
         "CarPlay USB selection configurationId=$usbByte usbmuxInterfaceId=$usbByte usbmuxAlt=$usbByte ncmControlInterfaceId=$usbByte ncmControlAlt=$usbByte ncmDataInterfaceId=$usbByte ncmDataAlt=$usbByte",
@@ -153,10 +162,19 @@ object CarPlayAudioDiagnostics {
         "media stage=microphone-datagram-sent packets=$number; phone receipt unverified",
         "media stage=microphone-failed type=100 errorType=$failure",
         "media stage=(microphone-worker-start-failed|microphone-queue-overflow|microphone-retirement-pending)",
-    ).map(::Regex)
+    ).let { base ->
+        // Reuse ONLY these exact full-string finite policy/config/effect schemas, never arbitrary
+        // nested receiver text. Their owning recorder is now retained across delayed delivery.
+        base + base.filter { it.startsWith("media stage=microphone-policy ") ||
+            it.startsWith("media stage=microphone-config ") || it.startsWith("media stage=microphone-effects ") }
+            .map { "media stage=microphone-owned receiver=$number event=$ledgerEvent owner=$number elapsedUs=$number $it" }
+    }.map(::Regex)
 
     fun sanitize(session: Long, message: String): String? {
-        if (session <= 0 || message.length > MAX_INPUT_LENGTH) return null
+        val maximum = if (message.startsWith("media stage=audio-pcm ") || message.startsWith("media stage=microphone-pcm ") ||
+            message.startsWith("media stage=microphone-owned "))
+            MAX_NUMERIC_INPUT_LENGTH else MAX_INPUT_LENGTH
+        if (session <= 0 || message.length > maximum) return null
         val receipt = accepted.matchEntire(message)
         val safe = if (receipt != null) "BENCH_DIAG streamAccepted type=${receipt.groupValues[1]}"
             else message.takeIf { candidate -> schemas.any { it.matches(candidate) } } ?: return null
@@ -176,9 +194,25 @@ class CarPlayAudioDiagnosticReporter(
     private var networkCompletions = 0
     private var neighborReceipts = 0
     private var networkFirstFull = false
+    // Constant-space allowance independent of ordinary per-second details. Each exact runtime
+    // can retain four receiver ledgers; unknown extra receivers fail closed, not grow a map.
+    private val ledgerReceivers = linkedMapOf<Long, LongArray>()
 
     fun record(message: String) {
         val line = CarPlayAudioDiagnostics.sanitize(session, message) ?: return
+        val ledger = ledgerReceipt.find(message)
+        if (ledger != null) {
+            val receiver = ledger.groupValues[1].toLongOrNull() ?: return
+            val event = ledger.groupValues[2].toIntOrNull() ?: return
+            val admitted = synchronized(this) {
+                val seen = ledgerReceivers[receiver] ?: if (ledgerReceivers.size < 4)
+                    LongArray(4).also { ledgerReceivers[receiver] = it } else return@synchronized false
+                val index = (event-1)/64; val mask = 1L shl ((event-1)%64)
+                if (seen[index] and mask != 0L) false else { seen[index] = seen[index] or mask; true }
+            }
+            if (admitted) runCatching { sink(line) }
+            return
+        }
         // Completion reservations are lifetime-bounded independently of ordinary detail rate.
         // A busy packet/status window must not erase an already-started USB attempt's result.
         val attempt = networkCompletionAttempt.find(message)?.groupValues?.get(1)?.toInt()
@@ -220,6 +254,7 @@ class CarPlayAudioDiagnosticReporter(
 
     companion object {
         const val MAX_EVENTS_PER_SECOND = 64
+        private val ledgerReceipt = Regex("^media stage=microphone-(?:ledger|signal|pcm|owned) receiver=([0-9]+) event=([0-9]+) ")
         private val networkCompletionAttempt = Regex("^USB network stage=send-end attempt=([0-9]+) ")
         private val neighborReceipt = Regex("^USB network stage=nd-receipt receipt=([1-8]) ")
     }

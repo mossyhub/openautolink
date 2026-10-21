@@ -92,6 +92,8 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
     SettingsHelp("CarPlay's normal connection is independent of Android Auto. USB uses the local USB bridge and requires USB/VPN consent; iPhone may ask for Trust. Wireless uses iPhone Bluetooth and the car Wi-Fi; wireless CarPlay is unverified in the car. Selecting a connection does not enable CarPlay. Changes apply with Save & Reconnect.")
     if (!settings.enabled) return
 
+    AndroidBluetoothSettingsButton()
+
     val draft = settings
     // Local echo is recreated from private ViewModel memory when returning to this tab.
     val restrictionControl = com.openautolink.app.carplay.CarPlayRestrictionPolicy.from(draft).enabled

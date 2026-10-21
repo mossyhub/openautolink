@@ -13,12 +13,15 @@ import java.net.DatagramSocket
 import java.security.SecureRandom
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
+import com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Action
+import com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Result
 
 /** Capture/codec/socket release share one owner; at most four pending wire-ready 20ms frames. */
 internal class MicrophoneUplink(private val config: MicrophoneConfig,
     private val report: (String) -> Unit = {},
     private val experiment: CarPlayMicrophoneExperimentProfile? = null,
-    private val qualifiedCapability: MicrophoneCapability? = null) : Closeable {
+    private val qualifiedCapability: MicrophoneCapability? = null,
+    private val captureLedger: CaptureAcquisitionLedger? = null) : Closeable {
     private val closed = AtomicBoolean()
     private val retired = AtomicBoolean()
     private val started = AtomicBoolean()
@@ -60,6 +63,17 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
 
         var capturedFrames = 0L
         var nonzeroFrames = 0L
+        var filled = 0
+        var observation: CaptureAcquisitionLedger.Owner? = null
+        var rawWindow: Pcm16Window? = null
+        var convertedWindow: Pcm16Window? = null
+        var observedCaptureRate = 0
+        var captureBlockBytes = 0
+        var termination = CaptureAcquisitionLedger.Termination.INELIGIBLE
+        fun pcmReceipt(phase: CaptureAcquisitionLedger.Phase) {
+            rawWindow?.snapshot()?.let { observation?.pcm(CaptureAcquisitionLedger.Boundary.RAW,phase,observedCaptureRate,it) }
+            convertedWindow?.snapshot()?.let { observation?.pcm(CaptureAcquisitionLedger.Boundary.CONVERTED,phase,config.sampleRate,it) }
+        }
         fun captureReceipt(ended: Boolean) {
             // Only aggregate signal presence and public routing policy, never samples/levels,
             // device identifiers, addresses or recording configuration dumps.
@@ -85,10 +99,18 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             val converter = profile?.let { CarPlayMicrophonePcmConverter(it, config.sampleRate) }
             val captureRate = converter?.captureRate ?: config.sampleRate
             val captureChannels = converter?.captureChannels ?: config.channels
-            val record = AndroidMicrophoneSupport.recorder(source, captureRate, captureChannels)
+            observation = captureLedger?.owner(CaptureAcquisitionLedger.Kind.LIVE, source, captureRate, captureChannels)
+            observedCaptureRate = captureRate
+            if (observation != null) {
+                rawWindow = Pcm16Window(captureChannels)
+                convertedWindow = Pcm16Window(config.channels)
+            }
+            observation?.event(Action.CREATE)
+            val record = AndroidMicrophoneSupport.recorder(source, captureRate, captureChannels, observation)
             capture = record
             require(record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == captureRate &&
                 record.channelCount == captureChannels && record.audioFormat == android.media.AudioFormat.ENCODING_PCM_16BIT)
+            observation?.event(Action.VALIDATE, Result.OK)
             val udp = if (config.socketBinding == null) DatagramSocket()
                 else DatagramSocket(java.net.InetSocketAddress(config.socketBinding.local, 0))
             transport = udp; socket = udp
@@ -98,17 +120,21 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
                 recorder = record
                 record.startRecording()
             }
+            observation?.event(Action.START, Result.OK)
             if (closed.get()) return
             check(record.recordingState == AudioRecord.RECORDSTATE_RECORDING)
             report("media stage=microphone-format type=100 audioType=${config.audioType} codec=${config.codec} rate=${config.sampleRate} channels=${config.channels} spf=${config.rtpSamplesPerPacket} source=$source")
             report("media stage=microphone-started type=100; uplink audibility unverified")
             if (experiment != null) report("media stage=microphone-experiment source=$source captureRate=$captureRate captureChannels=$captureChannels selection=${experiment.selection} wireRate=${config.sampleRate}")
-            policy = AndroidMicrophoneSupport.policyDiagnostics(record, source, captureRate, report)
+            policy = AndroidMicrophoneSupport.policyDiagnostics(record, source, captureRate) { message ->
+                report(message)
+                observation?.receipt(message)
+            }
             if (closed.get()) { policy?.close(); return }
             val pcm = ByteArray(converter?.captureFrameBytes ?: config.frameBytes)
+            captureBlockBytes = pcm.size
             // Same connection-ID re-SETUP can reuse a key: randomized counters avoid restarting nonce0.
             val counters = MicrophoneCounters(nonce = SecureRandom().nextLong().ushr(1))
-            var filled = 0
             var sent = 0L
             while (!closed.get() && AndroidMicrophoneSupport.permissionGranted()) {
                 val count = record.read(pcm, filled, pcm.size - filled, AudioRecord.READ_BLOCKING)
@@ -119,9 +145,12 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
                 if (filled != pcm.size) continue
                 capturedFrames++
                 if (pcm.any { it != 0.toByte() }) nonzeroFrames++
+                rawWindow?.observe(pcm)
                 if (capturedFrames == 1L || capturedFrames == 250L || capturedFrames == 500L) policy?.sample()
                 if (capturedFrames == 1L || capturedFrames % 250 == 0L) captureReceipt(false)
                 val wirePcm = converter?.convert(pcm) ?: pcm
+                convertedWindow?.observe(wirePcm)
+                if (capturedFrames == 1L) pcmReceipt(CaptureAcquisitionLedger.Phase.FIRST)
                 val frames = if (codec == null) {
                     // AudioRecord PCM16 is little endian; CarPlay LPCM payloads are big endian.
                     val body = wirePcm.copyOf()
@@ -146,22 +175,38 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
                 }
                 filled = 0
             }
-        } catch (_: InterruptedException) { /* retirement */
+        } catch (_: InterruptedException) { termination = CaptureAcquisitionLedger.Termination.CANCELLED
         } catch (failure: Exception) {
+            termination = CaptureAcquisitionLedger.Termination.FAILED
             if (!closed.get()) report("media stage=microphone-failed type=100 errorType=${failure.javaClass.simpleName}")
         } finally {
             policy?.close() // revokes best-effort receipts, never joins an OS query
+            if (closed.get()) termination = CaptureAcquisitionLedger.Termination.CANCELLED
+            else if (!AndroidMicrophoneSupport.permissionGranted()) termination = CaptureAcquisitionLedger.Termination.PERMISSION
+            observation?.event(Action.END, if (termination == CaptureAcquisitionLedger.Termination.FAILED) Result.FAILED else Result.CANCELLED)
+            val partialBytes = if (filled == captureBlockBytes) 0 else filled
+            observation?.signal(capturedFrames, nonzeroFrames, partialBytes, termination, false)
+            pcmReceipt(CaptureAcquisitionLedger.Phase.ENDED)
             if (capturedFrames > 0) captureReceipt(true)
             closed.set(true); pending.clear()
             synchronized(recordLock) { recorder = null }
+            observation?.event(Action.STOP)
             runCatching { capture?.stop() }
+            observation?.event(Action.RELEASE_BEGIN, if (capture == null) Result.ABSENT else Result.ATTEMPT)
             val captureReleased = runCatching { capture?.release() }.isSuccess
+            observation?.event(if (captureReleased) Action.RELEASED else Action.RELEASE_FAILED,
+                if (!captureReleased) Result.FAILED else if (capture == null) Result.ABSENT else Result.OK)
+            if (captureReleased) {
+                observation?.signal(capturedFrames, nonzeroFrames, partialBytes, termination, true)
+                pcmReceipt(CaptureAcquisitionLedger.Phase.RELEASED)
+            }
             runCatching { transport?.close() }; socket = null
             encoder?.close(); config.key.fill(0)
             if (captureReleased) {
                 captureLease?.release()
                 physicalOwner.compareAndSet(this, null)
                 retired.set(true)
+                observation?.event(Action.RETIRED, Result.OK)
             }
         }
     }

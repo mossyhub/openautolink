@@ -9,6 +9,8 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Action
+import com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Result
 
 /** Probe on a receiver/control worker only; never start recording while qualifying offers. */
 object AndroidMicrophoneSupport {
@@ -53,6 +55,8 @@ object AndroidMicrophoneSupport {
 
     @Synchronized private fun encoderNames(): Map<Long, String> {
         if (!permissionGranted()) return emptyMap()
+        CaptureAcquisitionLedger.current.get()?.root?.event(Action.ENCODER_CACHE,
+            if (configuredEncoders == null) Result.MISS else Result.HIT)
         configuredEncoders?.let { return it }
         val inventory = runCatching { OpusEncoder.inventory() }.getOrDefault(emptyList())
         val result = linkedMapOf<Long, String>()
@@ -70,8 +74,11 @@ object AndroidMicrophoneSupport {
         val microphoneTypes = setOf(AudioDeviceInfo.TYPE_BUILTIN_MIC, AudioDeviceInfo.TYPE_WIRED_HEADSET,
             AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET,
             AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET)
+        CaptureAcquisitionLedger.current.get()?.root?.event(Action.INPUTS)
         if (manager.getDevices(AudioManager.GET_DEVICES_INPUTS).none { it.isSource && it.type in microphoneTypes })
             return emptyMap<Long, String>().also { qualified = MicrophoneCapability.NONE; configured = null }
+        CaptureAcquisitionLedger.current.get()?.root?.event(Action.RECORDER_CACHE,
+            if (configured == null) Result.MISS else Result.HIT)
         configured?.let { return it }
         // A recorder/encoder qualified for 48k MIC says nothing about 24k VOICE_RECOGNITION.
         val rates = listOf(MicrophoneSource.MIC, MicrophoneSource.VOICE_RECOGNITION).associateWith { source ->
@@ -95,17 +102,24 @@ object AndroidMicrophoneSupport {
     }
 
     private fun qualifies(source: MicrophoneSource, rate: Int, channels: Int = 1): Boolean? {
-        val lease = MicrophoneCaptureFence.tryNormal() ?: return null
+        val observation = CaptureAcquisitionLedger.current.get()?.owner(CaptureAcquisitionLedger.Kind.PROBE, source, rate, channels)
+        val lease = MicrophoneCaptureFence.tryNormal() ?: return null.also { observation?.event(Action.CREATE, Result.BLOCKED) }
         var record: AudioRecord? = null
         var valid = false
         try {
-            record = recorder(source, rate, channels)
+            observation?.event(Action.CREATE)
+            record = recorder(source, rate, channels, observation)
             valid = record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == rate &&
                 record.channelCount == channels && record.audioFormat == AudioFormat.ENCODING_PCM_16BIT
-        } catch (_: Exception) { valid = false }
+            observation?.event(Action.VALIDATE, if (valid) Result.OK else Result.FAILED)
+        } catch (_: Exception) { valid = false; observation?.event(Action.VALIDATE, Result.FAILED) }
         finally {
-            try { record?.release(); lease.release() }
-            catch (_: Exception) { valid = false } // retain fence when release is unacknowledged
+            observation?.event(Action.RELEASE_BEGIN, if (record == null) Result.ABSENT else Result.ATTEMPT)
+            try {
+                record?.release(); lease.release()
+                observation?.event(Action.RELEASED, if (record == null) Result.ABSENT else Result.OK)
+            }
+            catch (_: Exception) { valid = false; observation?.event(Action.RELEASE_FAILED, Result.FAILED) } // retain fence
         }
         return valid && permissionGranted()
     }
@@ -130,7 +144,8 @@ object AndroidMicrophoneSupport {
         report: (String) -> Unit): MicrophonePolicyDiagnostics =
         MicrophonePolicyDiagnostics.forRecorder(checkNotNull(context), record, source, rate, report)
 
-    internal fun recorder(source: MicrophoneSource, sampleRate: Int = 48000, channels: Int = 1): AudioRecord {
+    internal fun recorder(source: MicrophoneSource, sampleRate: Int = 48000, channels: Int = 1,
+        observation: CaptureAcquisitionLedger.Owner? = null): AudioRecord {
         require(sampleRate in setOf(24000,48000) && channels in 1..2)
         val app = checkNotNull(context)
         if (app.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
@@ -138,6 +153,7 @@ object AndroidMicrophoneSupport {
         val mask = if (channels == 2) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
         val minimum = AudioRecord.getMinBufferSize(sampleRate, mask, AudioFormat.ENCODING_PCM_16BIT)
         require(minimum > 0)
+        observation?.event(Action.BUFFER, Result.OK, maxOf(minimum * 2, sampleRate / 50 * channels * 2 * 4))
         return AudioRecord.Builder().setAudioSource(when (source) {
             MicrophoneSource.MIC -> MediaRecorder.AudioSource.MIC
             MicrophoneSource.VOICE_COMMUNICATION -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
