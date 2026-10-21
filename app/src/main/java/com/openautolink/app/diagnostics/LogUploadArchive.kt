@@ -32,8 +32,18 @@ internal class LogUploadArchive(
             val skipped = mutableListOf<UploadSkipped>()
             val used = mutableSetOf("upload_manifest.log")
             var remaining = MAX_RAW_BYTES - MANIFEST_RESERVE
-            files.distinctBy { it.canonicalPath }
-                .sortedWith(compareByDescending<File> { it.name.startsWith("ev_", true) }.thenByDescending { it.lastModified() })
+            val unique = files.distinctBy { it.canonicalPath }
+            val localRun = Regex("microphone_diagnostic_run_[0-9]{19}\\.log")
+            fun capture(file: File) = CaptureTerminalLogStore.runName.matches(file.name)
+            fun local(file: File) = localRun.matches(file.name)
+            val captureRuns = unique.filter { capture(it) && it.length() <= CaptureTerminalLogStore.MAX_BYTES }
+                .sortedByDescending { it.name }.take(CaptureTerminalLogStore.MAX_RUNS).toSet()
+            val localRuns = unique.filter { local(it) && it.length() <= 32768 }
+                .sortedByDescending { it.name }.take(12).toSet()
+            val localAlias = unique.filter { it.name == "microphone_diagnostic.log" && it.length() <= 32768 }
+                .filter { alias -> localRuns.any { run -> run.length()==alias.length() && run.readBytes().contentEquals(alias.readBytes()) } }.toSet()
+            unique.sortedWith(compareByDescending<File> { it in captureRuns || it in localRuns }
+                    .thenByDescending { it.name.startsWith("ev_", true) }.thenByDescending { it.lastModified() })
                 .forEachIndexed { index, file ->
                     val ev = file.name.startsWith("ev_", true)
                     val safe = file.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(160)
@@ -45,9 +55,14 @@ internal class LogUploadArchive(
                     val bytes = file.length()
                     val modified = file.lastModified()
                     val window = if (ev) 7 * 86_400_000L else 6 * 3_600_000L
+                    val retainedCapture = file in captureRuns || file in localRuns
                     val reason = when {
                         !file.isFile || !file.name.endsWith(".log", true) -> "not_log_file"
-                        modified < now - window -> if (ev) "outside_ev_retention" else "outside_recent_window"
+                        file in localAlias -> "duplicate_latest_alias"
+                        capture(file) && bytes > CaptureTerminalLogStore.MAX_BYTES -> "capture_member_bytes_limit"
+                        local(file) && bytes > 32768 -> "diagnostic_member_bytes_limit"
+                        (capture(file) || local(file)) && !retainedCapture -> "outside_latest_twelve"
+                        !retainedCapture && modified < now - window -> if (ev) "outside_ev_retention" else "outside_recent_window"
                         bytes > MAX_MEMBER_BYTES -> "member_bytes_limit"
                         selected.size >= 63 -> "member_count_limit"
                         bytes > remaining -> "total_bytes_limit"

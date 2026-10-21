@@ -14,6 +14,8 @@ import com.shilapi.xcertplay.media.CarPlayMicrophoneChannelSelection
 import com.shilapi.xcertplay.media.CarPlayMicrophoneChannels
 import com.shilapi.xcertplay.media.CarPlayMicrophoneCodec
 import com.shilapi.xcertplay.media.MicrophoneSource
+import com.shilapi.xcertplay.media.CarPlayMicrophoneQualificationHistory
+import com.shilapi.xcertplay.media.CarPlayMicrophoneSpeechCapture
 
 @Composable
 fun MicrophoneDiagnosticPanel(controller: MicrophoneDiagnosticController) {
@@ -37,7 +39,7 @@ fun MicrophoneDiagnosticPanel(controller: MicrophoneDiagnosticController) {
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Microphone diagnostic", style = MaterialTheme.typography.headlineSmall)
-        Text("Disconnect all projection phones. Leave the iPhone unpaired. No native calls during this test.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Disconnect projection for local tests or arming. Preserve your paired Phone ON / Media OFF setup; do not change Bluetooth. No native calls during a microphone trial.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Opt-in only · up to 3 seconds per arm · 15-second comparison deadline. A stalled recorder may take longer to release. No audio saved or played; normal capture settings stay unchanged.", style = MaterialTheme.typography.bodySmall)
         Text("Up to 12 completed numeric comparisons are retained for manual Upload Logs; ordinary upload age/size limits apply.", style = MaterialTheme.typography.bodySmall)
         Text("Local parked capture", style = MaterialTheme.typography.titleLarge)
@@ -74,6 +76,7 @@ fun MicrophoneDiagnosticPanel(controller: MicrophoneDiagnosticController) {
         }
         Text("Outcome: ${controller.state.result?.reason ?: controller.state.reason}", Modifier.testTag("mic-outcome"),
             style = MaterialTheme.typography.bodySmall)
+        CarPlayPlayingPublicationControls(controller)
         LiveExperimentControls(controller)
     }
 }
@@ -111,11 +114,36 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
     Text("Memory only · 15 minutes · next connection / new recorder only. Leaving this page keeps the armed profile but clears consent. Stop/reconnect to apply changes; disarm/reset never changes an active recorder.",
         style = MaterialTheme.typography.bodySmall)
     status.profile?.let {
-        Text("Armed request: ${it.source ?: "automatic"} · ${it.rate} · ${it.channels} · ${it.selection} · codec preference ${it.codec}",
+        Text(it.independent?.let { selected -> "Armed independent lab: history ${selected.history} · Siri capture ${selected.speechCapture} · genuine AUTO offers" }
+            ?: "Armed request: ${it.source ?: "automatic"} · ${it.rate} · ${it.channels} · ${it.selection} · codec preference ${it.codec}",
             style = MaterialTheme.typography.bodySmall)
     }
     val profile = controller.liveProfile
     val enabled = !controller.busy
+    val independent = controller.independentSelection
+    Text("Independent Siri lab · history and live capture", style = MaterialTheme.typography.titleMedium)
+    Choices("Qualification history bundle · genuine order / offers",
+        listOf(CarPlayMicrophoneQualificationHistory.NORMAL to "Normal · five probes",
+            CarPlayMicrophoneQualificationHistory.MANUAL_VR48_TWO to "Manual VR48/two · nine probes"),
+        independent.history, enabled, { "mic-independent-history-${it.name}" }) {
+        controller.updateIndependentSelection(independent.copy(history = it))
+    }
+    Choices("Live Siri rate + channels + conversion package · recognition (6)",
+        listOf(CarPlayMicrophoneSpeechCapture.VR24_MONO to "VR24 mono", CarPlayMicrophoneSpeechCapture.VR48_TWO to "VR48 two · average"),
+        independent.speechCapture, enabled, { "mic-independent-live-${it.name}" }) {
+        controller.updateIndependentSelection(independent.copy(speechCapture = it))
+    }
+    Text("History comparison: hold VR48 two fixed; change only normal/manual history. Live-package comparison: hold normal history fixed; compare VR24 mono / VR48 two. History includes offers/cache timing, not pure allocation count; manual history withholds the automatic default input it never qualified. Rate/channels/conversion is one package, not a single-parameter cause.", style = MaterialTheme.typography.bodySmall)
+    Text(if (controller.independentSupported) "Actual qualification and negotiated wire must admit this selection; unsupported capture/wire is rejected without fallback. Phone chooses codec; no forced offers."
+        else "Unsupported: manual VR48/two history never qualifies VR24 mono. Choose normal history or VR48 two; no extra recorder will be opened.",
+        Modifier.testTag("mic-independent-admission"), style = MaterialTheme.typography.bodySmall)
+    Text("After each short Siri interaction, stop and await actual recorder AND receiver retirement before changing an arm. Compare the same wire receipts in manual Upload Logs. Keep Maps accessory activation consistent; no native assistant, pairing/reset, SCO or source switching between arms. Nonzero capture alone is not understood speech or a microphone fix.", style = MaterialTheme.typography.bodySmall)
+    Button(controller::armIndependentLive, enabled = controller.canArmIndependent,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-independent-arm")) {
+        Text("Arm independent Siri lab · 15 minutes")
+    }
+    HorizontalDivider()
+    Text("Legacy coupled manual profile · qualification and live capture together", style = MaterialTheme.typography.titleMedium)
     Choices("Next-session source", listOf< Pair<MicrophoneSource?, String> >(
         null to "Automatic", MicrophoneSource.MIC to "MIC (1)",
         MicrophoneSource.VOICE_RECOGNITION to "Recognition (6)", MicrophoneSource.VOICE_COMMUNICATION to "Communication (7)"),

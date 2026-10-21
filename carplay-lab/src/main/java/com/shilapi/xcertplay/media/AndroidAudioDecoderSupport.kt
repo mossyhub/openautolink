@@ -11,7 +11,7 @@ import java.nio.ByteBuffer
  * Enumeration never creates/configures a decoder on the RTSP/UDP callback thread.
  */
 object AndroidAudioDecoderSupport {
-    private val decoders: Map<Long,String> by lazy {
+    private val decoderInventory = lazy {
         runCatching {
             val codecs = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { !it.isEncoder }
             AudioOutputSupport.implementedBits.mapNotNull { bits ->
@@ -28,9 +28,14 @@ object AndroidAudioDecoderSupport {
             }.toMap()
         }.getOrDefault(emptyMap()) // a failed/unavailable platform never becomes a codec offer
     }
+    private val decoders: Map<Long,String> get() = decoderInventory.value
     // LPCM is already rendered by AudioTrack, not MediaCodec. Codec discovery failure must not
     // erase those exact implemented outputs or turn decoder inventory into microphone evidence.
-    val availableBits: Set<Long> get() = AudioOutputSupport.implementedPcmBits + decoders.keys
+    val availableBits: Set<Long> get() {
+        CaptureAcquisitionLedger.current.get()?.root?.event(CaptureAcquisitionLedger.Action.DECODER_CACHE,
+            if (decoderInventory.isInitialized()) CaptureAcquisitionLedger.Result.HIT else CaptureAcquisitionLedger.Result.MISS)
+        return AudioOutputSupport.implementedPcmBits + decoders.keys
+    }
     fun decoderName(format: AudioFormat): String? = decoders.entries.firstOrNull { (bits,_) ->
         AudioOutputSupport.format(bits,format.payloadType,format.audioType)?.copy(samplesPerFrame=format.samplesPerFrame) == format
     }?.value

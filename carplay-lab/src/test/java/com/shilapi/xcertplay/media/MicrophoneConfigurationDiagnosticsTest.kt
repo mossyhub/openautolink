@@ -67,7 +67,7 @@ class MicrophoneConfigurationDiagnosticsTest {
             assertTrue(lines.contains("media stage=microphone-config scope=own requested=VOICE_COMMUNICATION rate=24000 recorder=VOICE_COMMUNICATION mode=communication config=present client=VOICE_COMMUNICATION active=VOICE_RECOGNITION clientRate=24000 deviceRate=48000 clientChannels=mono deviceChannels=mono clientEncoding=pcm16 deviceEncoding=pcm16 route=none"))
             verify(manager,never()).activeRecordingConfigurations
             verify(record,never()).audioSessionId
-            verify(record,never()).getActiveMicrophones()
+            verify(record,times(1)).getActiveMicrophones() // bounded own-recorder mapping on policy worker
         } finally { observer.close() }
     }
 }

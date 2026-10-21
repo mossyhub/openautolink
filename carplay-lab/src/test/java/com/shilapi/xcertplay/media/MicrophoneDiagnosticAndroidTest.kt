@@ -30,6 +30,14 @@ class MicrophoneDiagnosticAndroidTest {
         return type!!.getDeclaredConstructor(Context::class.java,kotlin.jvm.functions.Function1::class.java)
             .newInstance(RuntimeEnvironment.getApplication(),factory) as MicrophoneDiagnosticPlatform
     }
+    @Test fun exactSourceBeyondCapabilityRowsIsUnique() {
+        val app = RuntimeEnvironment.getApplication()
+        val devices = List(16) { device("OTHER_PRIVATE", it) } + device("Call_In_Mic", 99)
+        shadowOf(app.getSystemService(AudioManager::class.java)).setInputDevices(devices)
+        val inventory = platform().inventory()
+        assertEquals(MicrophoneDiagnosticMatch.UNIQUE, inventory.match)
+        assertEquals(16, inventory.inputs.size)
+    }
     @Test fun productionFactoryUsesEachRequestedSupportedSource() {
         val app = RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
@@ -61,7 +69,7 @@ class MicrophoneDiagnosticAndroidTest {
         manager.setInputDevices(listOf(exact,device("Call_In_Mic",43)))
         assertEquals(MicrophoneDiagnosticMatch.MULTIPLE,p.inventory().match)
         manager.setInputDevices(List(17) { near })
-        assertEquals(MicrophoneDiagnosticMatch.TRUNCATED,p.inventory().match)
+        assertEquals(MicrophoneDiagnosticMatch.ABSENT,p.inventory().match)
         assertEquals(16,p.inventory().inputs.size)
         manager.setInputDevices(listOf(near));assertEquals(MicrophoneDiagnosticMatch.ABSENT,p.inventory().match)
         `when`(near.sampleRates).thenReturn(intArrayOf(24000,48000,12345))

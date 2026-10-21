@@ -110,7 +110,10 @@ class MicrophoneDiagnosticLogStoreTest {
         ZipInputStream(bytes.toByteArray().inputStream()).use { zip ->
             while(true) { val entry=zip.nextEntry ?: break; members[entry.name]=zip.readBytes() }
         }
-        assertArrayEquals(expected,members["microphone_diagnostic.log"])
+        val immutableRuns = members.filterKeys { it.startsWith("microphone_diagnostic_run_") }
+        assertEquals(1, immutableRuns.size)
+        assertArrayEquals(expected,immutableRuns.values.single())
+        assertFalse("Latest alias must not count as another completed run",members.containsKey("microphone_diagnostic.log"))
         assertTrue(file.exists())
     }
 }

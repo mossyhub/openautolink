@@ -4,13 +4,13 @@ The local opt-in tool measures the head unit's microphone capture without transm
 
 ## Normal CarPlay calls
 
-Normal TELEPHONY now uses the owner-vehicle-verified local capture: `VOICE_RECOGNITION`, 48 kHz, two channels, averaged and converted to the unchanged negotiated mono wire format. No diagnostic arming is required. Default-purpose MIC and Siri's existing capture behavior are unchanged. Exact two-channel initialization and, for Opus, independent encoder qualification are required; there is no mono or silence-triggered runtime fallback and no audio-mode change.
+Normal TELEPHONY uses the previously selected local capture: `VOICE_RECOGNITION`, 48 kHz, two channels, averaged and converted to the unchanged negotiated mono wire format. No diagnostic arming is required. Default-purpose MIC and Siri's existing capture behavior are unchanged. Exact two-channel initialization and, for Opus, independent encoder qualification are required; there is no mono or silence-triggered runtime fallback and no audio-mode change.
 
-An explicitly armed receiver-frozen experiment overrides this normal call profile. Disarm + Reconnect restores the proven normal call profile, not legacy communication-source capture. The console remains available for remaining experiments. The owner reported recognition 24 kHz mono distorted, 48 kHz mono better, and 48 kHz two-channel average sounding good. That is this owner's vehicle evidence, **not universal GM proof or general echo/noise acceptance**. Host tests prove conversion, qualification, encrypted transport and retirement, not acoustic quality.
+An explicitly armed receiver-frozen experiment overrides this normal call profile. Disarm + Reconnect restores the normal call profile, not legacy communication-source capture. The console remains available for remaining experiments. The owner reported recognition 24 kHz mono distorted, 48 kHz mono better, and 48 kHz two-channel average sounding good. That is this owner's vehicle evidence, **not universal GM proof or general echo/noise acceptance**. Host tests prove conversion, qualification, encrypted transport and retirement, not acoustic quality.
 
 ## Run a parked test
 
-1. Park safely. End calls, disconnect projection phones, and leave the iPhone unpaired from vehicle Bluetooth. If wireless CarPlay still owns a live session, stop it first. Android Auto must be idle.
+1. Park safely. End calls and disconnect projection phones. Record the chosen Bluetooth topology and hold it constant between trial arms; a paired experiment does not require unpairing. If wireless CarPlay still owns a live session, stop it first. Android Auto must be idle.
 2. Open **OAL Settings → Diagnostics → Open Diagnostics Dashboard → Microphone**.
 3. Leave the panel visible and check the consent box. An automotive device requires fresh, valid actual Park information; the CarPlay Always-in-Park override does not qualify. A nonautomotive test tablet instead requires explicit stationary confirmation.
 4. **Inspect inputs** performs a passive input/capability census without recording. Four separate comparisons each run control → test → control:
@@ -34,6 +34,22 @@ This separate opt-in group arms an experiment for the **next CarPlay connection 
 Select automatic (existing purpose-specific source), MIC, recognition or communication; negotiated, 24 or 48 kHz local capture; mono or two channels. Two channels permit average, first or second channel selection. The receiver adapts experimental PCM to its exact negotiated wire format; requested local rate is not the selected wire codec or RTP clock. The live codec preference is Auto, LPCM or Opus. It restricts only existing qualified microphone offers, never adds wireless PCM or changes output offers. The phone still selects the actual wire format; the preference is not a claim that a particular encoder was selected. A restriction with no matching input can deliberately prevent experimental CarPlay connection: **Disarm + Reconnect** restores default offers. No silent microphone-free fallback or midstream codec change is performed. Existing microphone setup/capture receipts remain the source of actual selected wire codec evidence.
 
 Arm while disconnected, then leave the page and connect CarPlay within the expiry window. Leaving/backgrounding clears local and live consent and cancels standalone capture, but **intentionally retains the armed future-session profile**. Disarm/reset or expiry affects future sessions only, not a recorder already started. Stop/reconnect CarPlay to apply a new choice. Other experimental profiles' call intelligibility, caller audio and echo behavior still require real parked testing; this is not an automatic fallback.
+
+## Passive measurements during normal projection
+
+Normal projection can retain bounded numeric capture, decoded/output signal, recorder-policy, own-route and terminal-retirement observations without arming an experiment. Terminal summaries preserve completion observations across normal recorder/receiver retirement for the existing manual log archive. This does not save microphone audio or automatically upload anything. Nonzero signal, a recorder starting, encoder output and packet sends are different observations; none proves Siri understanding or far-end call audibility. Unknown or unavailable policy/route observations remain unknown.
+
+## Independent Siri lab — parked, explicit opt-in
+
+The separate **Independent Siri lab · history and live capture** controls distinguish a qualification-history bundle from a live speech-capture package. Hold VR48 two-channel capture fixed while comparing normal/manual history, or hold normal history fixed while comparing VR24 mono with VR48 two-channel average. History includes genuine offer/cache/timing differences, not a pure recorder-allocation count; rate, channels and conversion change together as one package. Unsupported combinations are refused without fallback; the phone still selects a genuinely qualified wire codec. Wait for actual recorder **and** receiver retirement between short trials. This does not fix Siri.
+
+The live arm defaults OFF, requires its own consent, foreground panel, fresh actual Park and no active projection/local trial. It lives in memory for 15 minutes and affects future receiver/recorder owners only. Leaving clears consent, not an armed future-session profile. Disarm/expiry does not mutate an active recorder; stop/reconnect to apply changes. Keep accessory navigation activation and Bluetooth setup consistent between arms.
+
+## Test: suppress native Playing status — default OFF
+
+This independent CarPlay-only experiment suppresses the native PLAYING status announcement by submitting Playing as None to the native media session; it does not suppress or send playback commands. It retains paused/unknown states, title/artwork, session identity and transport callbacks. It does not mute audio, change Bluetooth, repair calls or establish which OEM source is selected. **Native progress, play indication, controls or targeting may change.** Media audio ON behavior and repeated-pausing outcomes are not validated; a parked experiment and owner acceptance remain required before changing setup recommendations.
+
+Arm only while parked with separate consent and no projection/local test. The memory-only arm expires after 15 minutes and is frozen once per future CarPlay metadata owner. Leaving clears consent but retains the arm. Disarm/expiry affects future owners only; reconnect to restore normal publication. Normal operation leaves this experiment OFF. Parked OFF/ON/OFF testing is still required before drawing a vehicle behavior conclusion.
 
 ## Interpret results
 

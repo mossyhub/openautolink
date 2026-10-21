@@ -59,6 +59,8 @@ internal object CarPlayClusterMetadataAdapter {
         val exit = (value.maneuverType - 27).takeIf { value.maneuverType in 28..46 && type != ManeuverType.UNKNOWN }
         return ManeuverState(type,distance,"",value.road,null,
             roundaboutExitNumber = exit,
-            timeToArrivalSeconds = value.remainingSeconds, destDistanceMeters = value.remainingMeters)
+            timeToArrivalSeconds = value.remainingSeconds, destDistanceMeters = value.remainingMeters,
+            displayDistance = value.displayDistance?.value, displayDistanceUnit = value.displayDistance?.unit,
+            destDistanceDisplay = value.remainingDisplayDistance?.value, destDistanceUnit = value.remainingDisplayDistance?.unit)
     }
 }

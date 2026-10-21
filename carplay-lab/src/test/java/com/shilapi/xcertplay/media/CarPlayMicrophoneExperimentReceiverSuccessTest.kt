@@ -58,8 +58,9 @@ class CarPlayMicrophoneExperimentReceiverSuccessTest {
         File(app.noBackupFilesDir,"pairing-probe").deleteRecursively()
         CarPlayMicrophoneExperiments.arm(profile)
         val surface=mock(Surface::class.java);`when`(surface.isValid).thenReturn(true)
+        val ledgerLines=java.util.concurrent.CopyOnWriteArrayList<String>()
         val receiver=ProjectionReceiver(app,"00:11:22:33:44:55",surface,mock(MfiAuthenticator::class.java),
-            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),onStatus={})
+            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),onStatus=ledgerLines::add)
         fun field(owner: Any, name: String): Any? = owner.javaClass.getDeclaredField(name).apply { isAccessible=true }.get(owner)
         try {
             assertEquals(actualOutputs,field(receiver,"outputAudioFormats"))
@@ -124,5 +125,13 @@ class CarPlayMicrophoneExperimentReceiverSuccessTest {
             }
         } finally { CarPlayMicrophoneExperiments.disarm();receiver.close();assertTrue(receiver.awaitClosed(5000)) }
         MicrophoneCaptureFence.tryDiagnostic()!!.release()
+        val creates=ledgerLines.filter { "kind=probe action=create " in it }
+        assertEquals("manual path must attest nine real attempts",9,creates.size)
+        assertTrue(ledgerLines.any { "action=encoder-cache result=hit" in it })
+        assertTrue(ledgerLines.any { "action=decoder-cache result=hit" in it })
+        creates.zipWithNext().forEach { (before,after) ->
+            val owner=Regex("owner=([0-9]+)").find(before)!!.groupValues[1]
+            assertTrue(ledgerLines.indexOfFirst { "owner=$owner " in it && "action=released " in it } < ledgerLines.indexOf(after))
+        }
     }
 }

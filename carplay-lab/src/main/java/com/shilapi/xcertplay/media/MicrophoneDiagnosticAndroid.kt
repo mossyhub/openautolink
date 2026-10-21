@@ -23,11 +23,19 @@ internal class MicrophoneDiagnosticAndroid(
         named = null
         return try {
             val devices = manager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-            val matches = mutableListOf<AudioDeviceInfo>()
+            // Identity completeness is independent of the anonymous capability-row cap.
+            // Keep only a transient candidate and saturating multiplicity, never raw identity output.
+            var matches = 0
+            var candidate: AudioDeviceInfo? = null
+            for (device in devices.take(256)) {
+                if (device.isSource && device.address == "Call_In_Mic") {
+                    matches = minOf(2, matches + 1)
+                    candidate = if (matches == 1) device else null
+                }
+            }
             val capabilities = mutableListOf<MicrophoneDiagnosticCapabilities>()
             for (device in devices.take(16)) {
                 if (!device.isSource) continue
-                if (device.address == "Call_In_Mic") matches.add(device)
                 val rates = device.sampleRates
                 val masks = device.channelMasks
                 val indices = device.channelIndexMasks
@@ -41,12 +49,12 @@ internal class MicrophoneDiagnosticAndroid(
                         indices.take(16).any { it !in INDEX_MASKS }))
             }
             val match = when {
-                devices.size > 16 -> MicrophoneDiagnosticMatch.TRUNCATED
-                matches.isEmpty() -> MicrophoneDiagnosticMatch.ABSENT
-                matches.size == 1 -> MicrophoneDiagnosticMatch.UNIQUE
+                devices.size > 256 -> MicrophoneDiagnosticMatch.TRUNCATED
+                matches == 0 -> MicrophoneDiagnosticMatch.ABSENT
+                matches == 1 -> MicrophoneDiagnosticMatch.UNIQUE
                 else -> MicrophoneDiagnosticMatch.MULTIPLE
             }
-            if (match == MicrophoneDiagnosticMatch.UNIQUE) named = matches.single()
+            if (match == MicrophoneDiagnosticMatch.UNIQUE) named = candidate
             MicrophoneDiagnosticInventory(match, capabilities.toList())
         } catch (_: Throwable) {
             named = null

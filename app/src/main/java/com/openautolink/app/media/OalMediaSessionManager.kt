@@ -76,12 +76,19 @@ class OalMediaSessionManager private constructor(private val context: Context) {
                                        val onDiagnostic: (String) -> Unit,
                                        val sequence: java.util.concurrent.atomic.AtomicLong)
     private var carPlayControls: CarPlayControls? = null
+    private data class PlayingPublicationOwner(val owner: Any, val suppress: Boolean, var receipts: Int = 0)
+    // Retained through failed retirement; controls retirement alone cannot change a frozen mode.
+    private var playingPublicationOwner: PlayingPublicationOwner? = null
 
     /** Observer must only enqueue bounded work; it runs at original command ingress, before HID mapping. */
     internal fun installCarPlayControls(owner: Any, callback: MediaControlCallback,
                                        onDiagnostic: (String) -> Unit = {}) = synchronized(sessionLock) {
         val sequence = carPlayControls?.takeIf { it.owner === owner }?.sequence
             ?: java.util.concurrent.atomic.AtomicLong()
+        if (playingPublicationOwner?.owner !== owner) {
+            playingPublicationOwner = PlayingPublicationOwner(owner,
+                com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.snapshot())
+        }
         carPlayControls = CarPlayControls(owner, callback, onDiagnostic, sequence)
     }
     internal fun retireCarPlayControls(owner: Any) = synchronized(sessionLock) {
@@ -185,6 +192,7 @@ class OalMediaSessionManager private constructor(private val context: Context) {
             mediaSession = null
             mediaControlCallback = null
             carPlayControls = null
+            playingPublicationOwner = null
             cachedArtHash = 0
             cachedBitmap = null
             lastPushedPlaying = null
@@ -210,9 +218,6 @@ class OalMediaSessionManager private constructor(private val context: Context) {
             val session = mediaSession ?: return
             cachedArtHash = 0
             cachedBitmap = null
-            lastPushedPlaying = false
-            lastPushedState = PlaybackStateCompat.STATE_NONE
-            lastPushedPosition = 0L
             session.setMetadata(
                 MediaMetadataCompat.Builder()
                     .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "OpenAutoLink")
@@ -220,6 +225,10 @@ class OalMediaSessionManager private constructor(private val context: Context) {
                     .build()
             )
             session.setPlaybackState(buildPlaybackState(PlaybackStateCompat.STATE_NONE, 0))
+            // Track successful submissions, not attempts (retirement can throw and be retried).
+            lastPushedPlaying = false
+            lastPushedState = PlaybackStateCompat.STATE_NONE
+            lastPushedPosition = 0L
             Log.i(TAG, "MediaSession reset to idle")
         }
     }
@@ -352,12 +361,27 @@ class OalMediaSessionManager private constructor(private val context: Context) {
                 session.setMetadata(builder.build())
                 lastPushedPlaying = value.playing
                 lastPushedPosition = value.elapsedMillis ?: PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN
-                lastPushedState = when (value.playing) {
-                    true -> PlaybackStateCompat.STATE_PLAYING
+                val previousState = lastPushedState
+                val mode = playingPublicationOwner?.takeIf { it.owner === owner }
+                val submittedState = when (value.playing) {
+                    true -> if (mode?.suppress == true) PlaybackStateCompat.STATE_NONE else PlaybackStateCompat.STATE_PLAYING
                     false -> PlaybackStateCompat.STATE_PAUSED
                     null -> PlaybackStateCompat.STATE_NONE
                 }
-                session.setPlaybackState(buildPlaybackState(lastPushedState, lastPushedPosition))
+                session.setPlaybackState(buildPlaybackState(submittedState, lastPushedPosition))
+                lastPushedState = submittedState
+                // Own Android boundary only, not OEM selection/focus or phone playback truth.
+                // Constant-space budget per exact owner; never export title, artwork or identity.
+                val observer = carPlayControls?.takeIf { it.owner === owner }?.onDiagnostic
+                if (mode != null && observer != null && mode.receipts < 32) {
+                    mode.receipts++
+                    fun label(state: Int) = when (state) {
+                        PlaybackStateCompat.STATE_PLAYING -> "playing"
+                        PlaybackStateCompat.STATE_PAUSED -> "paused"
+                        else -> "none"
+                    }
+                    runCatching { observer("media stage=playing-publication previous=${label(previousState)} new=${label(submittedState)} active=${session.isActive} mode=${if (mode.suppress) "suppress" else "normal"} owner=current") }
+                }
             }
         }
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.540 — CarPlay cluster units and Bluetooth controls
+
+- Carry sourced CarPlay step/destination display distance units through cluster publication (issue #200), preserving independent estimate expiry and unavailable-value safety.
+- Expose the alternate parked Android Bluetooth settings screen on supported vehicles. OAL opens an eligible system screen without changing profiles; this is a launcher feature, not a new paired USB CarPlay setup recommendation or a persistent GM-profile workaround.
+- Include prior local 538/539: fuller input census, numeric normal-projection capture/decoded/output signal observations, exact recorder acquisition/release accounting and receiver-close retry protection.
+- Retain bounded terminal numeric capture summaries and own-route/policy observations for manual log upload. Add separate opt-in parked qualification-history/live-capture experiments; no forced unsupported wire offers or silent fallback.
+- Add default-OFF native Playing-status announcement suppression testing, not playback-command suppression; native progress/indication/controls/targeting may change. Memory-only 15-minute arms affect future exact owners; active owners keep frozen choices until retirement and reconnect. Media audio ON behavior remains pending parked testing and owner acceptance.
+- No audio recordings or automatic uploads. Reliable two-way CarPlay microphone audio remains unverified; Siri is not fixed. No companion runtime changes; matching public APKs are version-aligned and omit private CarPlay authentication assets.
+
 ## 0.1.537 — CarPlay call microphone audio
 
 - Restore normal CarPlay call capture using Voice Recognition at 48 kHz, two channels averaged to the negotiated mono uplink. No experiment arming is required. Explicit manual experiment overrides remain available; Siri/default capture and Android Auto routing are unchanged. Advertise call input only when the exact capture shape and encoder qualify; no speculative fallback or mid-call source switching.

@@ -88,6 +88,8 @@ class OalUsbCarPlayRuntime(
         runCatching { android.util.Log.i("OalCarPlayAudio",line) }
     }
     private fun status(line:String) { if(!canceled.get()) { audioDiagnostics.record(line);report(line) } }
+    // Exact historical receiver evidence remains exportable after cancellation; live UI does not.
+    private fun receiverStatus(line:String) { audioDiagnostics.record(line);if(!canceled.get()) report(line) }
     private fun <T:AutoCloseable> own(create:()->T):T = synchronized(resourcesLock) {
         // Serialize creation and installation against close's canceled retirement snapshot.
         check(!canceled.get()) { "USB CarPlay attempt revoked" }
@@ -354,7 +356,8 @@ class OalUsbCarPlayRuntime(
                             ?.carBluetoothConnectionObserver?.subscribeEvidence(listener)
                     }.getOrNull()
                 }, receipt)
-            } },wired=true,drivingRestrictions = restrictionPolicy.enabled,onStatus=::status) }
+            } },wired=true,drivingRestrictions = restrictionPolicy.enabled,
+            onCaptureTerminal=captureTerminalSink(context,::receiverStatus),onStatus=::receiverStatus) }
         active();onDisplayQualified(projection.displayConfiguration)
         projection.setNetworkStartupDiagnosticStop(ncm::stopStartupDiagnostics)
         val scale=com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnostic(projection.displayConfiguration)

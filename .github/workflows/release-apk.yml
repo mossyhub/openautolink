@@ -3,10 +3,9 @@ name: Release APKs
 on:
   release:
     types: [published]
-  # Releases created through the REST API with a token do not emit a
-  # `release: published` event, so tagging that way silently produces a release
-  # with no APKs attached. This lets the build be run against an existing tag
-  # instead of having to delete and recreate the release by hand.
+  # GITHUB_TOKEN-created events can be recursion-suppressed; user/PAT-created
+  # releases may emit release: published. Inspect the exact tag/SHA run first.
+  # Manual dispatch recovers a missing build without recreating the release.
   workflow_dispatch:
     inputs:
       tag:
