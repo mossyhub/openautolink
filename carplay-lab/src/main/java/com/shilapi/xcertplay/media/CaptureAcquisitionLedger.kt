@@ -16,6 +16,10 @@ class CaptureAcquisitionLedger(private val manual: Boolean) {
         BUFFER, VALIDATE, START, END, STOP, RELEASE_BEGIN, RELEASED, RELEASE_FAILED, RETIRED, LIMIT }
     enum class Result { ATTEMPT, OK, FAILED, HIT, MISS, ABSENT, BLOCKED, CANCELLED, DROPPED }
     private val receiver = receivers.incrementAndGet()
+    val receiverOrdinal: Long get() = receiver
+    val manualHistory: Boolean get() = manual
+    val terminals = CaptureTerminalLedger()
+    fun bindTerminals(executor: Executor, sink: (CaptureTerminalSummary) -> Boolean) = terminals.bind(executor, sink)
     private val startedNs = System.nanoTime()
     private val queue = ArrayBlockingQueue<String>(MAX_DETAILS + 1)
     private val scheduled = AtomicBoolean()
@@ -100,7 +104,8 @@ class CaptureAcquisitionLedger(private val manual: Boolean) {
         const val MAX_DETAILS = 192
         private val receivers = AtomicLong()
         private val recorders = AtomicLong()
-        private val POLICY_STAGES = listOf("media stage=microphone-policy ", "media stage=microphone-config ", "media stage=microphone-effects ")
+        private val POLICY_STAGES = listOf("media stage=microphone-policy ", "media stage=microphone-config ", "media stage=microphone-effects ",
+            "media stage=microphone-route ", "media stage=microphone-mapping ", "media stage=microphone-channel ")
         internal val current = ThreadLocal<CaptureAcquisitionLedger?>()
         internal fun <T> observe(ledger: CaptureAcquisitionLedger, operation: () -> T): T {
             val previous=current.get();current.set(ledger)

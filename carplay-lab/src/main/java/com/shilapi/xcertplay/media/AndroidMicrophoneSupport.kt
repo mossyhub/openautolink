@@ -19,6 +19,15 @@ object AndroidMicrophoneSupport {
     // Encoder PCM is always converted 48k mono, independent of recorder qualification.
     private var configuredEncoders: Map<Long, String>? = null
     private var qualified = MicrophoneCapability.NONE
+    private data class CaptureShape(val source: MicrophoneSource, val rate: Int, val channels: Int)
+    private val releasedShapes = mutableSetOf<CaptureShape>()
+    /** Read immediately under the qualification monitor; only validated, released probes count. */
+    @Synchronized internal fun supportsSpeechCapture(selection: CarPlayMicrophoneIndependentSelection): Boolean {
+        val profile = selection.captureProfile()
+        val converter = CarPlayMicrophonePcmConverter(profile, 24000)
+        return CaptureShape(MicrophoneSource.VOICE_RECOGNITION, converter.captureRate,
+            converter.captureChannels) in releasedShapes
+    }
     @Synchronized fun initialize(context: Context) {
         val app = context.applicationContext
         if (this.context !== app) {
@@ -32,6 +41,7 @@ object AndroidMicrophoneSupport {
 
     @Synchronized fun probe(context: Context): MicrophoneCapability {
         initialize(context)
+        releasedShapes.clear()
         configured = null
         qualified = MicrophoneCapability.NONE
         return capability
@@ -121,11 +131,14 @@ object AndroidMicrophoneSupport {
             }
             catch (_: Exception) { valid = false; observation?.event(Action.RELEASE_FAILED, Result.FAILED) } // retain fence
         }
-        return valid && permissionGranted()
+        return (valid && permissionGranted()).also {
+            if (it) releasedShapes.add(CaptureShape(source, rate, channels))
+        }
     }
 
     @Synchronized fun experimentCapability(context: Context, profile: CarPlayMicrophoneExperimentProfile): MicrophoneCapability {
         initialize(context)
+        releasedShapes.clear()
         if (!permissionGranted()) return MicrophoneCapability.NONE
         val encoders = encoderNames()
         return MicrophoneCapability.of(listOf("default", "telephony", "speechrecognition").associateWith { kind ->

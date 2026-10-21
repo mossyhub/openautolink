@@ -4,6 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.shilapi.xcertplay.media.CarPlayMicrophoneExperimentProfile
 import com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments
+import com.shilapi.xcertplay.media.CarPlayMicrophoneIndependentSelection
+import com.shilapi.xcertplay.media.CarPlayMicrophoneQualificationHistory
+import com.shilapi.xcertplay.media.CarPlayMicrophoneSpeechCapture
 
 class MicrophoneDiagnosticController(
     val backend: MicrophoneDiagnosticBackend? = null,
@@ -28,6 +31,19 @@ class MicrophoneDiagnosticController(
         private set
     var liveProfile by androidx.compose.runtime.mutableStateOf(CarPlayMicrophoneExperimentProfile())
         private set
+    var independentSelection by androidx.compose.runtime.mutableStateOf(CarPlayMicrophoneIndependentSelection())
+        private set
+    val independentSupported: Boolean get() = independentSelection.history != CarPlayMicrophoneQualificationHistory.MANUAL_VR48_TWO ||
+        independentSelection.speechCapture == CarPlayMicrophoneSpeechCapture.VR48_TWO
+    val canArmIndependent: Boolean get() = canArmLive && independentSupported
+    fun updateIndependentSelection(value: CarPlayMicrophoneIndependentSelection) { if (!busy) independentSelection = value }
+    fun armIndependentLive() {
+        refresh()
+        if (!canArmIndependent) return
+        CarPlayMicrophoneExperiments.arm(CarPlayMicrophoneExperimentProfile(independent = independentSelection))
+        liveExpired = false
+        refresh()
+    }
     var liveConsent by androidx.compose.runtime.mutableStateOf(false)
         private set
     var liveStatus by androidx.compose.runtime.mutableStateOf(CarPlayMicrophoneExperiments.status())
@@ -35,6 +51,29 @@ class MicrophoneDiagnosticController(
     var liveExpired by androidx.compose.runtime.mutableStateOf(false)
         private set
     private var liveAdmission by androidx.compose.runtime.mutableStateOf(false)
+
+    // Separate consent and future-owner memory arm; never changes microphone settings.
+    internal var playingConsent by androidx.compose.runtime.mutableStateOf(false)
+        private set
+    internal var playingStatus by androidx.compose.runtime.mutableStateOf(com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.status())
+        private set
+    internal var playingExpired by androidx.compose.runtime.mutableStateOf(false)
+        private set
+    internal val canArmPlaying: Boolean get() = playingConsent && !busy && liveEligibleNow()
+    internal fun updatePlayingConsent(value: Boolean) { playingConsent = value; refresh() }
+    internal fun armPlaying() {
+        refresh()
+        if (!canArmPlaying) return
+        com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.arm()
+        playingExpired = false
+        refresh()
+    }
+    internal fun disarmPlaying() {
+        com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.disarm()
+        playingStatus = com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.status()
+        playingExpired = false
+        refresh()
+    }
 
     // Actual Park is mandatory even on a test tablet; local stationary consent is not a substitute.
     private fun liveEligibleNow(): Boolean = foreground && runCatching {
@@ -63,6 +102,7 @@ class MicrophoneDiagnosticController(
         if (busy) return
         disarmLive()
         liveProfile = CarPlayMicrophoneExperimentProfile()
+        independentSelection = CarPlayMicrophoneIndependentSelection()
         liveConsent = false
     }
 
@@ -81,6 +121,7 @@ class MicrophoneDiagnosticController(
             consent = false
             stationary = false
             liveConsent = false
+            playingConsent = false
         }
         refresh()
     }
@@ -91,6 +132,9 @@ class MicrophoneDiagnosticController(
     fun refresh() {
         admission = isEligibleNow()
         liveAdmission = liveEligibleNow()
+        val playing = com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.status()
+        if (playingStatus.armed && !playing.armed) playingExpired = true
+        playingStatus = playing
         val status = CarPlayMicrophoneExperiments.status()
         if (liveStatus.armed && !status.armed) liveExpired = true
         liveStatus = status

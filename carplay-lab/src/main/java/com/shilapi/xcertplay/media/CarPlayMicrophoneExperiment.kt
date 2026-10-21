@@ -5,12 +5,30 @@ enum class CarPlayMicrophoneCaptureRate { NEGOTIATED, HZ_24000, HZ_48000 }
 enum class CarPlayMicrophoneChannels { MONO, TWO }
 enum class CarPlayMicrophoneChannelSelection { AVERAGE, FIRST, SECOND }
 enum class CarPlayMicrophoneCodec { AUTO, LPCM, OPUS }
+enum class CarPlayMicrophoneQualificationHistory { NORMAL, MANUAL_VR48_TWO }
+enum class CarPlayMicrophoneSpeechCapture { VR24_MONO, VR48_TWO }
+/** Independent lab axes, not a production microphone route or a forced wire format. */
+data class CarPlayMicrophoneIndependentSelection(
+    val history: CarPlayMicrophoneQualificationHistory = CarPlayMicrophoneQualificationHistory.NORMAL,
+    val speechCapture: CarPlayMicrophoneSpeechCapture = CarPlayMicrophoneSpeechCapture.VR48_TWO,
+) {
+    internal fun captureProfile() = CarPlayMicrophoneExperimentProfile(
+        source = MicrophoneSource.VOICE_RECOGNITION,
+        rate = if (speechCapture == CarPlayMicrophoneSpeechCapture.VR48_TWO)
+            CarPlayMicrophoneCaptureRate.HZ_48000 else CarPlayMicrophoneCaptureRate.HZ_24000,
+        channels = if (speechCapture == CarPlayMicrophoneSpeechCapture.VR48_TWO)
+            CarPlayMicrophoneChannels.TWO else CarPlayMicrophoneChannels.MONO)
+    internal fun qualificationProfile() = if (history == CarPlayMicrophoneQualificationHistory.NORMAL) null
+        else CarPlayMicrophoneIndependentSelection(speechCapture = CarPlayMicrophoneSpeechCapture.VR48_TWO).captureProfile()
+    internal fun receipt(receiver: Long) = "media stage=microphone-control receiver=$receiver history=${if (history == CarPlayMicrophoneQualificationHistory.NORMAL) "normal" else "manual-vr48-two"} live=${if (speechCapture == CarPlayMicrophoneSpeechCapture.VR24_MONO) "vr24-mono" else "vr48-two"}"
+}
 data class CarPlayMicrophoneExperimentProfile(
     val source: MicrophoneSource? = null,
     val rate: CarPlayMicrophoneCaptureRate = CarPlayMicrophoneCaptureRate.NEGOTIATED,
     val channels: CarPlayMicrophoneChannels = CarPlayMicrophoneChannels.MONO,
     val selection: CarPlayMicrophoneChannelSelection = CarPlayMicrophoneChannelSelection.AVERAGE,
     val codec: CarPlayMicrophoneCodec = CarPlayMicrophoneCodec.AUTO,
+    val independent: CarPlayMicrophoneIndependentSelection? = null,
 ) {
     init {
         require(channels == CarPlayMicrophoneChannels.TWO || selection == CarPlayMicrophoneChannelSelection.AVERAGE) {

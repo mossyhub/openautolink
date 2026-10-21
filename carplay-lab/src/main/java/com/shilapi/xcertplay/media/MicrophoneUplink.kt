@@ -21,7 +21,8 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
     private val report: (String) -> Unit = {},
     private val experiment: CarPlayMicrophoneExperimentProfile? = null,
     private val qualifiedCapability: MicrophoneCapability? = null,
-    private val captureLedger: CaptureAcquisitionLedger? = null) : Closeable {
+    private val captureLedger: CaptureAcquisitionLedger? = null,
+    private val speechRecognitionProfile: CarPlayMicrophoneExperimentProfile? = null) : Closeable {
     private val closed = AtomicBoolean()
     private val retired = AtomicBoolean()
     private val started = AtomicBoolean()
@@ -68,6 +69,9 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
         var rawWindow: Pcm16Window? = null
         var convertedWindow: Pcm16Window? = null
         var observedCaptureRate = 0
+        var observedSource: MicrophoneSource? = null
+        var observedSelection = CaptureTerminalSummary.Selection.AVERAGE
+        var observedExperiment = false
         var captureBlockBytes = 0
         var termination = CaptureAcquisitionLedger.Termination.INELIGIBLE
         fun pcmReceipt(phase: CaptureAcquisitionLedger.Phase) {
@@ -88,19 +92,24 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             if (closed.get() || !AndroidMicrophoneSupport.permissionGranted()) return
             if (config.formatBits !in (qualifiedCapability ?: AndroidMicrophoneSupport.capability).bits(config.audioType)) return
             val codec = if (config.codec == com.shilapi.xcertplay.airplay.AudioCodecKind.OPUS) {
-                val name = (if (experiment == null) AndroidMicrophoneSupport.encoderName(config.formatBits)
+                val name = (if (experiment == null && speechRecognitionProfile == null) AndroidMicrophoneSupport.encoderName(config.formatBits)
                     else AndroidMicrophoneSupport.experimentEncoderName(config.formatBits)) ?: return
                 OpusEncoder(name, config.bitrate)
             } else null
             encoder = codec
             if (closed.get()) return
-            val profile = CarPlayMicrophoneCapturePolicy.profile(config.audioType, experiment)
+            val profile = if (config.audioType.equals("speechrecognition", ignoreCase = true))
+                speechRecognitionProfile ?: CarPlayMicrophoneCapturePolicy.profile(config.audioType, experiment)
+                else CarPlayMicrophoneCapturePolicy.profile(config.audioType, experiment)
             val source = profile?.source ?: checkNotNull(MicrophoneSupport.source(config.audioType))
             val converter = profile?.let { CarPlayMicrophonePcmConverter(it, config.sampleRate) }
             val captureRate = converter?.captureRate ?: config.sampleRate
             val captureChannels = converter?.captureChannels ?: config.channels
             observation = captureLedger?.owner(CaptureAcquisitionLedger.Kind.LIVE, source, captureRate, captureChannels)
             observedCaptureRate = captureRate
+            observedSource = source
+            observedSelection = CaptureTerminalSummary.Selection.valueOf(profile?.selection?.name ?: "AVERAGE")
+            observedExperiment = profile != null
             if (observation != null) {
                 rawWindow = Pcm16Window(captureChannels)
                 convertedWindow = Pcm16Window(config.channels)
@@ -193,16 +202,33 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             observation?.event(Action.STOP)
             runCatching { capture?.stop() }
             observation?.event(Action.RELEASE_BEGIN, if (capture == null) Result.ABSENT else Result.ATTEMPT)
+            if (capture != null) observation?.let { captureLedger?.terminals?.releasePending(captureLedger.receiverOrdinal,it.ordinal) }
             val captureReleased = runCatching { capture?.release() }.isSuccess
+            if (!captureReleased) observation?.let { captureLedger?.terminals?.releaseFailed(captureLedger.receiverOrdinal,it.ordinal) }
             observation?.event(if (captureReleased) Action.RELEASED else Action.RELEASE_FAILED,
                 if (!captureReleased) Result.FAILED else if (capture == null) Result.ABSENT else Result.OK)
             if (captureReleased) {
                 observation?.signal(capturedFrames, nonzeroFrames, partialBytes, termination, true)
                 pcmReceipt(CaptureAcquisitionLedger.Phase.RELEASED)
             }
-            runCatching { transport?.close() }; socket = null
+            val transportReleased = runCatching { transport?.close() }.isSuccess; socket = null
             encoder?.close(); config.key.fill(0)
             if (captureReleased) {
+                // Immutable independent completion allowance, only after actual resource release.
+                // Enqueue is not durable acknowledgment and never releases the capture fence.
+                val ledger = captureLedger
+                val owner = observation
+                val raw = rawWindow?.snapshot()
+                val converted = convertedWindow?.snapshot()
+                val source = observedSource
+                if (capture != null && transportReleased && ledger != null && owner != null &&
+                    raw != null && converted != null && source != null) {
+                    ledger.terminals.complete(CaptureTerminalSummary(ledger.receiverOrdinal, owner.ordinal,
+                        if (ledger.manualHistory) CaptureTerminalSummary.History.MANUAL else CaptureTerminalSummary.History.NORMAL,
+                        if (observedExperiment) CaptureTerminalSummary.Profile.EXPERIMENT else CaptureTerminalSummary.Profile.DEFAULT,
+                        source, observedCaptureRate, raw.channels.size, config.sampleRate, observedSelection,
+                        termination, capturedFrames, nonzeroFrames, partialBytes, raw, converted))
+                }
                 captureLease?.release()
                 physicalOwner.compareAndSet(this, null)
                 retired.set(true)

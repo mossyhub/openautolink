@@ -168,6 +168,12 @@ class OalCarPlayRuntime(
         audioDiagnostics.record(message)
         onStatus(message)
     }
+    // Historical exact-receiver diagnostics survive runtime cancellation; only live UI is gated.
+    // Called by that receiver's passive worker, never resolved through the mutable receiver field.
+    private fun receiverStatus(message: String) {
+        audioDiagnostics.record(message)
+        if (!canceled.get()) onStatus(message)
+    }
 
     private var lastConnectionStage = "permissions"
     private fun connectionStage(stage: String) {
@@ -321,7 +327,8 @@ class OalCarPlayRuntime(
                             ?.carBluetoothConnectionObserver?.subscribeEvidence(listener)
                     }.getOrNull()
                 }, receipt)
-            } }, drivingRestrictions = config.restrictionPolicy.enabled, onStatus = ::status) }
+            } }, drivingRestrictions = config.restrictionPolicy.enabled,
+            onCaptureTerminal = captureTerminalSink(context, ::receiverStatus), onStatus = ::receiverStatus) }
         // Log the actual decoder-qualified offer, not an earlier requested preset or coded viewport.
         active()
         onDisplayQualified(projection.displayConfiguration)

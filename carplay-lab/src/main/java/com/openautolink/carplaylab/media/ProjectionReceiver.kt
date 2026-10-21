@@ -38,6 +38,7 @@ class ProjectionReceiver(
     private val runtimeMetadataFactory: ((AirPlaySession, (String) -> Unit) -> com.openautolink.carplaylab.metadata.RuntimeMetadataLink)? = null,
     private val wired: Boolean = false,
     private val drivingRestrictions: Boolean = false,
+    private val onCaptureTerminal: ((com.shilapi.xcertplay.media.CaptureTerminalSummary) -> Boolean)? = null,
     private val onStatus: (String) -> Unit,
 ) : Closeable {
     init {
@@ -54,19 +55,35 @@ class ProjectionReceiver(
             fps = videoSelection.fps), videoSelection.avcDecoderName, videoSelection.usedFallback)
     /** Actual advertised/sink/input configuration, including a capability-qualified fallback. */
     val displayConfiguration: CarPlayDisplayPreferences get() = displaySelection.display
-    private val microphoneExperiment = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
-    private val captureLedger = com.shilapi.xcertplay.media.CaptureAcquisitionLedger(microphoneExperiment != null)
+    private val microphoneRequest = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
+    private val microphoneIndependent = microphoneRequest?.independent
+    private val microphoneExperiment = microphoneRequest?.takeIf { it.independent == null }
+    private val microphoneQualification = microphoneIndependent?.qualificationProfile() ?: microphoneExperiment
+    private val speechRecognitionProfile = microphoneIndependent?.captureProfile()
+    private val captureLedger = com.shilapi.xcertplay.media.CaptureAcquisitionLedger(microphoneQualification != null)
     // Manual experiments retain their receiver-wide exact output inventory.
     // Normal calls qualify against actual output rows without changing noncall offers.
-    private val outputAudioFormats = microphoneExperiment?.let {
+    private val outputAudioFormats = microphoneQualification?.let {
         com.shilapi.xcertplay.media.CaptureAcquisitionLedger.observe(captureLedger) {
             com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits.toSet()
         }
     }
     private val microphoneCapability = com.shilapi.xcertplay.media.CaptureAcquisitionLedger.observe(captureLedger) {
-        val profile = microphoneExperiment
-        val baseline = if (profile == null) com.shilapi.xcertplay.media.AndroidMicrophoneSupport.probe(context)
+        val profile = microphoneQualification
+        if (microphoneIndependent != null) require(!(
+            microphoneIndependent.history == com.shilapi.xcertplay.media.CarPlayMicrophoneQualificationHistory.MANUAL_VR48_TWO &&
+            microphoneIndependent.speechCapture == com.shilapi.xcertplay.media.CarPlayMicrophoneSpeechCapture.VR24_MONO)) {
+            "Independent capture not qualified by selected history"
+        }
+        // Keep shape evidence and its capability frozen together; no additional probes.
+        val baseline = synchronized(com.shilapi.xcertplay.media.AndroidMicrophoneSupport) {
+            val qualified = if (profile == null) com.shilapi.xcertplay.media.AndroidMicrophoneSupport.probe(context)
             else com.shilapi.xcertplay.media.AndroidMicrophoneSupport.experimentCapability(context, profile)
+            require(microphoneIndependent == null || com.shilapi.xcertplay.media.AndroidMicrophoneSupport.supportsSpeechCapture(microphoneIndependent)) {
+                "Independent capture not qualified by selected history"
+            }
+            qualified
+        }
         try {
             val rows = com.shilapi.xcertplay.media.AudioOutputSupport.wirelessRows(
                 outputAudioFormats ?: com.shilapi.xcertplay.media.AudioOutputSupport.implementedBits)
@@ -88,12 +105,18 @@ class ProjectionReceiver(
                         val mask = offers.filter { it["type"] == 100 &&
                             (it["audioType"] as? String)?.lowercase(java.util.Locale.ROOT) == kind }
                             .fold(0L) { bits, row -> bits or ((row["audioInputFormats"] as? Number)?.toLong() ?: 0L) }
-                        baseline.bits(kind).filter { it and mask != 0L }.toSet()
+                        // Independent history does not override the automatic default live source.
+                        // Manual VR48 probes never qualify MIC24: withhold that input, never forge support.
+                        if (microphoneIndependent != null && kind == "default") emptySet()
+                        else baseline.bits(kind).filter { it and mask != 0L }.toSet()
                     })
             }
             val result = com.shilapi.xcertplay.media.CarPlayMicrophoneExperimentPolicy.resolveCapability(
                 profile, wired, admitted, rows)
             require(profile == null || result.available)
+            require(microphoneIndependent == null || result.bits("speechrecognition").isNotEmpty()) {
+                "Independent capture has no admitted speech input"
+            }
             result
         } catch (failure: IllegalArgumentException) {
             if (profile != null) runCatching { onStatus("media stage=microphone-experiment-rejected codec=${profile.codec} reason=no-qualified-input") }
@@ -155,7 +178,31 @@ class ProjectionReceiver(
             if (!executor.isShutdown) statusQueueDrops.incrementAndGet()
             throw RejectedExecutionException("bounded status queue unavailable")
         })
-    init { captureLedger.bind(statuses, onStatus) }
+    init {
+        captureLedger.bind(statuses, onStatus)
+        captureLedger.bindTerminals(statuses) { summary -> onCaptureTerminal?.invoke(summary) == true }
+        microphoneIndependent?.let { selection -> statuses.execute { runCatching { onStatus(selection.receipt(captureLedger.receiverOrdinal)) } } }
+    }
+    private val retentionStateQueued = AtomicBoolean()
+    private val statusRetirementQueued = AtomicBoolean()
+    // Passive-worker confined; finite (12 owners plus one aggregate), never arbitrary messages.
+    private var lastRetentionState = emptyList<String>()
+    private fun reportRetentionState(final: Boolean = false) {
+        val snapshot = captureLedger.terminals.ownerStates() +
+            captureLedger.terminals.status(captureLedger.receiverOrdinal, final)
+        if (snapshot != lastRetentionState) {
+            lastRetentionState = snapshot
+            snapshot.forEach { line -> runCatching { onStatus(line) } }
+        }
+    }
+    private fun queueRetentionState() {
+        // Explicit persistent-close retry must never submit into the already-finalized worker.
+        if (statusRetirementQueued.get() || statuses.isShutdown) return
+        if (!retentionStateQueued.compareAndSet(false, true)) return
+        try { statuses.execute {
+            try { reportRetentionState() } finally { retentionStateQueued.set(false) }
+        } } catch (_: RejectedExecutionException) { retentionStateQueued.set(false) }
+    }
     private val diagnosticLock = Any()
     private var diagnosticOwner: AirPlaySession? = null
     private var diagnosticWindowNs = 0L
@@ -175,7 +222,8 @@ class ProjectionReceiver(
     fun telemetrySnapshot(): ReceiverTelemetrySnapshot = telemetry.snapshot(System.nanoTime())
     private val sink = AndroidMediaSink(context, surface, display = displaySelection, onStatus = ::status, telemetry = telemetry, videoSelection = videoSelection,
         microphoneExperiment = microphoneExperiment, microphoneCapability = microphoneCapability,
-        captureLedger = captureLedger, audioDiagnostic = { line, current -> enqueueStatus(line, current) })
+        captureLedger = captureLedger, audioDiagnostic = { line, current -> enqueueStatus(line, current) },
+        speechRecognitionProfile = speechRecognitionProfile)
     /** Presentation receipts do not take the session/control lifecycle lock or retire transport. */
     fun attachSurface(surface: Surface) { if (!closed.get() && !admissionRevoked.get()) sink.attachSurface(surface) }
     fun detachSurface(surface: Surface) { sink.detachSurface(surface) }
@@ -637,7 +685,9 @@ class ProjectionReceiver(
                 // per close lifecycle; a failed exact owner fences storage release and acknowledgment.
                 runtimeLinks.entries.toList().forEach { (session, owner) -> retireCarData(session, owner) }
                 if (runtimeLinks.isNotEmpty()) return@Thread
+                queueRetentionState()
                 while (!sink.awaitRetired(1_000)) {
+                    queueRetentionState()
                     // Coalesce Retry onto this cleanup owner, never the lifecycle caller.
                     if (retirementRetryRequested.getAndSet(false)) sink.close()
                 }
@@ -646,14 +696,29 @@ class ProjectionReceiver(
                 // Retirement has one cleanup worker at a time. Once the final drain is
                 // accepted and shutdown begins, a later storage-close retry must neither
                 // duplicate RETIRED nor submit to this permanently closed executor.
-                if (!statuses.isShutdown) {
+                if (statusRetirementQueued.compareAndSet(false, true)) {
                     captureLedger.root.event(com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Action.RETIRED,
                         com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Result.OK)
+                    val hasPendingTerminals = captureLedger.terminals.pending() > 0
                     while (true) {
-                        try { statuses.execute { captureLedger.drain() }; break }
+                        try { statuses.execute {
+                            try {
+                                captureLedger.drain()
+                                repeat(com.shilapi.xcertplay.media.CaptureTerminalLedger.MAX_ATTEMPTS) {
+                                    if (captureLedger.terminals.pending() > 0) captureLedger.terminals.flush()
+                                }
+                                reportRetentionState(final = true)
+                            } finally {
+                                // Pending immutable results get their final bounded durability
+                                // attempts BEFORE shutdown, on this exact passive worker.
+                                if (hasPendingTerminals) statuses.shutdown()
+                            }
+                        }; break }
                         catch (_: RejectedExecutionException) { Thread.sleep(10) }
                     }
-                    statuses.shutdown()
+                    // Preserve 539 R1 storage-close retry ordering when no terminal work remains.
+                    // Graceful shutdown still drains the accepted final status task.
+                    if (!hasPendingTerminals) statuses.shutdown()
                 }
                 persistence.close()
                 retirement.countDown()

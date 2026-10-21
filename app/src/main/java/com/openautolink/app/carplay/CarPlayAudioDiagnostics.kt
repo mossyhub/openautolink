@@ -31,6 +31,15 @@ object CarPlayAudioDiagnostics {
     // Full-string matches: unknown fields, suffixes, control characters and upstream free text fail closed.
     private const val usbByte = "(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])"
     private val schemas = listOf(
+        "media stage=playing-publication previous=(none|paused|playing) new=(none|paused|playing) active=true mode=(normal|suppress) owner=current",
+        "media stage=microphone-owner receiver=$number owner=$number state=(release-pending|release-failed)",
+        "media stage=microphone-retention receiver=$number final=$bool pending=([0-9]|1[0-2]) owners=([0-9]|1[0-2]) lost=$number",
+        "media stage=microphone-terminal receiver=$number owner=$number part=summary history=(normal|manual) profile=(default|experiment) source=$micRequestedSource captureRate=(24000|48000) captureChannels=(1|2) wireRate=(24000|48000) selection=(AVERAGE|FIRST|SECOND) reason=(cancelled|permission|failed|ineligible) state=released blocks=$number nonzeroBlocks=$number partialBytes=[0-9]{1,10} signal=(no-frames|zeros|nonzero) route=(unknown|same|changed|unavailable)",
+        "media stage=microphone-terminal receiver=$number owner=$number part=(raw|converted) observed=$number scanned=$pcmCount tail=$number channels=(1|2) limit=2048 coverage=(full|prefix) $pcmChannels",
+        "media stage=microphone-control receiver=$number history=(normal|manual-vr48-two) live=(vr24-mono|vr48-two)",
+        "media stage=microphone-route scope=own routed=(unknown|[1-9]|[12][0-9]|3[0-2]) active=(unknown|[1-9]|[12][0-9]|3[0-2]) equality=(same|different|unknown) stability=(same|different|unknown) truncated=$bool",
+        "media stage=microphone-mapping scope=own result=(ok|empty|unsupported|denied|unavailable) examined=[0-4] truncated=$bool",
+        "media stage=microphone-channel scope=own row=[0-3] channel=(unknown|[0-7]) mapping=(direct|processed|unknown)",
         "media stage=audio-pcm stream=$number type=(100|101|102) audioType=(default|media|telephony|speechrecognition|alert|compatibility) codec=$codec purpose=(media|call|siri|ring|nav) phase=(decoded|accepted) event=(start|periodic|terminal) window=$number rate=(8000|16000|24000|32000|44100|48000) channels=(1|2) observed=$number scanned=$pcmCount tail=$number limit=2048 coverage=(full|prefix) $pcmChannels queueDrops=$number",
         "media stage=microphone-pcm receiver=$number event=$ledgerEvent owner=$number boundary=(raw|converted) phase=(first|ended|released) rate=(24000|48000) channels=(1|2) observed=$number scanned=$pcmCount tail=$number limit=2048 coverage=(full|prefix) $pcmChannels",
         "media stage=microphone-ledger receiver=$number event=$ledgerEvent owner=$number history=(manual|normal) kind=(receiver|probe|live) action=(snapshot|inputs|recorder-cache|encoder-cache|decoder-cache|create|buffer|validate|start|end|stop|release-begin|released|release-failed|retired|limit) result=(attempt|ok|failed|hit|miss|absent|blocked|cancelled|dropped) source=(NONE|MIC|VOICE_RECOGNITION|VOICE_COMMUNICATION) rate=(0|24000|48000) channels=[0-2] bytes=[0-9]{1,10} elapsedUs=$number",
@@ -166,13 +175,15 @@ object CarPlayAudioDiagnostics {
         // Reuse ONLY these exact full-string finite policy/config/effect schemas, never arbitrary
         // nested receiver text. Their owning recorder is now retained across delayed delivery.
         base + base.filter { it.startsWith("media stage=microphone-policy ") ||
-            it.startsWith("media stage=microphone-config ") || it.startsWith("media stage=microphone-effects ") }
+            it.startsWith("media stage=microphone-config ") || it.startsWith("media stage=microphone-effects ") ||
+            it.startsWith("media stage=microphone-route ") || it.startsWith("media stage=microphone-mapping ") ||
+            it.startsWith("media stage=microphone-channel ") }
             .map { "media stage=microphone-owned receiver=$number event=$ledgerEvent owner=$number elapsedUs=$number $it" }
     }.map(::Regex)
 
     fun sanitize(session: Long, message: String): String? {
         val maximum = if (message.startsWith("media stage=audio-pcm ") || message.startsWith("media stage=microphone-pcm ") ||
-            message.startsWith("media stage=microphone-owned "))
+            message.startsWith("media stage=microphone-owned ") || message.startsWith("media stage=microphone-terminal "))
             MAX_NUMERIC_INPUT_LENGTH else MAX_INPUT_LENGTH
         if (session <= 0 || message.length > maximum) return null
         val receipt = accepted.matchEntire(message)
@@ -197,9 +208,60 @@ class CarPlayAudioDiagnosticReporter(
     // Constant-space allowance independent of ordinary per-second details. Each exact runtime
     // can retain four receiver ledgers; unknown extra receivers fail closed, not grow a map.
     private val ledgerReceivers = linkedMapOf<Long, LongArray>()
+    // Terminal parts never share the 192 detail sequence or per-second status allowance.
+    // Persistence uses a separate acknowledged sink; this is only bounded UI/log notification.
+    private val terminalOwners = linkedMapOf<Pair<Long, Long>, Int>()
+    private class RetentionDelivery(var attempts: Int = 0, var delivered: Boolean = false, var inFlight: Boolean = false)
+    // Lifetime bounded: four exact receivers, 24 distinct changed censuses each, plus a
+    // separately reserved final slot that changed-state floods cannot consume. No eviction.
+    private val retentionReceivers = linkedMapOf<Long, LinkedHashMap<String, RetentionDelivery>>()
 
     fun record(message: String) {
         val line = CarPlayAudioDiagnostics.sanitize(session, message) ?: return
+        val retention = retentionReceipt.matchEntire(message)
+        if (retention != null) {
+            val receiver = retention.groupValues[1].toLongOrNull()?.takeIf { it > 0 } ?: return
+            val final = retention.groupValues[2] == "true"
+            val delivery = synchronized(this) {
+                val receipts = retentionReceivers[receiver] ?: if (retentionReceivers.size < 4)
+                    linkedMapOf<String, RetentionDelivery>().also { retentionReceivers[receiver] = it } else return
+                // The first final census is immutable; altered reoffers cannot reset its budget.
+                val key = if (final) "final" else message
+                val entry = receipts[key] ?: run {
+                    if (!final && receipts.keys.count { it != "final" } >= 24) return
+                    RetentionDelivery().also { receipts[key] = it }
+                }
+                if (entry.delivered || entry.inFlight || entry.attempts >= 3) return
+                entry.inFlight = true
+                entry
+            }
+            try {
+                // Synchronous notification retries only: terminal durability remains exclusively
+                // acknowledged by CaptureTerminalLogStore. Never mark delivery before success.
+                repeat(3) {
+                    val attempt = synchronized(this) {
+                        if (delivery.delivered || delivery.attempts >= 3) false
+                        else { delivery.attempts++; true }
+                    }
+                    if (attempt && runCatching { sink(line) }.isSuccess)
+                        synchronized(this) { delivery.delivered = true }
+                }
+            } finally { synchronized(this) { delivery.inFlight = false } }
+            return
+        }
+        val terminal = terminalReceipt.find(message) ?: ownerReceipt.find(message)
+        if (terminal != null) {
+            val receiver = terminal.groupValues[1].toLongOrNull()?.takeIf { it > 0 } ?: return
+            val owner = terminal.groupValues[2].toLongOrNull()?.takeIf { it > 0 } ?: return
+            val bit = when (terminal.groupValues[3]) { "summary" -> 1; "raw" -> 2; "converted" -> 4; "release-pending" -> 8; else -> 16 }
+            val admitted = synchronized(this) {
+                val key = receiver to owner
+                val seen = terminalOwners[key] ?: if (terminalOwners.size < 48) 0 else return@synchronized false
+                if (seen and bit != 0) false else { terminalOwners[key] = seen or bit; true }
+            }
+            if (admitted) runCatching { sink(line) }
+            return
+        }
         val ledger = ledgerReceipt.find(message)
         if (ledger != null) {
             val receiver = ledger.groupValues[1].toLongOrNull() ?: return
@@ -254,6 +316,9 @@ class CarPlayAudioDiagnosticReporter(
 
     companion object {
         const val MAX_EVENTS_PER_SECOND = 64
+        private val retentionReceipt = Regex("media stage=microphone-retention receiver=([0-9]+) final=(true|false) pending=(?:[0-9]|1[0-2]) owners=(?:[0-9]|1[0-2]) lost=[0-9]{1,19}")
+        private val ownerReceipt = Regex("^media stage=microphone-owner receiver=([0-9]+) owner=([0-9]+) state=(release-pending|release-failed)$")
+        private val terminalReceipt = Regex("^media stage=microphone-terminal receiver=([0-9]+) owner=([0-9]+) part=(summary|raw|converted) ")
         private val ledgerReceipt = Regex("^media stage=microphone-(?:ledger|signal|pcm|owned) receiver=([0-9]+) event=([0-9]+) ")
         private val networkCompletionAttempt = Regex("^USB network stage=send-end attempt=([0-9]+) ")
         private val neighborReceipt = Regex("^USB network stage=nd-receipt receipt=([1-8]) ")

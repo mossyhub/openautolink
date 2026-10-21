@@ -51,6 +51,7 @@ class AndroidMediaSink(
     private val microphoneCapability: MicrophoneCapability? = null,
     private val captureLedger: CaptureAcquisitionLedger? = null,
     private val audioDiagnostic: ((String, () -> Boolean) -> Boolean)? = null,
+    private val speechRecognitionProfile: CarPlayMicrophoneExperimentProfile? = null,
 ) : MediaSink, Closeable {
     private val closed = AtomicBoolean()
     init { AndroidMicrophoneSupport.initialize(context) }
@@ -291,7 +292,8 @@ class AndroidMediaSink(
         if (closed.get() || id.session.isClosed || id.type != 100 || id.audioType != config.audioType ||
             !AndroidMicrophoneSupport.permissionGranted()) { config.key.fill(0); return }
         microphoneOwners.removeIf { it.isRetired }
-        val accepted = microphones.start(id) { MicrophoneUplink(config, ::report, microphoneExperiment, microphoneCapability, captureLedger).apply {
+        val accepted = microphones.start(id) { MicrophoneUplink(config, ::report, microphoneExperiment, microphoneCapability, captureLedger,
+            speechRecognitionProfile).apply {
             microphoneOwners.add(this); start()
         } }
         if (!accepted) { config.key.fill(0); report("media stage=microphone-owner-busy") }

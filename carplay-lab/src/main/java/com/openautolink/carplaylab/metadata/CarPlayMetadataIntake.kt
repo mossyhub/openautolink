@@ -6,8 +6,11 @@ import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 /** Sourced subset; null means not reported, never inferred from video/audio or app identity. */
 data class CarPlayMediaMetadata(val title: String? = null, val artist: String? = null, val album: String? = null, val durationMillis: Long? = null, val elapsedMillis: Long? = null, val playing: Boolean? = null, val artworkTransferId: Int? = null, val playbackStatus: Int? = null)
 
+/** Display pair sourced together from iAP2, independent of optional raw meters. */
+data class CarPlayDisplayDistance(val value: String, val unit: String)
+
 /** Raw accessory-navigation vocabulary, not Android Auto enums. Geometry keeps signed degrees. */
-data class CarPlayNavigationMetadata(val maneuverType: Int, val drivingSide: Int?, val distanceMeters: Int?, val road: String?, val remainingSeconds: Long?, val remainingMeters: Int?, val junctionType: Int? = null, val junctionExitAngleDegrees: Int? = null, val junctionAnglesDegrees: List<Int>? = null)
+data class CarPlayNavigationMetadata(val maneuverType: Int, val drivingSide: Int?, val distanceMeters: Int?, val road: String?, val remainingSeconds: Long?, val remainingMeters: Int?, val junctionType: Int? = null, val junctionExitAngleDegrees: Int? = null, val junctionAnglesDegrees: List<Int>? = null, val displayDistance: CarPlayDisplayDistance? = null, val remainingDisplayDistance: CarPlayDisplayDistance? = null)
 /** Route identity is independent of whether the selected instruction has arrived. */
 data class CarPlayRouteMetadata(val epoch: Long, val instruction: CarPlayNavigationMetadata?)
 
@@ -67,6 +70,8 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
     private var index: Int? = null
     private data class Estimate<T>(val value: T, val receivedMs: Long)
     private var distance: Estimate<Int>? = null
+    private var displayDistance: Estimate<CarPlayDisplayDistance>? = null
+    private var remainingDisplayDistance: Estimate<CarPlayDisplayDistance>? = null
     private var road: Estimate<String>? = null
     private var seconds: Estimate<Long>? = null
     private var meters: Estimate<Int>? = null
@@ -91,6 +96,8 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
             // heartbeat. Age dynamic values independently; an omitted estimate
             // must not be renewed by another field or by an explicit current ID.
             distance = distance?.takeIf { now - it.receivedMs < ESTIMATE_STALE_MS }
+            displayDistance = displayDistance?.takeIf { now - it.receivedMs < ESTIMATE_STALE_MS }
+            remainingDisplayDistance = remainingDisplayDistance?.takeIf { now - it.receivedMs < ESTIMATE_STALE_MS }
             road = road?.takeIf { now - it.receivedMs < ESTIMATE_STALE_MS }
             seconds = seconds?.takeIf { now - it.receivedMs < ESTIMATE_STALE_MS }
             meters = meters?.takeIf { now - it.receivedMs < ESTIMATE_STALE_MS }
@@ -98,7 +105,7 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
         }
     }
     private fun clearEstimates() {
-        distance = null; road = null; seconds = null; meters = null
+        distance = null; displayDistance = null; remainingDisplayDistance = null; road = null; seconds = null; meters = null
     }
     private fun clearRoute(preserveDefinitions: Boolean = false) {
         route = false; index = null; clearEstimates()
@@ -111,7 +118,7 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
     }
     private fun publishRoute() {
         val m = selectedManeuver
-        navigation = if (route && m != null && lastRoute?.let { elapsedMs() - it < ROUTE_EXPIRES_MS } == true) CarPlayNavigationMetadata(m.type,m.side,distance?.value,m.road ?: road?.value,seconds?.value,meters?.value,m.junction,m.exitAngle,m.angles) else null
+        navigation = if (route && m != null && lastRoute?.let { elapsedMs() - it < ROUTE_EXPIRES_MS } == true) CarPlayNavigationMetadata(m.type,m.side,distance?.value,m.road ?: road?.value,seconds?.value,meters?.value,m.junction,m.exitAngle,m.angles,displayDistance?.value,remainingDisplayDistance?.value) else null
     }
     private fun navigationFrame(frame: Iap2Frame) {
         val b = Iap2BodyReader.of(frame)
@@ -143,6 +150,8 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
             val state = b.optionalU8(1)
             val name = text(b,3,null)
             val nextDistance = b.optionalU32(10)?.also { require(it <= Int.MAX_VALUE) }?.toInt()
+            val nextDisplayDistance = displayDistance(b, 11, 12)
+            val nextRemainingDisplayDistance = displayDistance(b, 8, 9)
             val nextSeconds = b.optionalU64(6)?.also { require(it >= 0) }
             val nextMeters = b.optionalU32(7)?.also { require(it <= Int.MAX_VALUE) }?.toInt()
             val current = b.optionalU16List(13)?.also { require(it.size <= 8) }
@@ -175,6 +184,12 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
             val now = elapsedMs()
             if (b.has(3)) road = name?.let { Estimate(it, now) }
             if (nextDistance != null) distance = Estimate(nextDistance, now)
+            // Display is a separate rounded estimate. Raw-only deltas do not refresh
+            // its age or erase it; partial/invalid display updates clear the pair.
+            if (b.has(11) || b.has(12))
+                displayDistance = nextDisplayDistance?.let { Estimate(it, now) }
+            if (b.has(8) || b.has(9))
+                remainingDisplayDistance = nextRemainingDisplayDistance?.let { Estimate(it, now) }
             if (nextSeconds != null) seconds = Estimate(nextSeconds, now)
             if (nextMeters != null) meters = Estimate(nextMeters, now)
             if (route) lastRoute = now
@@ -240,6 +255,22 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
         val before = navigation
         retired = true; authenticated = false; media = null; cover = null; clearRoute()
         if (before != null) observe("lifecycle", "cleared", before, reason = "revoke")
+    }
+    private fun displayDistance(b: Iap2BodyReader, valueId: Int, unitId: Int): CarPlayDisplayDistance? {
+        val value = text(b, valueId, null)
+        // accessoryd 24A446 sender: TLV11 UTF8 string / TLV12 U8. Its converter
+        // preserves 0..4. CarPlay CPDistanceUnitsFromNSUnitLength confirms these
+        // are NOT AndroidX/AA enums: km=0, mi=1, m=2, yd=3, ft=4.
+        val unit = when (b.optionalU8(unitId)) {
+            0 -> "kilometers"
+            1 -> "miles"
+            2 -> "meters"
+            3 -> "yards"
+            4 -> "feet"
+            else -> null
+        }
+        if (value?.toDoubleOrNull()?.let { it.isFinite() && it >= 0 } != true || unit == null) return null
+        return CarPlayDisplayDistance(value, unit)
     }
     private fun unique(b: Iap2BodyReader) { require(b.list().map { it.id }.distinct().size == b.size) }
     private fun text(b: Iap2BodyReader?, id: Int, old: String?): String? {

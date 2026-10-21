@@ -45,12 +45,14 @@ class CaptureReleaseLedgerTest {
         val ledger=CaptureAcquisitionLedger(false);ledger.bind(Executor { tasks.add(it) },lines::add)
         fun flush() { while(true) (tasks.poll() ?: return).run() }
         val constructor=MicrophoneUplink::class.java.declaredConstructors.firstOrNull {
-            it.parameterTypes.size==5 && it.parameterTypes.last()==CaptureAcquisitionLedger::class.java }
+            it.parameterTypes.size==6 && it.parameterTypes[4]==CaptureAcquisitionLedger::class.java &&
+                it.parameterTypes.last()==CarPlayMicrophoneExperimentProfile::class.java }
         assertNotNull("actual uplink must retain the receiver's exact acquisition ledger",constructor)
         val cap=MicrophoneCapability.of(mapOf("telephony" to setOf(0x40L)))
         DatagramSocket(0,InetAddress.getLoopbackAddress()).use { peer ->
             val config=MicrophoneSupport.negotiate(cap,100,"telephony",0x40L,peer.localPort,480,peer.localAddress,ByteArray(32){1})!!
-            val uplink=constructor!!.apply { isAccessible=true }.newInstance(config,{ _: String -> },null,cap,ledger) as MicrophoneUplink
+            val report: (String) -> Unit = {}
+            val uplink=constructor!!.apply { isAccessible=true }.newInstance(config,report,null,cap,ledger,null) as MicrophoneUplink
             try {
                 uplink.start();assertTrue(reading.await(3,TimeUnit.SECONDS))
                 uplink.close();assertTrue(releasing.await(3,TimeUnit.SECONDS));flush()

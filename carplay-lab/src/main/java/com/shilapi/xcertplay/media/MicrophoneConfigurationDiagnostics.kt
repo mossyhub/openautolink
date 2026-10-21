@@ -15,12 +15,16 @@ import android.media.MediaRecorder
  */
 internal object MicrophoneConfigurationDiagnostics {
     fun receipt(record: AudioRecord, manager: AudioManager?, source: MicrophoneSource, rate: Int,
-        config: Result<AudioRecordingConfiguration?>): String {
+        config: Result<AudioRecordingConfiguration?>,
+        activeDevice: Result<AudioDeviceInfo?> = config.mapCatching { it?.audioDevice },
+        current: () -> Boolean = { true }): String {
+        fun observe(read: () -> String): String =
+            if (current()) runCatching(read).getOrDefault("unavailable") else "unavailable"
         val state = if (config.isFailure) "unavailable" else if (config.getOrNull() == null) "absent" else "present"
         fun field(read: (AudioRecordingConfiguration) -> String): String =
             if (state != "present") state else observe { read(config.getOrThrow()!!) }
-        val clientFormat = config.mapCatching { it?.clientFormat }
-        val deviceFormat = config.mapCatching { it?.format }
+        val clientFormat = config.mapCatching { if (current()) it?.clientFormat else null }
+        val deviceFormat = config.mapCatching { if (current()) it?.format else null }
         fun format(value: Result<AudioFormat?>, read: (AudioFormat) -> String): String =
             if (state != "present") state else observe { value.getOrThrow()?.let(read) ?: "unavailable" }
         return "media stage=microphone-config scope=own requested=$source rate=$rate" +
@@ -30,10 +34,9 @@ internal object MicrophoneConfigurationDiagnostics {
             " clientRate=${format(clientFormat) { rate(it.sampleRate) }} deviceRate=${format(deviceFormat) { rate(it.sampleRate) }}" +
             " clientChannels=${format(clientFormat) { channels(it.channelCount) }} deviceChannels=${format(deviceFormat) { channels(it.channelCount) }}" +
             " clientEncoding=${format(clientFormat) { encoding(it.encoding) }} deviceEncoding=${format(deviceFormat) { encoding(it.encoding) }}" +
-            " route=${field { route(it.audioDevice) }}"
+            " route=${if (state != "present") state else observe { route(activeDevice.getOrThrow()) }}"
     }
 
-    private fun observe(read: () -> String): String = runCatching(read).getOrDefault("unavailable")
     private fun source(value: Int): String = when (value) {
         MediaRecorder.AudioSource.DEFAULT -> "DEFAULT"
         MediaRecorder.AudioSource.MIC -> "MIC"
