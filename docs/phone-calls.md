@@ -1,18 +1,27 @@
 # Phone calls in Android Auto and USB CarPlay on GM vehicles
 
-## USB CarPlay: leave the iPhone unpaired from vehicle Bluetooth
+## USB CarPlay: Bluetooth-selected audio
 
-USB CarPlay carries call audio independently of vehicle Bluetooth. Music playback and call operation were reported on the maintainer's 2024 Chevrolet Blazer EV without Bluetooth, but subsequent incoming-call tests exposed silent microphone input. **Reliable two-way CarPlay call audio is not yet verified.** Do not rely on a completed call, audible caller, or working Siri as proof the caller can hear the car microphone.
+The owner-tested setup on the maintainer’s 2024 Chevrolet Blazer EV keeps USB CarPlay connected for its screen and touch controls while native Bluetooth carries music, navigation voice and hands-free calls. Music, spoken directions and car microphone/speaker calls worked in the tested setup; other vehicles and firmware may differ.
 
-**Do not pair the iPhone to the vehicle's Bluetooth for USB CarPlay.** If already paired, forget/remove that pairing so it does not reconnect. GM's native Bluetooth playback control competes with CarPlay when the iPhone is also Bluetooth-connected, causing media to constantly pause after pressing Play. Leave the car's Bluetooth adapter available for other phones; only the iPhone's vehicle pairing needs to be removed.
+1. Pair the iPhone with the vehicle and keep **Phone calls** and **Media audio** enabled.
+2. Connect USB CarPlay using the [README USB steps](../README.md#usb-1), accepting the applicable GM access, OAL local VPN and iPhone Trust prompts.
+3. **While USB CarPlay remains connected, press the steering-wheel audio-source button, then select Bluetooth in the instrument cluster.** This is the car’s audio input, not a per-iPhone setting or a center-display menu.
+4. Apply the native **Phone → Settings → Active Call OFF → Privacy ON** display settings below. Leave Bluetooth **Phone calls** enabled.
 
-This advice is specific to **USB CarPlay**. It does not replace Android Auto's Bluetooth requirements below. For an explicitly agreed paired diagnostic experiment, record the chosen topology and keep it unchanged between arms rather than unpairing mid-experiment.
+Pairing alone does not select the Bluetooth audio input. OAL does not select it automatically; persistence across reconnects and phone switching remains unverified. Native HFP provides the call-audio path while the projected call interface remains usable. Keep Siri activation/input acceptance separate: one working Siri/HFP interval does not establish every Siri route works.
 
-**Reliable two-way CarPlay call microphone audio remains unverified. Siri is not fixed.** Audible caller playback, nonzero samples or successful packet sends do not establish understood speech or far-end audibility. Bluetooth pairing alone does not prove which audio route the vehicle selected.
+### Shared navigation/media volume
+
+Navigation directions use the observed Bluetooth media-volume context, not a separate GM navigation-volume control. OAL cannot separately amplify guidance that it does not receive as its own audio stream. Apple’s iOS 26 guide documents **Settings → Apps → Maps → Spoken Directions → Voice Volume**; its effect on prompt-to-music balance on this Bluetooth route is untested. Match the menu to the phone’s installed iOS. See [Apple’s Maps guide](https://support.apple.com/guide/iphone/iphd3c85c193/26/ios/26).
+
+### Bluetooth-free capture remains under investigation
+
+USB projection can connect without Bluetooth, but reliable two-way Bluetooth-free calls and Siri capture remain unresolved. Do not remove a working pairing to follow older unpair-only advice. The Playing-status suppression experiment is not required by this setup and did not stop pausing in the owner’s test.
 
 ### Alternate Android Bluetooth settings launcher
 
-**OAL → Settings → Connection → CarPlay → Android Bluetooth settings** opens an alternate system screen on supported vehicles. It may expose separate per-phone controls absent from the usual vehicle settings screen. Availability requires an installed, permitted exported screen, foreground OAL and fresh actual Park. OAL does not change profiles. This feature description does not recommend a paired USB CarPlay configuration or claim persistent GM settings; Media audio ON with Playing-status suppression still requires a parked experiment and owner acceptance.
+**OAL → Settings → Connection → CarPlay → Android Bluetooth settings** opens an alternate system screen on supported vehicles while OAL is foreground with fresh actual Park. OAL does not change profiles. This launcher is separate from selecting the **Bluetooth input with the steering-wheel audio-source button and instrument cluster**.
 
 ## Android Auto: native Bluetooth hands-free audio
 
