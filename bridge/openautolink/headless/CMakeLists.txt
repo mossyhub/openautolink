@@ -47,6 +47,8 @@ add_executable(openautolink-headless
 )
 
 target_include_directories(openautolink-headless PRIVATE include)
+target_include_directories(openautolink-headless PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../native/include")
 
 if(PI_AA_OPENAUTO_SOURCE_DIR AND EXISTS "${PI_AA_OPENAUTO_SOURCE_DIR}/include")
     target_include_directories(openautolink-headless PRIVATE "${PI_AA_OPENAUTO_SOURCE_DIR}/include")

@@ -102,6 +102,7 @@ add_library(openautolink-jni SHARED
 )
 
 target_include_directories(openautolink-jni PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../native/include"
     "${AASDK_SOURCE_DIR}/include"
     "${AASDK_DIR}/include"
     "${AASDK_DIR}/include/protobuf"

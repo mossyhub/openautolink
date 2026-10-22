@@ -12,6 +12,7 @@
 #include "jni_channel_handlers.h"
 #include "gal_video_policy.h"
 #include "gal_version_policy.h"
+#include "openautolink/ev_connector_mapping.h"
 
 #include <android/log.h>
 #include <cmath>
@@ -1989,14 +1990,9 @@ void JniSession::buildServiceDiscoveryResponse(
               ss->add_supported_fuel_types(static_cast<FT::FuelType>(ft));
           }
       }
-      if (sdrConfig_.evConnectorTypes.empty()) {
-          ss->add_supported_ev_connector_types(FT::EV_CONNECTOR_TYPE_J1772);
-          ss->add_supported_ev_connector_types(FT::EV_CONNECTOR_TYPE_COMBO_1);
-      } else {
-          for (int ct : sdrConfig_.evConnectorTypes) {
-              ss->add_supported_ev_connector_types(static_cast<FT::EvConnectorType>(ct));
-          }
-      }
+      const auto connectorDiagnostic =
+          openautolink::ev::addSupportedEvConnectors(*ss, sdrConfig_.evConnectorTypes);
+      LOGI("%s", connectorDiagnostic.c_str());
       LOGI("SDR sensor: location=%s, %zu fuel types, %zu ev connectors",
            sdrConfig_.gpsForwarding ? "advertised" : "omitted",
            sdrConfig_.fuelTypes.empty() ? 1u : sdrConfig_.fuelTypes.size(),
