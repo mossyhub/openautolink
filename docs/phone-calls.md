@@ -9,7 +9,7 @@ The owner-tested setup on the maintainer’s 2024 Chevrolet Blazer EV keeps USB 
 3. **While USB CarPlay remains connected, press the steering-wheel audio-source button, then select Bluetooth in the instrument cluster.** This is the car’s audio input, not a per-iPhone setting or a center-display menu.
 4. Apply the native **Phone → Settings → Active Call OFF → Privacy ON** display settings below. Leave Bluetooth **Phone calls** enabled.
 
-Pairing alone does not select the Bluetooth audio input. OAL does not select it automatically; persistence across reconnects and phone switching remains unverified. Native HFP provides the call-audio path while the projected call interface remains usable. Keep Siri activation/input acceptance separate: one working Siri/HFP interval does not establish every Siri route works.
+Pairing alone does not select the Bluetooth audio input. OAL does not select it automatically; persistence across reconnects and phone switching remains unverified. Native HFP provides the call-audio path while the projected call interface remains usable. **In the tested setup, “Hey Siri” is picked up by the iPhone’s microphone, while responses can be heard through the car speakers.** The car microphone does not supply wake-phrase detection. Siri activated using a button inside a CarPlay app is a separate input path and remains under investigation; one working Siri/HFP interval does not establish every Siri route works.
 
 ### Shared navigation/media volume
 
