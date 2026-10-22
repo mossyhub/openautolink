@@ -12,14 +12,18 @@ internal data class UploadPlan(val selected: List<UploadSelection>, val skipped:
 internal class LogUploadArchive(
     val file: File, val plan: UploadPlan,
     val regularTruncated: Int, val evTruncated: Int,
-    val flushConfirmed: Boolean
+    val flushConfirmed: Boolean,
+    val bluetoothFlushConfirmed: Boolean = true,
 ) : Closeable {
     val evFiles: Int get() = plan.selected.count { it.ev }
     val evOmitted: Int get() = plan.skipped.count { it.ev && it.reason != "outside_ev_retention" }
     val regularOmitted: Int get() = plan.skipped.count { !it.ev }
     val summary: String get() = "EV $evFiles included, $evOmitted omitted, $evTruncated partial; " +
         "regular $regularOmitted omitted, $regularTruncated partial" +
-        if (flushConfirmed) "" else "; EV flush unconfirmed"
+        (if (flushConfirmed) "" else "; EV flush unconfirmed") +
+        "; Bluetooth ${plan.selected.count { BluetoothReconnectRecorder.runName.matches(it.source.name) }} included, " +
+        "${plan.skipped.count { BluetoothReconnectRecorder.runName.matches(it.name) }} omitted" +
+        (if (bluetoothFlushConfirmed) "" else "; Bluetooth flush unconfirmed")
     override fun close() { file.delete() }
 
     companion object {
@@ -36,13 +40,17 @@ internal class LogUploadArchive(
             val localRun = Regex("microphone_diagnostic_run_[0-9]{19}\\.log")
             fun capture(file: File) = CaptureTerminalLogStore.runName.matches(file.name)
             fun local(file: File) = localRun.matches(file.name)
+            fun bluetooth(file: File) = BluetoothReconnectRecorder.runName.matches(file.name)
+            val bluetoothRuns = unique.filter { bluetooth(it) && it.length() <= BluetoothReconnectRecorder.MAX_BYTES &&
+                it.lastModified() >= now - BluetoothReconnectRecorder.TTL_MS }
+                .sortedByDescending { it.lastModified() }.take(3).toSet()
             val captureRuns = unique.filter { capture(it) && it.length() <= CaptureTerminalLogStore.MAX_BYTES }
                 .sortedByDescending { it.name }.take(CaptureTerminalLogStore.MAX_RUNS).toSet()
             val localRuns = unique.filter { local(it) && it.length() <= 32768 }
                 .sortedByDescending { it.name }.take(12).toSet()
             val localAlias = unique.filter { it.name == "microphone_diagnostic.log" && it.length() <= 32768 }
                 .filter { alias -> localRuns.any { run -> run.length()==alias.length() && run.readBytes().contentEquals(alias.readBytes()) } }.toSet()
-            unique.sortedWith(compareByDescending<File> { it in captureRuns || it in localRuns }
+            unique.sortedWith(compareByDescending<File> { it in captureRuns || it in localRuns || it in bluetoothRuns }
                     .thenByDescending { it.name.startsWith("ev_", true) }.thenByDescending { it.lastModified() })
                 .forEachIndexed { index, file ->
                     val ev = file.name.startsWith("ev_", true)
@@ -55,10 +63,13 @@ internal class LogUploadArchive(
                     val bytes = file.length()
                     val modified = file.lastModified()
                     val window = if (ev) 7 * 86_400_000L else 6 * 3_600_000L
-                    val retainedCapture = file in captureRuns || file in localRuns
+                    val retainedCapture = file in captureRuns || file in localRuns || file in bluetoothRuns
                     val reason = when {
                         !file.isFile || !file.name.endsWith(".log", true) -> "not_log_file"
                         file in localAlias -> "duplicate_latest_alias"
+                        bluetooth(file) && bytes > BluetoothReconnectRecorder.MAX_BYTES -> "bluetooth_member_bytes_limit"
+                        bluetooth(file) && modified < now - BluetoothReconnectRecorder.TTL_MS -> "outside_bluetooth_retention"
+                        bluetooth(file) && file !in bluetoothRuns -> "outside_latest_three_bluetooth"
                         capture(file) && bytes > CaptureTerminalLogStore.MAX_BYTES -> "capture_member_bytes_limit"
                         local(file) && bytes > 32768 -> "diagnostic_member_bytes_limit"
                         (capture(file) || local(file)) && !retainedCapture -> "outside_latest_twelve"
@@ -77,7 +88,7 @@ internal class LogUploadArchive(
             return UploadPlan(selected, skipped, now)
         }
 
-        fun create(plan: UploadPlan, directory: File, flushConfirmed: Boolean = true): LogUploadArchive {
+        fun create(plan: UploadPlan, directory: File, flushConfirmed: Boolean = true, bluetoothFlushConfirmed: Boolean = true): LogUploadArchive {
             val file = File.createTempFile("oal_upload_", ".zip", directory)
             var regularTruncated = 0
             var evTruncated = 0
@@ -138,6 +149,7 @@ internal class LogUploadArchive(
                         appendLine("snapshot=bounded_prefix_not_atomic_content; later_appends_not_included")
                         appendLine("ev_window_ms=${7 * 86_400_000L} regular_window_ms=${6 * 3_600_000L}")
                         appendLine("ev_flush_confirmed=$flushConfirmed")
+                        appendLine("bluetooth_flush_confirmed=$bluetoothFlushConfirmed bluetooth_window_ms=${BluetoothReconnectRecorder.TTL_MS}")
                         appendLine("ev_files=${plan.selected.count { it.ev }} regular_files=${plan.selected.count { !it.ev }}")
                         appendLine("regular_truncated=$regularTruncated ev_truncated=$evTruncated skipped_count=${plan.skipped.size}")
                         appendLine("selected_mtime_min_ms=${plan.selected.minOfOrNull { it.modified }} selected_mtime_max_ms=${plan.selected.maxOfOrNull { it.modified }}")
@@ -153,7 +165,7 @@ internal class LogUploadArchive(
                     zip.write(manifest)
                     zip.closeEntry()
                 }
-                return LogUploadArchive(file, plan, regularTruncated, evTruncated, flushConfirmed)
+                return LogUploadArchive(file, plan, regularTruncated, evTruncated, flushConfirmed, bluetoothFlushConfirmed)
             } catch (e: Exception) {
                 file.delete()
                 throw e

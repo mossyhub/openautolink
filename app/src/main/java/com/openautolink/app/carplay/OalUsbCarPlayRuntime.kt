@@ -37,7 +37,11 @@ class OalUsbCarPlayRuntime(
     private val initialPermissionOwner: () -> Boolean = { true },
     private val consumeExplicitPermissionRetry: () -> Boolean = { false },
     private val restrictionPolicy: CarPlayRestrictionPolicy = CarPlayRestrictionPolicy.from(com.openautolink.app.data.CarPlaySettings()),
+    receiverAddress: String = "",
 ) : CarPlayRuntime {
+    // Snapshot before USB side effects. Empty preserves the existing descriptor/fallback offer.
+    private val manualBluetoothAddress = com.openautolink.app.data.CarPlayReceiverAddressPolicy.runtimeAddress(receiverAddress)
+        .takeIf { it.isNotEmpty() }
     private val canceled=AtomicBoolean()
     private val resourcesLock=Any()
     private val closeLock=Any()
@@ -357,6 +361,7 @@ class OalUsbCarPlayRuntime(
                     }.getOrNull()
                 }, receipt)
             } },wired=true,drivingRestrictions = restrictionPolicy.enabled,
+            advertisedBluetoothAddress = manualBluetoothAddress,
             onCaptureTerminal=captureTerminalSink(context,::receiverStatus),onStatus=::receiverStatus) }
         active();onDisplayQualified(projection.displayConfiguration)
         projection.setNetworkStartupDiagnosticStop(ncm::stopStartupDiagnostics)

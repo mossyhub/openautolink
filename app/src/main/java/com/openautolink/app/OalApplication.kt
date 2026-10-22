@@ -63,6 +63,8 @@ class OalApplication : Application() {
         // after the VHAL observer and before Bluetooth advertising so it can
         // observe (but never cause) the complete pre-ignition sequence.
         com.openautolink.app.wake.PreWakeMonitor.initialize(this)
+        // Separate visible-consent finite process recorder. Initialization never arms it.
+        com.openautolink.app.diagnostics.BluetoothReconnectService.initialize(this, carBluetoothObservationScope)
 
         // Independent passive GM profile evidence, default-off with CarPlay. Never
         // selects/prioritizes phones or alters the existing Android Auto advertiser.
@@ -110,6 +112,7 @@ class OalApplication : Application() {
     }
 
     override fun onTerminate() {
+        com.openautolink.app.diagnostics.BluetoothReconnectService.close()
         carBluetoothConnectionObserver?.close()
         carBluetoothObservationScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
         super.onTerminate()

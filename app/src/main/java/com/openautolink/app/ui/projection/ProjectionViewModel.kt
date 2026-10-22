@@ -552,7 +552,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     onReenumerationStarted = beginTransition, onReplacementAccepted = acceptReplacement,
                     initialPermissionOwner = initialPermissionOwner,
                     consumeExplicitPermissionRetry = consumeExplicitPermissionRetry,
-                    restrictionPolicy = com.openautolink.app.carplay.CarPlayRestrictionPolicy.from(saved))
+                    restrictionPolicy = com.openautolink.app.carplay.CarPlayRestrictionPolicy.from(saved),
+                    receiverAddress = saved.receiverAddress)
                 // The captured valid surface qualified this session's geometry only. The
                 // coordinator installs the latest presentation after factory completion.
                 runtime.detachSurface(surface)

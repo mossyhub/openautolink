@@ -39,10 +39,19 @@ class ProjectionReceiver(
     private val wired: Boolean = false,
     private val drivingRestrictions: Boolean = false,
     private val onCaptureTerminal: ((com.shilapi.xcertplay.media.CaptureTerminalSummary) -> Boolean)? = null,
+    /** Optional wired Bluetooth association only; never the Ethernet or AirPlay device identity. */
+    private val advertisedBluetoothAddress: String? = null,
     private val onStatus: (String) -> Unit,
 ) : Closeable {
     init {
         require(btMac.matches(Regex("[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}")))
+        if (advertisedBluetoothAddress != null) {
+            require(wired) { "Bluetooth advertisement override is wired-only" }
+            require(advertisedBluetoothAddress.matches(Regex("[0-9A-F]{2}(:[0-9A-F]{2}){5}")) &&
+                advertisedBluetoothAddress !in setOf("00:00:00:00:00:00", "FF:FF:FF:FF:FF:FF", "02:00:00:00:00:00")) {
+                "Invalid head unit Bluetooth address"
+            }
+        }
         // Caller qualifies the initial presentation before handoff. It can be destroyed
         // during construction; reconcile exact receipts rather than abort the session owner.
     }
@@ -233,6 +242,7 @@ class ProjectionReceiver(
         }.use { it.readBytes() }))
     private fun sessionConfig(): AirPlayConfig =
         benchReceiverConfig(btMac, port, microphoneCapability, displayConfiguration).copy(
+            btMac = advertisedBluetoothAddress ?: btMac,
             hevc = videoSelection.hevcOffered, oemLabel = "OpenAutoLink", icons = oemIcons,
             drivingRestrictions = drivingRestrictions)
     private val engine = CarPlayMediaEngine(sink, microphoneEnabled = microphoneCapability.available,

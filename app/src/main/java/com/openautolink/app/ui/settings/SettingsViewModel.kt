@@ -149,9 +149,11 @@ internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
         "Enter a numeric phone IP matching the family and interface in Connection."
     settings.localAddress.isNotEmpty() && !com.openautolink.app.data.CarPlaySettingsPolicy.configuredEndpoint(settings.localAddress, settings) ->
         "Enter an exact numeric local address matching the family and interface in Connection."
-    listOf(settings.phoneAddress, settings.receiverAddress).any {
+    listOf(settings.phoneAddress).any {
         it.isNotEmpty() && (!it.matches(Regex("([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}")) || it == "02:00:00:00:00:00")
     } -> "Choose a paired phone or correct the Bluetooth address in Connection."
+    com.openautolink.app.data.CarPlayReceiverAddressPolicy.canonicalOrNull(settings.receiverAddress) == null ->
+        "Enter the head unit's real Bluetooth address in CarPlay settings."
     settings.videoError() != null -> settings.videoError()
     settings.widthPhysicalMm !in com.openautolink.carplaylab.media.CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM ->
         "Choose a manual UI size from the slider in Display (100 to 400 mm calibration)."

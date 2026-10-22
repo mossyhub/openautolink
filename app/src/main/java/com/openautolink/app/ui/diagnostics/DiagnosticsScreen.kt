@@ -74,6 +74,7 @@ private enum class DiagnosticsTab(
     NETWORK("Network", Icons.Default.NetworkCheck),
     CAR("Car", Icons.Default.DirectionsCar),
     MICROPHONE("Microphone", Icons.Default.Mic),
+    BLUETOOTH("BT recorder", Icons.Default.BugReport),
     DEBUG("Debug", Icons.Default.BugReport),
     LOGS("Logs", Icons.Default.Terminal),
 }
@@ -158,6 +159,7 @@ private fun DiagnosticsScreenContent(
                     DiagnosticsTab.NETWORK -> NetworkTab(uiState.network, uiState.networkProbe, viewModel)
                     DiagnosticsTab.CAR -> CarTab(uiState.car)
                     DiagnosticsTab.MICROPHONE -> MicrophoneDiagnosticPanel(microphoneController)
+                    DiagnosticsTab.BLUETOOTH -> BluetoothReconnectPanel(com.openautolink.app.diagnostics.BluetoothReconnectService.process)
                     DiagnosticsTab.DEBUG -> DebugTab(uiState.debugProbe, viewModel)
                     DiagnosticsTab.LOGS -> LogsTab(uiState.logs, uiState.logFilter, viewModel)
                 }
