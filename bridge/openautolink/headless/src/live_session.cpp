@@ -5,6 +5,7 @@
 #include "openautolink/oal_protocol.hpp"
 #include "openautolink/oal_log.hpp"
 #include "openautolink/aa_error_codes.hpp"
+#include "openautolink/ev_connector_mapping.h"
 
 #include <cstring>
 #include <chrono>
@@ -690,14 +691,9 @@ void HeadlessAutoEntity::onServiceDiscoveryRequest(
               ss->add_supported_fuel_types(static_cast<aap_protobuf::service::sensorsource::message::FuelType>(ft));
           }
       }
-      if (config_.ev_connector_types.empty()) {
-          ss->add_supported_ev_connector_types(aap_protobuf::service::sensorsource::message::EV_CONNECTOR_TYPE_J1772);
-          ss->add_supported_ev_connector_types(aap_protobuf::service::sensorsource::message::EV_CONNECTOR_TYPE_COMBO_1);
-      } else {
-          for (int ec : config_.ev_connector_types) {
-              ss->add_supported_ev_connector_types(static_cast<aap_protobuf::service::sensorsource::message::EvConnectorType>(ec));
-          }
-      }
+      const auto connectorDiagnostic =
+          openautolink::ev::addSupportedEvConnectors(*ss, config_.ev_connector_types);
+      std::cerr << "[OAL] " << connectorDiagnostic << std::endl;
       // Location characterization bitmask — tells AA about available sensor fusion
       // Bits: RAW_GPS_ONLY=256, ACCELEROMETER=4, GYROSCOPE=2, COMPASS=8, CAR_SPEED=64
       ss->set_location_characterization(256 | 4 | 2 | 8 | 64); }

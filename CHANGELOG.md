@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.541 — Correct Android Auto charging connectors
+
+- Translate raw AAOS vehicle charging-connector values into Android Auto's connector definitions before advertising them. CCS1 is no longer mislabeled as CCS2 when the vehicle reports raw connector value 5; CCS2, CHAdeMO and legacy Tesla/GBT values use explicit mappings rather than unchecked casts.
+- Apply the same conversion to the direct car receiver and headless bridge. Preserve the existing J1772/CCS1 fallback for missing vehicle data; unsupported values remain unknown rather than becoming a different plug or an assumed US connector.
+- Verification is based on Android Auto, phone Maps and native AAOS Maps/framework decompiles plus software regression tests. The additional Type 2 entry in the reported Equinox session and the vehicle retest remain unverified; this does not claim to change physical charging, location settings or adapter compatibility.
+- No companion runtime changes. Matching public artifacts remain credential-free. Distribution stays on the original and Groups 2–5 Automotive Internal listings; Community and tester memberships are unchanged.
+
 ## 0.1.540 — CarPlay cluster units and Bluetooth controls
 
 - Carry sourced CarPlay step/destination display distance units through cluster publication (issue #200), preserving independent estimate expiry and unavailable-value safety.

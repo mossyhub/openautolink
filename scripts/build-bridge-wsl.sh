@@ -31,10 +31,12 @@ fi
 echo "=== Cross-compiling bridge for ARM64 ==="
 echo "  Syncing sources to WSL filesystem..."
 
-mkdir -p "$WSL_SRC/bridge/openautolink" "$WSL_SRC/external"
+mkdir -p "$WSL_SRC/bridge/openautolink" "$WSL_SRC/external" "$WSL_SRC/native"
 
 # Bridge headless code — changes often, always sync
 rsync -a --checksum --delete "$REPO_ROOT/bridge/openautolink/headless/" "$WSL_SRC/bridge/openautolink/headless/"
+# Native helpers shared with the direct app SDR path.
+rsync -a --checksum --delete "$REPO_ROOT/native/include/" "$WSL_SRC/native/include/"
 
 # aasdk and openauto — submodules that rarely change.
 # Only sync if the submodule HEAD changed (or not yet synced).
