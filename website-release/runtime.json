@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "url": "https://github.com/mossyhub/openautolink/releases/download/web-builder-runtime/website-runtime-534-support.zip",
-  "size": 245579,
-  "sha256": "0de6eda407fa7993171f0d35b8bfbf2bce237a0734836b3d7de0df7958a6dced",
+  "url": "https://github.com/mossyhub/openautolink/releases/download/web-builder-runtime/website-runtime-carplay-pkcs8-fix.zip",
+  "size": 246033,
+  "sha256": "f04521addb8e89d6b345bf0d8df51c6f4ac6fe5753fcc8b47630daa74b6dcb93",
   "files": {
-    "assets/build.worker-CO5fXyJx.js": {
-      "size": 329446,
-      "sha256": "e50ef35527b8b237b289a3335204e8e74892a7d24e1e2380b72264ce06c6a46b"
+    "assets/build.worker-CeNHdfDP.js": {
+      "size": 330504,
+      "sha256": "cc43cca4ab6013704c811cf7b9bcd87b7525aa90521a9726a3bb611e2927f0b9"
     },
     "assets/index-BLgC4A59.css": {
       "size": 5530,
       "sha256": "1eb9ff33499cf420a9d7c30704f5b5ef0e20d5139a4eafcca84e62f1ba3819f2"
     },
-    "assets/index-uZX9U-XQ.js": {
-      "size": 331429,
-      "sha256": "2a8ff7ebe15a6797ad337ee10abd083dfc243728078808337b5c59a1beffba5b"
+    "assets/index-CSbNb-tu.js": {
+      "size": 332487,
+      "sha256": "0b19ef349c33a55468113ea09a26fff77297ce8af60a8fbd0bb9e2fb749d1ecd"
     },
     "brand/oal-logo.png": {
       "size": 55524,
@@ -22,11 +22,11 @@
     },
     "index.html": {
       "size": 3317,
-      "sha256": "fd914768201cd879393fd9723e7a648a0da07403f72182f6a30209e4ae774e6c"
+      "sha256": "62077aa9eb93dfdf85dedac39f8c6a5e399e6b84d106b00522fbedcdb3f2e824"
     },
     "staticwebapp.config.json": {
-      "size": 737,
-      "sha256": "7dc54d391eb59a5511f19ab74e14792d0ca22df3bd65faaf79cd2b8cb39d9b7f"
+      "size": 767,
+      "sha256": "e3decab2c591e407a98627581af9c42e8570c8074d050d89633da2fda6492d93"
     }
   }
 }
