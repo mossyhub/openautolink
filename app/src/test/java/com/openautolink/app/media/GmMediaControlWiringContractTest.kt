@@ -52,7 +52,11 @@ class GmMediaControlWiringContractTest {
         assertTrue(media.contains("override fun onStop()"))
         assertTrue(media.contains("GmMediaControlPolicy.Command.STOP"))
         assertTrue(media.contains("PlaybackStateCompat.ACTION_STOP"))
-        assertTrue(media.contains("mediaControlCallback?.onCommand"))
+        val dispatch = media.substringAfter("private fun dispatchMediaCommand(")
+            .substringBefore("internal fun controllerClass(")
+        assertTrue(dispatch.contains("MetadataHostOwnership.process.legacy"))
+        assertTrue(dispatch.contains("mediaControlCallback.takeIf { hostMediaLease == null }"))
+        assertTrue(dispatch.contains("callback?.onCommand(command)"))
 
         assertTrue(manager.contains("installGmMediaControls()"))
         assertTrue(manager.contains("registerMuteStateReceiver()"))

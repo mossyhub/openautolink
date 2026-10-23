@@ -131,6 +131,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     @Volatile private var carPlayRuntime: com.openautolink.app.carplay.OalCarPlayRuntime? = null
     private val carPlayCoordinator = com.openautolink.app.carplay.CarPlayCoordinator(
         sessionLeases = com.openautolink.app.carplay.CarPlaySessionLeases.forContext(application),
+        mediaLeases = com.openautolink.app.carplay.CarPlayHostMediaLeaseSource.forContext(application),
         retireAndroidAuto = {
             kotlinx.coroutines.runBlocking {
                 // Stop and await the advertiser BEFORE SessionManager clears its WPP owner.
@@ -175,7 +176,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 connectAndroidAuto = { if (aaNormalTransport != AppPreferences.DIRECT_TRANSPORT_USB) connect() },
                 connectCarPlay = {
                     _carPlayStartupGuidance.value = null
-                    carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+                    carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
                 },
                 showSetup = { _carPlayStartupGuidance.value = issue ?: "CarPlay is paused while ignition is off. Retry when the car is ready." },
             )
@@ -311,10 +312,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                                     retired()
                                     return@launch
                                 }
-                                val accepted = carPlayCoordinator.connect(true) { report ->
+                                val accepted = carPlayCoordinator.connectWithContext(true) { attemptContext, report ->
                                     try {
                                         check(dispatchEpoch == usbDispatchEpoch.get() && usbOverrideGeneration == generation)
-                                        createProjectionCarPlayRuntime(report, device, transition.first, transition.second, retired,
+                                        createProjectionCarPlayRuntime(attemptContext, report, device, transition.first, transition.second, retired,
                                             permission.first, permission.second)
                                     } catch (failure: Exception) { retired(); throw failure }
                                 }
@@ -477,7 +478,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         if (com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()) return
         // Wired CarPlay enablement never suppresses normal Android Auto WPP / GM phone priority.
         if (usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
-            if (prepareCarPlayStart(saved)) carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+            if (prepareCarPlayStart(saved)) carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
         } else if (preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) connect()
     }
 
@@ -506,10 +507,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 "Check CarPlay connection setup and Bluetooth access, then retry."
             }
         }
-    private fun createCarPlayRuntime(report: (String) -> Unit): com.openautolink.app.carplay.CarPlayRuntime =
-        createProjectionCarPlayRuntime(report, null)
+    private fun createCarPlayRuntime(attemptContext: com.openautolink.app.carplay.CarPlayAttemptContext, report: (String) -> Unit): com.openautolink.app.carplay.CarPlayRuntime =
+        createProjectionCarPlayRuntime(attemptContext, report, null)
 
     private fun createProjectionCarPlayRuntime(
+        attemptContext: com.openautolink.app.carplay.CarPlayAttemptContext,
         report: (String) -> Unit, usbDevice: android.hardware.usb.UsbDevice?,
         beginTransition: () -> Boolean = { false },
         acceptReplacement: (android.hardware.usb.UsbDevice) -> Boolean = { false },
@@ -548,6 +550,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             if (usbDevice != null) {
                 check(usbOverrideGeneration != null) { "Transient USB selection retired" }
                 val runtime = com.openautolink.app.carplay.OalUsbCarPlayRuntime(getApplication(), usbDevice, display, surface, report,
+                    attemptContext = attemptContext,
                     onDisplayQualified = { _carPlayDisplay.value = it },
                     onReenumerationStarted = beginTransition, onReplacementAccepted = acceptReplacement,
                     initialPermissionOwner = initialPermissionOwner,
@@ -565,6 +568,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 val config = com.openautolink.app.data.CarPlaySettingsPolicy.runtimeConfig(saved, display)
                 check(saved.connectionMode == "wireless" && usbOverrideGeneration == null) { "Wireless CarPlay not opted in" }
                 com.openautolink.app.carplay.OalCarPlayRuntime(getApplication(), config, surface, report,
+                    attemptContext = attemptContext,
                     onDisplayQualified = { _carPlayDisplay.value = it })
                     .also { runtime -> runtime.detachSurface(surface); carPlayRuntime = runtime }
             }
@@ -584,8 +588,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             usbDispatchMutex.lock()
             try {
                 if (usbOverrideGeneration != null || !prepareCarPlayStart(saved)) return@launch
-                if (_carPlayState.value.selected) carPlayCoordinator.reconnect(true, ::createCarPlayRuntime)
-                else carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+                if (_carPlayState.value.selected) carPlayCoordinator.reconnectWithContext(true, ::createCarPlayRuntime)
+                else carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
             } finally { usbDispatchMutex.unlock() }
         }
     }
@@ -614,7 +618,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 synchronized(connectLock) { hasConnected = false; connectInFlight = false }
                 val saved = preferences.carPlaySettings.first()
                 if (usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
-                    if (prepareCarPlayStart(saved)) carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+                    if (prepareCarPlayStart(saved)) carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
                 } else {
                     _carPlayStartupGuidance.value = null
                     if (preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) reconnectAndroidAuto()

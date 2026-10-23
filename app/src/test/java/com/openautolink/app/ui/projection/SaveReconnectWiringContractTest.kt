@@ -51,8 +51,10 @@ class SaveReconnectWiringContractTest {
         assertTrue(dispatch.indexOf("val saved = preferences.carPlaySettings.first()") < dispatch.indexOf("usbSwitchPolicy.wirelessCarPlay("))
         assertTrue(dispatch.contains("usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)"))
         assertFalse(dispatch.contains("carPlayEnabled.value"))
-        assertTrue(dispatch.contains("carPlayCoordinator.connect(true, ::createCarPlayRuntime)"))
-        assertTrue(dispatch.indexOf("releaseCarPlayUsbOwner()") < dispatch.indexOf("carPlayCoordinator.connect("))
+        assertTrue(dispatch.contains("carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)"))
+        val retirement = dispatch.indexOf("retireUsbProjection()")
+        val connect = dispatch.indexOf("carPlayCoordinator.connectWithContext(")
+        assertTrue("USB retirement must precede context-aware CarPlay dispatch", retirement >= 0 && connect > retirement)
         assertTrue(dispatch.contains("preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB"))
         assertFalse("Global Save keeps the passive USB watcher alive", dispatch.contains("stopUnifiedUsb()"))
     }

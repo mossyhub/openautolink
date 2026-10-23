@@ -46,13 +46,23 @@ class CarPlayCoordinator(
     private val ownership: CarPlayOwnership = CarPlayOwnership.process,
     private val retireAndroidAuto: () -> Unit,
     private val sessionLeases: CarPlaySessionLeaseSource = CarPlaySessionLeaseSource.NONE,
+    private val mediaLeases: CarPlayHostMediaLeaseSource = CarPlayHostMediaLeaseSource.NONE,
     private val onState: (CarPlayUiState) -> Unit,
 ) : Closeable {
     // Preserve positional and trailing-onState callers as well as existing named arguments.
     constructor(ownership: CarPlayOwnership, retireAndroidAuto: () -> Unit, onState: (CarPlayUiState) -> Unit) :
         this(ownership, retireAndroidAuto, CarPlaySessionLeaseSource.NONE, onState)
 
+    constructor(ownership: CarPlayOwnership, retireAndroidAuto: () -> Unit,
+                sessionLeases: CarPlaySessionLeaseSource, onState: (CarPlayUiState) -> Unit) :
+        this(ownership, retireAndroidAuto, sessionLeases, CarPlayHostMediaLeaseSource.NONE, onState)
+
     private class Attempt(val token: CarPlayOwnership.Token, val initialSurface: Surface?, val sessionLease: CarPlaySessionLease) {
+        val context = CarPlayAttemptContext(CarPlayHostMediaLease(
+            CarPlayPlayingPublicationExperiment.snapshotMode()))
+        var mediaBegun = false
+        var runtimeClosed = false
+        var protectionReleased = false
         val canceled = AtomicBoolean()
         @Volatile var runtime: CarPlayRuntime? = null
     }
@@ -66,7 +76,10 @@ class CarPlayCoordinator(
     private var closed = false
     private var commandEpoch = 0L
 
-    fun connect(enabled: Boolean, factory: ((String) -> Unit) -> CarPlayRuntime): Boolean = synchronized(lock) {
+    fun connect(enabled: Boolean, factory: ((String) -> Unit) -> CarPlayRuntime): Boolean =
+        connectWithContext(enabled) { _, report -> factory(report) }
+
+    fun connectWithContext(enabled: Boolean, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime): Boolean = synchronized(lock) {
         if (closed || !enabled || current != null) return false
         val lease = token ?: ownership.reserve(enabled)?.also { token = it } ?: return false
         val sessionLease = try { sessionLeases.acquire() } catch (_: Exception) {
@@ -80,7 +93,7 @@ class CarPlayCoordinator(
         true
     }
 
-    private fun run(attempt: Attempt, factory: ((String) -> Unit) -> CarPlayRuntime) {
+    private fun run(attempt: Attempt, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime) {
         var failedStatus: String? = null
         try {
             // OS acceptance is not promotion. Never retire AA/bootstrap transport unprotected.
@@ -89,7 +102,10 @@ class CarPlayCoordinator(
             retireAndroidAuto()
             ownership.acknowledgeAaRetired(attempt.token)
             if (attempt.canceled.get() || !ownership.canBootstrap(attempt.token)) return
-            val runtime = factory { message -> record(attempt, message) }
+            attempt.mediaBegun = true // even partial apply owns retryable cleanup debt.
+            mediaLeases.begin(attempt.context.hostMedia)
+            if (attempt.canceled.get() || !ownership.canBootstrap(attempt.token)) return
+            val runtime = factory(attempt.context) { message -> record(attempt, message) }
             synchronized(lock) {
                 attempt.runtime = runtime
                 if (current === attempt && !attempt.canceled.get()) {
@@ -119,11 +135,7 @@ class CarPlayCoordinator(
             synchronized(lock) { if (current === attempt) publish(state.copy(videoWaitActive = false)) }
         } finally {
             try {
-                attempt.runtime?.cancel()
-                attempt.runtime?.close()
-                attempt.sessionLease.release() // Only exact concrete runtime close acknowledges retirement.
-                attempt.runtime = null
-                ownership.acknowledgeCarPlayRetired(attempt.token)
+                finishAttempt(attempt)
                 synchronized(lock) {
                     if (current === attempt) {
                         current = null
@@ -132,10 +144,28 @@ class CarPlayCoordinator(
                     }
                 }
             } catch (_: Exception) {
+                if (attempt.mediaBegun) attempt.context.hostMedia.record("failed", "unknown", "failed")
                 // Keep exact retiring owner/runtime for a Stop retry; never admit a successor.
                 synchronized(lock) { if (current === attempt) publish(state.copy(status = "CarPlay retirement failed · Stop again to retry")) }
             }
         }
+    }
+
+    /** One retryable finalizer, including failed factory/null-runtime and partial-apply debt. */
+    private fun finishAttempt(attempt: Attempt) {
+        if (attempt.mediaBegun) attempt.context.hostMedia.record("pending", "unknown", "pending")
+        if (!attempt.runtimeClosed) {
+            attempt.runtime?.cancel()
+            attempt.runtime?.close()
+            attempt.runtimeClosed = true
+            attempt.runtime = null
+        }
+        if (!attempt.protectionReleased) {
+            attempt.sessionLease.release()
+            attempt.protectionReleased = true
+        }
+        if (attempt.mediaBegun) mediaLeases.finish(attempt.context.hostMedia)
+        ownership.acknowledgeCarPlayRetired(attempt.token)
     }
 
     private fun record(attempt: Attempt, message: String) = synchronized(lock) {
@@ -188,30 +218,34 @@ class CarPlayCoordinator(
         interrupter.execute { runCatching { attempt.runtime?.close() } }
         // Also retries a previously failed close after the original worker returned.
         worker.execute {
-            if (current === attempt && attempt.runtime != null) {
-                runCatching { attempt.runtime?.close(); attempt.runtime = null }.onSuccess {
-                    attempt.sessionLease.release()
-                    ownership.acknowledgeCarPlayRetired(attempt.token)
+            if (synchronized(lock) { current === attempt }) {
+                runCatching { finishAttempt(attempt) }.onSuccess {
                     synchronized(lock) { if (current === attempt) { current = null; publish(state.copy(busy = false, evidence = CarPlayEvidence(), status = "CarPlay stopped")) } }
+                }.onFailure {
+                    if (attempt.mediaBegun) attempt.context.hostMedia.record("failed", "unknown", "failed")
+                    synchronized(lock) { if (current === attempt) publish(state.copy(status = "CarPlay retirement failed · Stop again to retry")) }
                 }
             }
         }
     }
 
-    fun reconnect(enabled: Boolean, factory: ((String) -> Unit) -> CarPlayRuntime) {
+    fun reconnect(enabled: Boolean, factory: ((String) -> Unit) -> CarPlayRuntime) =
+        reconnectWithContext(enabled) { _, report -> factory(report) }
+
+    fun reconnectWithContext(enabled: Boolean, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime) {
         synchronized(lock) {
             if (closed || !enabled || token == null) return
             stop()
             val requestEpoch = commandEpoch
             worker.execute {
                 synchronized(lock) {
-                    if (!closed && requestEpoch == commandEpoch) connect(enabled, factory)
+                    if (!closed && requestEpoch == commandEpoch) connectWithContext(enabled, factory)
                 }
             }
         }
     }
     fun returnToAndroidAuto(preserveFailure: Boolean = false, onReturned: () -> Unit = {}) = synchronized(lock) {
-        if (closed) return@synchronized
+        if (worker.isShutdown) return@synchronized
         // Automatic cable retirement releases ownership, not the user's failure receipt.
         if (!preserveFailure) dismissFailure()
         stop()
@@ -237,10 +271,16 @@ class CarPlayCoordinator(
     }
 
     override fun close() = synchronized(lock) {
-        if (closed) return@synchronized
+        if (worker.isShutdown) return@synchronized
         returnToAndroidAuto()
-        closed = true
-        worker.shutdown() // queued retirement is deliberately not canceled.
-        interrupter.shutdown()
+        closed = true // Admission stays revoked even if retirement needs an explicit close retry.
+        worker.execute {
+            synchronized(lock) {
+                if (current == null && token == null) {
+                    worker.shutdown()
+                    interrupter.shutdown()
+                }
+            }
+        }
     }
 }

@@ -70,6 +70,7 @@ class OalCarPlayRuntime(
     private val surface: Surface,
     private val onStatus: (String) -> Unit,
     private val onDisplayQualified: (CarPlayDisplayPreferences) -> Unit = {},
+    private val attemptContext: CarPlayAttemptContext? = null,
 ) : CarPlayRuntime {
     private val canceled = AtomicBoolean()
     private val resourcesLock = Any()
@@ -318,7 +319,7 @@ class OalCarPlayRuntime(
             }, runtimeMetadataFactory = { session, receipt -> own {
                 active()
                 val metadata = OalCarPlayMetadataLink(SystemClock::elapsedRealtime, receipt,
-                    OalCarPlayMetadataHost(context.applicationContext, receipt = receipt) { index ->
+                    OalCarPlayMetadataHost(context.applicationContext, receipt = receipt, attemptContext = attemptContext) { index ->
                         receiver?.mediaCommand(session, index) == true
                     })
                 CarPlayBluetoothDiagnosticLink(metadata, { listener ->

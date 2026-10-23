@@ -38,6 +38,7 @@ class OalUsbCarPlayRuntime(
     private val consumeExplicitPermissionRetry: () -> Boolean = { false },
     private val restrictionPolicy: CarPlayRestrictionPolicy = CarPlayRestrictionPolicy.from(com.openautolink.app.data.CarPlaySettings()),
     receiverAddress: String = "",
+    private val attemptContext: CarPlayAttemptContext? = null,
 ) : CarPlayRuntime {
     // Snapshot before USB side effects. Empty preserves the existing descriptor/fallback offer.
     private val manualBluetoothAddress = com.openautolink.app.data.CarPlayReceiverAddressPolicy.runtimeAddress(receiverAddress)
@@ -351,7 +352,7 @@ class OalUsbCarPlayRuntime(
             },runtimeMetadataFactory={ session, receipt -> own {
                 active()
                 val metadata = OalCarPlayMetadataLink(SystemClock::elapsedRealtime, receipt,
-                    OalCarPlayMetadataHost(context.applicationContext, receipt = receipt) { index ->
+                    OalCarPlayMetadataHost(context.applicationContext, receipt = receipt, attemptContext = attemptContext) { index ->
                         receiver?.mediaCommand(session, index) == true
                     })
                 CarPlayBluetoothDiagnosticLink(metadata, { listener ->

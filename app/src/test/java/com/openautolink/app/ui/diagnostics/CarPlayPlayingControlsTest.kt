@@ -14,10 +14,37 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.ConscryptMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(application=Application::class,sdk=[32],qualifiers="w800dp-h600dp-mdpi")
+@Config(application=Application::class,sdk=[32,34],qualifiers="w800dp-h600dp-mdpi")
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class CarPlayPlayingControlsTest {
     @get:Rule val compose=createOalComposeRule()
+    @Test fun renderedInactiveModeIsExclusiveAndRechecksParkForegroundAndPendingOwnership() {
+        CarPlayPlayingPublicationExperiment.disarm()
+        var park=true;var eligible=true
+        val controller=MicrophoneDiagnosticController(FakeMicrophoneBackend(),eligibility={eligible},freshPark={park})
+        try {
+            compose.setContent { MaterialTheme { MicrophoneDiagnosticPanel(controller) } }
+            compose.onNodeWithTag("cp-inactive-arm").performScrollTo().assertIsNotEnabled()
+            compose.onNodeWithTag("cp-playing-consent").performScrollTo().performClick()
+            compose.onNodeWithTag("cp-inactive-arm").performScrollTo().performClick()
+            compose.runOnIdle {
+                assertEquals(com.openautolink.app.carplay.CarPlayHostMediaMode.INACTIVE,CarPlayPlayingPublicationExperiment.snapshotMode())
+            }
+            compose.onNodeWithTag("cp-playing-status").assertTextContains("INACTIVE",substring=true)
+            compose.onNodeWithTag("cp-playing-arm").performScrollTo().performClick()
+            compose.runOnIdle { assertEquals(com.openautolink.app.carplay.CarPlayHostMediaMode.SUPPRESS_PLAYING,CarPlayPlayingPublicationExperiment.snapshotMode());park=false }
+            compose.onNodeWithTag("cp-inactive-arm").performScrollTo().performClick()
+            compose.runOnIdle { assertEquals(com.openautolink.app.carplay.CarPlayHostMediaMode.SUPPRESS_PLAYING,CarPlayPlayingPublicationExperiment.snapshotMode());park=true;eligible=false;controller.refresh() }
+            compose.onNodeWithTag("cp-inactive-arm").assertIsNotEnabled()
+            compose.runOnIdle { eligible=true;controller.updateForeground(false);controller.updateForeground(true) }
+            compose.onNodeWithTag("cp-inactive-arm").assertIsNotEnabled()
+            compose.onNodeWithTag("cp-playing-consent").performScrollTo().performClick()
+            compose.onNodeWithTag("cp-inactive-arm").performScrollTo().performClick()
+            compose.runOnIdle { org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMinutes(15));controller.refresh() }
+            compose.onNodeWithTag("cp-playing-status").assertTextContains("Expired",substring=true)
+        } finally { CarPlayPlayingPublicationExperiment.disarm() }
+    }
+
     @Test fun renderedArmFeedsActualHostAndDisarmOnlyRestoresTheNextOwner() {
         CarPlayPlayingPublicationExperiment.disarm()
         val app=org.robolectric.RuntimeEnvironment.getApplication()

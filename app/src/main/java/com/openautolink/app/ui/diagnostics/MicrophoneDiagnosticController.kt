@@ -59,12 +59,16 @@ class MicrophoneDiagnosticController(
         private set
     internal var playingExpired by androidx.compose.runtime.mutableStateOf(false)
         private set
+    internal var currentHostMediaStatus by androidx.compose.runtime.mutableStateOf("No current CarPlay host-media lease")
+        private set
     internal val canArmPlaying: Boolean get() = playingConsent && !busy && liveEligibleNow()
     internal fun updatePlayingConsent(value: Boolean) { playingConsent = value; refresh() }
-    internal fun armPlaying() {
+    internal fun armInactive() = armHostMedia(com.openautolink.app.carplay.CarPlayHostMediaMode.INACTIVE)
+    internal fun armPlaying() = armHostMedia(com.openautolink.app.carplay.CarPlayHostMediaMode.SUPPRESS_PLAYING)
+    private fun armHostMedia(mode: com.openautolink.app.carplay.CarPlayHostMediaMode) {
         refresh()
         if (!canArmPlaying) return
-        com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.arm()
+        com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.arm(mode)
         playingExpired = false
         refresh()
     }
@@ -132,6 +136,8 @@ class MicrophoneDiagnosticController(
     fun refresh() {
         admission = isEligibleNow()
         liveAdmission = liveEligibleNow()
+        currentHostMediaStatus = com.openautolink.app.media.OalMediaSessionManager.instanceOrNull()?.carPlayHostMediaStatus()
+            ?: "No current CarPlay host-media lease"
         val playing = com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.status()
         if (playingStatus.armed && !playing.armed) playingExpired = true
         playingStatus = playing

@@ -64,6 +64,7 @@ class LogUploader(
         val archive = try {
             val flushed = try { flushTelemetry() } catch (_: Exception) { false }
             val bluetoothFlushed = try { flushBluetooth() } catch (_: Exception) { false }
+            check(com.openautolink.app.carplay.HostMediaDiagnosticSink.flush()) { "host media diagnostics pending" }
             val plan = LogUploadArchive.select(allLogFiles(), System.currentTimeMillis())
             if (plan.selected.isEmpty()) return UploadResult.Failure(
                 "no eligible log files; ${plan.skipped.size} omitted (age/size/member limits)", UploadFailureCode.NO_LOGS
