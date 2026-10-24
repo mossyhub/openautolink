@@ -11,7 +11,10 @@ class CarPlayFailurePresentationTest {
     @Test fun explicitDismissalClearsFailureDuringFailedRetirement() {
         val latest = AtomicReference(CarPlayUiState())
         val failed = CountDownLatch(1)
-        val coordinator = CarPlayCoordinator(CarPlayOwnership(), {}) {
+        val returned = CountDownLatch(1)
+        val allowClose = java.util.concurrent.atomic.AtomicBoolean()
+        val ownership = CarPlayOwnership()
+        val coordinator = CarPlayCoordinator(ownership, {}) {
             latest.set(it)
             if (it.status.contains("retirement failed")) failed.countDown()
         }
@@ -19,7 +22,7 @@ class CarPlayFailurePresentationTest {
             coordinator.connect(true) { object : CarPlayRuntime {
                 override fun run() { throw CarPlayConnectionFailure(CarPlayFailureKind.LISTENER_BIND, true) }
                 override fun cancel() {}
-                override fun close() { error("retirement not yet acknowledged") }
+                override fun close() { check(allowClose.get()) { "retirement not yet acknowledged" } }
             } }
             assertTrue(failed.await(3, TimeUnit.SECONDS))
             assertNotNull(latest.get().failure)
@@ -27,7 +30,16 @@ class CarPlayFailurePresentationTest {
             assertNotNull("Explicit dismissal must clear the DTO", dismiss)
             dismiss!!.invoke(coordinator)
             assertNull(latest.get().failure)
-        } finally { coordinator.close() }
+            assertTrue("dismissal must not retire the failed runtime", ownership.blocksAndroidAuto)
+        } finally {
+            // Keep the failed-close contract above, then really retire this exact fixture owner.
+            allowClose.set(true)
+            try {
+                coordinator.returnToAndroidAuto { returned.countDown() }
+                assertTrue("fixture runtime retirement must finish", returned.await(3, TimeUnit.SECONDS))
+                assertFalse(ownership.blocksAndroidAuto)
+            } finally { coordinator.close() }
+        }
     }
 
     @Test fun automaticTimeoutPresentationWarnsThatManualIpv4IsNotGuaranteed() {

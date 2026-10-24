@@ -15,30 +15,14 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.*
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk=[32],application=Application::class,manifest=Config.NONE,shadows=[CaptureReleaseLedgerTest.StalledRecorder::class])
+@Config(sdk=[32],application=Application::class,manifest=Config.NONE,
+    instrumentedPackages=["com.shilapi.xcertplay.media.capture"],
+    shadows=[com.shilapi.xcertplay.media.capture.StalledReleaseRecorder::class])
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class CaptureReleaseLedgerTest {
-    @Implements(AudioRecord::class)
-    class StalledRecorder {
-        companion object {
-            @JvmStatic @Implementation fun native_get_min_buff_size(rate:Int,channels:Int,format:Int)=1024
-        }
-        @Implementation fun native_start(event:Int,session:Int)=0
-        @Implementation fun native_read_in_byte_array(b:ByteArray,offset:Int,size:Int,blocking:Boolean):Int {
-            reading.countDown(); Thread.sleep(30000);return 0
-        }
-        @Implementation fun native_release() {
-            releasing.countDown()
-            while (true) { try { allowRelease.await();break } catch (_:InterruptedException) {} }
-        }
-    }
-    companion object {
-        var reading=CountDownLatch(1)
-        var releasing=CountDownLatch(1)
-        var allowRelease=CountDownLatch(1)
-    }
     @Test fun cancellationKeepsFenceAndNeverAcknowledgesStalledActualReleaseOrRelabelsLateOwner() {
-        reading=CountDownLatch(1);releasing=CountDownLatch(1);allowRelease=CountDownLatch(1)
+        val fixture=com.shilapi.xcertplay.media.capture.StalledReleaseRecorder.install()
+        val reading=fixture.reading; val releasing=fixture.releasing; val allowRelease=fixture.allowRelease
         val app=RuntimeEnvironment.getApplication();shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         AndroidMicrophoneSupport.initialize(app)
         val lines=CopyOnWriteArrayList<String>();val tasks=LinkedBlockingQueue<Runnable>()
@@ -55,7 +39,11 @@ class CaptureReleaseLedgerTest {
             val uplink=constructor!!.apply { isAccessible=true }.newInstance(config,report,null,cap,ledger,null) as MicrophoneUplink
             try {
                 uplink.start();assertTrue(reading.await(3,TimeUnit.SECONDS))
+                assertFalse(uplink.isRetired); assertNull(MicrophoneCaptureFence.tryDiagnostic())
                 uplink.close();assertTrue(releasing.await(3,TimeUnit.SECONDS));flush()
+                assertEquals(AudioRecord.STATE_INITIALIZED,fixture.record!!.state)
+                assertEquals(0,fixture.nativeReleases.get())
+                assertEquals(1L,fixture.realReleaseCompleted.count)
                 assertFalse(uplink.isRetired);assertNull(MicrophoneCaptureFence.tryDiagnostic())
                 assertTrue(lines.any { "kind=live action=end " in it })
                 assertTrue(lines.any { "kind=live action=release-begin " in it })
@@ -67,11 +55,14 @@ class CaptureReleaseLedgerTest {
                 val deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(3)
                 while(!uplink.isRetired && System.nanoTime()<deadline) Thread.sleep(5)
                 assertTrue(uplink.isRetired);flush()
+                assertEquals(0L,fixture.realReleaseCompleted.count)
+                assertEquals(1,fixture.nativeReleases.get())
+                assertEquals(AudioRecord.STATE_UNINITIALIZED,fixture.record!!.state)
                 assertEquals(1,lines.count { "kind=live action=released result=ok" in it })
                 assertEquals(1,lines.count { "kind=live action=retired result=ok" in it })
                 assertFalse(newer.any { "kind=live" in it })
                 assertTrue(lines.any { "stage=microphone-signal" in it && "blocks=0 " in it && "phase=released" in it })
-            } finally { allowRelease.countDown();uplink.close() }
+            } finally { allowRelease.countDown();uplink.close();fixture.close() }
         }
         MicrophoneCaptureFence.tryDiagnostic()!!.release()
     }

@@ -80,7 +80,7 @@ class CarPlayCoordinator(
         connectWithContext(enabled) { _, report -> factory(report) }
 
     fun connectWithContext(enabled: Boolean, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime): Boolean = synchronized(lock) {
-        if (closed || !enabled || current != null) return false
+        if (closed || !enabled || current != null || com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return false
         val lease = token ?: ownership.reserve(enabled)?.also { token = it } ?: return false
         val sessionLease = try { sessionLeases.acquire() } catch (_: Exception) {
             publish(CarPlayUiState(selected = true, status = "CarPlay protection unavailable · reconnect while app is visible"))

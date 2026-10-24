@@ -134,6 +134,13 @@ target_compile_definitions(openautolink-jni PRIVATE
     BOOST_ALL_NO_LIB=1
 )
 
+# Separate public-AAudio diagnostic, packaged for the same ABI filters as the app.
+add_library(oal-parked-capture SHARED
+    parked_capture_jni.cpp
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../tools/native-aaudio-capture/capture.cpp")
+target_link_libraries(oal-parked-capture PRIVATE aaudio log)
+target_link_options(oal-parked-capture PRIVATE -Wl,--no-undefined)
+
 # Strip in release for smaller APK
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_link_options(openautolink-jni PRIVATE -s)

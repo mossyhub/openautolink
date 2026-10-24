@@ -98,7 +98,7 @@ object AaWirelessBtControl {
     }
     @Volatile private var usbHandoff: UsbHandoffToken? = null
     private val advertiserRetirementMutex = kotlinx.coroutines.sync.Mutex()
-    private fun wirelessAdmissionBlocked() = usbHandoff != null ||
+    private fun wirelessAdmissionBlocked() = com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused() || usbHandoff != null ||
         com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto
 
     @Synchronized fun reserveUsbHandoff(generation: Long): UsbHandoffToken =
@@ -1828,6 +1828,12 @@ object AaWirelessBtControl {
     /** Off UI, after CP admission reservation. Failed-stop server is retained for retry. */
     suspend fun retireForCarPlay() {
         check(com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto)
+        awaitAdvertiserRetirement()
+    }
+
+    /** Diagnostic Stop pauses only projection admission; never toggles/disconnects phone BT profiles. */
+    suspend fun retireForMicrophoneDiagnostic() {
+        check(com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused())
         awaitAdvertiserRetirement()
     }
 

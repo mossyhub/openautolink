@@ -142,6 +142,7 @@ JniSession::JniSession(JavaVM* jvm)
     ioWork_ = std::make_unique<boost::asio::io_service::work>(*ioService_);
     strand_ = std::make_unique<boost::asio::io_service::strand>(*ioService_);
     ioThread_ = std::thread(&JniSession::ioServiceThreadFunc, this);
+    ioThreadId_ = ioThread_.get_id();
     LOGI("JniSession created");
 }
 
@@ -193,12 +194,31 @@ void JniSession::callVoidCallback(jmethodID method)
 // start() Ã¢â‚¬â€ build the aasdk pipeline
 // ============================================================================
 
+void JniSession::beginStart()
+{
+    std::lock_guard<std::mutex> lock(stopMutex_);
+    if (stopped_ || startAdmitted_) {
+        throw std::logic_error("Native session is stopped or already started");
+    }
+    startAdmitted_ = true;
+    starting_ = true;
+    startingThread_ = std::this_thread::get_id();
+}
+
+void JniSession::finishStart()
+{
+    std::lock_guard<std::mutex> lock(stopMutex_);
+    starting_ = false;
+    stopCv_.notify_all();
+}
+
 void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, jobject sdrConfig)
 {
-    if (streaming_) {
-        LOGW("Session already streaming, ignoring start()");
-        return;
-    }
+    beginStart();
+    struct StartCompletion {
+        JniSession* session;
+        ~StartCompletion() { session->finishStart(); }
+    } completion{this};
     energyModelDiagMask_ = 0;
 
     // Create global refs
@@ -355,6 +375,7 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
 
     // Build aasdk pipeline on the io_service thread
     ioService_->post([this, self = shared_from_this()]() {
+        if (stopped_) return;
         // 1. SSL + Cryptor
         LOGI("Creating SSL cryptor...");
         auto sslWrapper = std::make_shared<aasdk::transport::SSLWrapper>();
@@ -383,8 +404,13 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
             *ioService_, rawTransport_, cryptor_);
         auto outStream = std::make_shared<aasdk::messenger::MessageOutStream>(
             *ioService_, rawTransport_, cryptor_);
-        messenger_ = std::make_shared<aasdk::messenger::Messenger>(
+        auto messenger = std::make_shared<aasdk::messenger::Messenger>(
             *ioService_, inStream, outStream);
+        {
+            std::lock_guard<std::mutex> lock(stopMutex_);
+            if (stopped_) return; // No pipeline publication after close election.
+            messenger_ = std::move(messenger);
+        }
 
         // 3. Control channel
         controlChannel_ = std::make_shared<aasdk::channel::control::ControlServiceChannel>(
@@ -485,11 +511,19 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
 
 void JniSession::shutdownGracefully(const std::string& reason, int timeoutMs)
 {
+    auto self = shared_from_this();
+    ioService_->post([self, reason, timeoutMs] {
+        if (!self->stopped_) self->shutdownGracefullyOnIo(reason, timeoutMs);
+    });
+}
+
+void JniSession::shutdownGracefullyOnIo(const std::string& reason, int timeoutMs)
+{
     // Only meaningful while a session is actually up; otherwise just tear down.
     if (!controlChannel_ || !strand_ || !messenger_) {
         nativeDiag(2, "session", "shutdownGracefully: no live session, plain stop reason=" + reason);
-        stopReason_ = reason;
-        stop();
+        setStopReason(reason);
+        requestStop();
         return;
     }
 
@@ -501,7 +535,7 @@ void JniSession::shutdownGracefully(const std::string& reason, int timeoutMs)
         return;
     }
 
-    stopReason_ = reason;
+    setStopReason(reason);
     nativeDiag(1, "session", "shutdownGracefully: sending ByeBye reason=" + reason +
                              " timeout=" + std::to_string(timeoutMs) + "ms");
 
@@ -511,17 +545,17 @@ void JniSession::shutdownGracefully(const std::string& reason, int timeoutMs)
     // Watchdog: if the phone never acknowledges (or the write stalls on a link
     // that is already half-dead), tear down anyway. The head unit may be only
     // seconds from losing power, so this must be bounded and must never block.
-    std::thread([self, done, timeoutMs]() {
+    gracefulWatchdog_ = std::thread([self, done, timeoutMs]() {
         auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
         while (std::chrono::steady_clock::now() < deadline) {
-            if (done->load()) return;  // promise path already handled it
+            if (done->load() || self->stopped_) return;  // promise path already handled it
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         if (!done->exchange(true)) {
             LOGW("ByeBye not acknowledged within %dms - stopping anyway", timeoutMs);
-            self->stop();
+            self->requestStop();
         }
-    }).detach();
+    });
 
     aap_protobuf::service::control::message::ByeByeRequest request;
     // ByeByeReason has no VEHICLE_SHUTDOWN member (USER_SELECTION, DEVICE_SWITCH,
@@ -535,13 +569,13 @@ void JniSession::shutdownGracefully(const std::string& reason, int timeoutMs)
         [self, done]() {
             if (!done->exchange(true)) {
                 LOGI("ByeBye sent - tearing down");
-                std::thread([self] { self->stop(); }).detach();
+                self->requestStop();
             }
         },
         [self, done](const aasdk::error::Error& e) {
             if (!done->exchange(true)) {
                 LOGW("ByeBye send failed (%s) - tearing down anyway", e.what());
-                std::thread([self] { self->stop(); }).detach();
+                self->requestStop();
             }
         });
     controlChannel_->sendShutdownRequest(request, std::move(promise));
@@ -553,21 +587,60 @@ void JniSession::shutdownGracefully(const std::string& reason, int timeoutMs)
 
 void JniSession::stop()
 {
-    if (stopped_.exchange(true)) return;
+    {
+        std::unique_lock<std::mutex> lock(stopMutex_);
+        // Completed retirement outranks identities from a joined generation.
+        if (closed_) {
+            lock.unlock();
+            joinStopWorker();
+            return;
+        }
+        if (std::this_thread::get_id() == ioThreadId_) {
+            lock.unlock();
+            requestStop();
+            throw std::logic_error("IO stop requested; join must be awaited off IO");
+        }
+        if (closing_ && closingThread_ == std::this_thread::get_id()) {
+            throw std::logic_error("Reentrant stop cannot acknowledge its own teardown");
+        }
+        stopped_ = true; // Revoke admission before waiting for admitted setup.
+        if (starting_ && startingThread_ == std::this_thread::get_id()) {
+            throw std::logic_error("Start callback cannot await its own setup");
+        }
+        stopCv_.wait(lock, [this] { return !closing_ && !starting_; });
+        if (closeFailure_) std::rethrow_exception(closeFailure_);
+        if (closed_) {
+            lock.unlock();
+            joinStopWorker();
+            return;
+        }
+        closing_ = true;
+        closingThread_ = std::this_thread::get_id();
+        stopped_ = true;
+    }
+    try {
     LOGI("Stopping session");
     // (D) Deep-sleep black-video investigation: we tear down by closing the
     // TCP socket WITHOUT sending a ByeBye to the phone (despite the header
     // comment). The phone only discovers the drop as an I/O error. Log it so
     // the diagnostic trace marks the exact teardown moment and its reason.
-    nativeDiag(2, "session", "stop() closing transport WITHOUT ByeBye reason=" + stopReason_);
+    // No Java callbacks before IO joins: an IO callback may be requesting stop.
     streaming_ = false;
 
+    // start() has finished publishing transport_; messenger_ can still be
+    // installed by IO, so snapshot it under its short publication mutex.
+    decltype(messenger_) messenger;
+    {
+        std::lock_guard<std::mutex> lock(stopMutex_);
+        messenger = messenger_;
+    }
     if (transport_) transport_->stop();
-    if (messenger_) messenger_->stop();
+    if (messenger) messenger->stop();
 
     ioWork_.reset();
     ioService_->stop();
     if (ioThread_.joinable()) ioThread_.join();
+    if (gracefulWatchdog_.joinable()) gracefulWatchdog_.join();
 
     // Notify Kotlin (only if onSessionStopped hasn't already been fired by triggerAbort)
     if (callbackRef_) {
@@ -576,15 +649,80 @@ void JniSession::stop()
         if (env) {
             if (!sessionStoppedFired_.exchange(true) && cbMethods_.onSessionStopped) {
                 jstring reason = env->NewStringUTF(stopReason_.c_str());
-                env->CallVoidMethod(callbackRef_, cbMethods_.onSessionStopped, reason);
-                env->DeleteLocalRef(reason);
+                if (reason && !env->ExceptionCheck()) {
+                    env->CallVoidMethod(callbackRef_, cbMethods_.onSessionStopped, reason);
+                }
+                if (reason) env->DeleteLocalRef(reason);
             }
             env->DeleteGlobalRef(callbackRef_);
             callbackRef_ = nullptr;
+            const bool failed = env->ExceptionCheck();
+            if (failed) env->ExceptionClear();
+            releaseEnv(attached);
+            if (failed) throw std::runtime_error("Session stopped callback threw");
+        } else {
+            releaseEnv(attached);
+            throw std::runtime_error("Cannot release session callback global reference");
         }
-        releaseEnv(attached);
     }
     transport_.reset();
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(stopMutex_);
+        closeFailure_ = std::current_exception();
+        closing_ = false;
+        stopCv_.notify_all();
+        throw;
+    }
+    {
+        std::lock_guard<std::mutex> lock(stopMutex_);
+        closed_ = true; // Only after transport close, IO join and JNI ref retirement.
+        closing_ = false;
+        stopCv_.notify_all();
+    }
+    joinStopWorker();
+}
+
+void JniSession::joinStopWorker()
+{
+    // The request worker can finish teardown, but cannot join itself. External
+    // stop callers obtain the full worker receipt before clearing the JNI owner.
+    if (inStopWorker_) return;
+    std::lock_guard<std::mutex> lock(stopWorkerMutex_);
+    if (stopWorker_.joinable()) stopWorker_.join();
+}
+
+void JniSession::requestStop() noexcept
+{
+    try {
+        std::lock_guard<std::mutex> workerLock(stopWorkerMutex_);
+        {
+            std::lock_guard<std::mutex> lock(stopMutex_);
+            // An elected closer already owns this request and its completion.
+            if (closing_ || closed_ || closeFailure_ || stopWorkerRequested_.exchange(true)) return;
+            stopped_ = true;
+        }
+        auto self = shared_from_this();
+        stopWorker_ = std::thread([self] {
+            inStopWorker_ = true;
+            try { self->stop(); }
+            catch (...) { LOGE("Asynchronous native stop failed; owner retained"); }
+        });
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(stopMutex_);
+        // Election may race thread construction. Never poison an elected (or
+        // completed) closer; without one, retain the scheduling failure.
+        if (!closing_ && !closed_ && !closeFailure_) {
+            closeFailure_ = std::current_exception();
+        }
+        stopped_ = true;
+        stopCv_.notify_all();
+    }
+}
+
+void JniSession::setStopReason(const std::string& reason)
+{
+    std::lock_guard<std::mutex> lock(stopMutex_);
+    if (!stopped_) stopReason_ = reason;
 }
 
 void JniSession::nativeDiag(int level, const char* tag, const std::string& msg)
@@ -1113,15 +1251,15 @@ void JniSession::onByeByeRequest(
     }
     LOGI("ByeBye request reason=%d (%s) - disconnecting",
          static_cast<int>(request.reason()), reasonStr);
-    stopReason_ = reasonStr;
+    setStopReason(reasonStr);
     aap_protobuf::service::control::message::ByeByeResponse response;
     auto promise = aasdk::channel::SendPromise::defer(*strand_);
     // See onVideoFocusRequest: stop() joins ioThread_, so detach it to avoid
     // joining the thread we're running on.
     auto self = shared_from_this();
     promise->then(
-        [self]() { std::thread([self] { self->stop(); }).detach(); },
-        [self](const auto&) { std::thread([self] { self->stop(); }).detach(); });
+        [self]() { self->requestStop(); },
+        [self](const auto&) { self->requestStop(); });
     controlChannel_->sendShutdownResponse(response, std::move(promise));
 }
 void JniSession::onByeByeResponse(
@@ -1131,7 +1269,7 @@ void JniSession::onByeByeResponse(
     // This callback runs on ioThread_. stop() joins ioThread_, so dispatch the
     // teardown off-thread rather than self-joining and aborting with EDEADLK.
     auto self = shared_from_this();
-    std::thread([self] { self->stop(); }).detach();
+    self->requestStop();
 }
 
 void JniSession::onBatteryStatusNotification(
@@ -1232,24 +1370,10 @@ void JniSession::triggerAbort(const std::string& reason)
     if (aborted_.exchange(true)) return;
     LOGW("Session abort: %s", reason.c_str());
     streaming_ = false;
-
-    // Stop the transport so any pending reads fail and the io loop becomes idle.
-    // Do NOT call stop() here — we're on the io thread and it would deadlock
-    // on ioThread_.join(). Kotlin's onSessionStopped handler will call
-    // nativeStopSession asynchronously to do the real teardown.
-    if (transport_) transport_->stop();
-
-    if (sessionStoppedFired_.exchange(true)) return;
-    if (callbackRef_ && cbMethods_.onSessionStopped) {
-        bool attached;
-        JNIEnv* env = getEnv(attached);
-        if (env) {
-            jstring r = env->NewStringUTF(reason.c_str());
-            env->CallVoidMethod(callbackRef_, cbMethods_.onSessionStopped, r);
-            env->DeleteLocalRef(r);
-        }
-        releaseEnv(attached);
-    }
+    setStopReason(reason);
+    // Only the elected off-IO closer may touch transport teardown. Notify Java
+    // after close/join, not from the IO thread that the closer must join.
+    requestStop();
 }
 
 void JniSession::onChannelError(const aasdk::error::Error& e)
@@ -1544,12 +1668,12 @@ void JniSession::onVideoFocusRequest(
         auto self = shared_from_this();
         promise->then(
             [self]() {
-                self->stopReason_ = "byebye_user_selection";
-                std::thread([self] { self->stop(); }).detach();
+                self->setStopReason("byebye_user_selection");
+                self->requestStop();
             },
             [self](const auto&) {
-                self->stopReason_ = "byebye_user_selection";
-                std::thread([self] { self->stop(); }).detach();
+                self->setStopReason("byebye_user_selection");
+                self->requestStop();
             });
         videoChannel_->sendVideoFocusIndication(focus, std::move(promise));
         return;

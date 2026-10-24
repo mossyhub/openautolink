@@ -12,20 +12,33 @@ class MicrophoneDiagnosticController(
     val backend: MicrophoneDiagnosticBackend? = null,
     val automotive: Boolean = true,
     private val eligibility: (() -> Boolean)? = null,
-    private val freshPark: (() -> Boolean)? = null,
 ) {
-    var consent by androidx.compose.runtime.mutableStateOf(false)
-        private set
-    var stationary by androidx.compose.runtime.mutableStateOf(false)
-        private set
     var state by androidx.compose.runtime.mutableStateOf(backend?.state ?: MicrophoneDiagnosticState())
         private set
+    internal var parkedComparison: ParkedCaptureComparison? = null
+    internal var parkedEligibility: () -> Boolean = { false }
+    internal var stopProjection: () -> Unit = {}
+    internal var returnProjection: () -> Unit = {}
+    internal var projectionStatus: () -> String = { "Stop projection before comparing" }
+    var parkedBusy by androidx.compose.runtime.mutableStateOf(false)
+        private set
+    var parkedStatus by androidx.compose.runtime.mutableStateOf("Ready")
+        private set
+    var parkedResults by androidx.compose.runtime.mutableStateOf<List<List<Long>>>(emptyList())
+        private set
+    var parkedProjectionStatus by androidx.compose.runtime.mutableStateOf("")
+        private set
+    private fun parkedEligibleNow():Boolean = foreground &&
+        runCatching { parkedEligibility() }.getOrDefault(false)
+    private var parkedAdmission by androidx.compose.runtime.mutableStateOf(false)
+    val canStartParked:Boolean get() = parkedAdmission && !busy && parkedComparison!=null && parkedEligibleNow()
+    fun startParked() { refresh();if(canStartParked)parkedComparison?.start(::parkedEligibleNow);refresh() }
+    fun stopProjectionForDiagnostic() { if(!busy)stopProjection();refresh() }
+    fun returnToProjection() { parkedComparison?.cancel();returnProjection();refresh() }
     private var cancelPending = false
     var summaryStored by androidx.compose.runtime.mutableStateOf<Boolean?>(null)
         internal set
     @Volatile private var foreground = false
-    @Volatile private var consentSnapshot = false
-    @Volatile private var stationarySnapshot = false
     private var admission by androidx.compose.runtime.mutableStateOf(false)
     var custom by androidx.compose.runtime.mutableStateOf(MicrophoneDiagnosticCustom())
         private set
@@ -41,65 +54,50 @@ class MicrophoneDiagnosticController(
         refresh()
         if (!canArmIndependent) return
         CarPlayMicrophoneExperiments.arm(CarPlayMicrophoneExperimentProfile(independent = independentSelection))
-        liveExpired = false
         refresh()
     }
-    var liveConsent by androidx.compose.runtime.mutableStateOf(false)
-        private set
     var liveStatus by androidx.compose.runtime.mutableStateOf(CarPlayMicrophoneExperiments.status())
-        private set
-    var liveExpired by androidx.compose.runtime.mutableStateOf(false)
         private set
     private var liveAdmission by androidx.compose.runtime.mutableStateOf(false)
 
-    // Separate consent and future-owner memory arm; never changes microphone settings.
-    internal var playingConsent by androidx.compose.runtime.mutableStateOf(false)
-        private set
+    // Process-only future-owner selection; never changes an active owner.
     internal var playingStatus by androidx.compose.runtime.mutableStateOf(com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.status())
-        private set
-    internal var playingExpired by androidx.compose.runtime.mutableStateOf(false)
         private set
     internal var currentHostMediaStatus by androidx.compose.runtime.mutableStateOf("No current CarPlay host-media lease")
         private set
-    internal val canArmPlaying: Boolean get() = playingConsent && !busy && liveEligibleNow()
-    internal fun updatePlayingConsent(value: Boolean) { playingConsent = value; refresh() }
+    internal val canArmPlaying: Boolean get() = liveAdmission && !busy && liveEligibleNow()
     internal fun armInactive() = armHostMedia(com.openautolink.app.carplay.CarPlayHostMediaMode.INACTIVE)
     internal fun armPlaying() = armHostMedia(com.openautolink.app.carplay.CarPlayHostMediaMode.SUPPRESS_PLAYING)
     private fun armHostMedia(mode: com.openautolink.app.carplay.CarPlayHostMediaMode) {
         refresh()
         if (!canArmPlaying) return
         com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.arm(mode)
-        playingExpired = false
         refresh()
     }
     internal fun disarmPlaying() {
         com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.disarm()
         playingStatus = com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.status()
-        playingExpired = false
         refresh()
     }
 
-    // Actual Park is mandatory even on a test tablet; local stationary consent is not a substitute.
+    // Future-owner changes still require a foreground, idle diagnostic panel.
     private fun liveEligibleNow(): Boolean = foreground && runCatching {
-        eligibility?.invoke() == true && freshPark?.invoke() == true
+        eligibility?.invoke() == true
     }.getOrDefault(false)
-    val canArmLive: Boolean get() = liveAdmission && liveConsent && !busy && liveEligibleNow()
+    val canArmLive: Boolean get() = liveAdmission && !busy && liveEligibleNow()
 
     fun updateCustom(value: MicrophoneDiagnosticCustom) { if (!busy) custom = value }
     fun updateLiveProfile(value: CarPlayMicrophoneExperimentProfile) { if (!busy) liveProfile = value }
-    fun updateLiveConsent(value: Boolean) { liveConsent = value; refresh() }
     fun armLive() {
         refresh()
         if (!canArmLive) return
         CarPlayMicrophoneExperiments.arm(liveProfile)
-        liveExpired = false
         refresh()
     }
     /** Future owners only. Never stop or modify an active projection recorder. */
     fun disarmLive() {
         CarPlayMicrophoneExperiments.disarm()
         liveStatus = CarPlayMicrophoneExperiments.status()
-        liveExpired = false
         refresh()
     }
     fun resetLive() {
@@ -107,50 +105,44 @@ class MicrophoneDiagnosticController(
         disarmLive()
         liveProfile = CarPlayMicrophoneExperimentProfile()
         independentSelection = CarPlayMicrophoneIndependentSelection()
-        liveConsent = false
     }
 
     /** Safe for the backend worker: callbacks must only read current in-memory snapshots. */
-    fun isEligibleNow(): Boolean = foreground && consentSnapshot &&
-        runCatching {
-            eligibility?.invoke() == true &&
-                (if (automotive) freshPark?.invoke() == true else stationarySnapshot)
-        }.getOrDefault(false)
+    fun isEligibleNow(): Boolean = foreground &&
+        runCatching { eligibility?.invoke() == true }.getOrDefault(false)
 
     fun updateForeground(value: Boolean) {
         foreground = value
         if (!value) {
-            consentSnapshot = false
-            stationarySnapshot = false
-            consent = false
-            stationary = false
-            liveConsent = false
-            playingConsent = false
+            parkedComparison?.cancel()
         }
         refresh()
     }
-    val busy: Boolean get() = state.phase in setOf(MicrophoneDiagnosticPhase.RUNNING,
+    val busy: Boolean get() = parkedBusy || parkedComparison?.busy == true || state.phase in setOf(MicrophoneDiagnosticPhase.RUNNING,
         MicrophoneDiagnosticPhase.INSPECTING, MicrophoneDiagnosticPhase.STOPPING)
     val canStart: Boolean get() = admission && !busy && backend != null && isEligibleNow()
 
     fun refresh() {
+        parkedAdmission=parkedEligibleNow()
+        parkedComparison?.let {
+            parkedBusy=it.busy
+            parkedStatus=it.status;parkedResults=it.results
+            if(!parkedEligibleNow() && it.busy)it.cancel()
+        }
+        parkedProjectionStatus=projectionStatus()
         admission = isEligibleNow()
         liveAdmission = liveEligibleNow()
         currentHostMediaStatus = com.openautolink.app.media.OalMediaSessionManager.instanceOrNull()?.carPlayHostMediaStatus()
             ?: "No current CarPlay host-media lease"
         val playing = com.openautolink.app.carplay.CarPlayPlayingPublicationExperiment.status()
-        if (playingStatus.armed && !playing.armed) playingExpired = true
         playingStatus = playing
         val status = CarPlayMicrophoneExperiments.status()
-        if (liveStatus.armed && !status.armed) liveExpired = true
         liveStatus = status
         val next = backend?.state ?: return
         if (next.phase == MicrophoneDiagnosticPhase.COMPLETE || next.phase == MicrophoneDiagnosticPhase.IDLE) cancelPending = false
         state = if (cancelPending) next.copy(phase = MicrophoneDiagnosticPhase.STOPPING, result = null) else next
         if (!admission) cancel()
     }
-    fun updateConsent(value: Boolean) { consentSnapshot = value; consent = value; refresh() }
-    fun updateStationary(value: Boolean) { stationarySnapshot = value; stationary = value; refresh() }
     fun start(comparison: MicrophoneDiagnosticComparison) = submit { it.start(comparison) }
     fun startCustom() = submit { it.startCustom(custom) }
     fun inspect() = submit { it.inspect() }
@@ -162,6 +154,8 @@ class MicrophoneDiagnosticController(
         if (!accepted) state = state.copy(reason = MicrophoneDiagnosticReason.BUSY)
     }
     fun cancel() {
+        parkedComparison?.cancel()
+        if (state.phase !in setOf(MicrophoneDiagnosticPhase.RUNNING,MicrophoneDiagnosticPhase.INSPECTING)) return
         if (!busy || cancelPending || state.phase == MicrophoneDiagnosticPhase.STOPPING) return
         cancelPending = true
         state = state.copy(phase = MicrophoneDiagnosticPhase.STOPPING, result = null)

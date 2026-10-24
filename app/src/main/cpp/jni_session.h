@@ -16,6 +16,9 @@
 #include <algorithm>
 #include <map>
 #include <mutex>
+#include <condition_variable>
+#include <exception>
+#include <stdexcept>
 #include <string>
 
 #include <jni.h>
@@ -106,6 +109,9 @@ public:
      * to discover it via its ping timeout.
      */
     void stop();
+    /** Nonblocking intent for IO/promise callbacks; never a retirement receipt. */
+    void requestStop() noexcept;
+    void setStopReason(const std::string& reason);
 
     /**
      * Graceful disconnect: send the protocol's ByeBye (ShutdownRequest) so the
@@ -242,6 +248,10 @@ public:
     void dispatchPhoneStatus(int signalStrength, int callState);
 
 private:
+    void beginStart();
+    void finishStart();
+    void joinStopWorker();
+    void shutdownGracefullyOnIo(const std::string& reason, int timeoutMs);
     void ioServiceThreadFunc();
     void buildServiceDiscoveryResponse(
         aap_protobuf::service::control::message::ServiceDiscoveryResponse& response);
@@ -299,6 +309,22 @@ private:
     std::shared_ptr<JniPhoneStatusHandler> phoneStatusHandler_;
     std::shared_ptr<JniBluetoothHandler> bluetoothHandler_;
 
+    // Stop completion state: stopped_ is intent, never a close/join receipt.
+    std::mutex stopMutex_;
+    std::condition_variable stopCv_;
+    bool starting_ = false;
+    bool startAdmitted_ = false;
+    std::thread::id startingThread_;
+    bool closing_ = false;
+    bool closed_ = false;
+    std::exception_ptr closeFailure_;
+    std::thread::id closingThread_;
+    std::thread::id ioThreadId_; // Immutable after constructor, unlike joinable().
+    std::mutex stopWorkerMutex_;
+    std::thread stopWorker_;
+    std::thread gracefulWatchdog_; // Published only by IO, joined after IO retires.
+    inline static thread_local bool inStopWorker_ = false;
+    std::atomic<bool> stopWorkerRequested_{false};
     std::atomic<bool> stopped_{false};
     std::atomic<bool> streaming_{false};
     std::atomic<bool> micOpen_{false};

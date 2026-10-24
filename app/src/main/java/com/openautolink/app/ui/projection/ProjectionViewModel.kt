@@ -125,6 +125,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         DiagnosticLog.i("usb_handoff", "stage=${stage.name}")
     }
     val usbSwitchFailure = usbHandoff.failure
+    private val usbCaptureClaims = mutableListOf<com.shilapi.xcertplay.media.MicrophoneCaptureFence.Lease>()
+    private fun releaseUsbCaptureClaims() { usbCaptureClaims.forEach { it.release() }; usbCaptureClaims.clear() }
     private val usbDispatchMutex = kotlinx.coroutines.sync.Mutex()
     private val usbDispatchEpoch = java.util.concurrent.atomic.AtomicLong()
 
@@ -208,6 +210,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         sessionManager.externalUsbTransport = false
         usbHandoff.release()
         usbSwitchPolicy.clearRetired()
+        releaseUsbCaptureClaims()
     }
 
     private suspend fun restartUnifiedUsb() {
@@ -221,6 +224,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             sessionManager.externalUsbTransport = false
             usbHandoff.release()
             usbSwitchPolicy.clearRetired()
+            releaseUsbCaptureClaims()
             _usbHotPlugPrompt.value = null
             synchronized(connectLock) { hasConnected = false; connectInFlight = false }
             restoreNormalProjection()
@@ -234,6 +238,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     /** Observe USB concurrently with normal AA/WPP; observation is not projection ownership. */
     private suspend fun startUnifiedUsb() {
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
         usbDispatchMutex.lock()
         try {
             if (unifiedUsbManager != null) return
@@ -361,6 +366,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 val manager = unifiedUsbManager ?: return@launch
                 var promptInstead = false
                 val previousGeneration = usbOverrideGeneration
+                if (usbCaptureClaims.size >= 2) return@launch // failed retirement: explicit Stop must clear exact debt
+                val captureClaim = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryProjectionClaim() ?: return@launch
+                usbCaptureClaims.add(captureClaim) // before claimed/retire/admit; failed retirement retains it
                 val accepted = usbSwitchPolicy.accept(generation,
                     resolve = {
                         manager.pendingDevice(generation)?.let {
@@ -396,6 +404,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     },
                     retire = {
                         retireUsbProjection()
+                        // The new pending claim stays live through dispatch; retire only prior claims.
+                        usbCaptureClaims.filter { it !== captureClaim }.forEach { it.release() }
+                        usbCaptureClaims.retainAll { it === captureClaim }
                         if (previousGeneration != null) manager.failedAdmission(previousGeneration)
                         synchronized(connectLock) { hasConnected = false; connectInFlight = false }
                     },
@@ -411,6 +422,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     restore = { restoreNormalProjection() },
                     replaceCurrent = !automatic,
                 )
+                if (!accepted && usbOverrideGeneration == previousGeneration) {
+                    usbCaptureClaims.remove(captureClaim); captureClaim.release()
+                }
                 if (!accepted && !promptInstead && usbOverrideGeneration == null) stayOnCurrentProjection(generation)
             } catch (failure: Exception) {
                 // Failed retirement retains the transient generation and blocks every successor.
@@ -421,6 +435,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun clearUsbOverrideState() {
+        releaseUsbCaptureClaims()
         usbHandoff.release()
         _carPlayStartupGuidance.value = null
         usbAaStartedGeneration = null
@@ -473,6 +488,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private suspend fun restoreNormalProjection() {
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
         _carPlayStartupGuidance.value = null
         val saved = preferences.carPlaySettings.first()
         if (com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()) return
@@ -614,6 +630,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 unifiedUsbManager?.failedAdmission()
                 usbHandoff.release()
                 usbSwitchPolicy.clearRetired()
+                releaseUsbCaptureClaims()
                 sessionManager.externalUsbTransport = false
                 synchronized(connectLock) { hasConnected = false; connectInFlight = false }
                 val saved = preferences.carPlaySettings.first()
@@ -1107,6 +1124,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun connect(overrideIp: String?, wppRearmSource: String?) {
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
         if (usbOverrideGeneration != null) return
         val policyEpoch = usbPolicyEpoch.get()
         if (com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto) return
@@ -1527,7 +1545,45 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    /** Fast, read-only diagnostic gate; capture leases independently fence late recorder retirement. */
+    @Volatile private var diagnosticProjectionStopped = false
+    @Volatile var diagnosticProjectionStatus = "Stop projection before comparing"
+        private set
+
+    /** Explicit opt-in pause. Do not change saved protocol or Bluetooth state. */
+    fun stopProjectionForMicrophoneDiagnostic() {
+        com.shilapi.xcertplay.media.MicrophoneCaptureFence.pauseProjection()
+        diagnosticProjectionStopped = false
+        diagnosticProjectionStatus = "Stopping projection · awaiting exact retirement"
+        projectionLaunchPolicy.suppress()
+        usbPolicyEpoch.incrementAndGet()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            usbDispatchMutex.lock()
+            try {
+                com.openautolink.app.transport.bluetooth.AaWirelessBtControl.retireForMicrophoneDiagnostic()
+                stopUnifiedUsb()
+                releaseCarPlayUsbOwner()
+                sessionManager.stop()
+                synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+                diagnosticProjectionStopped = true
+                diagnosticProjectionStatus = "Projection stopped · automatic starts paused until Return"
+            } catch (_: Exception) {
+                diagnosticProjectionStatus = "Projection retirement pending/failed · retry Stop; capture blocked"
+            } finally { usbDispatchMutex.unlock() }
+        }
+    }
+    fun returnFromMicrophoneDiagnostic() {
+        if (!com.shilapi.xcertplay.media.MicrophoneCaptureFence.resumeProjection()) {
+            diagnosticProjectionStatus = "Waiting for diagnostic close + join; restart required if close failed"
+            return
+        }
+        diagnosticProjectionStopped = false
+        diagnosticProjectionStatus = "Projection restored"
+        viewModelScope.launch { startUnifiedUsb(); restoreNormalProjection() }
+    }
+    fun parkedMicrophoneDiagnosticEligible(): Boolean = diagnosticProjectionStopped &&
+        com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused() && microphoneDiagnosticEligible()
+
+    /** Fast policy only; real claims are independently atomic in MicrophoneCaptureFence. */
     fun microphoneDiagnosticEligible(): Boolean =
         usbOverrideGeneration == null && !connectInFlight && !_carPlayState.value.busy &&
             sessionManager.sessionState.value == SessionState.IDLE &&

@@ -73,7 +73,14 @@ private:
     std::vector<uint8_t> receiveBuffer_;
     std::queue<std::pair<size_t, ReceivePromise::Pointer>> receiveQueue_;
 
-    // Read thread pulls from Java InputStream
+    // Stop completion state: intent is not a Java-close/read-join receipt.
+    std::mutex stopMutex_;
+    std::condition_variable stopCv_;
+    bool closing_ = false;
+    bool closed_ = false;
+    std::exception_ptr closeFailure_;
+    std::thread::id closingThread_;
+    std::thread::id readThreadId_;
     std::thread readThread_;
     std::atomic<bool> stopped_{false};
 

@@ -32,8 +32,8 @@ class NativeSessionDependencyContractTest {
         )
 
         assertTrue(
-            "The dependency preparer must reject the exact session while stop is retiring it",
-            helper.contains("retiringAasdkSession === session") &&
+            "The dependency preparer must reject every native start while an exact session is retiring",
+            helper.contains("retiringAasdkSession != null") &&
                 helper.contains("return false"),
         )
         assertTrue(

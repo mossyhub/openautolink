@@ -65,12 +65,26 @@ class CarPlayCoordinatorTest {
 
     @Test fun failedAaRetirementNeverBootstrapsOrReleasesAdmission() {
         val ended = CountDownLatch(1)
+        val returned = CountDownLatch(1)
+        val allowRetirement = java.util.concurrent.atomic.AtomicBoolean()
         val owner = CarPlayOwnership()
-        val coordinator = CarPlayCoordinator(owner, { error("native stop failed") }) { if (!it.busy && it.selected) ended.countDown() }
-        coordinator.connect(true) { error("must not create runtime") }
-        assertTrue(ended.await(3, TimeUnit.SECONDS))
-        assertTrue(owner.blocksAndroidAuto)
-        coordinator.close()
+        val coordinator = CarPlayCoordinator(owner, {
+            check(allowRetirement.get()) { "native stop failed" }
+        }) { if (!it.busy && it.selected) ended.countDown() }
+        try {
+            coordinator.connect(true) { error("must not create runtime") }
+            assertTrue(ended.await(3, TimeUnit.SECONDS))
+            assertTrue(owner.blocksAndroidAuto)
+        } finally {
+            // The failed retirement must retain ownership above. Only a real successful retry
+            // may retire this fixture's process-global capture claim before its successor.
+            allowRetirement.set(true)
+            try {
+                coordinator.returnToAndroidAuto { returned.countDown() }
+                assertTrue("fixture retirement retry must finish", returned.await(3, TimeUnit.SECONDS))
+                assertFalse(owner.blocksAndroidAuto)
+            } finally { coordinator.close() }
+        }
     }
 
     @Test fun disabledDoesNotInvokeRetirementOrRuntimeFactory() {

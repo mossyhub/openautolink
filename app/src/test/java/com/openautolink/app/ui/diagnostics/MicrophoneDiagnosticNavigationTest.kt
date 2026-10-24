@@ -33,8 +33,6 @@ class MicrophoneDiagnosticNavigationTest {
             DiagnosticsScreen(viewModel = vm, microphoneController = controller)
         } }
         compose.onNodeWithContentDescription("Microphone", useUnmergedTree = true).performScrollTo().performTouchInput { click() }
-        compose.onNodeWithTag("mic-consent").performScrollTo().performClick()
-        compose.onNodeWithTag("mic-stationary").performScrollTo().performClick()
         savePreview("controls")
         compose.onNodeWithTag("mic-start-CHANNELS").performScrollTo().performClick()
         compose.runOnIdle {
@@ -51,7 +49,7 @@ class MicrophoneDiagnosticNavigationTest {
         savePreview("zero-samples")
         compose.onNodeWithTag("mic-start-RATE").performScrollTo().performClick()
         compose.onNodeWithContentDescription("System", useUnmergedTree = true).performScrollTo().performTouchInput { click() }
-        compose.runOnIdle { assertEquals(1, backend.cancellations); assertFalse(controller.consent) }
+        compose.runOnIdle { assertEquals(1, backend.cancellations) }
         compose.onNodeWithContentDescription("Microphone", useUnmergedTree = true).performScrollTo().performTouchInput { click() }
         compose.onNodeWithTag("mic-start-RATE").assertIsNotEnabled()
         compose.onNodeWithText("Stopping · waiting for microphone release").assertExists()

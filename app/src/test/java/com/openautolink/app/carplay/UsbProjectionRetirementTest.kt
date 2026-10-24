@@ -23,9 +23,27 @@ class UsbProjectionRetirementTest {
     private fun field(name: String) = AaWirelessBtControl::class.java.getDeclaredField(name).apply { isAccessible = true }
 
     @After fun cleanup() {
+        // installSessionOwner may start an Application-scope Bluetooth waiter, not a child of the
+        // test's runBlocking. Join its cancellation before later fixtures install/remove mocks.
+        val scope = field("scope").get(AaWirelessBtControl) as kotlinx.coroutines.CoroutineScope
+        runBlocking {
+            scope.coroutineContext[kotlinx.coroutines.Job]!!.children.toList().forEach {
+                it.cancel(); it.join()
+            }
+        }
         field("btServer").set(AaWirelessBtControl, null)
         field("carPlayRetiringAdvertiser").set(AaWirelessBtControl, null)
         field("usbHandoff").set(AaWirelessBtControl, null)
+    }
+
+    @Test fun fixtureCleanupRetiresProcessScopeAdvertiserBeforeLaterTestsCanReplaceMocks() = runBlocking {
+        // Replay the production application's already-initialized process context deterministically.
+        field("appContext").set(AaWirelessBtControl, org.robolectric.RuntimeEnvironment.getApplication())
+        usbFenceRejectsHandshakeFromStillInstalledWppGeneration()
+        cleanup()
+        val scope = field("scope").get(AaWirelessBtControl) as kotlinx.coroutines.CoroutineScope
+        assertTrue("hardware waiter escaped this fixture into later mock scopes",
+            scope.coroutineContext[kotlinx.coroutines.Job]!!.children.none())
     }
 
     @Test fun confirmedUsbSwitchAwaitsActualAdvertiserWithoutCarPlayReservation() = runBlocking {

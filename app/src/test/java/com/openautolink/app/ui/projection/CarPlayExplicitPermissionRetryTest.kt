@@ -58,6 +58,7 @@ class CarPlayExplicitPermissionRetryTest {
     @Volatile private var requests = 0
     @Volatile private var nextGrant = false
     @Volatile private var duringRequest: () -> Unit = {}
+    @Volatile private var duringAaRetire: () -> Unit = {}
     private val mux = mockk<UsbInterface>(relaxed = true) {
         every { interfaceClass } returns 255; every { interfaceSubclass } returns 254; every { interfaceProtocol } returns 2
     }
@@ -112,7 +113,7 @@ class CarPlayExplicitPermissionRetryTest {
             every { reconnectAttempt } returns MutableStateFlow(0)
             every { wakeEvents } returns kotlinx.coroutines.flow.MutableSharedFlow()
         }
-        coEvery { session.stop() } answers { aaState.value = SessionState.IDLE }
+        coEvery { session.stop() } answers { duringAaRetire(); aaState.value = SessionState.IDLE }
         every { SessionManager.getInstance(any(), any(), any()) } returns session
         val discovery = mockk<PhoneDiscovery>(relaxed = true) {
             every { phones } returns MutableStateFlow(emptyList())
@@ -195,6 +196,26 @@ class CarPlayExplicitPermissionRetryTest {
         }
         runBlocking { storeJob.cancelAndJoin() }
         unmockkAll(); Dispatchers.resetMain()
+    }
+    @Test fun realUsbPendingHandoffClaimsFenceBeforeAaRetireAndReleasesOnlyAfterFailureClearing() {
+        val boundary=java.util.concurrent.atomic.AtomicInteger()
+        duringAaRetire={
+            if(!CarPlayOwnership.process.blocksAndroidAuto) {
+                val overlap=com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
+                overlap?.release()
+                assertNull("real pending USB must claim before AA retire, not only CP runtime bootstrap",overlap)
+                boundary.incrementAndGet()
+            }
+        }
+        duringRequest={
+            val overlap=com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
+            overlap?.release();assertNull("permission dispatch retains real USB/CP claims",overlap)
+        }
+        setup()
+        assertTrue(boundary.get()>0)
+        duringAaRetire={}
+        val lease=com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
+        try { assertNotNull("real exact failure clearing retires USB+CP claims",lease) } finally {lease?.release()}
     }
     @Test fun microphoneDiagnosticRejectsClaimedUsbWhileAaStillIdleAndUntilRetirement() = runBlocking {
         setup()

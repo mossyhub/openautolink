@@ -11,35 +11,32 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun CarPlayPlayingPublicationControls(controller: MicrophoneDiagnosticController) {
     HorizontalDivider()
-    Text("Test: suppress native Playing status", style = MaterialTheme.typography.titleLarge)
+    Text("CarPlay media experiment", style = MaterialTheme.typography.titleLarge)
     val status = controller.playingStatus
-    Text(when {
-        status.armed -> "Armed ${status.mode} for future CarPlay attempts · expires in ${(status.remainingMillis + 999) / 1000} seconds"
-        controller.playingExpired -> "Expired · OFF for future owners"
-        else -> "OFF for future owners · normal publication"
-    }, Modifier.testTag("cp-playing-status"), style = MaterialTheme.typography.titleMedium)
-    Text("Unproven CarPlay-only experiment: submit Playing as None to the native media session. Paused/unknown, title/art, session identity and transport callbacks stay unchanged. Native play indicator, progress, controls or targeting may change; this does not mute audio, alter calls or Bluetooth, or prove which OEM source is selected.", style = MaterialTheme.typography.bodySmall)
-    Text("Memory only · 15 minutes · frozen once per CarPlay attempt. Reconnect to apply arming or disarming. Expiry/disarm affects future owners only; an active owner keeps its mode until retirement. Leaving clears consent, not the arm.", style = MaterialTheme.typography.bodySmall)
-    Text("INACTIVE is a separate CarPlay-only experiment: the existing Android media session becomes inactive and CarPlay title/art publication is withheld. The browser/token and genuine controls remain; a cached OAL source row may remain, but native control targeting may change. Music/navigation AudioTracks, their separate focus and audio offers are unchanged. Keep Bluetooth Phone ON / Media ON; the target is separate CarPlay music/navigation with OAL selected, not mixed Bluetooth fallback. Source selection stays manual; Bluetooth selection is not required.", style = MaterialTheme.typography.bodySmall)
-    Text("Future arming is not current status. The mode freezes per attempt before receiver startup. Disarm/expiry does not change a live attempt; fully retire and reconnect. No overnight-arm guarantee.", style = MaterialTheme.typography.bodySmall)
-    Text(controller.currentHostMediaStatus, Modifier.testTag("cp-host-media-current"), style = MaterialTheme.typography.bodySmall)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(controller.playingConsent, controller::updatePlayingConsent, Modifier.testTag("cp-playing-consent"))
-        Text("I consent to this future CarPlay media-publication test")
+        Text("Media experiment")
+        Switch(checked = status.armed, enabled = status.armed || controller.canArmPlaying,
+            onCheckedChange = { if (it) controller.armPlaying() else controller.disarmPlaying() },
+            modifier = Modifier.testTag("cp-media-enabled"))
     }
-    Text(if (controller.canArmPlaying) "Ready for future-owner arm; reconnect to apply."
-        else "Unavailable: requires explicit consent, foreground panel, fresh actual Park, no active projection and no local test. No setting was applied by an unavailable arm.",
+    Text(if (status.armed) "On · ${status.mode} · until Off or app restart" else "OFF · normal publication",
+        Modifier.testTag("cp-playing-status"), style = MaterialTheme.typography.titleMedium)
+    Text("Apply on reconnect. Active owners keep their original mode. Suppress Playing publishes None; INACTIVE also withholds title/art. Native source controls may change; audio and Bluetooth are unchanged.",
+        style = MaterialTheme.typography.bodySmall)
+    Text(controller.currentHostMediaStatus, Modifier.testTag("cp-host-media-current"), style = MaterialTheme.typography.bodySmall)
+    Text(if (controller.canArmPlaying) "Ready · reconnect to apply."
+        else "Unavailable while backgrounded, projection is active or a local test owns the microphone.",
         Modifier.testTag("cp-playing-reason"), style = MaterialTheme.typography.bodySmall)
     Button(controller::armPlaying, enabled = controller.canArmPlaying,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("cp-playing-arm")) {
-        Text("Arm suppression · 15 minutes · reconnect")
+        Text("Suppress Playing · reconnect")
     }
     Button(controller::armInactive, enabled = controller.canArmPlaying,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("cp-inactive-arm")) {
-        Text("Arm INACTIVE + withhold media/art · 15 minutes · reconnect")
+        Text("INACTIVE · withhold title/art · reconnect")
     }
     OutlinedButton(controller::disarmPlaying,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("cp-playing-disarm")) {
-        Text("Disarm · future owners only · reconnect")
+        Text("Off · future owners only")
     }
 }

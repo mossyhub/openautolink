@@ -418,9 +418,26 @@ class AirPlaySession @JvmOverloads constructor(
             sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(0))
     }
 
-    fun sendTelephony(index: Int) {
-        sendHidReport(AirPlayHid.TELEPHONY_HID_UID, AirPlayHid.telephonyReport(index))
-        sendHidReport(AirPlayHid.TELEPHONY_HID_UID, AirPlayHid.telephonyReport(0))
+    /** Blocking: callers must use a bounded off-main worker. No retry/migration to another owner. */
+    fun sendPhoneControl(control: PhoneControl, current: () -> Boolean): PhoneControlOutcome = synchronized(eventWriteLock) {
+        if (!encryptedEventReady || !runCatching(current).getOrDefault(false))
+            return@synchronized PhoneControlOutcome.WITHHELD
+        val originalSocket = eventSocket
+        val originalCipher = eventCipher
+        val press = sendHidReport(AirPlayHid.TELEPHONY_HID_UID, AirPlayHid.telephonyReport(control.selector))
+        // Best effort release on the ORIGINAL usable channel, even if the first write failed.
+        // A stale command must never be replayed. A failed write is not proof that no press escaped.
+        val usable = !closed.get() && eventSocket === originalSocket && eventCipher === originalCipher &&
+            originalSocket?.isClosed == false
+        val release = if (usable) sendHidReport(AirPlayHid.TELEPHONY_HID_UID, AirPlayHid.telephonyReport(0)) else null
+        when {
+            press && release == true -> PhoneControlOutcome.WRITTEN
+            press && release == false -> PhoneControlOutcome.PRESS_WRITTEN_RELEASE_FAILED
+            press -> PhoneControlOutcome.PRESS_WRITTEN_RELEASE_UNAVAILABLE
+            release == true -> PhoneControlOutcome.PRESS_FAILED_RELEASE_WRITTEN
+            release == false -> PhoneControlOutcome.PRESS_FAILED_RELEASE_FAILED
+            else -> PhoneControlOutcome.PRESS_FAILED_RELEASE_UNAVAILABLE
+        }
     }
 
     fun invokeSiri() {

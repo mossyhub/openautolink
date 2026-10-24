@@ -46,7 +46,10 @@ fun AppNavHost(
         com.openautolink.app.ui.diagnostics.MicrophoneDiagnosticBinding(
             appContext, projectionViewModel::microphoneDiagnosticEligible,
             appContext.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_AUTOMOTIVE),
-            { com.openautolink.app.ui.diagnostics.MicrophoneDiagnosticPark.isFreshPark() },
+            projectionViewModel::parkedMicrophoneDiagnosticEligible,
+            projectionViewModel::stopProjectionForMicrophoneDiagnostic,
+            projectionViewModel::returnFromMicrophoneDiagnostic,
+            { projectionViewModel.diagnosticProjectionStatus },
         )
     }
     androidx.compose.runtime.DisposableEffect(microphoneBinding) {

@@ -39,19 +39,18 @@ fun MicrophoneDiagnosticPanel(controller: MicrophoneDiagnosticController) {
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Microphone diagnostic", style = MaterialTheme.typography.headlineSmall)
-        Text("Disconnect projection for local tests or arming. Preserve your paired Phone ON / Media OFF setup; do not change Bluetooth. No native calls during a microphone trial.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Opt-in only · up to 3 seconds per arm · 15-second comparison deadline. A stalled recorder may take longer to release. No audio saved or played; normal capture settings stay unchanged.", style = MaterialTheme.typography.bodySmall)
+        Text("Stop projection before local tests. Disconnect phone Bluetooth yourself; this panel never changes Bluetooth or routing.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Numeric levels only; no audio saved, played or sent on projection.", style = MaterialTheme.typography.bodySmall)
         Text("Up to 12 completed numeric comparisons are retained for manual Upload Logs; ordinary upload age/size limits apply.", style = MaterialTheme.typography.bodySmall)
-        Text("Local parked capture", style = MaterialTheme.typography.titleLarge)
-        Confirmation("mic-consent", "I consent to this bounded microphone test", controller.consent, controller::updateConsent)
-        if (!controller.automotive) Confirmation("mic-stationary", "I confirm the vehicle is stationary", controller.stationary, controller::updateStationary)
+        Text("Local capture", style = MaterialTheme.typography.titleLarge)
         if (controller.busy) {
-            Text(if (controller.state.phase == MicrophoneDiagnosticPhase.STOPPING)
+            Text(if (controller.parkedBusy) controller.parkedStatus else if (controller.state.phase == MicrophoneDiagnosticPhase.STOPPING)
                 "Stopping · waiting for microphone release" else "${controller.state.phase.name.lowercase().replaceFirstChar { it.uppercase() }} · keep this panel open",
                 style = MaterialTheme.typography.titleMedium)
             OutlinedButton(controller::cancel, enabled = controller.state.phase != MicrophoneDiagnosticPhase.STOPPING,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-cancel")) { Text("Cancel") }
         }
+        ParkedNativeComparisonControls(controller)
         CustomCaptureControls(controller)
         OutlinedButton(controller::inspect, enabled = controller.canStart,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-inspect")) { Text("Inspect inputs · no capture") }
@@ -59,7 +58,7 @@ fun MicrophoneDiagnosticPanel(controller: MicrophoneDiagnosticController) {
             MicrophoneDiagnosticComparison.CHANNELS to "Compare channels · mono → 2ch → mono (24 kHz)",
             MicrophoneDiagnosticComparison.RATE to "Compare rate · 24 → 48 → 24 kHz (mono)",
             MicrophoneDiagnosticComparison.PREFERRED to "Compare input · default → named → default (24 kHz mono)",
-            MicrophoneDiagnosticComparison.SOURCES to "Optional parked sources · recognition (6) → communication (7) → recognition (6) · 24 kHz mono",
+            MicrophoneDiagnosticComparison.SOURCES to "Optional sources · recognition (6) → communication (7) → recognition (6) · 24 kHz mono",
         )
         comparisons.forEach { (comparison, label) ->
             Button(onClick = { controller.start(comparison) }, enabled = controller.canStart,
@@ -79,6 +78,32 @@ fun MicrophoneDiagnosticPanel(controller: MicrophoneDiagnosticController) {
         CarPlayPlayingPublicationControls(controller)
         LiveExperimentControls(controller)
     }
+}
+
+@Composable
+private fun ParkedNativeComparisonControls(controller: MicrophoneDiagnosticController) {
+    Text("Java / native AAudio comparison", style=MaterialTheme.typography.titleLarge)
+    Text("Test with phone Bluetooth disconnected. Numeric levels only; no audio saved.")
+    Text("Two sequential 2-second measurements · recognition · 48 kHz · two channels. Permission, AppOps, call mode and microphone privacy still apply. MMAP unknown.", style=MaterialTheme.typography.bodySmall)
+    OutlinedButton(controller::stopProjectionForDiagnostic, enabled=!controller.busy,
+        modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("mic-parked-stop-projection")) { Text("Stop projection for diagnostic") }
+    Text(controller.parkedProjectionStatus, Modifier.testTag("mic-parked-projection-status"))
+    Button(controller::startParked, enabled=controller.canStartParked,
+        modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("mic-parked-compare")) { Text("Run comparison · 2 seconds each") }
+    Text(controller.parkedStatus, Modifier.testTag("mic-parked-status"))
+    controller.parkedResults.forEach { values ->
+        if(values.size==32) {
+            Text(if(values[0]==0L) "Java" else "AAudio",style=MaterialTheme.typography.titleMedium)
+            Text("termination ${values[1]} · error ${values[2]} · stopError ${values[3]} · closeError ${values[4]} · restart ${values[5]} · joined ${values[6]} · close ${values[7]}")
+            Text("actual preset ${values[8]} · rate ${values[9]} · channels ${values[10]} · format ${values[11]} · sharing ${values[12]} · performance ${values[13]} · mask ${values[14]} · session topology ${values[15]} · privacy ${values[16]} · stable ${values[17]} · MMAP UNKNOWN")
+            Text(if(values[19]==0L) "No positive frames read · not measured silence" else "Positive frames ${values[19]} · zero-valued samples are counted; not proof of speech")
+            for(i in listOf(21,26)) Text("Channel ${if(i==21)1 else 2}: samples ${values[i]} · nonzero ${values[i+1]} · peak ${values[i+2]} · squares ${values[i+3]} · clipped ${values[i+4]}")
+        }
+    }
+    OutlinedButton(controller::returnToProjection,
+        modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("mic-parked-return")) { Text("Return to projection") }
+    Text("Return waits for close + join. Failed close requires app restart. Projection stays paused until Return.",style=MaterialTheme.typography.bodySmall)
+    HorizontalDivider()
 }
 
 @Composable
@@ -106,16 +131,19 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
     HorizontalDivider()
     Text("CarPlay microphone experiment", style = MaterialTheme.typography.titleLarge)
     val status = controller.liveStatus
-    Text(when {
-        status.armed -> "Armed for next CarPlay · expires in ${(status.remainingMillis + 999) / 1000} seconds"
-        controller.liveExpired -> "Expired · OFF"
-        else -> "OFF · normal CarPlay defaults"
-    }, Modifier.testTag("mic-live-status"), style = MaterialTheme.typography.titleMedium)
-    Text("Memory only · 15 minutes · next connection / new recorder only. Leaving this page keeps the armed profile but clears consent. Stop/reconnect to apply changes; disarm/reset never changes an active recorder.",
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Live microphone profile")
+        Switch(checked = status.armed, enabled = status.armed || controller.canArmLive,
+            onCheckedChange = { if (it) controller.armLive() else controller.disarmLive() },
+            modifier = Modifier.testTag("mic-live-enabled"))
+    }
+    Text(if (status.armed) "On · until Off or app restart" else "OFF · normal CarPlay defaults",
+        Modifier.testTag("mic-live-status"), style = MaterialTheme.typography.titleMedium)
+    Text("Apply on reconnect / new recorder only. An active recorder keeps its original profile.",
         style = MaterialTheme.typography.bodySmall)
     status.profile?.let {
-        Text(it.independent?.let { selected -> "Armed independent lab: history ${selected.history} · Siri capture ${selected.speechCapture} · genuine AUTO offers" }
-            ?: "Armed request: ${it.source ?: "automatic"} · ${it.rate} · ${it.channels} · ${it.selection} · codec preference ${it.codec}",
+        Text(it.independent?.let { selected -> "Selected independent profile: history ${selected.history} · Siri capture ${selected.speechCapture} · genuine AUTO offers" }
+            ?: "Selected request: ${it.source ?: "automatic"} · ${it.rate} · ${it.channels} · ${it.selection} · codec preference ${it.codec}",
             style = MaterialTheme.typography.bodySmall)
     }
     val profile = controller.liveProfile
@@ -133,14 +161,14 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
         independent.speechCapture, enabled, { "mic-independent-live-${it.name}" }) {
         controller.updateIndependentSelection(independent.copy(speechCapture = it))
     }
-    Text("History comparison: hold VR48 two fixed; change only normal/manual history. Live-package comparison: hold normal history fixed; compare VR24 mono / VR48 two. History includes offers/cache timing, not pure allocation count; manual history withholds the automatic default input it never qualified. Rate/channels/conversion is one package, not a single-parameter cause.", style = MaterialTheme.typography.bodySmall)
+    Text("History and live capture are separate diagnostic choices. Compare one choice at a time; unsupported combinations are withheld.", style = MaterialTheme.typography.bodySmall)
     Text(if (controller.independentSupported) "Actual qualification and negotiated wire must admit this selection; unsupported capture/wire is rejected without fallback. Phone chooses codec; no forced offers."
         else "Unsupported: manual VR48/two history never qualifies VR24 mono. Choose normal history or VR48 two; no extra recorder will be opened.",
         Modifier.testTag("mic-independent-admission"), style = MaterialTheme.typography.bodySmall)
-    Text("After each short Siri interaction, stop and await actual recorder AND receiver retirement before changing an arm. Compare the same wire receipts in manual Upload Logs. Keep Maps accessory activation consistent; no native assistant, pairing/reset, SCO or source switching between arms. Nonzero capture alone is not understood speech or a microphone fix.", style = MaterialTheme.typography.bodySmall)
+    Text("Stop and await recorder/receiver retirement before applying a new profile. Nonzero levels do not prove understood speech.", style = MaterialTheme.typography.bodySmall)
     Button(controller::armIndependentLive, enabled = controller.canArmIndependent,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-independent-arm")) {
-        Text("Arm independent Siri lab · 15 minutes")
+        Text("Apply independent profile · reconnect")
     }
     HorizontalDivider()
     Text("Legacy coupled manual profile · qualification and live capture together", style = MaterialTheme.typography.titleMedium)
@@ -165,19 +193,16 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
     }
     Choices("Microphone codec negotiation preference", CarPlayMicrophoneCodec.entries.map { it to it.name },
         profile.codec, enabled, { "mic-live-codec-${it.name}" }) { controller.updateLiveProfile(profile.copy(codec = it)) }
-    Text("Codec preference restricts existing qualified microphone offers only; the phone selects the wire codec. A restriction may prevent connection. Disarm + Reconnect restores default offers. No wireless LPCM is added; no midstream renegotiation.",
+    Text("Phone selects the codec from qualified offers. Restricting offers may prevent connection. Off + reconnect restores defaults.",
         Modifier.testTag("mic-live-codec-note"), style = MaterialTheme.typography.bodySmall)
-    Text("Actual wire codec: unavailable in this panel. Use actual microphone setup/capture receipts in manual Upload Logs, not the requested preference. Caller audio, intelligibility and echo remain unverified.",
-        style = MaterialTheme.typography.bodySmall)
-    Confirmation("mic-live-consent", "I consent to arming this future CarPlay microphone experiment", controller.liveConsent, controller::updateLiveConsent)
-    Text("Arm requires this foreground panel, fresh actual Park and no active projection. Local test consent and manual stationary confirmation do not authorize Arm.",
+    Text("Actual negotiated codec is in manual Upload Logs. Caller audio and echo remain unverified.",
         style = MaterialTheme.typography.bodySmall)
     Button(controller::armLive, enabled = controller.canArmLive,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-arm")) { Text("Arm for next CarPlay · 15 minutes") }
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-arm")) { Text("Apply profile · reconnect") }
     OutlinedButton(controller::disarmLive,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-disarm")) { Text("Disarm · future owners only") }
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-disarm")) { Text("Off · future recorders only") }
     OutlinedButton(controller::resetLive, enabled = enabled,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-reset")) { Text("Reset draft and disarm") }
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-reset")) { Text("Reset profile and turn off") }
 }
 
 /** Native selected semantics and at-least-48dp targets, including compact screens. */
@@ -255,11 +280,3 @@ private fun level(level: MicrophoneDiagnosticLevel?): String = level?.let {
     val rms = if (it.rms.isFinite()) String.format(java.util.Locale.ROOT, "%.5g", it.rms) else "unknown"
     "samples ${it.samples} · nonzero ${it.nonzero} · peak ${it.peak} · RMS $rms"
 } ?: "unknown"
-
-@Composable
-private fun Confirmation(tag: String, text: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(checked, onChange, Modifier.testTag(tag))
-        Text(text, style = MaterialTheme.typography.bodyMedium)
-    }
-}

@@ -230,7 +230,7 @@ class SessionManager(
         val current = aasdkSession
         aasdkSession = null
         if (current != null) retiringAasdkSession = current
-        return current
+        return current ?: retiringAasdkSession
     }
 
     private fun completeSessionRetirement(session: AasdkSession?) {
@@ -240,11 +240,10 @@ class SessionManager(
     }
 
     private fun stopRetiringSession(session: AasdkSession?) {
-        try {
-            session?.stop()
-        } finally {
-            completeSessionRetirement(session)
-        }
+        // A thrown stop is not retirement acknowledgement. Keep the exact owner
+        // reachable and fenced against late native-start callbacks until stop returns.
+        session?.stop()
+        completeSessionRetirement(session)
     }
 
     private val _sessionState = MutableStateFlow(SessionState.IDLE)
@@ -838,6 +837,7 @@ class SessionManager(
     // Cluster manager
     private var _clusterManager: com.openautolink.app.cluster.ClusterManager? = null
 
+    @Volatile private var projectionCaptureClaim: com.shilapi.xcertplay.media.MicrophoneCaptureFence.Lease? = null
     private val startMutex = kotlinx.coroutines.sync.Mutex()
     @Volatile private var lifecycleGeneration = 0L
 
@@ -1202,12 +1202,17 @@ class SessionManager(
         seedIdrThresholds: SeedIdrThresholds = SeedIdrThresholds(),
         admissionCheck: () -> Boolean = { true },
     ) {
+        val pendingCaptureClaim = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryProjectionClaim() ?: return
         val requestGeneration = lifecycleGeneration
         val transportStartGeneration = currentTransportStartGeneration()
-        startMutex.lock()
+        try { startMutex.lock() } catch (failure: Throwable) { pendingCaptureClaim.release(); throw failure }
         try {
         kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-        if (!admissionCheck() || externalUsbTransport && directTransport != AppPreferences.DIRECT_TRANSPORT_USB) return@withContext
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused() || !admissionCheck() || externalUsbTransport && directTransport != AppPreferences.DIRECT_TRANSPORT_USB) return@withContext
+        if (synchronized(sessionStateLock) { retiringAasdkSession != null }) {
+            OalLog.i(TAG, "AA start declined — exact native retirement is still pending")
+            return@withContext
+        }
         if (com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto) {
             OalLog.i(TAG, "AA start declined — explicit CarPlay owner reserved")
             return@withContext
@@ -1222,6 +1227,7 @@ class SessionManager(
                 "reason=$initialWppRejection")
             return@withContext
         }
+        if (projectionCaptureClaim == null) projectionCaptureClaim = pendingCaptureClaim
         // Everything below mutates lifecycle-owned components. Any failure must
         // roll the whole replacement back before releasing the lifecycle mutex.
         try {
@@ -1491,6 +1497,7 @@ class SessionManager(
         }
         }
         } finally {
+            if (projectionCaptureClaim !== pendingCaptureClaim) pendingCaptureClaim.release()
             startMutex.unlock()
         }
     }
@@ -1515,6 +1522,8 @@ class SessionManager(
         wppRearmSource: String? = null,
         transportStartGeneration: Long,
     ) {
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
+        if (projectionCaptureClaim == null) projectionCaptureClaim = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryProjectionClaim() ?: return
         aasdkSession?.stop()
         _transportMode.value = directTransport
         val ctx = context
@@ -1952,8 +1961,10 @@ class SessionManager(
 
     private fun prepareNativeSessionStart(session: AasdkSession): Boolean {
         val admitted = synchronized(sessionStateLock) {
-            if (retiringAasdkSession === session) {
+            if (retiringAasdkSession != null) {
                 false
+            } else if (projectionCaptureClaim == null || com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) {
+                false // no late native adoption after diagnostic Stop/lease retirement
             } else {
                 if (aasdkSession !== session) {
                     OalLog.i(TAG, "Re-adopting the session after a transport restart — " +
@@ -2167,6 +2178,8 @@ class SessionManager(
         _phoneBatteryCritical.value = false
         _voiceSessionActive.value = false
         _phoneSignalStrength.value = null
+        projectionCaptureClaim?.release()
+        projectionCaptureClaim = null
     }
 
     /**

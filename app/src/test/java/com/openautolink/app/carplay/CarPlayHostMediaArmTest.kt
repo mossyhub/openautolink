@@ -3,10 +3,12 @@ package com.openautolink.app.carplay
 import org.junit.Assert.*
 import org.junit.Test
 
+@org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk=[32], manifest=org.robolectric.annotation.Config.NONE)
 class CarPlayHostMediaArmTest {
-    @Test fun exclusiveInactiveAndSuppressModesExpireWithoutMutatingFrozenLease() {
-        var now=1L
-        val arm=PlayingPublicationArm { now }
+    @Test fun exclusiveInactiveAndSuppressModesStayEnabledWithoutMutatingFrozenLease() {
+        val arm=PlayingPublicationArm()
         val method=arm.javaClass.methods.firstOrNull { it.name=="arm" && it.parameterTypes.contentEquals(arrayOf(CarPlayHostMediaMode::class.java)) }
         assertNotNull("one exclusive arm must accept INACTIVE",method)
         method!!.invoke(arm,CarPlayHostMediaMode.INACTIVE)
@@ -14,11 +16,11 @@ class CarPlayHostMediaArmTest {
         val frozen=CarPlayHostMediaLease(snapshot.invoke(arm) as CarPlayHostMediaMode)
         arm.arm()
         assertEquals(CarPlayHostMediaMode.SUPPRESS_PLAYING,snapshot.invoke(arm))
-        now+=PlayingPublicationArm.DURATION_MILLIS
-        assertEquals(CarPlayHostMediaMode.NORMAL,snapshot.invoke(arm))
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofDays(1))
+        assertEquals(CarPlayHostMediaMode.SUPPRESS_PLAYING,snapshot.invoke(arm))
         assertEquals(CarPlayHostMediaMode.INACTIVE,frozen.mode)
         method.invoke(arm,CarPlayHostMediaMode.INACTIVE);arm.disarm()
         assertEquals(CarPlayHostMediaMode.NORMAL,snapshot.invoke(arm))
-        assertEquals(CarPlayHostMediaMode.NORMAL,snapshot.invoke(PlayingPublicationArm { now }))
+        assertEquals(CarPlayHostMediaMode.NORMAL,snapshot.invoke(PlayingPublicationArm()))
     }
 }
