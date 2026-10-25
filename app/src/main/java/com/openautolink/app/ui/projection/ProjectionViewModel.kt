@@ -736,11 +736,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         sessionManager.setRenderRect(widthPx, heightPx, panelDpi, displayMode)
     }
 
-    private val touchForwarder: TouchForwarder = TouchForwarderImpl { touchMessage ->
-        viewModelScope.launch {
-            sessionManager.sendControlMessage(touchMessage)
-        }
-    }
 
     private val steeringWheelController = SteeringWheelController(
         sendMessage = { buttonMessage ->
@@ -2996,8 +2991,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         panelH: Int = 0,
     ) {
         val stats = _videoStats.value
-        val protocolW = sessionManager.touchWidth.value
-        val protocolH = sessionManager.touchHeight.value
+        // Gearhead injects coordinates in the selected video tier, not the
+        // touchscreen capability's first-offer dimensions. Wait for Start.
+        val target = sessionManager.captureTouchTarget() ?: return
+        val protocolW = target.width
+        val protocolH = target.height
         val videoW = if (stats.width > 0) stats.width else protocolW
         val videoH = if (stats.height > 0) stats.height else protocolH
         if (protocolW <= 0 || protocolH <= 0) {
@@ -3061,7 +3059,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 )
             }
         }
-        touchForwarder.onTouch(event, effSurfW, effSurfH, effCodecW, effCodecH)
+        // Capture before coroutine enqueue, not when the delayed sender runs.
+        TouchForwarderImpl { message ->
+            viewModelScope.launch { sessionManager.sendSelectedTouch(message, target) }
+        }.onTouch(event, effSurfW, effSurfH, effCodecW, effCodecH)
     }
 
     /** Handle a steering wheel key event. Returns true if consumed. */

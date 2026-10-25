@@ -231,6 +231,7 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
     cbMethods_.onSessionStopped = env->GetMethodID(cbClass, "onSessionStopped", "(Ljava/lang/String;)V");
     cbMethods_.onVideoFrame = env->GetMethodID(cbClass, "onVideoFrame", "([BJIII)V");
     cbMethods_.onVideoCodecConfigured = env->GetMethodID(cbClass, "onVideoCodecConfigured", "(I)V");
+    cbMethods_.onVideoGeometrySelected = env->GetMethodID(cbClass, "onVideoGeometrySelected", "(IIJ)V");
     cbMethods_.onAudioFrame = env->GetMethodID(cbClass, "onAudioFrame", "([BIII)V");
     cbMethods_.onAudioStart = env->GetMethodID(cbClass, "onAudioStart", "(III)V");
     cbMethods_.onAudioStop = env->GetMethodID(cbClass, "onAudioStop", "(I)V");
@@ -1504,6 +1505,34 @@ void JniSession::onMediaChannelSetupRequest(
 void JniSession::onMediaChannelStartIndication(
     const aap_protobuf::service::media::shared::message::Start& indication)
 {
+    if (stopped_.load()) return;
+    const int index = indication.configuration_index();
+    const int64_t selectionEpoch = selectedVideoEpoch_.fetch_add(1) + 1;
+    std::pair<int, int> selected{0, 0};
+    if (index >= 0 && static_cast<size_t>(index) < advertisedVideoGeometry_.size()) {
+        selected = advertisedVideoGeometry_[index];
+    }
+    // Publish synchronously before focus acknowledgment can start frame flow.
+    bool attached = false;
+    bool published = false;
+    if (auto* env = getEnv(attached)) {
+        if (callbackRef_ && cbMethods_.onVideoGeometrySelected) {
+            env->CallVoidMethod(callbackRef_, cbMethods_.onVideoGeometrySelected,
+                                static_cast<jint>(selected.first),
+                                static_cast<jint>(selected.second),
+                                static_cast<jlong>(selectionEpoch));
+            published = !env->ExceptionCheck();
+            if (!published) env->ExceptionClear();
+        }
+        releaseEnv(attached);
+    }
+    if (!published) {
+        selectedVideoEpoch_.fetch_add(1); // Revoke even a partially published callback.
+        LOGW("Selected video geometry publication failed; withholding focus acknowledgment");
+        return;
+    }
+    nativeDiag(1, "input", "Selected video geometry: index=" + std::to_string(index) +
+               " size=" + std::to_string(selected.first) + "x" + std::to_string(selected.second));
     activeVideoSessionId_.store(indication.session_id());
     LOGI("Video stream starting: session=%d config_idx=%d",
          indication.session_id(), indication.configuration_index());
@@ -1827,6 +1856,7 @@ void JniSession::buildServiceDiscoveryResponse(
     // video config, so advertise that same tier for touch. Keeping the saved
     // manual size here while auto selected 4K caused the measured 0.1.461
     // video=3840x2160 / touch=2560x1440 mismatch.
+    advertisedVideoGeometry_.clear();
     int touchWidth = sdrConfig_.videoWidth;
     int touchHeight = sdrConfig_.videoHeight;
 
@@ -2002,6 +2032,7 @@ void JniSession::buildServiceDiscoveryResponse(
                useH265 ? "H.265" : "H.264 BP", tierCount, portrait ? 1 : 0);
           for (int i = 0; i < tierCount; ++i) {
               int t = tiers[i];
+              advertisedVideoGeometry_.emplace_back(kDims[t].w, kDims[t].h);
               auto* vc = ms->add_video_configs();
               vc->set_codec_resolution(static_cast<VRes>(t));
               vc->set_frame_rate(fps);
@@ -2025,6 +2056,7 @@ void JniSession::buildServiceDiscoveryResponse(
           }
           auto* vc = ms->add_video_configs();
           vc->set_codec_resolution(static_cast<VRes>(tier));
+          advertisedVideoGeometry_.emplace_back(kDims[tier].w, kDims[tier].h);
           vc->set_frame_rate(fps);
           vc->set_density(computeDensity(tier));
           vc->set_video_codec_type(selectedVideoCodec);
@@ -2246,9 +2278,11 @@ void JniSession::sendTouchEvent(int action, int pointerId, float x, float y, int
 }
 
 void JniSession::sendMultiTouchEvent(int action, int actionIndex,
-    const int* ids, const float* xs, const float* ys, int count)
+    const int* ids, const float* xs, const float* ys, int count,
+    int64_t expectedSelection)
 {
-    if (!streaming_ || !inputChannel_ || count <= 0) return;
+    if (stopped_ || !streaming_ || !inputChannel_ || count <= 0 ||
+        (expectedSelection != 0 && selectedVideoEpoch_.load() != expectedSelection)) return;
 
     // Copy data for async lambda
     std::vector<int> vIds(ids, ids + count);
@@ -2257,7 +2291,10 @@ void JniSession::sendMultiTouchEvent(int action, int actionIndex,
 
     ioService_->post([this, action, actionIndex,
                       vIds = std::move(vIds), vXs = std::move(vXs),
-                      vYs = std::move(vYs)]() {
+                      vYs = std::move(vYs), expectedSelection]() {
+        // Start/stop can overtake a touch already waiting for the writer.
+        if (stopped_ || !streaming_ || !inputChannel_ ||
+            (expectedSelection != 0 && selectedVideoEpoch_.load() != expectedSelection)) return;
         aap_protobuf::service::inputsource::message::InputReport report;
 
         auto now = std::chrono::duration_cast<std::chrono::microseconds>(

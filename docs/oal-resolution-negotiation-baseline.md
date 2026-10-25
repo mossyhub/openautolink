@@ -251,12 +251,24 @@ configuration index in auto mode. The phone communicates the selected index in
 The ordered list makes index 0 the highest advertised tier. Selection is still a
 phone decision; source order alone is not proof that every phone chooses index 0.
 
-`InputSourceService` exposes one touchscreen coordinate space rather than one per
-video configuration. The automatic touchscreen follows the first video tier,
-which matches Gearhead's selected index in every captured OAL auto-negotiation
-session. Manual mode continues to advertise the manually selected video size.
-OAL logs `Input touchscreen: WIDTHxHEIGHT autoNeg=...` so a future phone that
-selects a fallback index can be identified rather than silently mis-mapped.
+`InputSourceService` exposes one advertised touchscreen capability rather than one
+per video configuration. The automatic touchscreen follows the first video tier
+for this capability, but active touch forwarding must follow the phone's actual
+`VideoStart.configuration_index`. Phones can choose different tiers over USB and
+wireless. The native session retains the exact offered list and synchronously
+publishes the selected logical dimensions before acknowledging video focus;
+input waits for that selection and ignores retired-session geometry callbacks.
+
+Gearhead's inspected input consumer uses selected-video coordinates; it does not
+normalize points from the advertised touchscreen dimensions. OAL therefore maps
+its visible inner rectangle into the selected logical video tier while preserving
+margin calculations. A padded HEVC decoder allocation such as 1280×736 must not
+be treated as the logical 1280×720 tier. Decoder stats preserve the output's visible
+crop rather than overwriting it with the original requested dimensions.
+
+`Input touchscreen:` records the capability; `Selected video geometry:` and
+`Touch mapping active:` record the active selection/mapping. These are distinct
+boundaries. Automated host tests do not replace a physical touch retest.
 
 ---
 

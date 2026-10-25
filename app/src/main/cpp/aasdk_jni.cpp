@@ -210,6 +210,32 @@ Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeShutdownGracefully(
  * Method:    nativeSendTouchEvent
  */
 JNIEXPORT void JNICALL
+Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeSendSelectedTouch(
+    JNIEnv* env, jclass /*clazz*/, jint action, jint actionIndex,
+    jintArray ids, jfloatArray xs, jfloatArray ys,
+    jlong expectedGeneration, jlong expectedSelection)
+{
+    if (!ids || !xs || !ys || expectedGeneration <= 0 || expectedSelection <= 0) return;
+    const jsize count = env->GetArrayLength(ids);
+    if (count <= 0 || count > 32 || env->GetArrayLength(xs) != count ||
+        env->GetArrayLength(ys) != count || actionIndex < 0 || actionIndex >= count) return;
+    std::vector<int> vIds(count);
+    std::vector<float> vXs(count), vYs(count);
+    env->GetIntArrayRegion(ids, 0, count, vIds.data());
+    env->GetFloatArrayRegion(xs, 0, count, vXs.data());
+    env->GetFloatArrayRegion(ys, 0, count, vYs.data());
+    if (env->ExceptionCheck()) return;
+    std::shared_ptr<openautolink::jni::JniSession> session;
+    {
+        std::lock_guard<std::mutex> lock(gSessionMutex);
+        if (gSessionAdmissionClosed || gSessionGeneration.load() != expectedGeneration) return;
+        session = std::atomic_load(&gSession);
+    }
+    if (session) session->sendMultiTouchEvent(action, actionIndex, vIds.data(),
+        vXs.data(), vYs.data(), count, expectedSelection);
+}
+
+JNIEXPORT void JNICALL
 Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeSendTouchEvent(
     JNIEnv* /*env*/, jclass /*clazz*/,
     jint action, jint pointerId, jfloat x, jfloat y, jint pointerCount)

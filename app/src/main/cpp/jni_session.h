@@ -20,6 +20,8 @@
 #include <exception>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <jni.h>
 #include <boost/asio.hpp>
@@ -129,7 +131,8 @@ public:
 
     /** Send multi-touch event to phone (all pointers in one InputReport). */
     void sendMultiTouchEvent(int action, int actionIndex,
-        const int* ids, const float* xs, const float* ys, int count);
+        const int* ids, const float* xs, const float* ys, int count,
+        int64_t expectedSelection = 0);
 
     /** Send key event to phone. */
     void sendKeyEvent(int keyCode, bool isDown);
@@ -361,6 +364,9 @@ private:
     // setup handler to populate configuration_indices honestly. Set during
     // buildServiceDiscoveryResponse(); read on the IO strand only after.
     std::atomic<int> advertisedVideoConfigCount_{0};
+    // Exact offer order; confined to the native IO strand.
+    std::vector<std::pair<int, int>> advertisedVideoGeometry_;
+    std::atomic<int64_t> selectedVideoEpoch_{0};
     std::atomic<int64_t> pingSentAtMs_{0};
 
     // Channel-error coalescing + escalation tracking (guarded by errorMu_)
@@ -487,6 +493,7 @@ private:
         jmethodID onSessionStopped = nullptr;
         jmethodID onVideoFrame = nullptr;
         jmethodID onVideoCodecConfigured = nullptr;
+        jmethodID onVideoGeometrySelected = nullptr;
         jmethodID onAudioFrame = nullptr;
         jmethodID onAudioStart = nullptr;
         jmethodID onAudioStop = nullptr;

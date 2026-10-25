@@ -221,6 +221,30 @@ class SessionManager(
 
     private val sessionStateLock = Any()
 
+    /** Synchronous, atomic geometry from the current native session's Start. */
+    val activeVideoGeometry: Pair<Int, Int>?
+        get() = synchronized(sessionStateLock) { aasdkSession?.activeVideoGeometry }
+
+    class TouchTarget internal constructor(
+        internal val owner: AasdkSession,
+        internal val selection: AasdkSession.SelectedTouchGeometry,
+    ) {
+        val width: Int get() = selection.width
+        val height: Int get() = selection.height
+    }
+
+    fun captureTouchTarget(): TouchTarget? = synchronized(sessionStateLock) {
+        val owner = aasdkSession ?: return@synchronized null
+        owner.selectedTouchGeometry?.let { TouchTarget(owner, it) }
+    }
+
+    suspend fun sendSelectedTouch(message: ControlMessage.Touch, target: TouchTarget) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val owned = synchronized(sessionStateLock) { aasdkSession === target.owner }
+            if (owned) target.owner.sendSelectedTouch(message, target.selection)
+        }
+    }
+
     private fun adoptSessionOwnership(session: AasdkSession) {
         synchronized(sessionStateLock) { aasdkSession = session }
     }

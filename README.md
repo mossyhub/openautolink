@@ -35,7 +35,7 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 |---|---|---|---|
 | Android Auto, wireless | Bluetooth + car Wi-Fi (WPP) | **Yes**, for GM wireless | Use WPP for Android Auto 17.4+ |
 | Android Auto, USB | USB cable | **No** | GM shows [two USB access prompts on every connection](#gm-usb-prompts--android-auto-and-carplay), even with the choice saved |
-| CarPlay, USB | USB cable; iPhone unpaired from vehicle Bluetooth | **No iPhone companion** | Music and calls use USB; authentication identity and USB/VPN consent required; [two GM USB access prompts on every connection](#gm-usb-prompts--android-auto-and-carplay) |
+| CarPlay, USB | USB cable; unpaired, or paired with Phone ON / Media OFF | **No iPhone companion** | CarPlay music/navigation; paired native HFP calls are owner-tested. Bluetooth-free car-mic calls/Siri work for some users but are inconsistent, even between sessions on the same car. Authentication identity and USB/VPN consent required; [two GM USB access prompts on every connection](#gm-usb-prompts--android-auto-and-carplay) |
 | CarPlay, wireless | Bluetooth + Wi-Fi | **No iPhone companion** | Available for development; not working in the maintainer's vehicle |
 | CarPlay, shared Wi-Fi | Existing Wi-Fi network | **No iPhone companion** | Advanced wireless network configuration; not a USB requirement |
 
@@ -65,7 +65,8 @@ Check the source revision and release notes for your installed build. USB hot-pl
 
 - No iPhone companion app or additional projection hardware.
 - **USB projection**, with wireless connection retained separately for development.
-- **USB CarPlay screen and touch controls, with native Bluetooth audio.** On the maintainer’s Blazer EV, keeping the iPhone Bluetooth-connected and selecting the car’s **Bluetooth input** provides working music, navigation voice and native hands-free calls while CarPlay remains onscreen. Other vehicles and firmware may behave differently. See [CarPlay setup](#carplay-setup).
+- **USB CarPlay music, navigation and touch controls**, with two current setups: leave the iPhone unpaired from vehicle Bluetooth, or keep **Phone ON / Media OFF**, reconnect Bluetooth and keep **OAL selected** for separate music/navigation volume and native HFP calls. The paired setup worked in the maintainer's Blazer EV; GM may restore Media after leaving/waking the car, so reapply the procedure when needed. See [CarPlay setup](#carplay-setup).
+- **Microphone and native-call integration are experimental and not ready.** Car microphone input for calls/Siri works for some users, fails for others and can vary between sessions on the same car; do not rely on it yet. Diagnostics are attempting a better, more native CarPlay experience. Native-call experimental Reject is unsupported. These experiments are not required for either normal setup or native Bluetooth HFP calls.
 - **Multi-touch gestures**, including map pinch-to-zoom.
 - **Adjustable video quality, Fit to window and safe-control calibration** for wide or curved screens.
 - **Music information and artwork on supported vehicle displays**. Cluster route guidance is still being refined.
@@ -105,7 +106,7 @@ For wireless Android Auto, install `openautolink-companion-vX.Y.Z.apk` from the 
 
 ### iPhone
 
-No OAL iPhone companion is required. Pair the iPhone with the vehicle, leaving **Phone calls and Media audio enabled**, then connect USB CarPlay with a data-capable cable. While USB CarPlay remains connected, press the **steering-wheel audio-source button**, then select **Bluetooth in the instrument cluster**. Bluetooth connected is not the same as Bluetooth selected as the audio input. Car Wi-Fi fields are not required for wired startup. Wireless CarPlay remains a development option. Supply your own [authorized authentication pair](docs/carplay-private-mfi-assets.md). See the [USB setup](#usb-1) and [call guide](docs/phone-calls.md).
+No OAL iPhone companion is required. Connect USB CarPlay with a data-capable cable and your own [authorized authentication pair](docs/carplay-private-mfi-assets.md). Choose either **unpaired vehicle Bluetooth** for CarPlay music/navigation (car-mic calls/Siri work for some users but can fail between sessions on the same car; do not rely on them yet; calls may instead use the iPhone), or **paired Phone ON / Media OFF with OAL selected** for owner-tested native HFP calls and separate CarPlay music/navigation volume. For the paired option, open **OAL → Settings → Connection → CarPlay → Android Bluetooth settings**, disable the connected iPhone's **Media audio** (music-note icon), leave **Phone calls** enabled, press its **Bluetooth** button to disconnect, reconnect it, then return to OAL. GM may restore Media after leaving/waking the car; repeat this procedure if it does. In native **Phone → Settings**, set **Active Call OFF / Privacy ON**. Car Wi-Fi fields are not required for wired startup; wireless CarPlay remains a development option. See the [USB setup](#usb-1) and [call guide](docs/phone-calls.md).
 
 ### Other AAOS systems
 
@@ -173,20 +174,29 @@ If you previously turned off iPhone projection, OAL retains that choice. Only in
 
 ### USB
 
-The owner-tested setup on the maintainer’s 2024 Chevrolet Blazer EV uses USB for the CarPlay interface and native Bluetooth for music, spoken directions and hands-free calls. Keep the vehicle parked while configuring.
+1. Select **CarPlay connection → USB** in OAL and save.
+2. Connect the iPhone to a data-capable head-unit USB port with a data-capable cable. If another projection is active, choose **Switch** to attempt temporary USB takeover.
+3. [Tap **OK** on both GM USB access prompts every time](#gm-usb-prompts--android-auto-and-carplay), even if you saved the choice. Accept OAL’s separate local VPN consent when requested. If the iPhone asks to trust the connection, unlock it and approve **Trust** on the iPhone itself.
+4. Choose one of these two audio setups. Keep **OAL selected as the car's media source**, not Bluetooth.
 
-1. Pair the iPhone with the vehicle. Leave both **Phone calls** and **Media audio** enabled.
-2. Select **CarPlay connection → USB** in OAL and save.
-3. Connect the iPhone to a data-capable head-unit USB port with a data-capable cable. If another projection is active, choose **Switch** to attempt temporary USB takeover.
-4. [Tap **OK** on both GM USB access prompts every time](#gm-usb-prompts--android-auto-and-carplay), even if you saved the choice. Accept OAL’s separate local VPN consent when requested. If the iPhone asks to trust the connection, unlock it and approve **Trust** on the iPhone itself.
-5. **While USB CarPlay remains connected, press the steering-wheel audio-source button, then select Bluetooth in the instrument cluster.** This selects the car’s Bluetooth input; it is not a per-iPhone setting or a center-display menu. Pairing alone does not select the audio input.
-6. In the vehicle’s native **Phone → Settings**, turn **Active Call OFF** and **Privacy ON** to keep GM’s call alerts in the cluster rather than covering CarPlay on the main display. Leave the Bluetooth **Phone calls** profile enabled.
+**Option 1 — Leave the iPhone unpaired from vehicle Bluetooth.** Use normal USB CarPlay music and navigation without a competing native Bluetooth media connection. USB startup does not require Bluetooth pairing or car Wi-Fi fields. **Car microphone input for calls/Siri is inconsistent: it works for some users, fails for others, and may work in one session but not the next—even on the same car. We are investigating; do not rely on it yet.** The maintainer has experienced both success and failure. This appears to be GM AAOS-specific microphone/routing weirdness that I’m still trying to pin down. Calls may instead use the iPhone; unpairing is not a microphone fix.
 
-**Navigation volume:** spoken directions use Bluetooth media volume rather than a separate vehicle navigation-volume control. OAL cannot independently amplify guidance in the Bluetooth media stream. Apple Maps offers a phone-side **Voice Volume** preference; its effect on this setup has not yet been verified. See the [call and audio guide](docs/phone-calls.md).
+**Option 2 — Keep pairing for native calls: Phone ON / Media OFF.** On the maintainer's 2024 Chevrolet Blazer EV, the following procedure restored separate CarPlay music/navigation volume and working native hands-free calls:
 
-Music, navigation voice and native calls worked in this tested setup; it is not certification for every vehicle or firmware. Bluetooth input selection may need repeating after reconnect or phone switching. OAL does not automatically select it. The experimental **suppress native Playing status** control is not required for these instructions and did not resolve pausing in the owner’s test. **In this tested setup, “Hey Siri” uses the iPhone’s microphone to hear the wake phrase; responses can be heard through the car speakers.** Do not expect the car microphone to detect the wake phrase. Siri activated inside CarPlay apps is a separate input path and remains under investigation.
+1. Keep the iPhone paired with the vehicle and **Phone calls ON**.
+2. Open **OAL → Settings → Connection → CarPlay → Android Bluetooth settings** using the button in OAL.
+3. For the connected iPhone, turn **Media audio OFF** (the **music-note icon**). Leave **Phone calls ON**.
+4. Press the iPhone's **Bluetooth** button to disconnect, then reconnect it again.
+5. Return to OAL and keep **OAL selected** as the media source.
+6. In the vehicle's native **Phone → Settings**, turn **Active Call OFF** (“Show active call view when answering call”) and **Privacy ON** (“Only show call alerts in cluster”). These display settings keep call alerts in the cluster rather than covering CarPlay.
 
-USB projection itself does not require Bluetooth pairing or Wi-Fi setup. A Bluetooth-free audio path remains under investigation: earlier calls were audible, but later tests found silent microphone input. Reliable Bluetooth-free calls and Siri remain unresolved. Do not unpair the working Bluetooth-selected setup to follow older guidance. **Android Auto setup is unchanged:** keep that Android phone’s required Bluetooth pairing and **Phone calls** profile enabled.
+**After leaving/waking the car, GM may turn Media back on.** If that happens or pausing returns, reopen the same Android Bluetooth settings screen, turn Media OFF, disconnect/reconnect with the Bluetooth button, and return to OAL. This is a manual workaround, not an automatic or durable profile-policy fix. The owner confirmed working music/navigation/native calls during the tested interval; other vehicles, later reconnects and every Siri route are not thereby verified.
+
+The older **Media ON + Bluetooth input selected in the instrument cluster** fallback is not equivalent: it shares media/navigation volume and later owner testing still reproduced pauses. It is not one of the two recommended setups above. Playing-status suppression and the INACTIVE media-session experiment did not resolve pausing in owner testing and are not needed for either option.
+
+**Siri and cabin microphone:** in the previously tested setup, “Hey Siri” wake detection used the iPhone microphone and responses could play through the car. Accessory-button/in-app Siri is a separate input path; car microphone input for calls/Siri has both successful and failed sessions, including on the maintainer's car. We are investigating; do not rely on it yet. Experimental microphone and native-call diagnostics are attempts to improve the native CarPlay experience, **not ready features or prerequisites for HFP calls**. See the [call and audio guide](docs/phone-calls.md).
+
+**Android Auto setup is unchanged:** keep that Android phone’s required Bluetooth pairing and **Phone calls** profile enabled.
 
 The VPN permission is used locally for the USB connection—not an Internet VPN service. Another active VPN can conflict. USB access and permission support vary by head unit.
 
@@ -249,9 +259,7 @@ Under **CarPlay → CarPlay UI scale**:
 
 ## Keep incoming and active calls in Android Auto or CarPlay on GM
 
-For the [Bluetooth-selected USB CarPlay setup](#usb-1), keep the iPhone’s **Phone calls** and **Media audio** profiles enabled, and select **Bluetooth in the instrument cluster using the steering-wheel audio-source button**. Native Bluetooth carries the call microphone and speaker audio; USB keeps the CarPlay interface connected.
-
-The alternate **Android Bluetooth settings** launcher is available on supported vehicles while parked. It opens an eligible system screen without changing profiles. It does not select the car’s audio input; use the steering-wheel audio-source button and instrument cluster for that. See the [call guide](docs/phone-calls.md).
+For [paired USB CarPlay](#usb-1), use **Phone ON / Media OFF**, disconnect/reconnect using the iPhone's Bluetooth button in **OAL → Settings → Connection → CarPlay → Android Bluetooth settings**, then return to OAL with **OAL selected**. Native Bluetooth HFP carries call microphone/speaker audio while CarPlay carries separate music/navigation. GM may restore Media after leaving/waking the car; reapply that procedure when needed. Unpaired USB CarPlay is the other option, but reliable cabin-mic calls/Siri remain unresolved. Neither option requires experimental native-call integration. See the [call guide](docs/phone-calls.md).
 
 For **Android Auto**, or when managing native GM call-screen behavior, use these vehicle settings to stop GM's native Phone app from covering the projected incoming-call and in-call controls on the center display:
 

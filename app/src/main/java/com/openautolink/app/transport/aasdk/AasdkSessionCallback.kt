@@ -31,6 +31,12 @@ interface AasdkSessionCallback {
      * @param codecType aasdk MediaCodecType: 3=H.264, 5=VP9, 7=H.265
      */
     fun onVideoCodecConfigured(codecType: Int)
+    /** Logical selected video tier, never the padded decoder allocation. */
+    fun onVideoGeometrySelected(width: Int, height: Int) {}
+    /** Native selection identity, carried through both asynchronous input queues. */
+    fun onVideoGeometrySelected(width: Int, height: Int, selection: Long) {
+        onVideoGeometrySelected(width, height)
+    }
 
     /**
      * Audio frame received from phone.
