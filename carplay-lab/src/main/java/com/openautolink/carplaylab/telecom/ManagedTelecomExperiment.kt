@@ -2,7 +2,6 @@ package com.openautolink.carplaylab.telecom
 
 import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -11,6 +10,8 @@ import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import java.util.concurrent.atomic.AtomicInteger
+import com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.Stage
+import com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.Outcome
 
 /** Default-off process selection; constructing/reading never registers an account. */
 class ManagedTelecomExperiment internal constructor(private val context: Context) {
@@ -49,8 +50,8 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
     @Volatile private var link: ManagedIncomingBridge? = null
     private val retiring = java.util.concurrent.CopyOnWriteArraySet<ManagedIncomingBridge>()
     private val telecom get() = context.getSystemService(TelecomManager::class.java)
-    enum class Result { REGISTERED_USER_ENABLE_REQUIRED, ENABLED_FOR_THIS_PROCESS, DENIED_OR_UNAVAILABLE, DISABLED_AND_REMOVED, ACCOUNT_REMOVED_CLEANUP_PENDING, CLEANUP_UNCONFIRMED }
-    fun census() = accountOperation { PassiveTelecomCensus.read(context, handle) }
+    enum class Result { READ_PERMISSION_REQUIRED, REGISTER_RETURNED_READ_UNAVAILABLE, REGISTER_RETURNED_ACCOUNT_ABSENT, REGISTERED_USER_ENABLE_REQUIRED, ENABLED_FOR_THIS_PROCESS, DENIED_OR_UNAVAILABLE, DISABLED_AND_REMOVED, ACCOUNT_REMOVED_CLEANUP_PENDING, CLEANUP_UNCONFIRMED }
+    fun census() = accountOperation { PassiveTelecomCensus.read(context, handle, epoch) }
     /** Nonprivate finite local diagnostics; no caller identity, exception text or fake inventory. */
     fun observationStatus(): String {
         val current = link
@@ -58,7 +59,7 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
         val queue = current?.queueDrops ?: 0
         val snapshot = authority
         val age = android.os.SystemClock.elapsedRealtime() - snapshot.readAt
-        val account = if (snapshot.generation != epoch || age !in 0..1500) "STALE" else snapshot.value.name
+        val account = if (!hasReadPermission) "UNKNOWN/read_permission_required" else if (snapshot.generation != epoch || age !in 0..1500) "STALE" else snapshot.value.name
         return "capacityDrops=$capacity queueDrops=$queue reconnectRequired=${capacity > 0 || queue > 0} cleanupPending=${retiring.any { !it.awaitClosed(0) }} accountAuthority=$account controls=${current?.controlStatus ?: "IDLE_OR_RECONNECT_REQUIRED"}"
     }
     // Bounded cached authority: no Binder in ingress/native/writer callbacks. Unknown is not disabled/absent.
@@ -66,20 +67,20 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
     private data class Authority(val generation: Long, val value: AccountAuthority, val readAt: Long)
     @Volatile private var authority = Authority(-1, AccountAuthority.UNKNOWN, 0)
     private val reading = java.util.concurrent.atomic.AtomicBoolean()
-    private fun readAuthority(generation: Long): Authority {
-        val value = try {
-            val manager = telecom
-            if (manager == null) AccountAuthority.UNKNOWN else {
-                val own = manager.getPhoneAccount(handle)
-                when { own == null -> AccountAuthority.ABSENT; own.isEnabled -> AccountAuthority.ENABLED; else -> AccountAuthority.DISABLED }
-            }
-        } catch (_: RuntimeException) { AccountAuthority.UNKNOWN }
+    private fun receipt(stage: Stage, outcome: Outcome, generation: Long) {
+        TelecomAccountDiagnostics.record(context, stage, outcome, generation)
+    }
+    private fun readAuthority(generation: Long, stage: Stage = Stage.REFRESH_OWN_READ): Authority {
+        val read = OwnPhoneAccountAccess.read(context, handle)
+        val value = AccountAuthority.valueOf(read.account.name)
         val snapshot = Authority(generation, value, android.os.SystemClock.elapsedRealtime())
         synchronized(lifecycle) { if (epoch == generation) authority = snapshot }
+        // Diagnostic fsync must never reset the age of an already completed authority read.
+        receipt(stage, read.outcome, generation)
         return snapshot
     }
     val armed: Boolean get() {
-        if (!enabledRequested) return false
+        if (!enabledRequested || !hasReadPermission) return false
         val generation = epoch
         val snapshot = authority
         val age = android.os.SystemClock.elapsedRealtime() - snapshot.readAt
@@ -104,7 +105,7 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
         }, 500, java.util.concurrent.TimeUnit.MILLISECONDS)
     }
     // No Binder, external predicate, dispatch or socket write while holding lifecycle.
-    private fun disableGeneration(): Long {
+    private fun disableGeneration(deferClose: Boolean = false): Long {
         val old: ManagedIncomingBridge?
         val generation: Long
         synchronized(lifecycle) {
@@ -113,49 +114,92 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
             old = link; link = null
             old?.let { retiring.add(it) }
         }
-        old?.close()
+        if (old != null) {
+            if (deferClose) accounts.execute { old.close() } else old.close()
+        }
         return generation
     }
     private fun pruneRetired() { retiring.filter { it.awaitClosed(0) }.forEach { retiring.remove(it) } }
-    /** Called exclusively by the enable toggle, never a lifecycle/startup callback. */
-    fun enable(): Result {
-        val generation = disableGeneration()
+    /** OS grant check only; never requests permission or reads accounts. */
+    val hasReadPermission: Boolean get() = context.checkSelfPermission(android.Manifest.permission.READ_PHONE_NUMBERS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    /** UI may prepare before an OS prompt. No account Binder or permission prompt here. */
+    fun prepareEnable(): Long = disableGeneration(deferClose = true)
+    /** Route disposal/Off revokes only an unfinished request, never an established selection. */
+    fun cancelPendingEnable(generation: Long) {
+        synchronized(lifecycle) {
+            if (epoch == generation && !enabledRequested) epoch++
+        }
+    }
+    /** Queue the actual denied OS callback even if its UI coroutine is disposed before awaiting it.
+     * This is a finite receipt only: never read, register or change a successor's selection.
+     */
+    fun permissionDenied(generation: Long): java.util.concurrent.Future<Result> = accounts.submit<Result> {
+        receipt(Stage.FIRST_OWN_READ, Outcome.READ_PERMISSION_REQUIRED, generation)
+        Result.READ_PERMISSION_REQUIRED
+    }
+    fun enable(): Result = enablePrepared(prepareEnable())
+    /** Continuation must carry the exact generation captured before the real permission request. */
+    fun enablePrepared(generation: Long): Result {
         val result = accountOperation {
-            if (epoch != generation) return@accountOperation Result.DENIED_OR_UNAVAILABLE
+            if (epoch != generation) {
+                receipt(Stage.MANAGER_LOOKUP, Outcome.SUPERSEDED, generation)
+                return@accountOperation Result.DENIED_OR_UNAVAILABLE
+            }
+            if (!hasReadPermission) {
+                readAuthority(generation, Stage.FIRST_OWN_READ)
+                return@accountOperation Result.READ_PERMISSION_REQUIRED
+            }
+            val manager = try { telecom } catch (error: RuntimeException) {
+                receipt(Stage.MANAGER_LOOKUP, TelecomAccountDiagnostics.failure(error), generation)
+                return@accountOperation Result.DENIED_OR_UNAVAILABLE
+            }
+            receipt(Stage.MANAGER_LOOKUP, if (manager == null) Outcome.NO_MANAGER else Outcome.RETURNED, generation)
+            if (manager == null) return@accountOperation Result.DENIED_OR_UNAVAILABLE
             try {
-                val manager = telecom ?: return@accountOperation Result.DENIED_OR_UNAVAILABLE
                 manager.registerPhoneAccount(PhoneAccount.builder(handle, "OAL CarPlay incoming experiment")
                     .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
                     .setSupportedUriSchemes(listOf(PhoneAccount.SCHEME_TEL)).build())
-                if (manager.getPhoneAccount(handle) == null) return@accountOperation Result.DENIED_OR_UNAVAILABLE
-                synchronized(lifecycle) {
-                    if (epoch != generation) return@accountOperation Result.DENIED_OR_UNAVAILABLE
-                    enabledRequested = true
-                }
-                Result.REGISTERED_USER_ENABLE_REQUIRED
-            } catch (_: RuntimeException) { Result.DENIED_OR_UNAVAILABLE }
+                receipt(Stage.REGISTER, Outcome.RETURNED, generation)
+            } catch (error: RuntimeException) {
+                receipt(Stage.REGISTER, TelecomAccountDiagnostics.failure(error), generation)
+                return@accountOperation Result.DENIED_OR_UNAVAILABLE
+            }
+            val snapshot = readAuthority(generation, Stage.FIRST_OWN_READ)
+            if (!hasReadPermission) return@accountOperation Result.READ_PERMISSION_REQUIRED
+            if (snapshot.value == AccountAuthority.UNKNOWN) return@accountOperation if (!hasReadPermission)
+                Result.READ_PERMISSION_REQUIRED else Result.REGISTER_RETURNED_READ_UNAVAILABLE
+            if (snapshot.value == AccountAuthority.ABSENT) return@accountOperation Result.REGISTER_RETURNED_ACCOUNT_ABSENT
+            synchronized(lifecycle) {
+                if (epoch != generation) return@accountOperation Result.DENIED_OR_UNAVAILABLE
+                enabledRequested = true
+            }
+            if (snapshot.value == AccountAuthority.ENABLED) Result.ENABLED_FOR_THIS_PROCESS else Result.REGISTERED_USER_ENABLE_REQUIRED
         }
-        return if (result == Result.REGISTERED_USER_ENABLE_REQUIRED) refresh() else result
+        return result
     }
     fun refresh(): Result {
         val generation = epoch
         val snapshot = accountOperation { readAuthority(generation) }
-        if (enabledRequested && generation == epoch && snapshot.value == AccountAuthority.ENABLED) return Result.ENABLED_FOR_THIS_PROCESS
+        if (enabledRequested && generation == epoch && hasReadPermission && snapshot.value == AccountAuthority.ENABLED) return Result.ENABLED_FOR_THIS_PROCESS
         val old = synchronized(lifecycle) {
             if (generation != epoch) return Result.DENIED_OR_UNAVAILABLE
             link.also { link = null; it?.let(retiring::add) }
         }
         old?.close()
-        return if (enabledRequested && snapshot.value == AccountAuthority.DISABLED)
+        return if (!hasReadPermission) Result.READ_PERMISSION_REQUIRED
+        else if (enabledRequested && snapshot.value == AccountAuthority.DISABLED)
             Result.REGISTERED_USER_ENABLE_REQUIRED else Result.DENIED_OR_UNAVAILABLE
     }
-    fun openEnableSettings(): Boolean {
-        if (!enabledRequested) return false
-        return try {
-            context.startActivity(Intent(TelecomManager.ACTION_CHANGE_PHONE_ACCOUNTS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            true
-        } catch (_: RuntimeException) { false }
+    fun openSettings(): TelecomAccountSettings.Launch = accountOperation {
+        val candidate = TelecomAccountSettings.inspect(context)
+        receipt(Stage.SETTINGS_LOOKUP, Outcome.valueOf(candidate.availability.name), epoch)
+        val result = TelecomAccountSettings.launch(context)
+        receipt(Stage.SETTINGS_LAUNCH, Outcome.valueOf(result.name), epoch)
+        result
     }
+    fun openEnableSettings(): Boolean = openSettings() in setOf(
+        TelecomAccountSettings.Launch.EXACT_CANDIDATE_LAUNCHED,
+        TelecomAccountSettings.Launch.PUBLIC_ACTION_CANDIDATE_LAUNCHED)
     fun disable(): Result {
         val generation = disableGeneration()
         retiring.forEach { it.close() }; pruneRetired()
@@ -165,7 +209,7 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
             try {
                 val manager = telecom ?: return@accountOperation Result.CLEANUP_UNCONFIRMED
                 manager.unregisterPhoneAccount(handle)
-                if (manager.getPhoneAccount(handle) != null) Result.CLEANUP_UNCONFIRMED
+                if (readAuthority(generation, Stage.CLEANUP_OWN_READ).value != AccountAuthority.ABSENT) Result.CLEANUP_UNCONFIRMED
                 else {
                     pruneRetired()
                     if (retiring.isEmpty()) Result.DISABLED_AND_REMOVED else Result.ACCOUNT_REMOVED_CLEANUP_PENDING

@@ -24,6 +24,7 @@ class ManagedTelecomOsTest {
     private lateinit var manager: TelecomManager
     @Before fun setup() {
         val context: Context = RuntimeEnvironment.getApplication()
+        shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(android.Manifest.permission.READ_PHONE_NUMBERS)
         experiment = ManagedTelecomExperiment(context)
         ReflectionHelpers.setStaticField(ManagedTelecomExperiment::class.java, "instance", experiment)
         manager = context.getSystemService(TelecomManager::class.java)
@@ -116,6 +117,24 @@ class ManagedTelecomOsTest {
         links.forEach { it.handle(call()) }
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals("orphan bridge retained announcement authority", 1, shadowOf(manager).allIncomingCalls.size)
+    }
+    @Test fun preparingPermissionOnUiRevokesImmediatelyButDoesNotRunConnectionCleanupInline() {
+        arm()
+        val service = Robolectric.buildService(ManagedCarPlayConnectionService::class.java).create().get()
+        val os = shadowOf(manager); os.setConnectionService(service)
+        try {
+            val link = experiment.authenticatedLink { true }!!
+            link.handle(call()); shadowOf(Looper.getMainLooper()).idle()
+            val connection = os.allowIncomingCall(os.onlyIncomingCall)!!
+            assertEquals(Connection.STATE_RINGING, connection.state)
+            val generation = experiment.prepareEnable()
+            assertFalse(experiment.armed)
+            assertEquals("preparing an OS permission request ran Telecom cleanup inline on UI", Connection.STATE_RINGING, connection.state)
+            experiment.census() // drain the dedicated account worker before the main cleanup dispatch
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(Connection.STATE_DISCONNECTED, connection.state)
+            experiment.cancelPendingEnable(generation)
+        } finally { experiment.disable(); shadowOf(Looper.getMainLooper()).idle(); service.onDestroy() }
     }
     @Test fun offMainDisableReportsRemovedButCleanupPendingUntilMainRetires() {
         arm()

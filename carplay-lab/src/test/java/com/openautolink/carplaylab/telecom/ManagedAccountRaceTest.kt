@@ -44,6 +44,7 @@ class ManagedAccountRaceTest {
         }
     }
     @Before fun reset() {
+        org.robolectric.Shadows.shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(android.Manifest.permission.READ_PHONE_NUMBERS)
         AccountShadow.entered = CountDownLatch(1); AccountShadow.release = CountDownLatch(1)
         AccountShadow.blockReads = false; AccountShadow.unsupportedReads = false; AccountShadow.readEntered = CountDownLatch(1)
         AccountShadow.readRelease = CountDownLatch(1); AccountShadow.lastReadThread = ""; AccountShadow.readCalls.set(0)

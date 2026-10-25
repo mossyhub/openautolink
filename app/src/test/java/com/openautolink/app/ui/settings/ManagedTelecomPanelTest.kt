@@ -24,13 +24,88 @@ class ManagedTelecomPanelTest {
     @get:Rule val compose = createOalComposeRule()
     private val app get() = RuntimeEnvironment.getApplication()
     private val experiment get() = ManagedTelecomExperiment.get(app)
-    @Before fun reset() { experiment.disable() }
-    @After fun close() { experiment.disable() }
+    @Before fun reset() { com.openautolink.app.ui.testing.resetNativeTelecomTestProcess(app); shadowOf(app).grantPermissions(android.Manifest.permission.READ_PHONE_NUMBERS) }
+    @After fun close() { com.openautolink.app.ui.testing.resetNativeTelecomTestProcess(app) }
     private fun click(tag: String) {
         compose.onNodeWithTag(tag).performScrollTo().performClick()
         compose.waitUntil(timeoutMillis = 10000) {
             compose.onNodeWithTag("telecomStatus").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].none { it.text == "WORKING" }
         }
+    }
+    @org.robolectric.annotation.Implements(TelecomManager::class)
+    class RefusingRegistration : org.robolectric.shadows.ShadowTelecomManager() {
+        @org.robolectric.annotation.Implementation override fun registerPhoneAccount(account: android.telecom.PhoneAccount) {
+            throw SecurityException("private synthetic registration denial")
+        }
+    }
+    @Test @Config(shadows = [RefusingRegistration::class])
+    fun registrationFailureDoesNotHideAccountSettingsOrInspect() {
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        click("telecomEnabled")
+        compose.onNodeWithTag("telecomEnabled").assertIsOff()
+        compose.onNodeWithTag("telecomStatus").assertTextContains("DENIED_OR_UNAVAILABLE", substring = true)
+        compose.onNodeWithTag("telecomEnableSettings").assertIsEnabled()
+        compose.onNodeWithTag("telecomInspect").assertIsEnabled()
+    }
+    @org.robolectric.annotation.Implements(TelecomManager::class)
+    class HeldRefusingRegistration : org.robolectric.shadows.ShadowTelecomManager() {
+        companion object {
+            var entered = java.util.concurrent.CountDownLatch(1)
+            var release = java.util.concurrent.CountDownLatch(1)
+        }
+        @org.robolectric.annotation.Implementation override fun registerPhoneAccount(account: android.telecom.PhoneAccount) {
+            entered.countDown()
+            check(release.await(10, java.util.concurrent.TimeUnit.SECONDS)) { "registration was not released" }
+            throw SecurityException("private synthetic held registration denial")
+        }
+    }
+    @Test @Config(shadows = [HeldRefusingRegistration::class])
+    fun settingsDuringFailedEnableRetiresPendingGenerationWithoutReplacingLatestStatus() {
+        HeldRefusingRegistration.entered = java.util.concurrent.CountDownLatch(1)
+        HeldRefusingRegistration.release = java.util.concurrent.CountDownLatch(1)
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.waitForIdle()
+        while (shadowOf(app).nextStartedActivity != null) { }
+        compose.onNodeWithTag("telecomEnabled").assertIsOff().performScrollTo().performClick()
+        try {
+            assertTrue("registration did not enter", HeldRefusingRegistration.entered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            compose.onNodeWithTag("telecomEnabled").assertIsOn()
+            compose.onNodeWithTag("telecomEnableSettings").assertIsEnabled().performScrollTo().performClick()
+        } finally {
+            HeldRefusingRegistration.release.countDown()
+        }
+        compose.waitUntil(10000) {
+            compose.onNodeWithTag("telecomStatus").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].any { it.text.startsWith("UNAVAILABLE") }
+        }
+        assertFalse("failed registration must leave the backend Off", experiment.enabledForProcess)
+        assertNull("settings must stay on this page", shadowOf(app).nextStartedActivity)
+        compose.onNodeWithTag("telecomStatus").assertTextContains("UNAVAILABLE · Account settings unavailable", substring = true)
+        compose.onNodeWithTag("telecomEnabled").assertIsOff()
+        compose.onNodeWithTag("telecomEnableSettings").assertIsEnabled()
+        click("telecomReadback")
+        compose.onNodeWithTag("telecomEnabled").assertIsOff()
+    }
+    @Test fun exactSettingsLaunchRemainsAvailableWithMissingPermissionAndNoRegistration() {
+        shadowOf(app).denyPermissions(android.Manifest.permission.READ_PHONE_NUMBERS)
+        val exact = android.content.ComponentName("com.android.server.telecom", "com.android.server.telecom.settings.EnableAccountPreferenceActivity")
+        shadowOf(app.packageManager).addActivityIfNotPresent(exact).apply {
+            exported = true; enabled = true; applicationInfo.enabled = true
+        }
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.waitForIdle()
+        while (shadowOf(app).nextStartedActivity != null) { }
+        val controllerContext = experiment.javaClass.getDeclaredField("context").apply { isAccessible = true }.get(experiment)
+        assertSame("Robolectric process singleton retained a different Application", app, controllerContext)
+        click("telecomEnableSettings")
+        assertEquals(exact, shadowOf(app).nextStartedActivity.component)
+        assertFalse(experiment.enabledForProcess)
+        compose.onNodeWithTag("telecomStatus").assertTextContains("EXACT_CANDIDATE_LAUNCHED", substring = true)
+        assertNull(app.getSystemService(TelecomManager::class.java).getPhoneAccount(experiment.handle))
+    }
+    @Test fun settingsAndInspectRemainReachableWhileOff() {
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.onNodeWithTag("telecomEnableSettings").assertIsEnabled()
+        compose.onNodeWithTag("telecomInspect").assertExists()
     }
     @Test fun simpleTogglesRegisterOnlyOnEnableAndKeepSystemAccountEnableSeparate() {
         compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
@@ -59,7 +134,7 @@ class ManagedTelecomPanelTest {
         assertNull(manager.getPhoneAccount(experiment.handle))
         compose.onNodeWithTag("telecomEnabled").assertIsOff()
     }
-    @Test fun settingsNeverLaunchFromCompositionOrWithoutProcessConsent() {
+    @Test fun unavailableSettingsNeverLaunchFromCompositionOrInventFallback() {
         compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
         compose.waitForIdle()
         // Compose itself launches its test Activity; drain that known host before this assertion.

@@ -41,6 +41,9 @@ internal class LogUploadArchive(
             fun capture(file: File) = CaptureTerminalLogStore.runName.matches(file.name)
             fun local(file: File) = localRun.matches(file.name)
             fun bluetooth(file: File) = BluetoothReconnectRecorder.runName.matches(file.name)
+            fun telecom(file: File) = file.name == com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.FILE_NAME
+            val telecomReceipts = unique.filter { telecom(it) && it.length() <= com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.MAX_BYTES }
+                .sortedByDescending { it.lastModified() }.take(1).toSet()
             val bluetoothRuns = unique.filter { bluetooth(it) && it.length() <= BluetoothReconnectRecorder.MAX_BYTES &&
                 it.lastModified() >= now - BluetoothReconnectRecorder.TTL_MS }
                 .sortedByDescending { it.lastModified() }.take(3).toSet()
@@ -50,7 +53,7 @@ internal class LogUploadArchive(
                 .sortedByDescending { it.name }.take(12).toSet()
             val localAlias = unique.filter { it.name == "microphone_diagnostic.log" && it.length() <= 32768 }
                 .filter { alias -> localRuns.any { run -> run.length()==alias.length() && run.readBytes().contentEquals(alias.readBytes()) } }.toSet()
-            unique.sortedWith(compareByDescending<File> { it in captureRuns || it in localRuns || it in bluetoothRuns }
+            unique.sortedWith(compareByDescending<File> { it in captureRuns || it in localRuns || it in bluetoothRuns || it in telecomReceipts }
                     .thenByDescending { it.name.startsWith("ev_", true) }.thenByDescending { it.lastModified() })
                 .forEachIndexed { index, file ->
                     val ev = file.name.startsWith("ev_", true)
@@ -63,10 +66,12 @@ internal class LogUploadArchive(
                     val bytes = file.length()
                     val modified = file.lastModified()
                     val window = if (ev) 7 * 86_400_000L else 6 * 3_600_000L
-                    val retainedCapture = file in captureRuns || file in localRuns || file in bluetoothRuns
+                    val retainedCapture = file in captureRuns || file in localRuns || file in bluetoothRuns || file in telecomReceipts
                     val reason = when {
                         !file.isFile || !file.name.endsWith(".log", true) -> "not_log_file"
                         file in localAlias -> "duplicate_latest_alias"
+                        telecom(file) && bytes > com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.MAX_BYTES -> "telecom_receipt_bytes_limit"
+                        telecom(file) && file !in telecomReceipts -> "outside_latest_telecom_receipt"
                         bluetooth(file) && bytes > BluetoothReconnectRecorder.MAX_BYTES -> "bluetooth_member_bytes_limit"
                         bluetooth(file) && modified < now - BluetoothReconnectRecorder.TTL_MS -> "outside_bluetooth_retention"
                         bluetooth(file) && file !in bluetoothRuns -> "outside_latest_three_bluetooth"
