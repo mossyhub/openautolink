@@ -30,7 +30,7 @@ class MicrophoneDiagnosticBindingTest {
         val controller = type.getMethod("getController").invoke(binding) as MicrophoneDiagnosticController
         try {
             assertEquals(MicrophoneDiagnosticPhase.IDLE, controller.state.phase)
-            controller.updateForeground(true);controller.updateConsent(true);controller.updateStationary(true)
+            controller.updateForeground(true)
             controller.inspect()
             assertEquals(MicrophoneDiagnosticPhase.IDLE, controller.state.phase)
             allowed.set(true);controller.refresh();controller.inspect()
@@ -56,12 +56,12 @@ class MicrophoneDiagnosticBindingTest {
     }
     @Test fun completedRunsAreRetainedEvenWhenMainNotificationsAreDelayed() {
         val app = RuntimeEnvironment.getApplication()
-        val binding = MicrophoneDiagnosticBinding(app, { true }, false, { false })
+        val binding = MicrophoneDiagnosticBinding(app, { true }, false)
         val controller = binding.controller
         fun histories() = File(app.getExternalFilesDir(null), "openautolink/logs").listFiles().orEmpty()
             .filter { it.name.startsWith("microphone_diagnostic_run_") && it.extension == "log" }
         try {
-            controller.updateForeground(true);controller.updateConsent(true);controller.updateStationary(true)
+            controller.updateForeground(true)
             repeat(3) {
                 controller.inspect()
                 val end = System.nanoTime() + 3_000_000_000L
@@ -80,10 +80,10 @@ class MicrophoneDiagnosticBindingTest {
     @Test fun customProductionBindingUsesRealEngineAndRetainsNumericSummary() {
         val app = RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
-        val binding = MicrophoneDiagnosticBinding(app, { true }, false, { false })
+        val binding = MicrophoneDiagnosticBinding(app, { true }, false)
         val controller = binding.controller
         try {
-            controller.updateForeground(true); controller.updateConsent(true); controller.updateStationary(true)
+            controller.updateForeground(true)
             val configType = runCatching { Class.forName("com.shilapi.xcertplay.media.MicrophoneDiagnosticCustom") }.getOrNull()
             assertNotNull("custom immutable capture arguments must exist", configType)
             val config = configType!!.getConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,

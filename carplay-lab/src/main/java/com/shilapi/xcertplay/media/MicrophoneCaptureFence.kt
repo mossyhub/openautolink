@@ -6,9 +6,20 @@ object MicrophoneCaptureFence {
     private val lock = Any()
     private val normal = mutableSetOf<Lease>()
     private var diagnostic: Lease? = null
+    private var projectionPause = false
+    fun pauseProjection() = synchronized(lock) { projectionPause = true }
+    fun projectionPaused(): Boolean = synchronized(lock) { projectionPause }
+    fun resumeProjection(): Boolean = synchronized(lock) {
+        if (diagnostic != null) false else { projectionPause = false; true }
+    }
 
     fun tryNormal(): Lease? = synchronized(lock) {
         if (diagnostic != null) null else Lease(false).also { normal.add(it) }
+    }
+
+    /** Reserve before pending transport handoff; retain until exact projection retirement. */
+    fun tryProjectionClaim(): Lease? = synchronized(lock) {
+        if (diagnostic != null || projectionPause) null else Lease(false).also { normal.add(it) }
     }
 
     fun tryDiagnostic(): Lease? = synchronized(lock) {

@@ -78,12 +78,12 @@ class CarPlayCaptureProductionIntegrationTest {
             .invoke(null,context,notify) as (CaptureTerminalSummary)->Boolean
     }
     private fun receiver(context:Context,status:(String)->Unit,sink:((CaptureTerminalSummary)->Boolean)?=null):ProjectionReceiver {
-        val ctor=ProjectionReceiver::class.java.declaredConstructors.singleOrNull {it.parameterCount==12}
+        val ctor=ProjectionReceiver::class.java.declaredConstructors.singleOrNull {it.parameterCount==13}
         assertNotNull("Production receiver must accept a typed durable terminal sink",ctor)
         val surface=mockk<Surface>();every {surface.isValid} returns true
         return ctor!!.newInstance(context,"02:00:00:00:00:01",surface,mockk<MfiAuthenticator>(relaxed=true),
             CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"test.avc")),
-            false,null,null,true,false,sink,status) as ProjectionReceiver
+            false,null,null,true,false,sink,null,status) as ProjectionReceiver
     }
     private fun logs(context:Context)=File(context.getExternalFilesDir(null),"openautolink/logs").apply {mkdirs()}
     private fun terminals(context:Context)=logs(context).listFiles().orEmpty().filter {it.name.startsWith("carplay_capture_run_")}

@@ -125,12 +125,15 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         DiagnosticLog.i("usb_handoff", "stage=${stage.name}")
     }
     val usbSwitchFailure = usbHandoff.failure
+    private val usbCaptureClaims = mutableListOf<com.shilapi.xcertplay.media.MicrophoneCaptureFence.Lease>()
+    private fun releaseUsbCaptureClaims() { usbCaptureClaims.forEach { it.release() }; usbCaptureClaims.clear() }
     private val usbDispatchMutex = kotlinx.coroutines.sync.Mutex()
     private val usbDispatchEpoch = java.util.concurrent.atomic.AtomicLong()
 
     @Volatile private var carPlayRuntime: com.openautolink.app.carplay.OalCarPlayRuntime? = null
     private val carPlayCoordinator = com.openautolink.app.carplay.CarPlayCoordinator(
         sessionLeases = com.openautolink.app.carplay.CarPlaySessionLeases.forContext(application),
+        mediaLeases = com.openautolink.app.carplay.CarPlayHostMediaLeaseSource.forContext(application),
         retireAndroidAuto = {
             kotlinx.coroutines.runBlocking {
                 // Stop and await the advertiser BEFORE SessionManager clears its WPP owner.
@@ -175,7 +178,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 connectAndroidAuto = { if (aaNormalTransport != AppPreferences.DIRECT_TRANSPORT_USB) connect() },
                 connectCarPlay = {
                     _carPlayStartupGuidance.value = null
-                    carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+                    carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
                 },
                 showSetup = { _carPlayStartupGuidance.value = issue ?: "CarPlay is paused while ignition is off. Retry when the car is ready." },
             )
@@ -207,6 +210,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         sessionManager.externalUsbTransport = false
         usbHandoff.release()
         usbSwitchPolicy.clearRetired()
+        releaseUsbCaptureClaims()
     }
 
     private suspend fun restartUnifiedUsb() {
@@ -220,6 +224,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             sessionManager.externalUsbTransport = false
             usbHandoff.release()
             usbSwitchPolicy.clearRetired()
+            releaseUsbCaptureClaims()
             _usbHotPlugPrompt.value = null
             synchronized(connectLock) { hasConnected = false; connectInFlight = false }
             restoreNormalProjection()
@@ -233,6 +238,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
     /** Observe USB concurrently with normal AA/WPP; observation is not projection ownership. */
     private suspend fun startUnifiedUsb() {
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
         usbDispatchMutex.lock()
         try {
             if (unifiedUsbManager != null) return
@@ -311,10 +317,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                                     retired()
                                     return@launch
                                 }
-                                val accepted = carPlayCoordinator.connect(true) { report ->
+                                val accepted = carPlayCoordinator.connectWithContext(true) { attemptContext, report ->
                                     try {
                                         check(dispatchEpoch == usbDispatchEpoch.get() && usbOverrideGeneration == generation)
-                                        createProjectionCarPlayRuntime(report, device, transition.first, transition.second, retired,
+                                        createProjectionCarPlayRuntime(attemptContext, report, device, transition.first, transition.second, retired,
                                             permission.first, permission.second)
                                     } catch (failure: Exception) { retired(); throw failure }
                                 }
@@ -360,6 +366,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 val manager = unifiedUsbManager ?: return@launch
                 var promptInstead = false
                 val previousGeneration = usbOverrideGeneration
+                if (usbCaptureClaims.size >= 2) return@launch // failed retirement: explicit Stop must clear exact debt
+                val captureClaim = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryProjectionClaim() ?: return@launch
+                usbCaptureClaims.add(captureClaim) // before claimed/retire/admit; failed retirement retains it
                 val accepted = usbSwitchPolicy.accept(generation,
                     resolve = {
                         manager.pendingDevice(generation)?.let {
@@ -395,6 +404,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     },
                     retire = {
                         retireUsbProjection()
+                        // The new pending claim stays live through dispatch; retire only prior claims.
+                        usbCaptureClaims.filter { it !== captureClaim }.forEach { it.release() }
+                        usbCaptureClaims.retainAll { it === captureClaim }
                         if (previousGeneration != null) manager.failedAdmission(previousGeneration)
                         synchronized(connectLock) { hasConnected = false; connectInFlight = false }
                     },
@@ -410,6 +422,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     restore = { restoreNormalProjection() },
                     replaceCurrent = !automatic,
                 )
+                if (!accepted && usbOverrideGeneration == previousGeneration) {
+                    usbCaptureClaims.remove(captureClaim); captureClaim.release()
+                }
                 if (!accepted && !promptInstead && usbOverrideGeneration == null) stayOnCurrentProjection(generation)
             } catch (failure: Exception) {
                 // Failed retirement retains the transient generation and blocks every successor.
@@ -420,6 +435,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun clearUsbOverrideState() {
+        releaseUsbCaptureClaims()
         usbHandoff.release()
         _carPlayStartupGuidance.value = null
         usbAaStartedGeneration = null
@@ -472,12 +488,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private suspend fun restoreNormalProjection() {
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
         _carPlayStartupGuidance.value = null
         val saved = preferences.carPlaySettings.first()
         if (com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()) return
         // Wired CarPlay enablement never suppresses normal Android Auto WPP / GM phone priority.
         if (usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
-            if (prepareCarPlayStart(saved)) carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+            if (prepareCarPlayStart(saved)) carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
         } else if (preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) connect()
     }
 
@@ -506,10 +523,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 "Check CarPlay connection setup and Bluetooth access, then retry."
             }
         }
-    private fun createCarPlayRuntime(report: (String) -> Unit): com.openautolink.app.carplay.CarPlayRuntime =
-        createProjectionCarPlayRuntime(report, null)
+    private fun createCarPlayRuntime(attemptContext: com.openautolink.app.carplay.CarPlayAttemptContext, report: (String) -> Unit): com.openautolink.app.carplay.CarPlayRuntime =
+        createProjectionCarPlayRuntime(attemptContext, report, null)
 
     private fun createProjectionCarPlayRuntime(
+        attemptContext: com.openautolink.app.carplay.CarPlayAttemptContext,
         report: (String) -> Unit, usbDevice: android.hardware.usb.UsbDevice?,
         beginTransition: () -> Boolean = { false },
         acceptReplacement: (android.hardware.usb.UsbDevice) -> Boolean = { false },
@@ -548,11 +566,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             if (usbDevice != null) {
                 check(usbOverrideGeneration != null) { "Transient USB selection retired" }
                 val runtime = com.openautolink.app.carplay.OalUsbCarPlayRuntime(getApplication(), usbDevice, display, surface, report,
+                    attemptContext = attemptContext,
                     onDisplayQualified = { _carPlayDisplay.value = it },
                     onReenumerationStarted = beginTransition, onReplacementAccepted = acceptReplacement,
                     initialPermissionOwner = initialPermissionOwner,
                     consumeExplicitPermissionRetry = consumeExplicitPermissionRetry,
-                    restrictionPolicy = com.openautolink.app.carplay.CarPlayRestrictionPolicy.from(saved))
+                    restrictionPolicy = com.openautolink.app.carplay.CarPlayRestrictionPolicy.from(saved),
+                    receiverAddress = saved.receiverAddress)
                 // The captured valid surface qualified this session's geometry only. The
                 // coordinator installs the latest presentation after factory completion.
                 runtime.detachSurface(surface)
@@ -564,6 +584,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 val config = com.openautolink.app.data.CarPlaySettingsPolicy.runtimeConfig(saved, display)
                 check(saved.connectionMode == "wireless" && usbOverrideGeneration == null) { "Wireless CarPlay not opted in" }
                 com.openautolink.app.carplay.OalCarPlayRuntime(getApplication(), config, surface, report,
+                    attemptContext = attemptContext,
                     onDisplayQualified = { _carPlayDisplay.value = it })
                     .also { runtime -> runtime.detachSurface(surface); carPlayRuntime = runtime }
             }
@@ -583,8 +604,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             usbDispatchMutex.lock()
             try {
                 if (usbOverrideGeneration != null || !prepareCarPlayStart(saved)) return@launch
-                if (_carPlayState.value.selected) carPlayCoordinator.reconnect(true, ::createCarPlayRuntime)
-                else carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+                if (_carPlayState.value.selected) carPlayCoordinator.reconnectWithContext(true, ::createCarPlayRuntime)
+                else carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
             } finally { usbDispatchMutex.unlock() }
         }
     }
@@ -609,11 +630,12 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 unifiedUsbManager?.failedAdmission()
                 usbHandoff.release()
                 usbSwitchPolicy.clearRetired()
+                releaseUsbCaptureClaims()
                 sessionManager.externalUsbTransport = false
                 synchronized(connectLock) { hasConnected = false; connectInFlight = false }
                 val saved = preferences.carPlaySettings.first()
                 if (usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
-                    if (prepareCarPlayStart(saved)) carPlayCoordinator.connect(true, ::createCarPlayRuntime)
+                    if (prepareCarPlayStart(saved)) carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
                 } else {
                     _carPlayStartupGuidance.value = null
                     if (preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) reconnectAndroidAuto()
@@ -714,11 +736,6 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         sessionManager.setRenderRect(widthPx, heightPx, panelDpi, displayMode)
     }
 
-    private val touchForwarder: TouchForwarder = TouchForwarderImpl { touchMessage ->
-        viewModelScope.launch {
-            sessionManager.sendControlMessage(touchMessage)
-        }
-    }
 
     private val steeringWheelController = SteeringWheelController(
         sendMessage = { buttonMessage ->
@@ -1102,6 +1119,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun connect(overrideIp: String?, wppRearmSource: String?) {
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
         if (usbOverrideGeneration != null) return
         val policyEpoch = usbPolicyEpoch.get()
         if (com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto) return
@@ -1522,7 +1540,45 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    /** Fast, read-only diagnostic gate; capture leases independently fence late recorder retirement. */
+    @Volatile private var diagnosticProjectionStopped = false
+    @Volatile var diagnosticProjectionStatus = "Stop projection before comparing"
+        private set
+
+    /** Explicit opt-in pause. Do not change saved protocol or Bluetooth state. */
+    fun stopProjectionForMicrophoneDiagnostic() {
+        com.shilapi.xcertplay.media.MicrophoneCaptureFence.pauseProjection()
+        diagnosticProjectionStopped = false
+        diagnosticProjectionStatus = "Stopping projection · awaiting exact retirement"
+        projectionLaunchPolicy.suppress()
+        usbPolicyEpoch.incrementAndGet()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            usbDispatchMutex.lock()
+            try {
+                com.openautolink.app.transport.bluetooth.AaWirelessBtControl.retireForMicrophoneDiagnostic()
+                stopUnifiedUsb()
+                releaseCarPlayUsbOwner()
+                sessionManager.stop()
+                synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+                diagnosticProjectionStopped = true
+                diagnosticProjectionStatus = "Projection stopped · automatic starts paused until Return"
+            } catch (_: Exception) {
+                diagnosticProjectionStatus = "Projection retirement pending/failed · retry Stop; capture blocked"
+            } finally { usbDispatchMutex.unlock() }
+        }
+    }
+    fun returnFromMicrophoneDiagnostic() {
+        if (!com.shilapi.xcertplay.media.MicrophoneCaptureFence.resumeProjection()) {
+            diagnosticProjectionStatus = "Waiting for diagnostic close + join; restart required if close failed"
+            return
+        }
+        diagnosticProjectionStopped = false
+        diagnosticProjectionStatus = "Projection restored"
+        viewModelScope.launch { startUnifiedUsb(); restoreNormalProjection() }
+    }
+    fun parkedMicrophoneDiagnosticEligible(): Boolean = diagnosticProjectionStopped &&
+        com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused() && microphoneDiagnosticEligible()
+
+    /** Fast policy only; real claims are independently atomic in MicrophoneCaptureFence. */
     fun microphoneDiagnosticEligible(): Boolean =
         usbOverrideGeneration == null && !connectInFlight && !_carPlayState.value.busy &&
             sessionManager.sessionState.value == SessionState.IDLE &&
@@ -2935,8 +2991,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         panelH: Int = 0,
     ) {
         val stats = _videoStats.value
-        val protocolW = sessionManager.touchWidth.value
-        val protocolH = sessionManager.touchHeight.value
+        // Gearhead injects coordinates in the selected video tier, not the
+        // touchscreen capability's first-offer dimensions. Wait for Start.
+        val target = sessionManager.captureTouchTarget() ?: return
+        val protocolW = target.width
+        val protocolH = target.height
         val videoW = if (stats.width > 0) stats.width else protocolW
         val videoH = if (stats.height > 0) stats.height else protocolH
         if (protocolW <= 0 || protocolH <= 0) {
@@ -3000,7 +3059,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 )
             }
         }
-        touchForwarder.onTouch(event, effSurfW, effSurfH, effCodecW, effCodecH)
+        // Capture before coroutine enqueue, not when the delayed sender runs.
+        TouchForwarderImpl { message ->
+            viewModelScope.launch { sessionManager.sendSelectedTouch(message, target) }
+        }.onTouch(event, effSurfW, effSurfH, effCodecW, effCodecH)
     }
 
     /** Handle a steering wheel key event. Returns true if consumed. */

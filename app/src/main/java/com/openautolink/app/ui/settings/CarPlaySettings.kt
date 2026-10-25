@@ -90,6 +90,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
         }
     }
     SettingsHelp("CarPlay's normal connection is independent of Android Auto. USB uses the local USB bridge and requires USB/VPN consent; iPhone may ask for Trust. Wireless uses iPhone Bluetooth and the car Wi-Fi; wireless CarPlay is unverified in the car. Selecting a connection does not enable CarPlay. Changes apply with Save & Reconnect.")
+
     if (!settings.enabled) return
 
     AndroidBluetoothSettingsButton()
@@ -265,11 +266,15 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
                 visualTransformation = PasswordVisualTransformation(), singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("carPlayPassphrase"))
             if (passwordSaved) TextButton(onClick = { password = ""; viewModel.updateCarPlayPassword("") }, enabled = !saving) { Text("Clear saved passphrase on Save & Reconnect") }
-            CarPlayField("Head unit Bluetooth MAC", draft.receiverAddress, !saving) { value ->
-                viewModel.updateCarPlayDraft { it.copy(receiverAddress = value) }
-            }
-            SettingsHelp("On GM, open the car's Settings app → System → About, then scroll to Bluetooth address. Enter that address, not the phone address or Wi-Fi BSSID. Android's 02:00:00:00:00:00 placeholder cannot be used.")
         }
+        // One existing saved value applies to both CarPlay transports, not Android Auto.
+        CarPlayField("Head unit Bluetooth MAC (USB and wireless)", draft.receiverAddress, !saving) { value ->
+            viewModel.updateCarPlayDraft { it.copy(receiverAddress = value) }
+        }
+        Text(if (draft.connectionMode == "usb")
+            "Optional for USB. Leave empty to preserve existing USB behavior. Bluetooth association effects are unverified."
+            else "Required for wireless CarPlay.", style = MaterialTheme.typography.bodySmall)
+        SettingsHelp("On GM, open the car's Settings app → System → About, then scroll to Bluetooth address. Enter that address, not the phone address or Wi-Fi BSSID. Android's 02:00:00:00:00:00 placeholder cannot be used.")
         Text("Changes apply with Save & Reconnect.", style = MaterialTheme.typography.bodySmall)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider(Modifier.padding(vertical = 8.dp))

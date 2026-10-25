@@ -39,10 +39,19 @@ class ProjectionReceiver(
     private val wired: Boolean = false,
     private val drivingRestrictions: Boolean = false,
     private val onCaptureTerminal: ((com.shilapi.xcertplay.media.CaptureTerminalSummary) -> Boolean)? = null,
+    /** Optional wired Bluetooth association only; never the Ethernet or AirPlay device identity. */
+    private val advertisedBluetoothAddress: String? = null,
     private val onStatus: (String) -> Unit,
 ) : Closeable {
     init {
         require(btMac.matches(Regex("[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}")))
+        if (advertisedBluetoothAddress != null) {
+            require(wired) { "Bluetooth advertisement override is wired-only" }
+            require(advertisedBluetoothAddress.matches(Regex("[0-9A-F]{2}(:[0-9A-F]{2}){5}")) &&
+                advertisedBluetoothAddress !in setOf("00:00:00:00:00:00", "FF:FF:FF:FF:FF:FF", "02:00:00:00:00:00")) {
+                "Invalid head unit Bluetooth address"
+            }
+        }
         // Caller qualifies the initial presentation before handoff. It can be destroyed
         // during construction; reconcile exact receipts rather than abort the session owner.
     }
@@ -131,6 +140,8 @@ class ProjectionReceiver(
     @Volatile var port: Int = 0
         private set
     private val closed = AtomicBoolean()
+    private val telecomExperiment = com.openautolink.carplaylab.telecom.ManagedTelecomExperiment.get(context)
+    private val runtimeIncoming = ConcurrentHashMap<AirPlaySession, com.openautolink.carplaylab.telecom.ManagedIncomingBridge>()
     private val admissionRevoked = AtomicBoolean()
     private val retirement = CountDownLatch(1)
     private val retirementRunning = AtomicBoolean()
@@ -233,6 +244,7 @@ class ProjectionReceiver(
         }.use { it.readBytes() }))
     private fun sessionConfig(): AirPlayConfig =
         benchReceiverConfig(btMac, port, microphoneCapability, displayConfiguration).copy(
+            btMac = advertisedBluetoothAddress ?: btMac,
             hevc = videoSelection.hevcOffered, oemLabel = "OpenAutoLink", icons = oemIcons,
             drivingRestrictions = drivingRestrictions)
     private val engine = CarPlayMediaEngine(sink, microphoneEnabled = microphoneCapability.available,
@@ -456,6 +468,7 @@ class ProjectionReceiver(
             runtime.execute {
                 var ownedCarData: RuntimeCarDataLink? = null
                 var metadata: com.openautolink.carplaylab.metadata.RuntimeMetadataLink? = null
+                var incoming: com.openautolink.carplaylab.telecom.ManagedIncomingBridge? = null
                 var failureStage = RuntimeControlFailureStage.IDENTIFICATION
                 try {
                     metadata = runtimeMetadataFactory?.invoke(session, { message ->
@@ -491,10 +504,18 @@ class ProjectionReceiver(
                     carData?.authenticate()
                     metadata?.authenticate()
                     runtimeReady = true
+                    incoming = telecomExperiment.authenticatedLink(
+                        controlSender = { command, fence -> queuePhoneControl(session, command, fence) },
+                    ) {
+                        !closed.get() && !admissionRevoked.get() && runtimeReady && runtimeOwner === session &&
+                            session in sessions && session.controlAuthenticated && !session.isClosed
+                    }
+                    incoming?.let { runtimeIncoming[session] = it }
                     failureStage = RuntimeControlFailureStage.TRANSPORT
                     status("media stage=runtime-authentication-accepted")
                     Iap2ControlMessages.subscriptions().forEach { channel.send(it) }
-                    status("media stage=runtime-subscriptions-sent count=5")
+                    if (incoming != null) channel.send(com.openautolink.carplaylab.telecom.CallObservationSubscriptions.nonlegacyCalls())
+                    status("media stage=runtime-subscriptions-sent count=${if (incoming == null) 5 else 6}")
                     var received = 0L
                     val replyPolicy = com.openautolink.carplaylab.WirelessReplyPolicy()
                     while (!closed.get() && !channel.isClosed && !session.isClosed) {
@@ -502,7 +523,7 @@ class ProjectionReceiver(
                         metadata?.tick()
                         val frame = channel.recv(carData?.pollTimeout(1000) ?: 1000)
                         if (frame != null) {
-                            if (metadata?.handle(frame) != true && carData?.handle(frame) != true && replyPolicy.allow(frame.messageId)) {
+                            if (incoming?.handle(frame) != true && metadata?.handle(frame) != true && carData?.handle(frame) != true && replyPolicy.allow(frame.messageId)) {
                                 val reply = runtimeReply?.invoke(frame)
                                 if (reply != null) { channel.send(reply) }
                                 else status("media stage=runtime-endpoint-reply-unavailable")
@@ -525,6 +546,8 @@ class ProjectionReceiver(
                 }
                 finally {
                     if (runtimeOwner === session) runtimeReady = false
+                    incoming?.close()
+                    if (incoming?.awaitClosed(0) == true) runtimeIncoming.remove(session, incoming)
                     metadata?.close()
                     runtimeMetadata.remove(session)
                     val carData = ownedCarData
@@ -539,6 +562,21 @@ class ProjectionReceiver(
             }
             true
         } catch (_: RejectedExecutionException) { tunnels.remove(session, channel); runtimeOwner = null; channel.close(); false }
+    }
+    /** Separately consented controlled-single-call transport; display consent alone DOES NOT enable it.
+     * Exact call/consent/account/runtime fences survive the queue and are rechecked inside the writer.
+     * Queue admission is not a write or phone acknowledgement. No automatic retry on any outcome.
+     */
+    private fun queuePhoneControl(session: AirPlaySession, control: com.shilapi.xcertplay.airplay.PhoneControl,
+        commandCurrent: () -> Boolean): Boolean {
+        if (!currentMediaOwner(session)) return false
+        return try {
+            input.execute {
+                val outcome = session.sendPhoneControl(control) { currentMediaOwner(session) && commandCurrent() }
+                status("media stage=phone-control command=${control.name} outcome=${outcome.name}")
+            }
+            true
+        } catch (_: RejectedExecutionException) { false }
     }
     private val mediaPlayEpoch = java.util.concurrent.atomic.AtomicLong()
     /** Queue only for the exact authenticated metadata owner; queue admission is not phone receipt. */
@@ -643,6 +681,7 @@ class ProjectionReceiver(
         peerAdmission?.retire()
         runtimeLinks.values.forEach { it.revoke() }
         runtimeMetadata.values.forEach { it.revoke() }
+        runtimeIncoming.values.forEach { it.close() }
     }
     override fun close() {
         if (!closed.compareAndSet(false, true)) { retryRetirement(); return }
@@ -680,6 +719,15 @@ class ProjectionReceiver(
                 allSessions.toList().forEach { it.awaitControlStopped() }
                 // A slow OS worker is not a permanent loss of the retirement retry path.
                 while (!runtime.awaitTermination(1, TimeUnit.SECONDS)) { /* exact owner retained */ }
+                // Exact Telecom owners survive the runtime finally until disconnect/destroy ack.
+                runtimeIncoming.entries.toList().forEach { (session, owner) ->
+                    owner.close()
+                    while (!owner.awaitClosed(1_000)) {
+                        if (owner.cleanup == com.openautolink.carplaylab.telecom.ManagedIncomingBridge.Cleanup.FAILED)
+                            return@Thread // retain owner and withhold parent ack; close() retries
+                    }
+                    runtimeIncoming.remove(session, owner)
+                }
                 sink.close()
                 // Factories and their finally blocks have now stopped. Retry concrete cleanup once
                 // per close lifecycle; a failed exact owner fences storage release and acknowledgment.
@@ -739,6 +787,8 @@ class ProjectionReceiver(
         require(timeoutMs >= 0)
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
         fun remainingNs() = (deadline - System.nanoTime()).coerceAtLeast(0)
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper() &&
+            runtimeIncoming.values.any { !it.awaitClosed(0) }) return false
         if (!retirement.await(remainingNs(), TimeUnit.NANOSECONDS)) return false
         if (runtimeLinks.isNotEmpty()) return false
         if (!sink.awaitRetired(TimeUnit.NANOSECONDS.toMillis(remainingNs()))) return false

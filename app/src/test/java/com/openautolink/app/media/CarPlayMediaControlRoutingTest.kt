@@ -23,7 +23,7 @@ class CarPlayMediaControlRoutingTest {
         val app=RuntimeEnvironment.getApplication()
         val callback=slot<MediaSessionCompat.Callback>()
         mockkConstructor(MediaSessionCompat::class)
-        every { anyConstructed<MediaSessionCompat>().setCallback(capture(callback)) } just Runs
+        every { anyConstructed<MediaSessionCompat>().setCallback(capture(callback), any<android.os.Handler>()) } just Runs
         every { anyConstructed<MediaSessionCompat>().setPlaybackState(any()) } just Runs
         every { anyConstructed<MediaSessionCompat>().setMetadata(any()) } just Runs
         every { anyConstructed<MediaSessionCompat>().setActive(any()) } just Runs

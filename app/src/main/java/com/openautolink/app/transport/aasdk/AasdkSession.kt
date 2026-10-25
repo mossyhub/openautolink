@@ -79,15 +79,48 @@ class AasdkSession(
     @Volatile var evTelemetryToken: String = java.util.UUID.randomUUID().toString()
         private set
     private val evReceiptLock = Any()
+    class SelectedTouchGeometry internal constructor(
+        val width: Int,
+        val height: Int,
+        internal val nativeGeneration: Long,
+        internal val nativeSelection: Long,
+    )
+    private var selectedVideoGeometry: SelectedTouchGeometry? = null
+    private var videoGeometryEpoch = 0L
+    val activeVideoGeometry: Pair<Int, Int>?
+        get() = synchronized(evReceiptLock) { selectedVideoGeometry?.let { it.width to it.height } }
+    internal val selectedTouchGeometry: SelectedTouchGeometry?
+        get() = synchronized(evReceiptLock) { selectedVideoGeometry }
     fun beginEvTelemetryGeneration() = synchronized(evReceiptLock) {
         evTelemetryToken = java.util.UUID.randomUUID().toString()
+        selectedVideoGeometry = null
+        videoGeometryEpoch++
+    }
+    private fun resetSelectedVideoGeometry() = synchronized(evReceiptLock) {
+        selectedVideoGeometry = null
+        videoGeometryEpoch++
     }
     private fun telemetryCallback(): AasdkSessionCallback {
         val owner = evTelemetryToken
+        val geometryEpoch = synchronized(evReceiptLock) { videoGeometryEpoch }
         return object : AasdkSessionCallback by this {
+            override fun onVideoGeometrySelected(width: Int, height: Int) {
+                onVideoGeometrySelected(width, height, 0L)
+            }
+            override fun onVideoGeometrySelected(width: Int, height: Int, selection: Long) {
+                synchronized(evReceiptLock) {
+                    if (owner == evTelemetryToken && geometryEpoch == videoGeometryEpoch) {
+                        this@AasdkSession.onVideoGeometrySelected(width, height, selection)
+                    }
+                }
+            }
             override fun onSessionStopped(reason: String) {
                 synchronized(evReceiptLock) {
                     if (owner == evTelemetryToken) {
+                        if (geometryEpoch == videoGeometryEpoch) {
+                            selectedVideoGeometry = null
+                            videoGeometryEpoch++
+                        }
                         com.openautolink.app.diagnostics.EvTelemetryRecorder.instance.gap(owner, "phone_disconnected")
                     }
                 }
@@ -620,6 +653,7 @@ class AasdkSession(
             transportPipe = pipe
 
             try {
+                resetSelectedVideoGeometry()
                 nativeSessionGeneration.set(AasdkNative.nativeCreateSession())
                 primeDesiredHeadUnitMuteOnNativeSession()
                 AasdkNative.nativeStartSession(pipe, telemetryCallback(), sdrConfig)
@@ -709,6 +743,7 @@ class AasdkSession(
         transportPipe = AasdkTransportPipe(input, output)
 
         try {
+            resetSelectedVideoGeometry()
             nativeSessionGeneration.set(AasdkNative.nativeCreateSession())
             primeDesiredHeadUnitMuteOnNativeSession()
             AasdkNative.nativeStartSession(transportPipe!!, telemetryCallback(), sdrConfig)
@@ -822,6 +857,18 @@ class AasdkSession(
     }
 
     // -- Input forwarding (app → phone via native aasdk) --
+
+    internal fun sendSelectedTouch(message: ControlMessage.Touch, geometry: SelectedTouchGeometry) {
+        // Do not hold the callback monitor across JNI. Native validates the exact
+        // generation under its publication lock, then selection again on its IO queue.
+        if (selectedTouchGeometry !== geometry) return
+        val pointers = message.pointers?.takeIf { it.isNotEmpty() }
+        val ids = pointers?.map { it.id }?.toIntArray() ?: intArrayOf(message.pointerId ?: 0)
+        val xs = pointers?.map { it.x }?.toFloatArray() ?: floatArrayOf(message.x ?: return)
+        val ys = pointers?.map { it.y }?.toFloatArray() ?: floatArrayOf(message.y ?: return)
+        AasdkNative.nativeSendSelectedTouch(message.action, message.actionIndex ?: 0,
+            ids, xs, ys, geometry.nativeGeneration, geometry.nativeSelection)
+    }
 
     fun sendTouchEvent(action: Int, pointerId: Int, x: Float, y: Float, pointerCount: Int) {
         AasdkNative.nativeSendTouchEvent(action, pointerId, x, y, pointerCount)
@@ -1072,6 +1119,18 @@ class AasdkSession(
             vfKeyframeCount = 0
             vfByteCount = 0L
         }
+    }
+
+    override fun onVideoGeometrySelected(width: Int, height: Int) {
+        onVideoGeometrySelected(width, height, 0L)
+    }
+
+    override fun onVideoGeometrySelected(width: Int, height: Int, selection: Long) {
+        synchronized(evReceiptLock) {
+            selectedVideoGeometry = if (width > 0 && height > 0)
+                SelectedTouchGeometry(width, height, nativeSessionGeneration.get(), selection) else null
+        }
+        OalLog.i(TAG, "Selected video touch geometry: ${width}x${height}")
     }
 
     override fun onVideoCodecConfigured(codecType: Int) {

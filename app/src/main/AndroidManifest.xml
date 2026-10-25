@@ -3,6 +3,10 @@
 
     <queries>
         <package android:name="com.android.car.settings" />
+        <package android:name="com.android.server.telecom" />
+        <intent>
+            <action android:name="android.telecom.action.CHANGE_PHONE_ACCOUNTS" />
+        </intent>
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -10,6 +14,8 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- Own managed PhoneAccount readback on target 31+; requested only by Native CarPlay calls test enable. -->
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

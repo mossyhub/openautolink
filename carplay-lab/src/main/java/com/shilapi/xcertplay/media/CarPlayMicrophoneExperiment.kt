@@ -36,27 +36,19 @@ data class CarPlayMicrophoneExperimentProfile(
         }
     }
 }
-data class CarPlayMicrophoneExperimentStatus(val profile: CarPlayMicrophoneExperimentProfile?, val remainingMillis: Long) {
+data class CarPlayMicrophoneExperimentStatus(val profile: CarPlayMicrophoneExperimentProfile?) {
     val armed: Boolean get() = profile != null
 }
-internal class CarPlayMicrophoneExperimentRegistry(private val nowMillis: () -> Long) {
+internal class CarPlayMicrophoneExperimentRegistry {
     private var profile: CarPlayMicrophoneExperimentProfile? = null
-    private var armedAt = 0L
-    @Synchronized fun arm(profile: CarPlayMicrophoneExperimentProfile) {
-        armedAt = nowMillis()
-        this.profile = profile
-    }
+    @Synchronized fun arm(profile: CarPlayMicrophoneExperimentProfile) { this.profile = profile }
     @Synchronized fun disarm() { profile = null }
-    @Synchronized fun status(): CarPlayMicrophoneExperimentStatus {
-        val remaining = (900000L - (nowMillis() - armedAt).coerceAtLeast(0)).coerceIn(0, 900000)
-        if (remaining == 0L) profile = null
-        return CarPlayMicrophoneExperimentStatus(profile, if (profile == null) 0 else remaining)
-    }
-    @Synchronized fun snapshot(): CarPlayMicrophoneExperimentProfile? = status().profile
+    @Synchronized fun status() = CarPlayMicrophoneExperimentStatus(profile)
+    @Synchronized fun snapshot(): CarPlayMicrophoneExperimentProfile? = profile
 }
-/** Memory only. The app must enforce explicit consent, foreground and Park before arm. */
+/** Default off, until Off or app restart. Snapshots never mutate an active recorder. */
 object CarPlayMicrophoneExperiments {
-    private val registry = CarPlayMicrophoneExperimentRegistry { System.nanoTime() / 1_000_000 }
+    private val registry = CarPlayMicrophoneExperimentRegistry()
     fun arm(profile: CarPlayMicrophoneExperimentProfile) = registry.arm(profile)
     fun disarm() = registry.disarm()
     fun status() = registry.status()

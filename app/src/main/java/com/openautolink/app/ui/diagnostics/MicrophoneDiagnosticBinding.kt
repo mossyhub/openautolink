@@ -11,11 +11,14 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 /** One NavHost-owned engine. UI notifications read current state rather than stale callback snapshots. */
-class MicrophoneDiagnosticBinding(
+class MicrophoneDiagnosticBinding @JvmOverloads constructor(
     context: Context,
     eligibility: () -> Boolean,
     automotive: Boolean,
-    freshPark: () -> Boolean,
+    parkedEligibility: () -> Boolean = { false },
+    stopProjection: () -> Unit = {},
+    returnProjection: () -> Unit = {},
+    projectionStatus: () -> String = { "Stop projection before comparing" },
 ) : Closeable {
     private val main = Handler(Looper.getMainLooper())
     private val logStore = MicrophoneDiagnosticLogStore(context)
@@ -39,7 +42,13 @@ class MicrophoneDiagnosticBinding(
             override fun startCustom(config: MicrophoneDiagnosticCustom) = !closed && engine.startCustom(config)
             override fun cancel() = engine.cancel()
         }
-        target = MicrophoneDiagnosticController(backend, automotive, eligibility, freshPark)
+        target = MicrophoneDiagnosticController(backend, automotive, eligibility).also {
+            it.parkedComparison=ParkedCaptureProcess.get(context)
+            it.parkedEligibility=parkedEligibility
+            it.stopProjection=stopProjection
+            it.returnProjection=returnProjection
+            it.projectionStatus=projectionStatus
+        }
     }
     private fun retain(result: MicrophoneDiagnosticResult) = synchronized(completionLock) {
         if (retainedResults.any { it === result }) return@synchronized

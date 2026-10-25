@@ -39,7 +39,8 @@ object UploadEndpointPolicy {
 class LogUploader(
     private val context: Context,
     private val openConnection: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
-    private val flushTelemetry: () -> Boolean = { EvTelemetryRecorder.flushForUpload(timeoutMs = 2000) }
+    private val flushTelemetry: () -> Boolean = { EvTelemetryRecorder.flushForUpload(timeoutMs = 2000) },
+    private val flushBluetooth: () -> Boolean = { BluetoothReconnectService.flush() },
 ) {
     companion object {
         private const val TAG = "LogUploader"
@@ -62,11 +63,13 @@ class LogUploader(
 
         val archive = try {
             val flushed = try { flushTelemetry() } catch (_: Exception) { false }
+            val bluetoothFlushed = try { flushBluetooth() } catch (_: Exception) { false }
+            check(com.openautolink.app.carplay.HostMediaDiagnosticSink.flush()) { "host media diagnostics pending" }
             val plan = LogUploadArchive.select(allLogFiles(), System.currentTimeMillis())
             if (plan.selected.isEmpty()) return UploadResult.Failure(
                 "no eligible log files; ${plan.skipped.size} omitted (age/size/member limits)", UploadFailureCode.NO_LOGS
             )
-            LogUploadArchive.create(plan, context.cacheDir, flushed)
+            LogUploadArchive.create(plan, context.cacheDir, flushed, bluetoothFlushed)
         } catch (_: Exception) {
             // Do not leak filesystem paths, credentials, or URL query strings through exception text.
             return UploadResult.Failure("log snapshot failed; source logs retained, retry upload", UploadFailureCode.SNAPSHOT)

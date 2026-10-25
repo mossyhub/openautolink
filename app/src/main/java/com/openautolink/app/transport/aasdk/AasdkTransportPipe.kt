@@ -53,8 +53,24 @@ class AasdkTransportPipe(
         outputStream.flush()
     }
 
+    private var closed = false
+    private var closeFailure: Throwable? = null
+
+    /** Successful return acknowledges both exact stream closes, never just intent. */
+    @Synchronized
     fun close() {
-        try { inputStream.close() } catch (_: Exception) {}
-        try { outputStream.close() } catch (_: Exception) {}
+        closeFailure?.let { throw it }
+        if (closed) return
+        var failure: Throwable? = null
+        try { inputStream.close() } catch (e: Throwable) { failure = e }
+        try { outputStream.close() } catch (e: Throwable) {
+            if (failure == null) failure = e
+            else if (failure !== e) failure.addSuppressed(e)
+        }
+        if (failure != null) {
+            closeFailure = failure
+            throw failure
+        }
+        closed = true
     }
 }

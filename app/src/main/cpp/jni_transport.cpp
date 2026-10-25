@@ -10,6 +10,8 @@
 #include <android/log.h>
 #include <algorithm>
 #include <cstring>
+#include <exception>
+#include <stdexcept>
 
 #define LOG_TAG "OAL-JniTransport"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -39,6 +41,7 @@ JniTransport::JniTransport(boost::asio::io_service& ioService, JavaVM* jvm, jobj
 
     // Start read thread
     readThread_ = std::thread(&JniTransport::readThreadFunc, this);
+    readThreadId_ = readThread_.get_id();
     LOGI("JniTransport created");
 }
 
@@ -151,53 +154,71 @@ void JniTransport::send(aasdk::common::Data data, SendPromise::Pointer promise)
 
 void JniTransport::stop()
 {
-    if (stopped_.exchange(true)) return;
-
-    LOGI("JniTransport stopping");
-
-    // readThread_ is blocked inside AasdkTransportPipe.readBytes(). Closing the
-    // Java pipe first closes the socket streams and releases that blocking read;
-    // joining before this call creates an unbreakable wait cycle.
-    JNIEnv* env = nullptr;
-    bool attached = false;
-    jint result = jvm_->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    if (result == JNI_EDETACHED) {
-        result = jvm_->AttachCurrentThread(&env, nullptr);
-        attached = result == JNI_OK;
-        if (!attached) env = nullptr;
-    } else if (result != JNI_OK) {
-        env = nullptr;
-    }
-    if (env && closeMethodId_) {
-        env->CallVoidMethod(javaTransport_, closeMethodId_);
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-            LOGW("Java transport pipe close threw before read-thread join");
-        } else {
-            LOGI("Java transport pipe closed before read-thread join");
+    {
+        std::unique_lock<std::mutex> lock(stopMutex_);
+        // The saved read identity is meaningful only before completed close.
+        if (closed_) return;
+        if (std::this_thread::get_id() == readThreadId_ ||
+            (closing_ && closingThread_ == std::this_thread::get_id())) {
+            throw std::logic_error("Transport stop cannot await its own worker/close callback");
         }
-    } else {
-        LOGW("Cannot call Java transport close — relying on bounded read poll before join");
+        stopCv_.wait(lock, [this] { return !closing_; });
+        if (closeFailure_) std::rethrow_exception(closeFailure_);
+        if (closed_) return;
+        stopped_ = true;
+        closing_ = true;
+        closingThread_ = std::this_thread::get_id();
     }
-    if (attached) jvm_->DetachCurrentThread();
-
-    receiveCv_.notify_all();
-
-    if (readThread_.joinable()) {
-        readThread_.join();
-        LOGI("Read thread joined after transport close");
-    }
-
-    // Reject all pending receive promises
-    strand_.dispatch([this]() {
-        std::lock_guard<std::mutex> lock(receiveMutex_);
-        while (!receiveQueue_.empty()) {
-            auto& [size, promise] = receiveQueue_.front();
-            promise->reject(aasdk::error::Error(aasdk::error::ErrorCode::OPERATION_ABORTED));
-            receiveQueue_.pop();
+    try {
+        // Close first: readBytes can be blocked on the exact Java pipe.
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        jint result = jvm_->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+        if (result == JNI_EDETACHED) {
+            result = jvm_->AttachCurrentThread(&env, nullptr);
+            attached = result == JNI_OK;
         }
-    });
+        if (result != JNI_OK || !env || !closeMethodId_) {
+            if (attached) jvm_->DetachCurrentThread();
+            throw std::runtime_error("Cannot acknowledge Java transport close: JNI unavailable");
+        }
+        // JNI operations such as CallVoidMethod/FindClass are illegal with an
+        // existing pending exception. Convert it to native failure first.
+        bool failed = env->ExceptionCheck();
+        if (!failed) {
+            env->CallVoidMethod(javaTransport_, closeMethodId_);
+            failed = env->ExceptionCheck();
+        }
+        if (failed) env->ExceptionClear();
+        if (attached) jvm_->DetachCurrentThread();
+        if (failed) {
+            // Never acknowledge or join a potentially still-blocked reader.
+            // The exact session retains this failed transport and its resources.
+            throw std::runtime_error("Java transport close failed");
+        }
+        receiveCv_.notify_all();
+        if (readThread_.joinable()) readThread_.join();
+        // Queue rejection is drained by the session IO retirement. No success
+        // receipt is issued until that IO thread has also joined.
+        strand_.dispatch([this]() {
+            std::lock_guard<std::mutex> lock(receiveMutex_);
+            while (!receiveQueue_.empty()) {
+                auto& [size, promise] = receiveQueue_.front();
+                promise->reject(aasdk::error::Error(aasdk::error::ErrorCode::OPERATION_ABORTED));
+                receiveQueue_.pop();
+            }
+        });
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(stopMutex_);
+        closeFailure_ = std::current_exception();
+        closing_ = false;
+        stopCv_.notify_all();
+        throw;
+    }
+    std::lock_guard<std::mutex> lock(stopMutex_);
+    closed_ = true;
+    closing_ = false;
+    stopCv_.notify_all();
 }
 
 void JniTransport::onDataReceived(const uint8_t* data, size_t length)

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.1.545 — Android Auto touch alignment, CarPlay setup and experimental diagnostics
+
+Includes all changes since public GitHub release 0.1.541, including the earlier Play-only 542–544 updates.
+
+### Current CarPlay guidance
+- Document two normal USB setups consistently: leave vehicle Bluetooth unpaired for CarPlay music/navigation, or retain pairing with Phone ON / Media OFF, disconnect/reconnect using the Android Bluetooth settings button, and return to OAL with OAL selected for separate music/navigation volume and native HFP calls.
+- Preserve the owner's successful paired-call interval and exact native Phone settings: Active Call OFF (“Show active call view when answering call”), Privacy ON (“Only show call alerts in cluster”). GM may restore Media after leaving/waking the car; repeat the manual Media-OFF/disconnect/reconnect procedure when needed. No automatic persistence is promised.
+- Retire Bluetooth-selected/Media-ON playback as a primary recommendation: it shares guidance/media volume and later owner testing still reproduced pauses. Car microphone input for calls/Siri works for some users, fails for others and can work in one session but not the next on the same car, including the maintainer's. We are investigating; do not rely on it yet. Calls may instead use the iPhone. Experimental diagnostics are not required for native HFP calls.
+
+### Included local 0.1.542 — Bluetooth reconnect observations
+- Add optional local Bluetooth reconnect timing and user bookmarks, with bounded manual-log-upload evidence. Distinguish observed profile transitions from user-reported Media/source state; no private policy readback, automatic profile enforcement or durable pause fix.
+- Make the existing manual CarPlay receiver Bluetooth address setting shared by USB and wireless, retaining the saved wireless value and blank-value compatibility. Validate the car address; do not change Android Auto's independent override or networking identity. This does not pair the phone or register native projection ownership.
+
+### Included local 0.1.543 — Native media-session experiment
+- Add default-OFF INACTIVE testing alongside Playing-status suppression. Apply on reconnect/future exact owners; active owners retain their original mode. INACTIVE withholds native session activation/title/art while preserving independent projection audio and Bluetooth behavior; native source controls/targeting may change.
+- Owner testing did not stop pauses with INACTIVE; lost title/art is not a successful workaround. Neither media-session experiment is required by the current setup guidance.
+
+### Included local 0.1.544 — Microphone and native-call experiments
+- Add sequential Java AudioRecord/native AAudio local comparisons at recognition/48 kHz/two channels, with numeric signal and close/join results rather than recordings. Keep projection/capture exclusion until exact receiver and native recorder retirement is acknowledged; failed cleanup blocks unsafe reuse.
+- Provide direct local capture choices and simple process-lifetime live-microphone/media toggles until Off or app restart. Changes affect new recorders/sessions, not an active owner's frozen profile. Neither AAudio opening nor nonzero sample counts establish usable speech; the owner comparison still returned zero-valued input, not a cabin-microphone repair.
+- Add experimental incoming CarPlay call observation and managed Android Telecom integration with separate default-OFF Native call integration and Native Answer/End controls. Android owns account enablement; supported single-incoming-call commands are separately fenced. Reject, outgoing, hold and conference controls are unsupported; native GM/cluster and physical call acceptance remain unverified.
+
+### Local 0.1.545 — Account permission and diagnostic placement
+- Request READ_PHONE_NUMBERS through Android only on explicit experimental account enablement, for OAL's own-account readback on Android 12/API32 and Android 14/API34. Keep denial/revocation UNKNOWN, fence stale permission results and separate registration from readback/user enablement. This permission is not a regular Bluetooth Phone calls/HFP requirement.
+- Move the experiment to Diagnostics → Native CarPlay calls, with Android call-account settings, refresh/removal and bounded stage/result receipts in manual logs. A successful settings launch is not proof that the OEM exposes a usable OAL account page.
+- Map Android Auto touch to the phone-selected logical video geometry, preserving the decoder's visible crop rather than requested frame headers. Bind queued input to its exact session/selection and reject stale work across reselection/reconnect. Host regression checks and fresh ARM64/x86_64 JNI compile/link passed; physical USB/WPP touch retesting remains open. These software checks are not a vehicle-success claim.
+
+### Limits and release status
+- Microphone/native-call work is experimental, attempting a better and more native CarPlay experience, and is not ready. Car-microphone success varies across users and sessions, including the maintainer's car; suspected GM AAOS-specific microphone/routing behavior is still being investigated, not a confirmed HAL cause or an all-GM/other-OEM conclusion. No universal Siri, cabin-microphone, cluster, hardware or automatic-reconnect repair is claimed.
+- No companion runtime changes in the inspected 0.1.541-to-base range; public artifacts must remain credential-free. No GitHub release, tag, Play/store upload or device action is performed by this documentation preparation. Final combined-source gates, artifact checks and publication remain with the release controller.
+
 ## 0.1.541 — Correct Android Auto charging connectors
 
 - Translate raw AAOS vehicle charging-connector values into Android Auto's connector definitions before advertising them. CCS1 is no longer mislabeled as CCS2 when the vehicle reports raw connector value 5; CCS2, CHAdeMO and legacy Tesla/GBT values use explicit mappings rather than unchecked casts.

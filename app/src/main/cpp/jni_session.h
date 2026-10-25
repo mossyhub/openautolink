@@ -16,7 +16,12 @@
 #include <algorithm>
 #include <map>
 #include <mutex>
+#include <condition_variable>
+#include <exception>
+#include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <jni.h>
 #include <boost/asio.hpp>
@@ -106,6 +111,9 @@ public:
      * to discover it via its ping timeout.
      */
     void stop();
+    /** Nonblocking intent for IO/promise callbacks; never a retirement receipt. */
+    void requestStop() noexcept;
+    void setStopReason(const std::string& reason);
 
     /**
      * Graceful disconnect: send the protocol's ByeBye (ShutdownRequest) so the
@@ -123,7 +131,8 @@ public:
 
     /** Send multi-touch event to phone (all pointers in one InputReport). */
     void sendMultiTouchEvent(int action, int actionIndex,
-        const int* ids, const float* xs, const float* ys, int count);
+        const int* ids, const float* xs, const float* ys, int count,
+        int64_t expectedSelection = 0);
 
     /** Send key event to phone. */
     void sendKeyEvent(int keyCode, bool isDown);
@@ -242,6 +251,10 @@ public:
     void dispatchPhoneStatus(int signalStrength, int callState);
 
 private:
+    void beginStart();
+    void finishStart();
+    void joinStopWorker();
+    void shutdownGracefullyOnIo(const std::string& reason, int timeoutMs);
     void ioServiceThreadFunc();
     void buildServiceDiscoveryResponse(
         aap_protobuf::service::control::message::ServiceDiscoveryResponse& response);
@@ -299,6 +312,22 @@ private:
     std::shared_ptr<JniPhoneStatusHandler> phoneStatusHandler_;
     std::shared_ptr<JniBluetoothHandler> bluetoothHandler_;
 
+    // Stop completion state: stopped_ is intent, never a close/join receipt.
+    std::mutex stopMutex_;
+    std::condition_variable stopCv_;
+    bool starting_ = false;
+    bool startAdmitted_ = false;
+    std::thread::id startingThread_;
+    bool closing_ = false;
+    bool closed_ = false;
+    std::exception_ptr closeFailure_;
+    std::thread::id closingThread_;
+    std::thread::id ioThreadId_; // Immutable after constructor, unlike joinable().
+    std::mutex stopWorkerMutex_;
+    std::thread stopWorker_;
+    std::thread gracefulWatchdog_; // Published only by IO, joined after IO retires.
+    inline static thread_local bool inStopWorker_ = false;
+    std::atomic<bool> stopWorkerRequested_{false};
     std::atomic<bool> stopped_{false};
     std::atomic<bool> streaming_{false};
     std::atomic<bool> micOpen_{false};
@@ -335,6 +364,9 @@ private:
     // setup handler to populate configuration_indices honestly. Set during
     // buildServiceDiscoveryResponse(); read on the IO strand only after.
     std::atomic<int> advertisedVideoConfigCount_{0};
+    // Exact offer order; confined to the native IO strand.
+    std::vector<std::pair<int, int>> advertisedVideoGeometry_;
+    std::atomic<int64_t> selectedVideoEpoch_{0};
     std::atomic<int64_t> pingSentAtMs_{0};
 
     // Channel-error coalescing + escalation tracking (guarded by errorMu_)
@@ -461,6 +493,7 @@ private:
         jmethodID onSessionStopped = nullptr;
         jmethodID onVideoFrame = nullptr;
         jmethodID onVideoCodecConfigured = nullptr;
+        jmethodID onVideoGeometrySelected = nullptr;
         jmethodID onAudioFrame = nullptr;
         jmethodID onAudioStart = nullptr;
         jmethodID onAudioStop = nullptr;

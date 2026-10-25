@@ -38,6 +38,8 @@ class CarBluetoothConnectionObserver internal constructor(
     private val enabled: Flow<Boolean>,
     private val scope: CoroutineScope,
     private val sdkInt: Int = Build.VERSION.SDK_INT,
+    private val recorderEvidence: ((String, String, String, Int) -> Unit)? = null,
+    private val recorderDeviceLimit: Int = CarBluetoothProfileState.MAX_DEVICES,
 ) {
     internal companion object {
         // Public SDK does not expose these vehicle-side profile classes. Literal actions
@@ -63,14 +65,13 @@ class CarBluetoothConnectionObserver internal constructor(
         return AutoCloseable { synchronized(evidenceLock) { evidenceListeners.remove(listener) } }
     }
 
-    private fun evidence(event: String, state: String, previous: String = "unknown") {
-        synchronized(evidenceLock) {
-            val receipt = "carplay-bt event=$event state=$state previous=$previous scope=device owner=unknown"
-            evidenceListeners.toList().forEach { listener ->
-                // Diagnostic failure must not invalidate profile observation or Bluetooth.
-                try { listener(receipt) } catch (_: RuntimeException) { }
-            }
+    private fun evidence(event: String, state: String, previous: String = "unknown", device: Int = 0) {
+        val listeners = synchronized(evidenceLock) { evidenceListeners.toList() }
+        val receipt = "carplay-bt event=$event state=$state previous=$previous scope=device owner=unknown"
+        listeners.forEach { listener ->
+            try { listener(receipt) } catch (_: RuntimeException) { }
         }
+        try { recorderEvidence?.invoke(event, state, previous, device) } catch (_: RuntimeException) { }
     }
 
     private val devices = mutableMapOf<BluetoothDevice, String>()
@@ -134,7 +135,10 @@ class CarBluetoothConnectionObserver internal constructor(
             try { if (old != null) application.unregisterReceiver(old) }
             finally { if (lifecycle != null) application.unregisterActivityLifecycleCallbacks(lifecycle) }
         }
-        override fun forgetDevices() { devices.clear() }
+        override fun forgetDevices() {
+            devices.clear(); nextDeviceId = 0
+            recorderEvidence?.invoke("epoch", "unknown", "unknown", 0)
+        }
     })
 
     internal fun start() {
@@ -196,7 +200,7 @@ class CarBluetoothConnectionObserver internal constructor(
                         else -> "unknown"
                     }
                     evidence("hfp-audio", audioState(intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1)),
-                        audioState(intent.getIntExtra(BluetoothProfile.EXTRA_PREVIOUS_STATE, -1)))
+                        audioState(intent.getIntExtra(BluetoothProfile.EXTRA_PREVIOUS_STATE, -1)), deviceOrdinal(intent))
                 }
                 HFP_AG_ACTION -> {
                     if (session.state.adapterOn == false || !intent.hasExtra(HFP_VOICE_EXTRA)) return
@@ -205,7 +209,7 @@ class CarBluetoothConnectionObserver internal constructor(
                         1 -> "started"
                         else -> "unknown"
                     }
-                    evidence("hfp-voice", voiceState)
+                    evidence("hfp-voice", voiceState, device = deviceOrdinal(intent))
                 }
                 HFP_CLIENT_ACTION, A2DP_SINK_ACTION -> {
                     if (session.state.adapterOn == false || session.state.unknown == CarBluetoothUnknown.CAPACITY) return
@@ -218,7 +222,7 @@ class CarBluetoothConnectionObserver internal constructor(
                         publish()
                         return
                     }
-                    if (device !in devices && devices.size >= CarBluetoothProfileState.MAX_DEVICES) {
+                    if (device !in devices && devices.size >= recorderDeviceLimit) {
                         session.unknown(CarBluetoothUnknown.CAPACITY, generation)
                         publish()
                         return
@@ -229,7 +233,7 @@ class CarBluetoothConnectionObserver internal constructor(
                     val previous = connection(intent.getIntExtra(BluetoothProfile.EXTRA_PREVIOUS_STATE, -1))
                     session.profile(id, profile, current, previous, generation)
                     evidence(if (profile == CarBluetoothProfile.HFP_CLIENT) "hfp-client" else "a2dp-sink",
-                        current.name.lowercase(), previous.name.lowercase())
+                        current.name.lowercase(), previous.name.lowercase(), id.substringAfter("local-").toIntOrNull() ?: 0)
                 }
                 else -> return
             }
@@ -250,7 +254,32 @@ class CarBluetoothConnectionObserver internal constructor(
         else -> CarBluetoothProfileConnection.UNKNOWN
     }
 
-    private fun publish() { mutableObservation.value = session.state }
+    @Suppress("DEPRECATION")
+    private fun deviceOrdinal(intent: Intent): Int {
+        // Only standard BluetoothDevice equality; never inspect its name/address.
+        if (recorderEvidence == null || session.state.unknown == CarBluetoothUnknown.CAPACITY) return 0
+        // sdkInt is an injected SDK seam; production uses Build.VERSION.SDK_INT.
+        @android.annotation.SuppressLint("NewApi")
+        val device = if (sdkInt >= 33) intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+            else intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+        if (device == null) return 0
+        if (device !in devices && devices.size >= recorderDeviceLimit) return 0
+        return devices.getOrPut(device) { "local-${++nextDeviceId}" }.substringAfter("local-").toIntOrNull() ?: 0
+    }
+
+    private fun publish() {
+        mutableObservation.value = session.state
+        val reason = session.state.unknown
+        val coverage = when (reason) {
+            CarBluetoothUnknown.PERMISSION_MISSING -> "permission_missing"
+            CarBluetoothUnknown.UNAVAILABLE -> "unavailable"
+            CarBluetoothUnknown.MALFORMED_EVENT -> "malformed_event"
+            CarBluetoothUnknown.CAPACITY -> "capacity"
+            CarBluetoothUnknown.DISABLED -> "disabled"
+            else -> "registered"
+        }
+        recorderEvidence?.invoke("coverage", coverage, "unknown", 0)
+    }
 
     fun close() {
         closed = true

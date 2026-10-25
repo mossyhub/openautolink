@@ -3,21 +3,20 @@ package com.shilapi.xcertplay.media
 import org.junit.Assert.*
 import org.junit.Test
 
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk=[32], manifest=org.robolectric.annotation.Config.NONE)
 class CarPlayMicrophoneExperimentTest {
-    @Test fun expiresOnlyFutureSnapshotsAndDisarmDoesNotMutateCapturedProfile() {
-        var now = 100L
-        val registry = CarPlayMicrophoneExperimentRegistry { now }
+    @Test fun staysEnabledAcrossTimeAndSnapshotsUntilOffWithoutMutatingCapturedProfile() {
+        val registry = CarPlayMicrophoneExperimentRegistry()
         val profile = CarPlayMicrophoneExperimentProfile(source = MicrophoneSource.VOICE_RECOGNITION)
         registry.arm(profile)
         val frozen = registry.snapshot()
         assertSame(profile, frozen)
         assertTrue(registry.status().armed)
-        assertEquals(900000L, registry.status().remainingMillis)
-        now += 899999
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofDays(1))
         assertSame(profile, registry.snapshot())
-        now++
-        assertNull(registry.snapshot())
-        assertFalse(registry.status().armed)
+        assertSame(profile, registry.snapshot())
+        assertTrue(registry.status().armed)
         assertSame(profile, frozen)
         registry.arm(profile)
         registry.disarm()

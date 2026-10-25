@@ -57,6 +57,12 @@ object AasdkNative {
     // -- Input (app → phone) --
 
     @JvmStatic
+    external fun nativeSendSelectedTouch(
+        action: Int, actionIndex: Int, ids: IntArray, xs: FloatArray, ys: FloatArray,
+        expectedNativeGeneration: Long, expectedSelection: Long,
+    )
+
+    @JvmStatic
     external fun nativeSendTouchEvent(
         action: Int, pointerId: Int, x: Float, y: Float, pointerCount: Int
     )

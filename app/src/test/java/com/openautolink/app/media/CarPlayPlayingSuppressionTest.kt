@@ -132,7 +132,7 @@ class CarPlayPlayingSuppressionTest {
         } finally { browser.destroy();OalMediaBrowserService.mediaSessionToken=null }
     }
 
-    @Test fun armDisarmAndExpiryOnlyAffectNewExactOwnersWhileOldPublicationAndCloseAreFenced() {
+    @Test fun armDisarmAndElapsedClockOnlyAffectNewExactOwnersWhileOldPublicationAndCloseAreFenced() {
         disarmIfImplemented()
         val controller=MediaControllerCompat(app,manager.getSessionToken()!!)
         val old=host()
@@ -156,11 +156,23 @@ class CarPlayPlayingSuppressionTest {
         } finally { old.close();next?.close() }
         armIfImplemented()
         org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMinutes(15))
-        val expired=host()
+        val persistent=host()
         try {
-            expired.publish(phone,null,null)
-            assertEquals(PlaybackStateCompat.STATE_PLAYING,controller.playbackState!!.state)
-        } finally { expired.close() }
+            persistent.publish(phone,null,null)
+            assertEquals("elapsed clock must not disable the until-Off process selection",
+                PlaybackStateCompat.STATE_NONE,controller.playbackState!!.state)
+            disarmIfImplemented()
+            persistent.publish(phone.copy(title="still frozen"),null,null)
+            assertEquals("explicit Off does not change an existing owner lease",
+                PlaybackStateCompat.STATE_NONE,controller.playbackState!!.state)
+            persistent.close()
+            val normal=host()
+            try {
+                normal.publish(phone,null,null)
+                assertEquals("explicit Off selects NORMAL for a new owner",
+                    PlaybackStateCompat.STATE_PLAYING,controller.playbackState!!.state)
+            } finally { normal.close() }
+        } finally { persistent.close() }
     }
 
     @Test fun failedHostRetirementKeepsAaAndSuccessorExcludedAndOldFrozenModeUntilRetry() {

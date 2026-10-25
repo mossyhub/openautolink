@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Application
 import android.media.AudioRecord
 import com.shilapi.xcertplay.airplay.*
+import com.shilapi.xcertplay.media.capture.StalledReleaseRecorder
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -15,26 +16,14 @@ import java.net.*
 import java.util.concurrent.*
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk=[32],application=Application::class,manifest=Config.NONE,shadows=[CaptureTerminalUplinkTest.Recorder::class])
+@Config(sdk=[32],application=Application::class,manifest=Config.NONE,
+    instrumentedPackages=["com.shilapi.xcertplay.media.capture"],
+    shadows=[StalledReleaseRecorder::class])
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class CaptureTerminalUplinkTest {
-    @Implements(AudioRecord::class)
-    class Recorder {
-        companion object { @JvmStatic @Implementation fun native_get_min_buff_size(r:Int,c:Int,f:Int)=1024 }
-        @Implementation fun native_start(e:Int,s:Int)=0
-        @Implementation fun native_read_in_byte_array(b:ByteArray,o:Int,s:Int,blocking:Boolean):Int {
-            reading.countDown(); Thread.sleep(30000); return 0
-        }
-        @Implementation fun native_release() {
-            releasing.countDown()
-            while(true) { try { release.await(); break } catch(_:InterruptedException) {} }
-        }
-    }
-    companion object {
-        var reading=CountDownLatch(1); var releasing=CountDownLatch(1); var release=CountDownLatch(1)
-    }
     @Test fun actualUplinkEnqueuesExactlyOneImmutableTerminalOnlyAfterStalledReleaseCompletes() {
-        reading=CountDownLatch(1); releasing=CountDownLatch(1); release=CountDownLatch(1)
+        val fixture=StalledReleaseRecorder.install()
+        val reading=fixture.reading; val releasing=fixture.releasing; val release=fixture.allowRelease
         val app=RuntimeEnvironment.getApplication(); shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         AndroidMicrophoneSupport.initialize(app)
         val ledger=CaptureAcquisitionLedger(false)
@@ -47,7 +36,11 @@ class CaptureTerminalUplinkTest {
             val uplink=MicrophoneUplink(config,{},null,cap,ledger)
             try {
                 uplink.start(); assertTrue(reading.await(3,TimeUnit.SECONDS))
+                assertFalse(uplink.isRetired); assertNull(MicrophoneCaptureFence.tryDiagnostic())
                 uplink.close(); assertTrue(releasing.await(3,TimeUnit.SECONDS))
+                assertEquals(AudioRecord.STATE_INITIALIZED,fixture.record!!.state)
+                assertEquals(0,fixture.nativeReleases.get())
+                assertEquals(1L,fixture.realReleaseCompleted.count)
                 assertFalse(uplink.isRetired); assertNull(MicrophoneCaptureFence.tryDiagnostic())
                 assertTrue(ledger.terminals.flush()); assertTrue(terminals.isEmpty())
                 val successor=CaptureAcquisitionLedger(true)
@@ -55,11 +48,14 @@ class CaptureTerminalUplinkTest {
                 val end=System.nanoTime()+TimeUnit.SECONDS.toNanos(3)
                 while(!uplink.isRetired && System.nanoTime()<end) Thread.sleep(5)
                 assertTrue(uplink.isRetired); assertTrue(ledger.terminals.flush())
+                assertEquals(0L,fixture.realReleaseCompleted.count)
+                assertEquals(1,fixture.nativeReleases.get())
+                assertEquals(AudioRecord.STATE_UNINITIALIZED,fixture.record!!.state)
                 assertEquals(1,terminals.size); assertEquals(ledger.receiverOrdinal,terminals.single().receiver)
                 assertEquals(0,successor.terminals.pending()); assertEquals(0L,terminals.single().raw.observedFrames)
                 assertTrue(terminals.single().lines().first().contains("signal=no-frames"))
                 assertTrue(ledger.terminals.flush()); assertEquals(1,terminals.size)
-            } finally { release.countDown(); uplink.close() }
+            } finally { release.countDown(); uplink.close(); fixture.close() }
         }
         MicrophoneCaptureFence.tryDiagnostic()!!.release()
     }

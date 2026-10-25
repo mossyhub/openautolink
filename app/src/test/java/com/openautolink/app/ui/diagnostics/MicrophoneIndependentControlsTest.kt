@@ -17,22 +17,21 @@ import org.robolectric.annotation.Config
 @Config(application=Application::class,sdk=[32],qualifiers="w800dp-h600dp-mdpi")
 class MicrophoneIndependentControlsTest {
     @get:Rule val compose=createOalComposeRule()
-    @Test fun independentArmRechecksParkAndSharesLegacyExpiryDisarmWithoutChangingDraft() {
+    @Test fun independentApplyRechecksEligibilityAndKeepsSelectedProfileUntilOff() {
         CarPlayMicrophoneExperiments.disarm()
         var park=true
         var eligible=true
         val controller=MicrophoneDiagnosticController(FakeMicrophoneBackend(),automotive=false,
-            eligibility={eligible},freshPark={park})
+            eligibility={eligible})
         try {
             compose.setContent { MaterialTheme { MicrophoneDiagnosticPanel(controller) } }
             compose.onNodeWithTag("mic-independent-history-NORMAL").assertExists().assertIsSelected()
             compose.onNodeWithTag("mic-independent-live-VR48_TWO").assertIsSelected()
-            compose.onNodeWithTag("mic-independent-arm").assertIsNotEnabled()
-            compose.onNodeWithTag("mic-live-consent").performScrollTo().performClick()
+            compose.onNodeWithTag("mic-live-consent").assertDoesNotExist()
             compose.onNodeWithTag("mic-independent-arm").performScrollTo().assertIsEnabled()
-            compose.runOnIdle { park=false }
+            compose.runOnIdle { eligible=false }
             compose.onNodeWithTag("mic-independent-arm").performClick()
-            compose.runOnIdle { assertFalse(CarPlayMicrophoneExperiments.status().armed); park=true;controller.refresh() }
+            compose.runOnIdle { assertFalse(CarPlayMicrophoneExperiments.status().armed); eligible=true;controller.refresh() }
             compose.onNodeWithTag("mic-independent-arm").performClick()
             compose.runOnIdle {
                 val snapshot=CarPlayMicrophoneExperiments.snapshot()!!
@@ -40,7 +39,6 @@ class MicrophoneIndependentControlsTest {
                 assertEquals(CarPlayMicrophoneSpeechCapture.VR48_TWO,snapshot.independent!!.speechCapture)
                 assertEquals(CarPlayMicrophoneExperimentProfile(),controller.liveProfile)
                 controller.updateForeground(false)
-                assertFalse(controller.liveConsent)
                 assertTrue(CarPlayMicrophoneExperiments.status().armed)
                 controller.updateForeground(true)
             }

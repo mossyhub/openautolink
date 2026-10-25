@@ -13,7 +13,7 @@ object CarPlaySettingsPolicy {
         require(settings.enabled) { "CarPlay disabled before bootstrap" }
         return com.openautolink.app.carplay.CarPlayRuntimeConfig(
             settings.phoneAddress, settings.peerAddress, settings.interfaceName, settings.sharedWifiOverride,
-            settings.ssid, settings.receiverAddress, settings.apFrequencyMhz, display,
+            settings.ssid, CarPlayReceiverAddressPolicy.runtimeAddress(settings.receiverAddress), settings.apFrequencyMhz, display,
             networkFamily = settings.networkFamily, apSecurity = settings.apSecurity,
             localAddress = settings.localAddress,
             restrictionPolicy = com.openautolink.app.carplay.CarPlayRestrictionPolicy.from(settings),
@@ -34,7 +34,7 @@ object CarPlaySettingsPolicy {
         settings.interfaceName.isBlank() -> "Choose the network interface"
         settings.localAddress.isNotEmpty() && !configuredEndpoint(settings.localAddress, settings) ->
             "Enter an exact numeric local address matching the selected family and interface"
-        settings.receiverAddress.isEmpty() || settings.receiverAddress == "02:00:00:00:00:00" ->
+        CarPlayReceiverAddressPolicy.canonicalOrNull(settings.receiverAddress).isNullOrEmpty() ->
             "Enter this head unit's real Bluetooth MAC address; not the AP BSSID or phone MAC"
         settings.ssid.isEmpty() -> "Enter the actual Wi-Fi SSID"
         !passwordSaved -> "Save a Wi-Fi passphrase"

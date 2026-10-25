@@ -19,50 +19,30 @@ import org.robolectric.annotation.Config
 class MicrophoneDiagnosticPanelTest {
     @get:Rule val compose = createOalComposeRule()
 
-    @Test fun optionalParkedSourcesButtonIsGatedAndStartsSelectedComparison() {
+    @Test fun localCaptureStartsWithoutConsentOrParkAndPermissionLossStillCancels() {
         val backend = FakeMicrophoneBackend()
-        var park = false
-        val controller = MicrophoneDiagnosticController(backend, automotive = true, eligibility = { true }, freshPark = { park })
+        var allowed = true
+        val controller = MicrophoneDiagnosticController(backend, automotive = true, eligibility = { allowed })
         compose.setContent { MaterialTheme { MicrophoneDiagnosticPanel(controller) } }
-        val button = compose.onNodeWithTag("mic-start-SOURCES")
-        button.assertExists().assertIsNotEnabled()
-        button.assertTextEquals("Optional parked sources · recognition (6) → communication (7) → recognition (6) · 24 kHz mono")
-        compose.onNodeWithTag("mic-consent").performScrollTo().performClick()
-        button.assertIsNotEnabled()
-        compose.runOnIdle { park = true; controller.refresh() }
-        button.performScrollTo().assertIsEnabled().performClick()
-        compose.runOnIdle { assertEquals(listOf("SOURCES"), backend.starts.map { it.name }) }
-        button.assertIsNotEnabled()
-        compose.runOnIdle { park = false; controller.refresh(); assertEquals(1, backend.cancellations) }
+        compose.onNodeWithTag("mic-consent").assertDoesNotExist()
+        compose.onNodeWithTag("mic-stationary").assertDoesNotExist()
+        compose.onNodeWithTag("mic-start-SOURCES").performScrollTo().assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(listOf(MicrophoneDiagnosticComparison.SOURCES), backend.starts); allowed = false }
+        compose.mainClock.advanceTimeBy(500)
+        compose.runOnIdle { assertEquals(1, backend.cancellations) }
         compose.onNodeWithText("Stopping · waiting for microphone release").assertExists()
     }
 
-    @Test fun automotiveRequiresParkCallbackAndRevokesOnParkLoss() {
-        val backend = FakeMicrophoneBackend()
-        var park = false
-        val controller = MicrophoneDiagnosticController(backend, automotive = true, eligibility = { true }, freshPark = { park })
-        compose.setContent { MaterialTheme { MicrophoneDiagnosticPanel(controller) } }
-        compose.onNodeWithTag("mic-stationary").assertDoesNotExist()
-        compose.onNodeWithTag("mic-consent").performScrollTo().performClick()
-        compose.onNodeWithTag("mic-start-CHANNELS").assertIsNotEnabled()
-        compose.runOnIdle { park = true; controller.refresh() }
-        compose.onNodeWithTag("mic-start-CHANNELS").performScrollTo().performClick()
-        compose.runOnIdle { assertEquals(1, backend.starts.size); park = false }
-        compose.mainClock.advanceTimeBy(500)
-        compose.runOnIdle { assertEquals(1, backend.cancellations); assertFalse(controller.isEligibleNow()) }
-    }
-
-    @Test fun absentCallbacksAndBackendNeverAdmit() {
+    @Test fun absentOrThrowingEligibilityAndBackendNeverAdmit() {
         val backend = FakeMicrophoneBackend()
         val variants = listOf(
-            MicrophoneDiagnosticController(backend, automotive = false),
-            MicrophoneDiagnosticController(backend, automotive = true, eligibility = { true }),
-            MicrophoneDiagnosticController(backend, automotive = false, eligibility = { error("not available") }),
-            MicrophoneDiagnosticController(automotive = false, eligibility = { true }),
+            MicrophoneDiagnosticController(backend),
+            MicrophoneDiagnosticController(backend, eligibility = { error("not available") }),
+            MicrophoneDiagnosticController(eligibility = { true }),
         )
         compose.runOnIdle {
             variants.forEach {
-                it.updateForeground(true); it.updateConsent(true); it.updateStationary(true)
+                it.updateForeground(true)
                 it.start(MicrophoneDiagnosticComparison.CHANNELS); it.inspect()
                 assertFalse(it.canStart)
             }
@@ -75,8 +55,6 @@ class MicrophoneDiagnosticPanelTest {
         var allowed = true // deliberately not Compose State: rendered eligibility may be stale
         val controller = MicrophoneDiagnosticController(backend, automotive = false, eligibility = { allowed })
         compose.setContent { MaterialTheme { MicrophoneDiagnosticPanel(controller) } }
-        compose.onNodeWithTag("mic-consent").performScrollTo().performClick()
-        compose.onNodeWithTag("mic-stationary").performScrollTo().performClick()
         compose.onNodeWithTag("mic-start-CHANNELS").performScrollTo().assertIsEnabled()
         compose.runOnIdle { allowed = false }
         compose.onNodeWithTag("mic-start-CHANNELS").performClick()
@@ -88,7 +66,7 @@ class MicrophoneDiagnosticPanelTest {
         compose.onNodeWithText("Stopping · waiting for microphone release").assertExists()
     }
 
-    @Test fun backgroundAndDisposalRevokeConsentAndCancelWithoutFalseRelease() {
+    @Test fun backgroundAndDisposalCancelWithoutFalseReleaseOrExtraConsentOnReturn() {
         val backend = FakeMicrophoneBackend()
         val controller = MicrophoneDiagnosticController(backend, automotive = false, eligibility = { true })
         val owner = object : androidx.lifecycle.LifecycleOwner {
@@ -102,31 +80,25 @@ class MicrophoneDiagnosticPanelTest {
                 if (visible) MaterialTheme { MicrophoneDiagnosticPanel(controller) }
             }
         }
-        compose.onNodeWithTag("mic-consent").performScrollTo().performClick()
-        compose.onNodeWithTag("mic-stationary").performScrollTo().performClick()
         compose.onNodeWithTag("mic-start-CHANNELS").performScrollTo().performClick()
         compose.runOnIdle { owner.registry.currentState = androidx.lifecycle.Lifecycle.State.STARTED }
-        compose.runOnIdle { assertEquals(1, backend.cancellations); assertFalse(controller.consent) }
+        compose.runOnIdle { assertEquals(1, backend.cancellations) }
         compose.onNodeWithText("Stopping · waiting for microphone release").assertExists()
         compose.runOnIdle {
             owner.registry.currentState = androidx.lifecycle.Lifecycle.State.RESUMED
             backend.state = MicrophoneDiagnosticState(phase = MicrophoneDiagnosticPhase.COMPLETE)
             controller.refresh()
         }
-        compose.onNodeWithTag("mic-start-CHANNELS").assertIsNotEnabled()
-        compose.onNodeWithTag("mic-consent").performScrollTo().performClick()
-        compose.onNodeWithTag("mic-stationary").performScrollTo().performClick()
+        compose.onNodeWithTag("mic-start-CHANNELS").assertIsEnabled()
         compose.onNodeWithTag("mic-start-CHANNELS").performScrollTo().performClick()
         compose.runOnIdle { visible = false }
-        compose.runOnIdle { assertEquals(2, backend.cancellations); assertFalse(controller.consent) }
+        compose.runOnIdle { assertEquals(2, backend.cancellations) }
     }
 
     @Test fun cancelRetainsBusyUntilReleaseAndAllActionsStayExclusive() {
         val backend = FakeMicrophoneBackend()
         val controller = MicrophoneDiagnosticController(backend, automotive = false, eligibility = { true })
         compose.setContent { MaterialTheme { MicrophoneDiagnosticPanel(controller) } }
-        compose.onNodeWithTag("mic-consent").performScrollTo().performClick()
-        compose.onNodeWithTag("mic-stationary").performScrollTo().performClick()
         compose.onNodeWithTag("mic-start-RATE").performScrollTo().performClick()
         compose.onNodeWithTag("mic-start-CHANNELS").assertIsNotEnabled()
         compose.onNodeWithTag("mic-start-PREFERRED").assertIsNotEnabled()
@@ -147,13 +119,11 @@ class MicrophoneDiagnosticPanelTest {
         compose.runOnIdle { assertEquals(1, backend.inspections); assertEquals(2, backend.starts.size) }
     }
 
-    @Test fun explicitConsentStartsSelectedComparison() {
+    @Test fun directRunStartsSelectedComparison() {
         val backend = FakeMicrophoneBackend()
         val controller = MicrophoneDiagnosticController(backend, automotive = false, eligibility = { true })
         compose.setContent { MaterialTheme { MicrophoneDiagnosticPanel(controller) } }
-        compose.onNodeWithTag("mic-start-CHANNELS").assertIsNotEnabled()
-        compose.onNodeWithTag("mic-consent").performScrollTo().performClick()
-        compose.onNodeWithTag("mic-stationary").performScrollTo().performClick()
+        compose.onNodeWithTag("mic-start-CHANNELS").assertIsEnabled()
         compose.onNodeWithTag("mic-start-CHANNELS").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf(MicrophoneDiagnosticComparison.CHANNELS), backend.starts) }
     }
@@ -162,6 +132,12 @@ class MicrophoneDiagnosticPanelTest {
 internal class FakeMicrophoneBackend : MicrophoneDiagnosticBackend {
     override var state = MicrophoneDiagnosticState()
     val starts = mutableListOf<MicrophoneDiagnosticComparison>()
+    val custom = mutableListOf<MicrophoneDiagnosticCustom>()
+    override fun startCustom(config: MicrophoneDiagnosticCustom): Boolean {
+        custom += config
+        if (accept) state = state.copy(phase = MicrophoneDiagnosticPhase.RUNNING)
+        return accept
+    }
     var inspections = 0
     var cancellations = 0
     var accept = true

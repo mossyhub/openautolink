@@ -22,9 +22,12 @@ internal interface CarPlayMetadataHost : AutoCloseable {
 /** Exact authenticated Wi-Fi link owns the existing host adapters, never a new MediaSession. */
 internal class OalCarPlayMetadataHost(private val context: Context,
     private val receipt: (String) -> Unit = {},
+    private val attemptContext: CarPlayAttemptContext? = null,
     private val mediaCommand: (Int) -> Boolean = { false }) : CarPlayMetadataHost {
     // Retain the existing JVM constructor and trailing-lambda command call sites.
-    constructor(context: Context, mediaCommand: (Int) -> Boolean) : this(context, {}, mediaCommand)
+    constructor(context: Context, mediaCommand: (Int) -> Boolean) : this(context, {}, null, mediaCommand)
+    constructor(context: Context, receipt: (String) -> Unit, mediaCommand: (Int) -> Boolean) :
+        this(context, receipt, null, mediaCommand)
     private val owner = Any()
     private var cluster: ClusterManager? = null
     private var mediaManager: OalMediaSessionManager? = null
@@ -36,6 +39,8 @@ internal class OalCarPlayMetadataHost(private val context: Context,
         val preferences = AppPreferences.getInstance(context)
         val enabled = runBlocking { preferences.clusterNavigation.first() }
         val units = runBlocking { preferences.distanceUnits.first() }
+        val manager = OalMediaSessionManager.getInstance(context)
+        if (attemptContext != null && !manager.acceptsCarPlayHost(attemptContext.hostMedia)) return false
         if (!MetadataHostOwnership.process.claim(owner)) return false
         MetadataHostOwnership.process.publish(owner) {
             ClusterNavigationState.clearHost()
@@ -89,7 +94,7 @@ internal class OalCarPlayMetadataHost(private val context: Context,
         if (media != null && (media != previousMedia || !artwork.contentEquals(previousArt))) {
             mediaManager?.updateCarPlay(owner, media, artwork, clearArtwork = artwork == null)
             previousMedia = media
-            previousArt = artwork?.copyOf()
+            previousArt = if (attemptContext?.hostMedia?.mode == CarPlayHostMediaMode.INACTIVE) null else artwork?.copyOf()
         }
     }
     override fun close() {

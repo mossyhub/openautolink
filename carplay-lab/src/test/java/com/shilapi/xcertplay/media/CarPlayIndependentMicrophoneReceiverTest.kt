@@ -157,12 +157,10 @@ class CarPlayIndependentMicrophoneReceiverTest {
         }
     }
     @Test
-    @Config(shadows=[CaptureTerminalUplinkTest.Recorder::class])
+    @Config(shadows=[com.shilapi.xcertplay.media.capture.StalledReleaseRecorder::class],
+        instrumentedPackages=["com.shilapi.xcertplay.media.capture"])
     fun independentCancellationRetainsPhysicalLeaseUntilReleaseReturns() {
-        val fixture=CaptureTerminalUplinkTest
-        fixture.reading=java.util.concurrent.CountDownLatch(1)
-        fixture.releasing=java.util.concurrent.CountDownLatch(1)
-        fixture.release=java.util.concurrent.CountDownLatch(1)
+        val fixture=com.shilapi.xcertplay.media.capture.StalledReleaseRecorder.install()
         val app=RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         AndroidMicrophoneSupport.initialize(app)
@@ -174,17 +172,23 @@ class CarPlayIndependentMicrophoneReceiverTest {
             val uplink=MicrophoneUplink(config(),qualifiedCapability=cap,speechRecognitionProfile=profile)
             try {
                 uplink.start();assertTrue(fixture.reading.await(3,java.util.concurrent.TimeUnit.SECONDS))
+                assertFalse(uplink.isRetired); assertNull(MicrophoneCaptureFence.tryDiagnostic())
                 uplink.close();assertTrue(fixture.releasing.await(3,java.util.concurrent.TimeUnit.SECONDS))
+                assertEquals(AudioRecord.STATE_INITIALIZED,fixture.record!!.state)
+                assertEquals(0,fixture.nativeReleases.get())
                 assertFalse(uplink.isRetired)
                 assertNull(MicrophoneCaptureFence.tryDiagnostic())
                 val successor=MicrophoneUplink(config(),qualifiedCapability=cap,speechRecognitionProfile=profile)
                 successor.start();assertTrue(successor.isClosed);assertTrue(successor.isRetired)
-                fixture.release.countDown()
+                fixture.allowRelease.countDown()
                 val end=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
                 while(!uplink.isRetired && System.nanoTime()<end) Thread.sleep(5)
                 assertTrue(uplink.isRetired)
+                assertEquals(0L,fixture.realReleaseCompleted.count)
+                assertEquals(1,fixture.nativeReleases.get())
+                assertEquals(AudioRecord.STATE_UNINITIALIZED,fixture.record!!.state)
                 MicrophoneCaptureFence.tryDiagnostic()!!.release()
-            } finally { fixture.release.countDown();uplink.close() }
+            } finally { fixture.allowRelease.countDown();uplink.close();fixture.close() }
         }
     }
     private fun receiver(history: String, live: String, count: Int, captureBytes: Int) {

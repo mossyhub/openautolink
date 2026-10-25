@@ -24,6 +24,10 @@ static JavaVM* gJvm = nullptr;
 static std::mutex gSessionMutex;  // protects create/start/stop (rare)
 static std::shared_ptr<openautolink::jni::JniSession> gSession;
 static std::atomic<jlong> gSessionGeneration{0};
+// Short process admission state only; never held across Java, stop, or joins.
+static bool gSessionAdmissionClosed = false;
+static bool gSessionCreating = false;
+static unsigned long long gSessionMutation = 0;
 
 // Lock-free snapshot for hot-path calls (touch, sensor, mic, keyframe).
 // Writers (create/stop) update under gSessionMutex then store atomically.
@@ -64,19 +68,49 @@ Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeInstallCrashHandler(
  */
 JNIEXPORT jlong JNICALL
 Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeCreateSession(
-    JNIEnv* /*env*/, jclass /*clazz*/)
+    JNIEnv* env, jclass /*clazz*/)
 {
-    std::lock_guard<std::mutex> lock(gSessionMutex);
-    if (gSession) {
-        LOGW("Session already exists, destroying old one");
-        gSession->stop();
-        std::atomic_store(&gSession, std::shared_ptr<openautolink::jni::JniSession>());
+    std::shared_ptr<openautolink::jni::JniSession> previous;
+    std::shared_ptr<openautolink::jni::JniSession> replacement;
+    unsigned long long mutation = 0;
+    bool reserved = false;
+    try {
+        {
+            std::lock_guard<std::mutex> lock(gSessionMutex);
+            if (gSessionCreating) throw std::logic_error("Native replacement already in progress");
+            gSessionCreating = true;
+            reserved = true;
+            gSessionAdmissionClosed = true;
+            mutation = ++gSessionMutation;
+            previous = std::atomic_load(&gSession);
+        }
+        if (previous) previous->stop();
+        {
+            std::lock_guard<std::mutex> lock(gSessionMutex);
+            if (gSessionMutation != mutation || std::atomic_load(&gSession) != previous) {
+                throw std::logic_error("Native replacement cancelled by stop/replacement");
+            }
+            // Construction only creates the idle IO executor (no Java callbacks).
+            // Publish in the same short critical section so stop captures it.
+            replacement = std::make_shared<openautolink::jni::JniSession>(gJvm);
+            std::atomic_store(&gSession, replacement);
+            gSessionCreating = false;
+            gSessionAdmissionClosed = false;
+            const jlong generation = gSessionGeneration.fetch_add(1) + 1;
+            return generation;
+        }
+    } catch (...) {
+        // A failed previous owner remains published and admission stays closed.
+        if (reserved) {
+            std::lock_guard<std::mutex> lock(gSessionMutex);
+            gSessionCreating = false;
+        }
+        if (!env->ExceptionCheck()) {
+            jclass cls = env->FindClass("java/lang/RuntimeException");
+            if (cls) { env->ThrowNew(cls, "Cannot replace unretired native session"); env->DeleteLocalRef(cls); }
+        }
+        return 0;
     }
-    auto session = std::make_shared<openautolink::jni::JniSession>(gJvm);
-    std::atomic_store(&gSession, session);
-    const jlong generation = gSessionGeneration.fetch_add(1) + 1;
-    LOGI("Native session created generation=%lld", static_cast<long long>(generation));
-    return generation;
 }
 
 /*
@@ -88,13 +122,22 @@ Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeStartSession(
     JNIEnv* env, jclass /*clazz*/,
     jobject transportPipe, jobject callback, jobject sdrConfig)
 {
-    std::lock_guard<std::mutex> lock(gSessionMutex);
-    auto session = std::atomic_load(&gSession);
-    if (!session) {
-        LOGE("No session — call createSession first");
-        return;
+    std::shared_ptr<openautolink::jni::JniSession> session;
+    try {
+        {
+            std::lock_guard<std::mutex> lock(gSessionMutex);
+            if (gSessionAdmissionClosed) throw std::logic_error("Native admission closed");
+            session = std::atomic_load(&gSession);
+        }
+        if (!session) throw std::logic_error("No native session to start");
+        // Session admission rechecks stop intent after this unlocked snapshot.
+        session->start(env, transportPipe, callback, sdrConfig);
+    } catch (...) {
+        if (!env->ExceptionCheck()) {
+            jclass cls = env->FindClass("java/lang/RuntimeException");
+            if (cls) { env->ThrowNew(cls, "Native session start rejected"); env->DeleteLocalRef(cls); }
+        }
     }
-    session->start(env, transportPipe, callback, sdrConfig);
 }
 
 /*
@@ -103,13 +146,32 @@ Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeStartSession(
  */
 JNIEXPORT void JNICALL
 Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeStopSession(
-    JNIEnv* /*env*/, jclass /*clazz*/)
+    JNIEnv* env, jclass /*clazz*/)
 {
-    std::lock_guard<std::mutex> lock(gSessionMutex);
-    auto session = std::atomic_load(&gSession);
-    if (session) {
-        session->stop();
-        std::atomic_store(&gSession, std::shared_ptr<openautolink::jni::JniSession>());
+    std::shared_ptr<openautolink::jni::JniSession> session;
+    {
+        std::lock_guard<std::mutex> lock(gSessionMutex);
+        gSessionAdmissionClosed = true;
+        ++gSessionMutation; // Cancel any replacement not yet published.
+        session = std::atomic_load(&gSession);
+    }
+    try {
+        if (session) {
+            // Never hold the JNI control mutex while a worker/callback must finish.
+            session->stop();
+            std::lock_guard<std::mutex> lock(gSessionMutex);
+            if (std::atomic_load(&gSession) == session) {
+                std::atomic_store(&gSession, std::shared_ptr<openautolink::jni::JniSession>());
+            }
+        }
+    } catch (...) {
+        // Keep the exact owner as a failed-retirement tombstone. No C++ exception
+        // may escape JNI; a normal void return is reserved for actual retirement.
+        if (!env->ExceptionCheck()) {
+            jclass cls = env->FindClass("java/lang/RuntimeException");
+            if (cls) { env->ThrowNew(cls, "Native session retirement incomplete"); env->DeleteLocalRef(cls); }
+        }
+        return;
     }
     LOGI("Native session stopped and destroyed");
 }
@@ -147,6 +209,32 @@ Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeShutdownGracefully(
  * Class:     com_openautolink_app_transport_aasdk_AasdkNative
  * Method:    nativeSendTouchEvent
  */
+JNIEXPORT void JNICALL
+Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeSendSelectedTouch(
+    JNIEnv* env, jclass /*clazz*/, jint action, jint actionIndex,
+    jintArray ids, jfloatArray xs, jfloatArray ys,
+    jlong expectedGeneration, jlong expectedSelection)
+{
+    if (!ids || !xs || !ys || expectedGeneration <= 0 || expectedSelection <= 0) return;
+    const jsize count = env->GetArrayLength(ids);
+    if (count <= 0 || count > 32 || env->GetArrayLength(xs) != count ||
+        env->GetArrayLength(ys) != count || actionIndex < 0 || actionIndex >= count) return;
+    std::vector<int> vIds(count);
+    std::vector<float> vXs(count), vYs(count);
+    env->GetIntArrayRegion(ids, 0, count, vIds.data());
+    env->GetFloatArrayRegion(xs, 0, count, vXs.data());
+    env->GetFloatArrayRegion(ys, 0, count, vYs.data());
+    if (env->ExceptionCheck()) return;
+    std::shared_ptr<openautolink::jni::JniSession> session;
+    {
+        std::lock_guard<std::mutex> lock(gSessionMutex);
+        if (gSessionAdmissionClosed || gSessionGeneration.load() != expectedGeneration) return;
+        session = std::atomic_load(&gSession);
+    }
+    if (session) session->sendMultiTouchEvent(action, actionIndex, vIds.data(),
+        vXs.data(), vYs.data(), count, expectedSelection);
+}
+
 JNIEXPORT void JNICALL
 Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeSendTouchEvent(
     JNIEnv* /*env*/, jclass /*clazz*/,

@@ -10,9 +10,16 @@ import java.io.File
 /** Last completed numeric result only. No audio, identifiers, exception text, or automatic upload. */
 class MicrophoneDiagnosticLogStore(context: Context) {
     private val app = context.applicationContext
-    fun save(result: MicrophoneDiagnosticResult): Boolean = synchronized(writeLock) {
+    fun save(result: MicrophoneDiagnosticResult): Boolean = try { saveEncoded(encode(result)) } catch (_: Exception) { false }
+    /** Fixed numeric-only boundary shared by both producers; no free-form/native exception strings. */
+    fun saveParkedCapture(values: LongArray): Boolean = try {
+        val v = com.openautolink.app.ui.diagnostics.ParkedCaptureNumbers.sanitize(values)
+        saveEncoded(JSONObject().put("schema", 2).put("kind", "microphone_diagnostic")
+            .put("values", JSONArray(v.toList())))
+    } catch (_: Exception) { false }
+    private fun saveEncoded(value: JSONObject): Boolean = synchronized(writeLock) {
         try {
-            val bytes = encode(result).toString().plus("\n").toByteArray(Charsets.UTF_8)
+            val bytes = value.toString().plus("\n").toByteArray(Charsets.UTF_8)
             require(bytes.size <= 32768)
             val base = app.getExternalFilesDir(null) ?: return false
             val directory = File(base, "openautolink/logs")

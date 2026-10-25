@@ -8,6 +8,7 @@ import com.openautolink.app.diagnostics.DiagnosticLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -801,6 +802,7 @@ class MediaCodecDecoder(
 
     private fun configureCodec(configData: ByteArray) {
         releaseCodec()
+        _stats.update { it.copy(width = 0, height = 0) }
         _decoderState.value = DecoderState.CONFIGURING
 
         try {
@@ -1126,7 +1128,7 @@ class MediaCodecDecoder(
                             val h = if (cropBottom >= 0) cropBottom - cropTop + 1
                                     else format.getInteger(MediaFormat.KEY_HEIGHT, 0)
                             if (w > 0 && h > 0) {
-                                _stats.value = _stats.value.copy(width = w, height = h)
+                                _stats.update { it.copy(width = w, height = h) }
                             }
                         }
                         // INFO_TRY_AGAIN_LATER — just loop
@@ -1220,7 +1222,7 @@ class MediaCodecDecoder(
     }
 
     private fun updateStats(codecName: String?) {
-        val current = _stats.value
+        _stats.update { current ->
         val isHw = codecName?.let {
             try { android.media.MediaCodecList(android.media.MediaCodecList.ALL_CODECS)
                 .codecInfos.firstOrNull { info -> info.name == it }
@@ -1233,7 +1235,7 @@ class MediaCodecDecoder(
             CodecSelector.MIME_VP9 -> "VP9"
             else -> mimeType
         }
-        _stats.value = current.copy(
+        current.copy(
             fps = currentFps,
             framesReceived = (framesDecoded.get() + framesDropped.get()),
             framesDecoded = framesDecoded.get(),
@@ -1242,8 +1244,11 @@ class MediaCodecDecoder(
             codecFormat = codecFormat,
             decoderName = codecName ?: current.decoderName,
             isHardware = isHw,
-            width = pendingWidth ?: current.width,
-            height = pendingHeight ?: current.height,
+            // Only output-format receipts describe visible geometry. Until then
+            // leave it unknown so input falls back to the selected logical tier,
+            // never a requested frame header from another configuration.
+            width = current.width,
+            height = current.height,
             codecResets = codecResetCount,
             bitrateKbps = currentBitrateKbps,
             waitingForKeyframe = _needsKeyframe,
@@ -1251,5 +1256,6 @@ class MediaCodecDecoder(
                 System.currentTimeMillis() - keyframeWaitSince else 0L,
             estimatedKeyframePeriodMs = estimatedIdrPeriodMs ?: 0L,
         )
+        }
     }
 }

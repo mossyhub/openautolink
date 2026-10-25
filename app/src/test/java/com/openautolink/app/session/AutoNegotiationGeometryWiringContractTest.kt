@@ -33,14 +33,16 @@ class AutoNegotiationGeometryWiringContractTest {
     }
 
     @Test
-    fun `touch forwarding normalizes video geometry into advertised touch geometry`() {
+    fun `touch forwarding uses an atomic selected geometry snapshot not the capability tier`() {
         val projection = projectFile(
             "app/src/main/java/com/openautolink/app/ui/projection/ProjectionViewModel.kt",
         )
 
         assertTrue(projection.contains("TouchCoordinateSpace.innerForProtocol"))
-        assertTrue(projection.contains("sessionManager.touchWidth.value"))
-        assertTrue(projection.contains("sessionManager.touchHeight.value"))
+        assertTrue(projection.contains("sessionManager.captureTouchTarget() ?: return"))
+        assertTrue(projection.contains("sessionManager.sendSelectedTouch(message, target)"))
+        assertFalse(projection.contains("sessionManager.touchWidth.value"))
+        assertFalse(projection.contains("sessionManager.touchHeight.value"))
         assertTrue(projection.contains("Touch mapping active:"))
     }
 

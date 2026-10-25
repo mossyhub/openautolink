@@ -31,6 +31,13 @@ object CarPlayAudioDiagnostics {
     // Full-string matches: unknown fields, suffixes, control characters and upstream free text fail closed.
     private const val usbByte = "(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])"
     private val schemas = listOf(
+        "media stage=host-media event=apply active=false mode=inactive result=ok lost=$number",
+        "media stage=host-media event=apply active=true mode=(normal|suppress) result=ok lost=$number",
+        "media stage=host-media event=withhold active=false mode=inactive result=withheld lost=$number",
+        "media stage=host-media event=restore active=true mode=(normal|suppress|inactive) result=ok lost=$number",
+        "media stage=host-media event=failed active=unknown mode=(normal|suppress|inactive) result=failed lost=$number",
+        "media stage=host-media event=pending active=unknown mode=(normal|suppress|inactive) result=pending lost=$number",
+        "media stage=host-media event=limit active=unknown mode=(normal|suppress|inactive) result=withheld lost=$number",
         "media stage=playing-publication previous=(none|paused|playing) new=(none|paused|playing) active=true mode=(normal|suppress) owner=current",
         "media stage=microphone-owner receiver=$number owner=$number state=(release-pending|release-failed)",
         "media stage=microphone-retention receiver=$number final=$bool pending=([0-9]|1[0-2]) owners=([0-9]|1[0-2]) lost=$number",
