@@ -22,7 +22,8 @@ class Iap2LinkChannel private constructor(
     private val initiateNegotiation: Boolean,
     private val onArtwork: (Iap2ArtworkTransfer) -> Unit,
 ) : AutoCloseable {
-    private data class Command(val sessionId: Int, val payload: ByteArray, val sequence: Long)
+    private data class Command(val sessionId: Int, val payload: ByteArray, val sequence: Long, val current: (() -> Boolean)?)
+    private val writeGuards = ArrayList<() -> Boolean>() // link-worker only; retained through engine backpressure
 
     private val lock = Object()
     private val commands = ArrayDeque<Command>()
@@ -99,7 +100,7 @@ class Iap2LinkChannel private constructor(
 
     /** Zero-ack runtime links only: acknowledge the actual byte-stream write, not queue admission.
      * A timeout terminally closes the link so the abandoned frame cannot later be transmitted. */
-    internal fun sendControlAwaitWritten(bytes: ByteArray, timeoutMillis: Long): Boolean {
+    internal fun sendControlAwaitWritten(bytes: ByteArray, timeoutMillis: Long, current: (() -> Boolean)? = null): Boolean {
         check(linkConfig.zeroAcknowledgements) { "Synchronous write receipts require a zero-ack tunnel" }
         require(bytes.size <= Iap2LinkEngine.MAX_PAYLOAD_BYTES && timeoutMillis > 0)
         val started = System.nanoTime()
@@ -107,7 +108,7 @@ class Iap2LinkChannel private constructor(
         val completed = synchronized(lock) {
             waitFor(remaining()) { terminated || closing || hasCommandCapacityLocked(bytes.size) }
             throwTerminalFailureLocked()
-            if (terminated || closing || !enqueueCommandLocked(Iap2LinkEngine.CONTROL_SESSION_ID, bytes.copyOf())) false
+            if (terminated || closing || !enqueueCommandLocked(Iap2LinkEngine.CONTROL_SESSION_ID, bytes.copyOf(), current)) false
             else {
                 val ticket = queuedSequence
                 waitFor(remaining()) { terminated || closing || writtenSequence >= ticket }
@@ -219,6 +220,10 @@ class Iap2LinkChannel private constructor(
                     }
                 }
             } ?: return
+            command.current?.let { guard ->
+                if (!guard()) throw IOException("iAP2 command authority revoked")
+                writeGuards.add(guard)
+            }
             engine.sendSession(command.sessionId, command.payload, nowMillis())
             drainedSequence = command.sequence
             if (isClosing()) return
@@ -228,9 +233,13 @@ class Iap2LinkChannel private constructor(
     private fun flush(engine: Iap2LinkEngine) {
         val bytes = engine.takeOutput()
         if (bytes.isNotEmpty()) {
+            // Last boundary before the actual owned stream write: no account Binder calls here.
+            // On revocation close this exact link, never replay the abandoned command elsewhere.
+            if (writeGuards.any { !it() }) throw IOException("iAP2 command authority revoked before write")
             underlying.send(bytes)
             if (linkConfig.zeroAcknowledgements && !engine.hasQueuedPackets) synchronized(lock) {
                 writtenSequence = drainedSequence
+                writeGuards.clear()
                 lock.notifyAll()
             }
         }
@@ -347,10 +356,10 @@ class Iap2LinkChannel private constructor(
         commands.size < MAX_PENDING_COMMANDS && bytes <= MAX_PENDING_COMMAND_BYTES - commandBytes
 
     /** lock must already be held. */
-    private fun enqueueCommandLocked(sessionId: Int, bytes: ByteArray): Boolean {
+    private fun enqueueCommandLocked(sessionId: Int, bytes: ByteArray, current: (() -> Boolean)? = null): Boolean {
         if (!hasCommandCapacityLocked(bytes.size)) return false
         check(queuedSequence < Long.MAX_VALUE)
-        commands += Command(sessionId, bytes, ++queuedSequence)
+        commands += Command(sessionId, bytes, ++queuedSequence, current)
         commandBytes += bytes.size
         lock.notifyAll()
         return true

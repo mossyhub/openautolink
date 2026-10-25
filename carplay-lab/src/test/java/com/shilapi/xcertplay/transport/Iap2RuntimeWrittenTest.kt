@@ -11,6 +11,58 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class Iap2RuntimeWrittenTest {
+    @Test fun guardedRejectRevalidatesAfterRealLinkQueueImmediatelyBeforeStreamWrite() {
+        val send = Iap2Session::class.java.methods.firstOrNull { it.name == "sendAndAwaitWritten" && it.parameterCount == 3 }
+        assertNotNull("real socket writer must carry command generation fence", send)
+        val listener = ServerSocket(0)
+        val left = Stream(Socket("127.0.0.1", listener.localPort))
+        val right = Stream(listener.accept()); listener.close()
+        val a = Iap2Session.openTunnel(left); val b = Iap2Session.openTunnel(right)
+        val current = java.util.concurrent.atomic.AtomicBoolean(true)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable>()
+        var sender: Thread? = null
+        try {
+            assertTrue(a.awaitReady(3000)); assertTrue(b.awaitReady(3000))
+            left.block = true
+            a.send(Iap2Frame(0xA101, byteArrayOf(1)))
+            assertTrue(left.entered.await(1, TimeUnit.SECONDS))
+            val writtenBeforeRelease = left.writes.get()
+            sender = Thread {
+                try { send!!.invoke(a, Iap2Frame(0x415c, byteArrayOf(0, 5, 0, 0, 0)), 2000L, { current.get() }) }
+                catch (t: Throwable) { failure.set(t) }
+            }.apply { start() }
+            val csm = a.javaClass.getDeclaredField("channel").apply { isAccessible = true }.get(a)
+            val link = csm.javaClass.getDeclaredField("link").apply { isAccessible = true }.get(csm)
+            val queued = link.javaClass.getDeclaredField("queuedSequence").apply { isAccessible = true }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1)
+            while ((queued.get(link) as Long) < 2 && System.nanoTime() < deadline) Thread.yield()
+            assertEquals(2L, queued.get(link))
+            current.set(false); left.release.countDown(); sender.join(3000)
+            assertFalse(sender.isAlive); assertNotNull("revoked write claimed success", failure.get())
+            assertEquals("only the earlier unguarded frame may write", writtenBeforeRelease + 1, left.writes.get())
+            assertNull("revoked queued Reject bytes escaped", runCatching { b.recv(200) }.getOrNull())
+        } finally { left.release.countDown(); runCatching { a.close() }; runCatching { b.close() }; sender?.join(3000) }
+    }
+    @Test fun guardIsRecheckedAfterEngineAdmissionBeforeActualSocketWrite() {
+        val listener = ServerSocket(0)
+        val left = Stream(Socket("127.0.0.1", listener.localPort))
+        val right = Stream(listener.accept()); listener.close()
+        val a = Iap2Session.openTunnel(left); val b = Iap2Session.openTunnel(right)
+        try {
+            assertTrue(a.awaitReady(3000)); assertTrue(b.awaitReady(3000))
+            a.sendAndAwaitWritten(Iap2Frame(0xA101, byteArrayOf(1)), 1000)
+            assertEquals(0xA101, b.recv(1000)?.messageId)
+            val before = left.writes.get()
+            val checks = java.util.concurrent.atomic.AtomicInteger()
+            // First check admits to the engine; the authority generation retires before flush.
+            val failure = runCatching {
+                a.sendAndAwaitWritten(Iap2Frame(0x415c, byteArrayOf(0, 5, 0, 0, 0)), 1000) { checks.incrementAndGet() == 1 }
+            }.exceptionOrNull()
+            assertNotNull("last socket boundary ignored revoked authority", failure)
+            assertEquals(2, checks.get())
+            assertEquals("revoked engine-admitted Reject reached stream", before, left.writes.get())
+        } finally { runCatching { a.close() }; runCatching { b.close() } }
+    }
     @Test fun actualIdentificationAndMfiLoopsPreserveVehicleRequestsForExactAuthenticatedHandoff() {
         val identify=Iap2IdentificationClient::class.java.methods.firstOrNull {it.name=="identify" && it.parameterCount==3}
         val run=com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient::class.java.methods.firstOrNull {it.name=="run" && it.parameterCount==4}
@@ -68,6 +120,7 @@ class Iap2RuntimeWrittenTest {
         } finally {bootstrap.close(); runCatching {a.close()}; runCatching {b.close()}; worker.join(1000)}
     }
     private class Stream(val socket: Socket) : BlockingDuplexByteStream {
+        val writes = java.util.concurrent.atomic.AtomicInteger()
         @Volatile var block = false
         @Volatile var dropWrites = false
         val entered = CountDownLatch(1)
@@ -76,6 +129,7 @@ class Iap2RuntimeWrittenTest {
             if (dropWrites) return
             if (block) { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
             socket.getOutputStream().write(data)
+            writes.incrementAndGet()
         }
         override fun recv(maxBytes: Int, timeoutMillis: Long): ByteArray? {
             socket.soTimeout = timeoutMillis.toInt().coerceAtLeast(1)
@@ -103,6 +157,7 @@ class Iap2RuntimeWrittenTest {
             b.send(Iap2Frame(0x1D00, byteArrayOf()))
             val body = com.shilapi.xcertplay.iap2.body.Iap2BodyReader.of(b.recv(1000)!!)
             assertTrue("actual tunnel 1D01 must be transformed", body.has(22))
+            assertTrue("actual identification wire omits Reject", body.u16List(6).contains(0x415c))
             assertTrue(body.has(21))
             b.send(Iap2Frame(0x1D02,byteArrayOf()))
             assertTrue(done.await(1,TimeUnit.SECONDS)); worker.join(1000)

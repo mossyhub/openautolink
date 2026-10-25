@@ -86,14 +86,15 @@ class Iap2CsmChannel private constructor(
     }
 
     /** Bounded exact-frame runtime transport completion. Legacy/AA enqueue behavior is unchanged. */
-    fun sendAndAwaitWritten(frame: Iap2Frame, timeoutMillis: Long) = synchronized(sendLock) {
+    fun sendAndAwaitWritten(frame: Iap2Frame, timeoutMillis: Long) = sendAndAwaitWritten(frame, timeoutMillis) { true }
+    fun sendAndAwaitWritten(frame: Iap2Frame, timeoutMillis: Long, current: () -> Boolean) = synchronized(sendLock) {
         requireTimeout(timeoutMillis)
         checkOpen()
         val peerLimit = link.peerMaxControlPayloadBytes()
             ?: throw IllegalStateException("CSM send requires successful awaitReady")
         val deadline = deadlineAfter(timeoutMillis)
         for (chunk in Iap2CsmFramer.splitForLink(frame, peerLimit)) {
-            if (!link.sendControlAwaitWritten(chunk, remainingMillis(deadline).coerceAtLeast(1)))
+            if (!link.sendControlAwaitWritten(chunk, remainingMillis(deadline).coerceAtLeast(1), current))
                 failClosed(IOException("Runtime CSM transport write did not complete"))
         }
     }

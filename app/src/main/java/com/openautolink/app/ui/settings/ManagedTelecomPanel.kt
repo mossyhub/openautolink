@@ -28,6 +28,7 @@ internal fun ManagedTelecomPanel() {
     var attached by remember { mutableStateOf(true) }
     var enabled by remember { mutableStateOf(experiment.enabledForProcess) }
     var controls by remember { mutableStateOf(experiment.nativeControlsEnabled) }
+    var ringtoneOnly by remember { mutableStateOf(experiment.carPlayRingtoneOnly) }
     var accountReady by remember { mutableStateOf(experiment.armed) }
     var permissionGranted by remember { mutableStateOf(experiment.hasReadPermission) }
     var pendingEnable by remember { mutableStateOf<Long?>(null) }
@@ -117,7 +118,7 @@ internal fun ManagedTelecomPanel() {
     }
     Column {
         Text("Native CarPlay calls · test")
-        Text("Diagnostic · until Off or app restart. Android owns account enablement. Reject unsupported; decline on iPhone or CarPlay.")
+        Text("Diagnostic · until Off or app restart. Android owns account enablement. Phone-confirmed calls only; cabin microphone reliability is separate.")
         Row {
             Text("Native call integration")
             Switch(checked = enabled, enabled = !busy || pendingEnable != null, onCheckedChange = { value ->
@@ -134,16 +135,30 @@ internal fun ManagedTelecomPanel() {
                 modifier = Modifier.testTag("telecomGrantPermission")) { Text("Grant phone permission") }
         }
         Row {
-            Text("Native Answer/End")
+            Text("Native Answer/Reject/End")
             Switch(checked = controls, enabled = !busy && (controls || accountReady), onCheckedChange = { value ->
                 if (value) accountAction { experiment.enableNativeControls().name }
                 else {
                     experiment.disableNativeControls(); controls = false
-                    status = "Native Answer/End off"
+                    status = "Native Answer/Reject/End off"
                 }
             }, modifier = Modifier.testTag("telecomControlsEnabled"))
         }
         Text("Known single incoming calls only; ambiguous calls are withheld. Reconnect to apply. No outgoing, hold or conference controls.")
+        Row {
+            Text("Use CarPlay ringtone only (experimental)", modifier = Modifier.weight(1f))
+            Switch(checked = ringtoneOnly, onCheckedChange = { value ->
+                experiment.setCarPlayRingtoneOnly(value); ringtoneOnly = experiment.carPlayRingtoneOnly
+            }, modifier = Modifier.testTag("telecomRingtoneOnly"))
+        }
+        Text("Suppresses extra native ringtone; firmware-dependent. Leave off if alerts disappear.")
+        Text("Non-public compatibility experiment, off by default. Applies to new OAL incoming calls until Off or app restart; not a supported platform guarantee.")
+        OutlinedButton(onClick = {
+            accountAction {
+                val result = com.openautolink.carplaylab.telecom.CarPlaySoundSettings.launch(context)
+                "${result.name} · Sound page usability unverified. System sound changes may affect all phone accounts; OAL changes nothing automatically."
+            }
+        }, modifier = Modifier.testTag("telecomSoundSettings")) { Text("Android sound settings") }
         OutlinedButton(onClick = {
             accountAction {
                 val result = experiment.openSettings()

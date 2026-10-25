@@ -52,6 +52,10 @@ class Iap2Session private constructor(
     fun sendAndAwaitWritten(frame: Iap2Frame, timeoutMillis: Long = DEFAULT_SEND_TIMEOUT_MILLIS) {
         channel.sendAndAwaitWritten(frame, timeoutMillis)
     }
+    /** Carries exact-command authority through BOTH managed and link-worker queues. */
+    fun sendAndAwaitWritten(frame: Iap2Frame, timeoutMillis: Long, current: () -> Boolean) {
+        channel.sendAndAwaitWritten(frame, timeoutMillis, current)
+    }
 
     fun send(
         endpoint: Iap2Endpoint,

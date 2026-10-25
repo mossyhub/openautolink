@@ -236,6 +236,7 @@ class ManagedTelecomOsTest {
         service.onDestroy()
     }
     @Test fun actualWiredAuthenticatedRuntimeDispatchesProtocolIntoTelecomAndRevokesOnClose() = runWiredNativeControls(null)
+    @Test fun nativeQueuedRejectCannotCrossPermissionRevocation() = runWiredNativeControls("rejectPermission")
     @Test fun nativeQueuedAnswerCannotCrossControlDisable() = runWiredNativeControls("controls")
     @Test fun nativeQueuedAnswerCannotCrossAccountDisable() = runWiredNativeControls("disable")
     @Test fun nativeQueuedAnswerCannotCrossReconsent() = runWiredNativeControls("reconsent")
@@ -257,9 +258,10 @@ class ManagedTelecomOsTest {
             .setName("telecom.avc").setIsEncoder(false).setCapabilities(caps).build())
         val surface = org.mockito.Mockito.mock(android.view.Surface::class.java)
         org.mockito.Mockito.`when`(surface.isValid).thenReturn(true)
+        val receipts = java.util.concurrent.ConcurrentLinkedQueue<String>()
         val receiver = com.openautolink.carplaylab.media.ProjectionReceiver(RuntimeEnvironment.getApplication(),
             "02:00:00:00:00:01", surface, org.mockito.Mockito.mock(com.shilapi.xcertplay.mfi.MfiAuthenticator::class.java),
-            wired = true, onStatus = {})
+            wired = true, onStatus = { receipts.add(it) })
         val service = Robolectric.buildService(ManagedCarPlayConnectionService::class.java).create().get()
         val os = shadowOf(manager); os.setConnectionService(service)
         val identity = AirPlayIdentity.generate()
@@ -312,17 +314,20 @@ class ManagedTelecomOsTest {
                     val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1)
                     input.submit { entered.countDown();release.await(3,java.util.concurrent.TimeUnit.SECONDS) }
                     assertTrue(entered.await(2,java.util.concurrent.TimeUnit.SECONDS))
-                    connection.onAnswer(); experiment.refresh() // drain own-account read; native command is now behind barrier
+                    if (revocation == "rejectPermission") connection.onReject("private not an SMS") else connection.onAnswer()
+                    experiment.refresh() // drain own-account read; native command is now behind barrier
                     when(revocation) {
                         "controls" -> experiment.disableNativeControls()
                         "disable" -> experiment.disable()
                         "reconsent" -> { experiment.disableNativeControls(); experiment.enableNativeControls() }
                         "replacement" -> experiment.authenticatedLink { true }
                         "account" -> { os.enablePhoneAccount(experiment.handle,false);experiment.refresh() }
+                        "rejectPermission" -> shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(android.Manifest.permission.READ_PHONE_NUMBERS)
                     }
                     release.countDown(); input.submit {}.get(2,java.util.concurrent.TimeUnit.SECONDS)
                     peer.soTimeout=100
                     assertTrue("native stale $revocation command escaped",runCatching {peer.getInputStream().read()}.exceptionOrNull() is java.net.SocketTimeoutException)
+                    if (revocation == "rejectPermission") assertNull("queued Reject escaped to iAP2", phone.recv(200))
                     // All no-byte assertions complete before ordinary structured teardown.
                 } else {
                 connection.onAnswer(); connection.onAnswer(0) // actual OS callbacks, pending dedupe
@@ -358,6 +363,32 @@ class ManagedTelecomOsTest {
                     shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10)
                 }
                 assertEquals(DisconnectCause.REMOTE,connection.disconnectCause.code)
+                // A second actual native call rejects through communications, NEVER HID Drop.
+                val rejectedId = "00000000-0000-4000-8000-000000000003"
+                phone.send(Iap2Frame(0x4155, call(id = rejectedId).payload + field(9, byteArrayOf(0))))
+                val rejectDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+                while (os.allIncomingCalls.size < 2 && System.nanoTime() < rejectDeadline) {
+                    shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10)
+                }
+                val rejected = os.allowIncomingCall(os.lastIncomingCall)!!
+                rejected.onReject(); rejected.onReject(0); rejected.onReject("private text must not be sent")
+                val rejectFrame = phone.recv(2000)
+                assertEquals("actual native Reject not wired to authenticated iAP2", 0x415C, rejectFrame?.messageId)
+                assertArrayEquals(byteArrayOf(0, 5, 0, 0, 0), rejectFrame!!.payload)
+                assertEquals(Connection.STATE_RINGING, rejected.state)
+                assertNull("Reject overloads duplicated command", phone.recv(100))
+                peer.soTimeout = 100
+                assertTrue("Reject must not alias HID End", runCatching { peer.getInputStream().read() }.exceptionOrNull() is java.net.SocketTimeoutException)
+                phone.send(call(0, id = rejectedId))
+                val rejectedEnd = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+                while (rejected.state != Connection.STATE_DISCONNECTED && System.nanoTime() < rejectedEnd) {
+                    shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10)
+                }
+                assertEquals(DisconnectCause.REMOTE, rejected.disconnectCause.code)
+                val receiptDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2)
+                while (!receipts.contains("media stage=phone-control command=REJECT outcome=WRITTEN") && System.nanoTime() < receiptDeadline) Thread.sleep(10)
+                assertTrue("finite Reject receipt was dropped by actual receiver status ingress", receipts.contains("media stage=phone-control command=REJECT outcome=WRITTEN"))
+                assertTrue("bridge receipt never reached actual receiver status", receipts.any { it.startsWith("media stage=native-call action=REJECT ") })
                 val input = receiver.javaClass.getDeclaredField("input").apply { isAccessible=true }.get(receiver) as java.util.concurrent.ExecutorService
                 for (staleOwner in listOf(false,true)) {
                     val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1)
@@ -378,10 +409,10 @@ class ManagedTelecomOsTest {
             // Keep the original held-main retirement gate on a distinct display observation.
             phone.send(call(id="00000000-0000-4000-8000-000000000002"))
             val cleanupDeadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
-            while(os.allIncomingCalls.size<2 && System.nanoTime()<cleanupDeadline) {
+            while(os.allIncomingCalls.size<3 && System.nanoTime()<cleanupDeadline) {
                 shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10)
             }
-            assertEquals(2,os.allIncomingCalls.size)
+            assertEquals(3,os.allIncomingCalls.size)
             val cleanupConnection=os.allowIncomingCall(os.lastIncomingCall)!!
             Thread { receiver.close() }.also { it.start(); it.join(2000) } // main deliberately held
             val early = java.util.concurrent.atomic.AtomicBoolean(true)
@@ -392,6 +423,7 @@ class ManagedTelecomOsTest {
             }
         } finally {
             receiver.close()
+            shadowOf(Looper.getMainLooper()).idle()
             assertTrue(receiver.awaitClosed(5000))
             // EOF is a historical synthetic-peer error; concrete retirement remains mandatory.
             try { phone.close() } catch (failure: java.io.IOException) { println("synthetic peer EOF retained: ${failure.message}") }
