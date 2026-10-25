@@ -12,12 +12,19 @@ object NativeCallDiagnostics {
     const val FILE_NAME = "native_call_controls.log"
     const val MAX_BYTES = 16384
     private val reasons = "OBSERVED|UNSUPPORTED|DISPLAY_ONLY|FAILED|OWNER|MULTI_HINT|OBSERVATIONS_QUEUED|CAPACITY|PENDING|TERMINAL_OR_UNADMITTED|DIRECTION|CONFERENCE|MULTIPLE|STATE|QUEUED|SENDER_WITHHELD|PHONE_CONFIRMED|TIMEOUT"
-    private val bridge = Regex("media stage=native-call action=(ANSWER|END|REJECT|OBSERVATION) reason=($reasons) status=(-1|[0-9]{1,3}) pending=(NONE|ANSWER|END) calls=([0-9]{1,2}) conference=(-1|0|1) queued=(true|false)")
+    // Optional suffix retains already-persisted receipts from before first-latch provenance.
+    private val bridge = Regex("media stage=native-call action=(ANSWER|END|REJECT|OBSERVATION) reason=($reasons) status=(-1|[0-9]{1,3}) pending=(NONE|ANSWER|END) calls=([0-9]{1,2}) conference=(-1|0|1) queued=(true|false)( first=(NONE|ANSWER_TRANSITION|TIMEOUT|SENDER_WITHHELD|STATE|DIRECTION|CONFERENCE|MULTIPLE))?")
     private val outcomes = com.shilapi.xcertplay.airplay.PhoneControlOutcome.entries.joinToString("|") { it.name } + "|FAILED"
     private val transport = Regex("media stage=phone-control command=(ANSWER|END|REJECT) outcome=($outcomes)")
     private val ringtone = Regex("media stage=native-ring policy=(NORMAL|EXTERNAL_COMPAT|IN_BAND_COMPAT) sdk=([0-9]{2,4})")
+    private val identity = Regex("media stage=native-identity boundary=(DECODE|MERGE|CREATE|UPDATE) seq=([0-9]{1,2}) call=([0-9]{1,2}) status=(-1|[0-9]{1,3}) native=(NONE|NEW|RINGING|ACTIVE|HELD|ENDED|OTHER) remote=(ABSENT|EMPTY|VALID|INVALID|UNKNOWN) name=(ABSENT|EMPTY|VALID|INVALID|UNKNOWN) result=(OBSERVED|REJECTED|MATCH|MISMATCH)")
     fun sanitize(line: String): String? {
         if (line.length > 256) return null
+        val facts = identity.matchEntire(line)
+        if (facts != null) return line.takeIf {
+            facts.groupValues[2].toInt() in 1..64 && facts.groupValues[3].toInt() in 0..16 &&
+                facts.groupValues[4].toInt() in -1..255
+        }
         val match = bridge.matchEntire(line)
         if (match != null) {
             if (match.groupValues[3].toInt() !in -1..255 || match.groupValues[5].toInt() !in 0..16) return null

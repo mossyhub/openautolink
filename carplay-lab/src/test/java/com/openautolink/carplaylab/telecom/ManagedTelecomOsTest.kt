@@ -292,7 +292,9 @@ class ManagedTelecomOsTest {
                 if (frame?.messageId == 0x4154 && frame.body().has(12)) modernSubscription = true
             }
             assertTrue(modernSubscription)
-            phone.send(Iap2Frame(0x4155, call().payload + field(9, byteArrayOf(0))))
+            phone.send(Iap2Frame(0x4155, call().payload + field(9, byteArrayOf(0)) +
+                field(0, "+15550123456".toByteArray() + byteArrayOf(0)) +
+                field(1, "Initial 私密".toByteArray() + byteArrayOf(0))))
             while (os.allIncomingCalls.isEmpty() && System.nanoTime() < deadline) {
                 shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10)
             }
@@ -300,6 +302,8 @@ class ManagedTelecomOsTest {
             val connection = os.allowIncomingCall(os.onlyIncomingCall)!!
             assertEquals(Connection.STATE_RINGING, connection.state)
             // Actual native callback path is armed only by the separate supervised-call consent.
+            assertEquals("Initial 私密", connection.callerDisplayName)
+            assertEquals("+15550123456", connection.address.schemeSpecificPart)
             // Retain private queue access below solely for the pre-existing stale-runtime worker gate.
             val queuePhone = receiver.javaClass.declaredMethods.singleOrNull { it.name == "queuePhoneControl" }
             assertNotNull("bounded off-main phone input seam missing", queuePhone)
@@ -309,6 +313,19 @@ class ManagedTelecomOsTest {
                 val key = ByteArray(32) { (it+21).toByte() }; val cipher=ControlCipher(key,key)
                 session.javaClass.getDeclaredField("eventSocket").apply { isAccessible=true }.set(session,socket)
                 session.javaClass.getDeclaredField("eventCipher").apply { isAccessible=true }.set(session,ControlCipher(key,key))
+                // Authenticated decoder -> bridge -> actual ConnectionService -> receiver status.
+                phone.send(Iap2Frame(0x4155, field(4, "00000000-0000-4000-8000-000000000001".toByteArray() + byteArrayOf(0)) +
+                    field(1, "Late 私密".toByteArray() + byteArrayOf(0))))
+                val identityDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+                while ((!receipts.any { it.contains("stage=native-identity boundary=UPDATE") && it.contains("native=RINGING") } ||
+                    connection.callerDisplayName != "Late 私密") && System.nanoTime() < identityDeadline) {
+                    shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10)
+                }
+                assertEquals(Connection.STATE_RINGING, connection.state)
+                assertEquals("Late 私密", connection.callerDisplayName)
+                assertTrue("identity receipt dropped before actual receiver status", receipts.any {
+                    it.contains("stage=native-identity boundary=UPDATE") && it.contains("native=RINGING") && it.contains("result=MATCH") })
+                assertTrue(receipts.none { it.contains("私密") || it.contains("15550123456") })
                 if (revocation != null) {
                     val input = receiver.javaClass.getDeclaredField("input").apply { isAccessible=true }.get(receiver) as java.util.concurrent.ExecutorService
                     val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1)
@@ -347,6 +364,13 @@ class ManagedTelecomOsTest {
                 phone.send(call(0, id="00000000-0000-4000-8000-000000000099"))
                 Thread.sleep(50); shadowOf(Looper.getMainLooper()).idle()
                 assertEquals("wrong UUID cannot acknowledge or end Answer",Connection.STATE_RINGING,connection.state)
+                phone.send(call(3))
+                val transitionDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+                while (!receipts.any { it.contains("first=ANSWER_TRANSITION") } && System.nanoTime() < transitionDeadline) {
+                    shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10)
+                }
+                assertTrue("first-latch cause dropped by actual receiver status", receipts.any { it.contains("first=ANSWER_TRANSITION") })
+                assertEquals(Connection.STATE_RINGING, connection.state)
                 phone.send(call(4))
                 val activeDeadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
                 while(connection.state!=Connection.STATE_ACTIVE && System.nanoTime()<activeDeadline) {
@@ -354,6 +378,7 @@ class ManagedTelecomOsTest {
                 }
                 assertEquals(Connection.STATE_ACTIVE,connection.state)
                 connection.onReject(); connection.onReject(0); connection.onReject("withheld")
+                assertTrue(connection.audioModeIsVoip)
                 connection.onDisconnect(); connection.onDisconnect()
                 receivePair(3)
                 assertEquals(Connection.STATE_ACTIVE,connection.state)
@@ -363,6 +388,10 @@ class ManagedTelecomOsTest {
                     shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10)
                 }
                 assertEquals(DisconnectCause.REMOTE,connection.disconnectCause.code)
+                // First call now also exercises raw3 and first-latch receipts. Start the second
+                // call in a fresh real one-second diagnostic window; keep the production 32/s
+                // admission bound and every Reject/no-HID assertion unchanged.
+                Thread.sleep(1100)
                 // A second actual native call rejects through communications, NEVER HID Drop.
                 val rejectedId = "00000000-0000-4000-8000-000000000003"
                 phone.send(Iap2Frame(0x4155, call(id = rejectedId).payload + field(9, byteArrayOf(0))))

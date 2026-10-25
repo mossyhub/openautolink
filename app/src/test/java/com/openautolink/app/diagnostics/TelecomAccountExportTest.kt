@@ -69,14 +69,37 @@ class TelecomAccountExportTest {
         experiment.enable()
         val manager = app.getSystemService(android.telecom.TelecomManager::class.java)
         shadowOf(manager).enablePhoneAccount(experiment.handle, true); experiment.refresh()
-        val bridge = experiment.authenticatedLink { true }!!
+        experiment.enableNativeControls()
+        val commands = mutableListOf<com.shilapi.xcertplay.airplay.PhoneControl>()
+        val service = org.robolectric.Robolectric.buildService(com.openautolink.carplaylab.telecom.ManagedCarPlayConnectionService::class.java).create().get()
+        shadowOf(manager).setConnectionService(service)
+        val bridge = experiment.authenticatedLink({ command, fence ->
+            assertTrue(fence()); commands.add(command); true
+        }) { true }!!
         fun field(id: Int, bytes: ByteArray) = byteArrayOf(0, (bytes.size + 4).toByte(), 0, id.toByte()) + bytes
         val id = "00000000-0000-4000-8000-000000000077"
         bridge.handle(com.shilapi.xcertplay.iap2.wire.Iap2Frame(0x4155,
             field(4, id.toByteArray() + byteArrayOf(0)) + field(2, byteArrayOf(2)) +
                 field(3, byteArrayOf(1)) + field(9, byteArrayOf(0)) + field(1, "private caller".toByteArray() + byteArrayOf(0))))
         shadowOf(android.os.Looper.getMainLooper()).idle()
+        val native = shadowOf(manager).allowIncomingCall(shadowOf(manager).onlyIncomingCall)!!
+        assertEquals(android.telecom.Connection.STATE_RINGING, native.state)
+        assertEquals("private caller", native.callerDisplayName)
+        bridge.handle(com.shilapi.xcertplay.iap2.wire.Iap2Frame(0x4155,
+            field(4, id.toByteArray() + byteArrayOf(0)) + field(1, "Late 私密".toByteArray() + byteArrayOf(0))))
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals("Late 私密", native.callerDisplayName)
+        assertEquals(android.telecom.Connection.STATE_RINGING, native.state)
+        native.onAnswer(); experiment.refresh()
+        for (status in listOf(3, 4)) {
+            bridge.handle(com.shilapi.xcertplay.iap2.wire.Iap2Frame(0x4155,
+                field(4, id.toByteArray() + byteArrayOf(0)) + field(2, byteArrayOf(status.toByte()))))
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+        }
+        native.onDisconnect(); experiment.refresh()
+        assertEquals(listOf(com.shilapi.xcertplay.airplay.PhoneControl.ANSWER, com.shilapi.xcertplay.airplay.PhoneControl.END), commands)
         bridge.close(); experiment.disable(); shadowOf(android.os.Looper.getMainLooper()).idle()
+        service.onDestroy()
         assertTrue(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush())
         val receipt = File(directory, "native_call_controls.log")
         val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
@@ -85,6 +108,15 @@ class TelecomAccountExportTest {
         val bytes = receipt.readBytes()
         val text = bytes.toString(Charsets.UTF_8)
         assertTrue(text.contains("action=OBSERVATION reason=OBSERVED status=2"))
+        assertTrue(text.contains("stage=native-identity boundary=DECODE"))
+        assertTrue(text.contains("stage=native-identity boundary=MERGE"))
+        assertTrue(text.lines().any { it.contains("boundary=CREATE") && it.contains("native=NEW") && it.contains("result=MATCH") })
+        assertTrue(text.lines().any { it.contains("boundary=UPDATE") && it.contains("native=RINGING") && it.contains("result=MATCH") })
+        assertFalse(text.contains("私密"))
+        assertTrue("manual export lost original latch provenance", text.contains("first=ANSWER_TRANSITION"))
+        for (line in text.lineSequence().filter { it.isNotEmpty() }) {
+            assertNotNull("actual app sanitizer rejected producer", com.openautolink.app.carplay.CarPlayAudioDiagnostics.sanitize(1, line))
+        }
         assertFalse(text.contains(id)); assertFalse(text.contains("private caller"))
         assertTrue(bytes.size <= 16384)
         receipt.setLastModified(1)
@@ -101,6 +133,10 @@ class TelecomAccountExportTest {
         val sanitizer = com.openautolink.carplaylab.telecom.NativeCallDiagnostics
         assertEquals(safe, sanitizer.sanitize(safe))
         assertNotNull(com.openautolink.app.carplay.CarPlayAudioDiagnostics.sanitize(1, safe))
+        for (cause in listOf("NONE", "ANSWER_TRANSITION", "TIMEOUT", "SENDER_WITHHELD", "STATE", "DIRECTION", "CONFERENCE", "MULTIPLE")) {
+            assertEquals(safe + " first=$cause", sanitizer.sanitize(safe + " first=$cause"))
+        }
+        assertNull(sanitizer.sanitize(safe + " first=private"))
         for (bad in listOf(safe + " uuid=private", safe.replace("STATE", "private"), safe.replace("status=255", "status=256"),
             safe.replace("calls=1", "calls=17"), safe.replace("conference=0", "conference=2"), safe.replace("pending=NONE", "pending=private"))) {
             assertNull(sanitizer.sanitize(bad))
