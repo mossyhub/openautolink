@@ -315,6 +315,7 @@ class Iap2IdentificationClient(
             0x4159, // StopCommunicationsUpdates
             0x4154, // StartCallStateUpdates
             0x4156, // StopCallStateUpdates
+            0x415c, // EndCall(action0), qualified incoming Reject; never end-all/action1
             0xae03, // PowerSourceUpdate
             0x4301, // CarPlayStartSession
         )

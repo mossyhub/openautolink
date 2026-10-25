@@ -5,6 +5,9 @@
         <package android:name="com.android.car.settings" />
         <package android:name="com.android.server.telecom" />
         <intent>
+            <action android:name="android.settings.SOUND_SETTINGS" />
+        </intent>
+        <intent>
             <action android:name="android.telecom.action.CHANGE_PHONE_ACCOUNTS" />
         </intent>
     </queries>

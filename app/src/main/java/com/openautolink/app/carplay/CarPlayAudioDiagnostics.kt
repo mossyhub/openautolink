@@ -195,7 +195,8 @@ object CarPlayAudioDiagnostics {
         if (session <= 0 || message.length > maximum) return null
         val receipt = accepted.matchEntire(message)
         val safe = if (receipt != null) "BENCH_DIAG streamAccepted type=${receipt.groupValues[1]}"
-            else message.takeIf { candidate -> schemas.any { it.matches(candidate) } } ?: return null
+            else com.openautolink.carplaylab.telecom.NativeCallDiagnostics.sanitize(message)
+                ?: message.takeIf { candidate -> schemas.any { it.matches(candidate) } } ?: return null
         return "CARPLAY_AUDIO session=$session $safe".takeIf { it.length <= MAX_LINE_LENGTH }
     }
 }

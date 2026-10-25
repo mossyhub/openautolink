@@ -12,6 +12,13 @@ import java.io.Closeable
 interface BlockingDuplexByteStream : Closeable {
     fun send(data: ByteArray)
 
+    /** Recheck command authority at the implementation's last nonblocking write boundary.
+     * Wrappers with blocking write-monitor acquisition must override this overload. */
+    fun send(data: ByteArray, current: () -> Boolean) {
+        if (!current()) throw java.io.IOException("iAP2 command authority revoked before write")
+        send(data)
+    }
+
     fun recv(maxBytes: Int, timeoutMillis: Long): ByteArray?
 
     override fun close()

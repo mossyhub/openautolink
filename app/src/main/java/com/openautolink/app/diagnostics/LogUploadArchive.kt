@@ -41,9 +41,12 @@ internal class LogUploadArchive(
             fun capture(file: File) = CaptureTerminalLogStore.runName.matches(file.name)
             fun local(file: File) = localRun.matches(file.name)
             fun bluetooth(file: File) = BluetoothReconnectRecorder.runName.matches(file.name)
-            fun telecom(file: File) = file.name == com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.FILE_NAME
-            val telecomReceipts = unique.filter { telecom(it) && it.length() <= com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.MAX_BYTES }
-                .sortedByDescending { it.lastModified() }.take(1).toSet()
+            fun telecom(file: File) = file.name == com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.FILE_NAME ||
+                file.name == com.openautolink.carplaylab.telecom.NativeCallDiagnostics.FILE_NAME
+            fun telecomLimit(file: File) = if (file.name == com.openautolink.carplaylab.telecom.NativeCallDiagnostics.FILE_NAME)
+                com.openautolink.carplaylab.telecom.NativeCallDiagnostics.MAX_BYTES else com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.MAX_BYTES
+            val telecomReceipts = unique.filter { telecom(it) && it.length() <= telecomLimit(it) }
+                .groupBy { it.name }.values.map { it.maxBy { file -> file.lastModified() } }.toSet()
             val bluetoothRuns = unique.filter { bluetooth(it) && it.length() <= BluetoothReconnectRecorder.MAX_BYTES &&
                 it.lastModified() >= now - BluetoothReconnectRecorder.TTL_MS }
                 .sortedByDescending { it.lastModified() }.take(3).toSet()
@@ -70,7 +73,7 @@ internal class LogUploadArchive(
                     val reason = when {
                         !file.isFile || !file.name.endsWith(".log", true) -> "not_log_file"
                         file in localAlias -> "duplicate_latest_alias"
-                        telecom(file) && bytes > com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics.MAX_BYTES -> "telecom_receipt_bytes_limit"
+                        telecom(file) && bytes > telecomLimit(file) -> "telecom_receipt_bytes_limit"
                         telecom(file) && file !in telecomReceipts -> "outside_latest_telecom_receipt"
                         bluetooth(file) && bytes > BluetoothReconnectRecorder.MAX_BYTES -> "bluetooth_member_bytes_limit"
                         bluetooth(file) && modified < now - BluetoothReconnectRecorder.TTL_MS -> "outside_bluetooth_retention"

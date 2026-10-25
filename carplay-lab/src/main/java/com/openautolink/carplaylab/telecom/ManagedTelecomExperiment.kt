@@ -21,6 +21,10 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
     @Volatile private var epoch = 0L
     @Volatile private var controls = false
     @Volatile private var controlsEpoch = 0L
+    @Volatile var carPlayRingtoneOnly: Boolean = false
+        private set
+    /** Process choice; snapshot only at each exact admitted incoming announcement. */
+    fun setCarPlayRingtoneOnly(value: Boolean) { carPlayRingtoneOnly = value }
     enum class ControlResult { ACCOUNT_REQUIRED, CONTROLS_ENABLED }
     /** Explicit native-controls enable; exact link and enable generations still fence every queued command. */
     fun enableNativeControls(): ControlResult {
@@ -220,6 +224,8 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
     /** Actual authenticated receiver calls this AFTER iAP2 MFi + AirPlay authentication. */
     fun authenticatedLink(
         controlSender: ((com.shilapi.xcertplay.airplay.PhoneControl, () -> Boolean) -> Boolean)? = null,
+        rejectSender: ((() -> Boolean) -> Boolean)? = null,
+        diagnostic: (String) -> Unit = {},
         isCurrent: () -> Boolean,
     ): ManagedIncomingBridge? {
         val generation = epoch // capture BEFORE any external predicate/construction can stall
@@ -235,8 +241,25 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
         fun current() = installed() && isCurrent() && installed()
         bridge = ManagedIncomingBridge({ armed }, { token ->
             check(current() && armed && current())
-            telecom?.addNewIncomingCall(handle, Bundle().apply { putString(REQUEST_TOKEN, token) })
+            val extras = Bundle().apply {
+                putString(REQUEST_TOKEN, token)
+                // Non-public AOSP compatibility experiment, NOT a supported provider API.
+                // API33 official Ringer already uses the renamed in-band key (sourcepins).
+                if (carPlayRingtoneOnly) {
+                    val key = if (android.os.Build.VERSION.SDK_INT == 32)
+                        "android.telecom.extra.CALL_EXTERNAL_RINGER"
+                    else if (android.os.Build.VERSION.SDK_INT >= 33)
+                        "android.telecom.extra.CALL_HAS_IN_BAND_RINGTONE" else null
+                    key?.let { putBoolean(it, true) }
+                }
+            }
+            telecom?.addNewIncomingCall(handle, extras)
                 ?: throw IllegalStateException("Telecom unavailable")
+            val policy = if (extras.getBoolean("android.telecom.extra.CALL_EXTERNAL_RINGER")) "EXTERNAL_COMPAT"
+                else if (extras.getBoolean("android.telecom.extra.CALL_HAS_IN_BAND_RINGTONE")) "IN_BAND_COMPAT" else "NORMAL"
+            val ringReceipt = "media stage=native-ring policy=$policy sdk=${android.os.Build.VERSION.SDK_INT}"
+            NativeCallDiagnostics.record(context, ringReceipt)
+            runCatching { diagnostic(ringReceipt) }
         }, { action ->
             if (pending.incrementAndGet() > 32) { pending.decrementAndGet(); false }
             else if (main.post { try { action() } finally { pending.decrementAndGet() } }) true
@@ -255,6 +278,24 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
                 }
             }
         })
+        bridge.diagnosticReceipt = { line ->
+            NativeCallDiagnostics.record(context, line)
+            runCatching { diagnostic(line) }
+        }
+        bridge.rejectIntent = rejectSender?.let { sender ->
+            { commandCurrent ->
+                fun allowed() = controls && controlsEpoch == controlGeneration && armed && current() && commandCurrent()
+                if (!allowed()) false else {
+                    accounts.execute {
+                        if (allowed()) {
+                            readAuthority(generation)
+                            if (allowed()) sender(::allowed)
+                        }
+                    }
+                    true // authority queue admission is neither socket write nor phone confirmation
+                }
+            }
+        }
         if (!isCurrent()) { bridge.close(); return null }
         var old: ManagedIncomingBridge? = null
         val accepted = synchronized(lifecycle) {

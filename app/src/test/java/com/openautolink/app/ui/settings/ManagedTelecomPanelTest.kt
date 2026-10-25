@@ -107,6 +107,53 @@ class ManagedTelecomPanelTest {
         compose.onNodeWithTag("telecomEnableSettings").assertIsEnabled()
         compose.onNodeWithTag("telecomInspect").assertExists()
     }
+    @Test fun ringtoneExperimentIsSimpleDefaultOffProcessChoiceAndSoundSettingsDoesNotEnableAccount() {
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.waitForIdle()
+        while (shadowOf(app).nextStartedActivity != null) { }
+        compose.onNodeWithTag("telecomRingtoneOnly").assertIsOff().performScrollTo().performClick()
+        compose.waitForIdle()
+        assertTrue(experiment.carPlayRingtoneOnly)
+        assertFalse(experiment.enabledForProcess)
+        compose.onNodeWithText("Suppresses extra native ringtone; firmware-dependent. Leave off if alerts disappear.").assertExists()
+        val exact = android.content.ComponentName("com.android.car.settings", "com.android.car.settings.common.CarSettingActivities\$SoundSettingsActivity")
+        shadowOf(app.packageManager).addActivityIfNotPresent(exact).apply {
+            exported = true; enabled = true; applicationInfo.enabled = true
+        }
+        click("telecomSoundSettings")
+        assertEquals(exact, shadowOf(app).nextStartedActivity.component)
+        assertFalse(experiment.enabledForProcess)
+        compose.onNodeWithTag("telecomRingtoneOnly").performScrollTo().performClick()
+        compose.waitForIdle(); assertFalse(experiment.carPlayRingtoneOnly)
+    }
+    @Test fun nativeReceiptExportsAfterDiagnosticsRouteIsGoneWithoutOptionalFileLogging() {
+        val visible = androidx.compose.runtime.mutableStateOf(true)
+        compose.setContent { MaterialTheme { if (visible.value) Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.waitForIdle()
+        visible.value = false; compose.waitForIdle()
+        compose.onNodeWithTag("telecomEnabled").assertDoesNotExist()
+        experiment.enable()
+        val manager = app.getSystemService(TelecomManager::class.java)
+        shadowOf(manager).enablePhoneAccount(experiment.handle, true); experiment.refresh()
+        val bridge = experiment.authenticatedLink { true }!!
+        fun field(id: Int, value: ByteArray) = byteArrayOf(0, (value.size + 4).toByte(), 0, id.toByte()) + value
+        bridge.handle(com.shilapi.xcertplay.iap2.wire.Iap2Frame(0x4155,
+            field(4, "00000000-0000-4000-8000-000000000088".toByteArray() + byteArrayOf(0)) +
+            field(2, byteArrayOf(2)) + field(3, byteArrayOf(1)) + field(9, byteArrayOf(0))))
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        bridge.close(); shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush())
+        val file = java.io.File(app.getExternalFilesDir(null), "openautolink/logs/native_call_controls.log")
+        val bytes = file.readBytes(); assertTrue(bytes.toString(Charsets.UTF_8).contains("reason=OBSERVED"))
+        file.setLastModified(1)
+        com.openautolink.app.diagnostics.LogUploadArchive.create(
+            com.openautolink.app.diagnostics.LogUploadArchive.select(listOf(file), System.currentTimeMillis()), app.cacheDir).use { archive ->
+            java.util.zip.ZipFile(archive.file).use { zip ->
+                val entry = zip.getEntry(file.name); assertNotNull(entry)
+                assertArrayEquals(bytes, zip.getInputStream(entry).readBytes())
+            }
+        }
+    }
     @Test fun simpleTogglesRegisterOnlyOnEnableAndKeepSystemAccountEnableSeparate() {
         compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
         compose.waitForIdle()

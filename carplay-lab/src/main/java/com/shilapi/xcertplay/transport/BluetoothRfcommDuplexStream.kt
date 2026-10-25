@@ -67,12 +67,17 @@ class BluetoothRfcommDuplexStream internal constructor(
         reader.start()
     }
 
-    override fun send(data: ByteArray) {
+    override fun send(data: ByteArray) = send(data) { true }
+
+    override fun send(data: ByteArray, current: () -> Boolean) {
         synchronized(sendLock) {
             synchronized(lock) {
                 failure?.let { throw it }
                 if (closed) throw IOException("Bluetooth RFCOMM stream is closed")
             }
+            // Monitor acquisition may block after the link's admission check. Revalidate
+            // the exact command here, with no further wrapper lock before output.write.
+            if (!current()) throw IOException("iAP2 command authority revoked before Bluetooth write")
             try {
                 output.write(data)
                 output.flush()

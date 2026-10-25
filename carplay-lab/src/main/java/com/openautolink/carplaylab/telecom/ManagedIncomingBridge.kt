@@ -35,10 +35,29 @@ class ManagedIncomingBridge(
     private val controlRevision = java.util.concurrent.atomic.AtomicLong()
     private var appliedRevision = 0L // main-only; no command while newer observations are queued
     private val multiHint = AtomicBoolean()
+    /** Finite numeric-only receipts; the owner routes these through its normal sanitized export. */
+    @Volatile var diagnosticReceipt: (String) -> Unit = {}
+    /** Separate source-qualified iAP2 EndCall(action=0), NEVER HID Drop for ringing calls.
+     * The installing owner must apply the same explicit enable/epoch/authority/writer fences. */
+    @Volatile var rejectIntent: ((() -> Boolean) -> Boolean)? = null
+    private var receiptCount = 0 // main-owned, capped independently of opt-in lifetime
+    private fun receipt(action: String, reason: String, record: Record) {
+        if (receiptCount >= 64) return
+        receiptCount++
+        val conference = record.conference?.let { if (it) 1 else 0 } ?: -1
+        val line = "media stage=native-call action=$action reason=$reason status=${record.status ?: -1} " +
+            "pending=${record.pending?.name ?: "NONE"} calls=${records.values.count { it.status != 0 }} " +
+            "conference=$conference queued=${appliedRevision != controlRevision.get()}"
+        runCatching { diagnosticReceipt(line) } // diagnostics cannot break call state/control
+    }
     @Volatile var controlStatus: String = "IDLE_OR_DISPLAY_ONLY"
         private set
     private fun controlsLive(record: Record): Boolean {
         if (record.confirmationDeadline != 0L && android.os.SystemClock.elapsedRealtime() >= record.confirmationDeadline) {
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper() && !record.timeoutReported) {
+                record.timeoutReported = true
+                receipt(if (record.pendingReject) "REJECT" else record.pending?.name ?: "OBSERVATION", "TIMEOUT", record)
+            }
             record.commandFailed = true; controlStatus = "UNCONFIRMED_COMMAND_FAILED"
         }
         return !record.commandFailed
@@ -56,9 +75,15 @@ class ManagedIncomingBridge(
         var terminal = false
         var conference: Boolean? = null
         var conferenceGroup: Int? = null
+        // Private phone-provided display facts, retained only by this exact call record.
+        // Never include these in receipts/toString or resolve contacts/remote URIs.
+        var address: android.net.Uri? = null
+        var displayName: String? = null
         @Volatile var commandFailed = false
         @Volatile var confirmationDeadline = 0L
         var pending: com.shilapi.xcertplay.airplay.PhoneControl? = null
+        var pendingReject = false
+        var timeoutReported = false // main only: socket predicates never publish a receipt
         var connection: Connection? = null
     }
     private val records = LinkedHashMap<String, Record>()
@@ -71,11 +96,15 @@ class ManagedIncomingBridge(
         val revision = controlRevision.incrementAndGet() // fence commands BEFORE main delivery
         if (observation is PartialCommunicationsUpdate) {
             if (((observation.currentCallCountHint as? Presence.Present)?.value ?: 0) > 1) multiHint.set(true)
-            return true // count never ends calls or establishes complete/single-call inventory
+            // Still acknowledge delivery on the same main queue. Leaving this revision unapplied
+            // strands controls even after a phone-confirmed active call and an innocuous count=1.
+            // The hint never ends calls or establishes complete/single-call inventory.
         }
-        if (observation !is PartialCallObservation) return true
         if (!dispatch {
-            if (live()) { merge(observation); appliedRevision = revision } else close()
+            if (live()) {
+                if (observation is PartialCallObservation) merge(observation)
+                appliedRevision = revision
+            } else close()
         }) {
             queueDrops = (queueDrops.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(); close()
         }
@@ -98,11 +127,23 @@ class ManagedIncomingBridge(
         (value.direction as? Presence.Present)?.let { record.direction = it.value }
         (value.isConferenced as? Presence.Present)?.let { record.conference = it.value }
         (value.conferenceGroup as? Presence.Present)?.let { record.conferenceGroup = it.value }
+        // No sourced presentation/restriction flag exists in this schema. Disclose only a
+        // supplied safe value; empty/invalid revokes LOCAL disclosure, not a wire clear claim.
+        (value.remoteId as? Presence.Present)?.let {
+            record.address = it.value.takeIf { number -> number.length in 1..128 &&
+                number.any { c -> c in '0'..'9' } && TELEPHONE_PATTERN.matches(number) }
+                ?.let { number -> android.net.Uri.fromParts("tel", number, null) }
+        }
+        (value.displayName as? Presence.Present)?.let {
+            record.displayName = it.value.takeIf { name -> name.length in 1..256 && name.isNotBlank() &&
+                name.none { c -> c.isISOControl() || c in '\u202a'..'\u202e' || c in '\u2066'..'\u2069' } }
+        }
         controlsLive(record) // a delayed phone fact does not retry a failed operation
         if ((record.pending == com.shilapi.xcertplay.airplay.PhoneControl.ANSWER && record.status == 4) ||
             (record.pending == com.shilapi.xcertplay.airplay.PhoneControl.END && record.status == 0)) {
-            controlStatus = "PHONE_CONFIRMED_${record.pending!!.name}"
-            record.pending = null; record.confirmationDeadline = 0
+            controlStatus = "PHONE_CONFIRMED_${if (record.pendingReject) "REJECT" else record.pending!!.name}"
+            receipt(if (record.pendingReject) "REJECT" else record.pending!!.name, "PHONE_CONFIRMED", record)
+            record.pending = null; record.pendingReject = false; record.confirmationDeadline = 0
         }
         if (record.status != 0 && (record.status !in setOf(2,4) || record.direction != 1 ||
                 record.conference == true || (record.conferenceGroup ?: 0) != 0) ||
@@ -116,6 +157,7 @@ class ManagedIncomingBridge(
             record.admitted = true // before OS call, so denied/replayed events cannot ring again
             try { announce(record.token) } catch (_: RuntimeException) { record.consumed = true }
         }
+        receipt("OBSERVATION", "OBSERVED", record)
         record.connection?.let { update(record, it) }
     }
     /** Called only by the main-thread ConnectionService, against the current exact local request. */
@@ -143,38 +185,64 @@ class ManagedIncomingBridge(
             // No setActive on Answer, no fake Reject acknowledgement and no Drop/Reject alias.
             override fun onAnswer() = intent(record, com.shilapi.xcertplay.airplay.PhoneControl.ANSWER)
             override fun onAnswer(videoState: Int) = onAnswer()
-            override fun onReject() = Unit
+            override fun onReject() = reject(record)
             override fun onReject(rejectReason: Int) = onReject()
-            override fun onReject(replyMessage: String?) = onReject()
+            override fun onReject(replyMessage: String?) = onReject() // never send SMS
             override fun onDisconnect() = intent(record, com.shilapi.xcertplay.airplay.PhoneControl.END)
         }.also {
             record.connection = it
             it.connectionCapabilities = 0 // no hold, conference, mute or outgoing promises
-            it.statusHints = android.telecom.StatusHints("Reject does nothing; decline on iPhone/CarPlay", null, null)
+            if (rejectIntent == null) it.statusHints = android.telecom.StatusHints("Reject does nothing; decline on iPhone/CarPlay", null, null)
             it.setAudioModeIsVoip(false)
             update(record, it)
         }
     }
-    /** HID is not call-targeted: require one known, unambiguous incoming call per action. */
-    private fun intent(record: Record, control: com.shilapi.xcertplay.airplay.PhoneControl) {
+    private fun reject(record: Record) {
+        if (rejectIntent == null) { receipt("REJECT", "UNSUPPORTED", record); return }
+        intent(record, com.shilapi.xcertplay.airplay.PhoneControl.END, rejecting = true)
+    }
+    /** Commands are not call-targeted: require one known, unambiguous incoming call per action. */
+    private fun intent(record: Record, control: com.shilapi.xcertplay.airplay.PhoneControl, rejecting: Boolean = false) {
         // No sender without explicit enablement; timeout fails the operation, not remote call state.
-        val sender = controlIntent ?: return
-        if (!controlsLive(record) || !live() || multiHint.get() || appliedRevision != controlRevision.get() || capacityDrops != 0 ||
-            record.pending != null || !record.admitted || record.terminal ||
-            record.direction != 1 || record.conference != false || (record.conferenceGroup ?: 0) != 0 ||
-            records.values.count { it.status != 0 } != 1 ||
-            record.status != (if (control == com.shilapi.xcertplay.airplay.PhoneControl.ANSWER) 2 else 4)) return
+        val action = if (rejecting) "REJECT" else control.name
+        val sender = if (rejecting) rejectIntent?.let { reject ->
+            { _: com.shilapi.xcertplay.airplay.PhoneControl, fence: () -> Boolean -> reject(fence) }
+        } else controlIntent
+        val withheld = when {
+            sender == null -> "DISPLAY_ONLY"
+            !controlsLive(record) -> "FAILED"
+            !live() -> "OWNER"
+            multiHint.get() -> "MULTI_HINT"
+            appliedRevision != controlRevision.get() -> "OBSERVATIONS_QUEUED"
+            capacityDrops != 0 -> "CAPACITY"
+            record.pending != null -> "PENDING"
+            !record.admitted || record.terminal -> "TERMINAL_OR_UNADMITTED"
+            record.direction != 1 -> "DIRECTION"
+            record.conference != false || (record.conferenceGroup ?: 0) != 0 -> "CONFERENCE"
+            records.values.count { it.status != 0 } != 1 -> "MULTIPLE"
+            record.status != (if (rejecting || control == com.shilapi.xcertplay.airplay.PhoneControl.ANSWER) 2 else 4) -> "STATE"
+            else -> null
+        }
+        if (withheld != null) { receipt(action, withheld, record); return }
         val revision = controlRevision.get()
         record.pending = control // no retries after queue/write failure
+        record.pendingReject = rejecting
         record.confirmationDeadline = android.os.SystemClock.elapsedRealtime() + 5000
-        controlStatus = "QUEUED_${control.name}_UNCONFIRMED"
-        if (!sender(control) { controlsLive(record) && !revoked.get() && current() && controlRevision.get() == revision }) {
+        controlStatus = "QUEUED_${action}_UNCONFIRMED"
+        receipt(action, "QUEUED", record)
+        if (!sender!!(control) { controlsLive(record) && !revoked.get() && current() && controlRevision.get() == revision }) {
             record.commandFailed = true; controlStatus = "COMMAND_WITHHELD"
+            receipt(action, "SENDER_WITHHELD", record)
         }
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ controlsLive(record) }, 5000)
     }
     private fun update(record: Record, connection: Connection) {
         if (!live()) { retire(); return }
+        // Caller facts go only to the local OS call presentation; never to diagnostic receipts.
+        connection.setAddress(record.address, if (record.address == null)
+            android.telecom.TelecomManager.PRESENTATION_UNKNOWN else android.telecom.TelecomManager.PRESENTATION_ALLOWED)
+        connection.setCallerDisplayName(record.displayName, if (record.displayName == null)
+            android.telecom.TelecomManager.PRESENTATION_UNKNOWN else android.telecom.TelecomManager.PRESENTATION_ALLOWED)
         when (record.status) {
             0 -> { connection.setDisconnected(DisconnectCause(DisconnectCause.REMOTE)); connection.destroy() }
             2 -> if (connection.state == Connection.STATE_NEW) connection.setRinging()
@@ -211,6 +279,7 @@ class ManagedIncomingBridge(
     }
     companion object {
         // Validate canonical UUID spelling before parsing/normalization; no UUID.fromString repair.
+        private val TELEPHONE_PATTERN = Regex("[+]?[0-9(). -]+")
         private val UUID_PATTERN = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
         fun failed(): Connection = Connection.createFailedConnection(DisconnectCause(DisconnectCause.ERROR))
     }

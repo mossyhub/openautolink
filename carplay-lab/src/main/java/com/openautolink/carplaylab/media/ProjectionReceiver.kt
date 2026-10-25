@@ -140,6 +140,7 @@ class ProjectionReceiver(
     @Volatile var port: Int = 0
         private set
     private val closed = AtomicBoolean()
+    private val diagnosticContext = context.applicationContext
     private val telecomExperiment = com.openautolink.carplaylab.telecom.ManagedTelecomExperiment.get(context)
     private val runtimeIncoming = ConcurrentHashMap<AirPlaySession, com.openautolink.carplaylab.telecom.ManagedIncomingBridge>()
     private val admissionRevoked = AtomicBoolean()
@@ -506,6 +507,8 @@ class ProjectionReceiver(
                     runtimeReady = true
                     incoming = telecomExperiment.authenticatedLink(
                         controlSender = { command, fence -> queuePhoneControl(session, command, fence) },
+                        rejectSender = { fence -> queueReject(session, channel, fence) },
+                        diagnostic = { line -> audioDiagnostic(session, line) },
                     ) {
                         !closed.get() && !admissionRevoked.get() && runtimeReady && runtimeOwner === session &&
                             session in sessions && session.controlAuthenticated && !session.isClosed
@@ -573,12 +576,32 @@ class ProjectionReceiver(
         return try {
             input.execute {
                 val outcome = session.sendPhoneControl(control) { currentMediaOwner(session) && commandCurrent() }
-                status("media stage=phone-control command=${control.name} outcome=${outcome.name}")
+                val line = "media stage=phone-control command=${control.name} outcome=${outcome.name}"
+                com.openautolink.carplaylab.telecom.NativeCallDiagnostics.record(diagnosticContext, line)
+                audioDiagnostic(session, line)
             }
             true
         } catch (_: RejectedExecutionException) { false }
     }
     private val mediaPlayEpoch = java.util.concurrent.atomic.AtomicLong()
+    /** Source-qualified communications EndCall(action0). Separate from active-call HID Drop. */
+    private fun queueReject(session: AirPlaySession, channel: Iap2Session, commandCurrent: () -> Boolean): Boolean {
+        fun current() = currentMediaOwner(session) && tunnels[session] === channel && commandCurrent()
+        if (!current()) return false
+        return try {
+            input.execute {
+                val outcome = if (!current()) "WITHHELD" else try {
+                    channel.sendAndAwaitWritten(
+                        com.openautolink.carplaylab.telecom.IncomingRejectMessage.frame(), 5_000, ::current)
+                    "WRITTEN"
+                } catch (_: Exception) { "FAILED" }
+                val line = "media stage=phone-control command=REJECT outcome=$outcome"
+                com.openautolink.carplaylab.telecom.NativeCallDiagnostics.record(diagnosticContext, line)
+                audioDiagnostic(session, line)
+            }
+            true
+        } catch (_: RejectedExecutionException) { false }
+    }
     /** Queue only for the exact authenticated metadata owner; queue admission is not phone receipt. */
     fun mediaCommand(session: AirPlaySession, index: Int): Boolean {
         val playEpoch = mediaPlayEpoch.get()
@@ -621,7 +644,9 @@ class ProjectionReceiver(
 
     /** Finite, bounded, deduped observer admission. False is dropped, never an automatic retry. */
     fun audioDiagnostic(session: AirPlaySession, message: String): Boolean {
-        if (message.length > 384 || !audioDiagnosticSchemas.any { it.matches(message) } || !currentMediaOwner(session)) return false
+        if (message.length > 384 ||
+            (com.openautolink.carplaylab.telecom.NativeCallDiagnostics.sanitize(message) == null &&
+                !audioDiagnosticSchemas.any { it.matches(message) }) || !currentMediaOwner(session)) return false
         synchronized(diagnosticLock) {
             if (!currentMediaOwner(session)) return false
             val now = System.nanoTime()
