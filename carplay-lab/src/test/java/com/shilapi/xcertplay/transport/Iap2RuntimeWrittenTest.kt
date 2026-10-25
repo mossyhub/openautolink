@@ -11,6 +11,62 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class Iap2RuntimeWrittenTest {
+    @Test fun guardedRejectRevalidatesInsideBluetoothWriteMonitor() {
+        val listener = ServerSocket(0)
+        val socket = Socket("127.0.0.1", listener.localPort)
+        val right = Stream(listener.accept()); listener.close()
+        val writes = java.util.concurrent.atomic.AtomicInteger()
+        val output = socket.getOutputStream()
+        val left = BluetoothRfcommDuplexStream(object : BluetoothRfcommSocketAccess {
+            override fun inputStream() = socket.getInputStream()
+            override fun outputStream() = object : java.io.OutputStream() {
+                override fun write(value: Int) { output.write(value); writes.incrementAndGet() }
+                override fun write(bytes: ByteArray) { output.write(bytes); writes.addAndGet(bytes.size) }
+                override fun flush() = output.flush()
+            }
+            override fun close() = socket.close()
+        })
+        val a = Iap2Session.openTunnel(left); val b = Iap2Session.openTunnel(right)
+        val current = java.util.concurrent.atomic.AtomicBoolean(true)
+        val checks = java.util.concurrent.atomic.AtomicInteger()
+        val atFlush = CountDownLatch(1)
+        val writer = java.util.concurrent.atomic.AtomicReference<Thread>()
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable>()
+        var sender: Thread? = null
+        try {
+            assertTrue(a.awaitReady(3000)); assertTrue(b.awaitReady(3000))
+            a.sendAndAwaitWritten(Iap2Frame(0xA101, byteArrayOf(1)), 1000)
+            assertEquals(0xA101, b.recv(1000)?.messageId)
+            val before = writes.get()
+            val monitor = left.javaClass.getDeclaredField("sendLock").apply { isAccessible = true }.get(left)
+            synchronized(monitor) {
+                sender = Thread {
+                    try {
+                        a.sendAndAwaitWritten(Iap2Frame(0x415c, byteArrayOf(0, 5, 0, 0, 0)), 2000) {
+                            if (checks.incrementAndGet() == 2) { writer.set(Thread.currentThread()); atFlush.countDown() }
+                            current.get()
+                        }
+                    } catch (error: Throwable) { failure.set(error) }
+                }.apply { start() }
+                assertTrue("guard must reach actual link flush", atFlush.await(1, TimeUnit.SECONDS))
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1)
+                var blocked = false
+                while (!blocked && System.nanoTime() < deadline) {
+                    val thread = writer.get()
+                    blocked = thread.state == Thread.State.BLOCKED && thread.stackTrace.any {
+                        it.className == BluetoothRfcommDuplexStream::class.java.name && it.methodName == "send"
+                    }
+                    Thread.yield()
+                }
+                assertTrue("actual Bluetooth writer must be blocked on this wrapper monitor", blocked)
+                current.set(false)
+            }
+            sender!!.join(3000)
+            assertFalse(sender!!.isAlive)
+            assertEquals("revocation while Bluetooth monitor blocked must prevent actual output bytes", before, writes.get())
+            assertNotNull("revoked Bluetooth write must fail", failure.get())
+        } finally { runCatching { a.close() }; runCatching { b.close() }; sender?.join(3000) }
+    }
     @Test fun guardedRejectRevalidatesAfterRealLinkQueueImmediatelyBeforeStreamWrite() {
         val send = Iap2Session::class.java.methods.firstOrNull { it.name == "sendAndAwaitWritten" && it.parameterCount == 3 }
         assertNotNull("real socket writer must carry command generation fence", send)
@@ -21,6 +77,7 @@ class Iap2RuntimeWrittenTest {
         val current = java.util.concurrent.atomic.AtomicBoolean(true)
         val failure = java.util.concurrent.atomic.AtomicReference<Throwable>()
         var sender: Thread? = null
+        val priorObserved = CountDownLatch(1)
         try {
             assertTrue(a.awaitReady(3000)); assertTrue(b.awaitReady(3000))
             left.block = true
@@ -37,11 +94,18 @@ class Iap2RuntimeWrittenTest {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1)
             while ((queued.get(link) as Long) < 2 && System.nanoTime() < deadline) Thread.yield()
             assertEquals(2L, queued.get(link))
-            current.set(false); left.release.countDown(); sender.join(3000)
+            // Hold the first actual write's return until its peer observation, so link
+            // retirement cannot race away the permitted frame and mask a bad assertion.
+            left.afterWrite = { check(priorObserved.await(5, TimeUnit.SECONDS)) }
+            current.set(false); left.release.countDown()
+            val prior = b.recv(1000)
+            assertEquals("the permitted earlier frame must arrive", 0xA101, prior?.messageId)
+            assertArrayEquals(byteArrayOf(1), prior?.payload)
+            priorObserved.countDown(); sender.join(3000)
             assertFalse(sender.isAlive); assertNotNull("revoked write claimed success", failure.get())
             assertEquals("only the earlier unguarded frame may write", writtenBeforeRelease + 1, left.writes.get())
             assertNull("revoked queued Reject bytes escaped", runCatching { b.recv(200) }.getOrNull())
-        } finally { left.release.countDown(); runCatching { a.close() }; runCatching { b.close() }; sender?.join(3000) }
+        } finally { priorObserved.countDown(); left.release.countDown(); runCatching { a.close() }; runCatching { b.close() }; sender?.join(3000) }
     }
     @Test fun guardIsRecheckedAfterEngineAdmissionBeforeActualSocketWrite() {
         val listener = ServerSocket(0)
@@ -123,6 +187,7 @@ class Iap2RuntimeWrittenTest {
         val writes = java.util.concurrent.atomic.AtomicInteger()
         @Volatile var block = false
         @Volatile var dropWrites = false
+        @Volatile var afterWrite: () -> Unit = {}
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         override fun send(data: ByteArray) {
@@ -130,6 +195,7 @@ class Iap2RuntimeWrittenTest {
             if (block) { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
             socket.getOutputStream().write(data)
             writes.incrementAndGet()
+            afterWrite()
         }
         override fun recv(maxBytes: Int, timeoutMillis: Long): ByteArray? {
             socket.soTimeout = timeoutMillis.toInt().coerceAtLeast(1)

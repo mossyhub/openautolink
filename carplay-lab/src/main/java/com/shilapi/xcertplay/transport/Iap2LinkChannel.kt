@@ -236,7 +236,8 @@ class Iap2LinkChannel private constructor(
             // Last boundary before the actual owned stream write: no account Binder calls here.
             // On revocation close this exact link, never replay the abandoned command elsewhere.
             if (writeGuards.any { !it() }) throw IOException("iAP2 command authority revoked before write")
-            underlying.send(bytes)
+            if (writeGuards.isEmpty()) underlying.send(bytes)
+            else underlying.send(bytes) { writeGuards.all { it() } }
             if (linkConfig.zeroAcknowledgements && !engine.hasQueuedPackets) synchronized(lock) {
                 writtenSequence = drainedSequence
                 writeGuards.clear()
