@@ -23,6 +23,91 @@ class ManagedIncomingCallControlsRegressionTest {
     private fun ring(extra: ByteArray = byteArrayOf()) = call(2, field(3, byteArrayOf(1)) + field(9, byteArrayOf(0)) + extra)
     private fun count(value: Int?) = Iap2Frame(0x4158, value?.let { field(10, byteArrayOf(it.toByte())) } ?: byteArrayOf())
 
+    @Test fun confirmedAnswerAfterIntermediateStatusThreeAllowsActualNativeEnd() {
+        val tokens = mutableListOf<String>()
+        val commands = mutableListOf<PhoneControl>()
+        val receipts = mutableListOf<String>()
+        val bridge = ManagedIncomingBridge({true}, tokens::add, {it(); true},
+            controlIntent = { command, fence -> assertTrue(fence()); commands.add(command); true })
+        bridge.diagnosticReceipt = receipts::add
+        try {
+            bridge.handle(ring())
+            val connection = bridge.create(tokens.single())
+            connection.onAnswer()
+            bridge.handle(call(3)) // raw transitional fact, NOT interpreted as Active/Held
+            assertEquals(Connection.STATE_RINGING, connection.state)
+            connection.onDisconnect()
+            assertEquals(listOf(PhoneControl.ANSWER), commands)
+            bridge.handle(call(4))
+            assertEquals(Connection.STATE_ACTIVE, connection.state)
+            connection.onDisconnect()
+            assertEquals("phone-confirmed Answer must not permanently strand End", listOf(PhoneControl.ANSWER, PhoneControl.END), commands)
+            assertTrue(receipts.any { it.contains("action=ANSWER reason=PHONE_CONFIRMED") })
+        } finally { bridge.close() }
+    }
+
+    @Test fun projectedPcmConnectionRequestsVoipBeforeAnyRingingOrActivePublication() {
+        val tokens = mutableListOf<String>()
+        val bridge = ManagedIncomingBridge({true}, tokens::add, {it(); true})
+        val seen = mutableListOf<Boolean>()
+        var connection: Connection? = null
+        bridge.diagnosticReceipt = { line ->
+            if (line.contains("boundary=CREATE")) {
+                // Read-only census of the actual object while create() has not yet returned.
+                val records = bridge.javaClass.getDeclaredField("records").apply { isAccessible = true }.get(bridge) as Map<*, *>
+                val record = records.values.single()!!
+                val creating = record.javaClass.getDeclaredField("connection").apply { isAccessible = true }.get(record) as Connection
+                assertEquals(Connection.STATE_NEW, creating.state)
+                seen.add(creating.audioModeIsVoip)
+            }
+            if (line.contains("boundary=UPDATE")) seen.add(connection!!.audioModeIsVoip)
+        }
+        try {
+            bridge.handle(ring())
+            connection = bridge.create(tokens.single())
+            assertTrue("app-owned projected PCM requires communication audio classification", connection.audioModeIsVoip)
+            assertEquals(Connection.STATE_RINGING, connection.state)
+            bridge.handle(call(4))
+            assertEquals(listOf(true, true), seen)
+            assertEquals(Connection.STATE_ACTIVE, connection.state)
+        } finally { bridge.close() }
+    }
+
+    @Test fun onlyExactPendingAnswerTransitionCanRecoverAndHardFailuresKeepFirstCause() {
+        for (hazard in listOf("timeout", "sender", "held", "unknown", "direction", "conference", "multiple", "hint", "owner", "identity", "wrong-uuid")) {
+            val tokens = mutableListOf<String>(); val commands = mutableListOf<PhoneControl>(); val receipts = mutableListOf<String>()
+            var owner = true
+            val bridge = ManagedIncomingBridge({true}, tokens::add, {it(); true}, current = {owner},
+                controlIntent = { c, _ -> commands.add(c); hazard != "sender" })
+            bridge.diagnosticReceipt = receipts::add
+            try {
+                bridge.handle(ring()); val native = bridge.create(tokens.single()); native.onAnswer()
+                bridge.handle(call(3))
+                when (hazard) {
+                    "timeout" -> org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(6))
+                    "held" -> bridge.handle(call(5))
+                    "unknown" -> bridge.handle(call(255))
+                    "direction" -> { bridge.handle(call(extra = field(3, byteArrayOf(2)))); bridge.handle(call(extra = field(3, byteArrayOf(1)))) }
+                    "conference" -> { bridge.handle(call(extra = field(9, byteArrayOf(1)))); bridge.handle(call(extra = field(9, byteArrayOf(0)))) }
+                    "multiple" -> { bridge.handle(call(5, uuid = "00000000-0000-4000-8000-000000000002")); bridge.handle(call(0, uuid = "00000000-0000-4000-8000-000000000002")) }
+                    "hint" -> bridge.handle(count(2))
+                    "owner" -> owner = false
+                }
+                when (hazard) {
+                    "identity" -> bridge.handle(call(extra = text(1, "Private identity update")))
+                    "wrong-uuid" -> bridge.handle(call(4, uuid = "00000000-0000-4000-8000-000000000099"))
+                    else -> bridge.handle(call(4))
+                }
+                native.onDisconnect()
+                assertEquals("unsafe recovery: $hazard", listOf(PhoneControl.ANSWER), commands)
+                if (hazard != "owner") {
+                    assertTrue("missing finite first latch: $hazard", receipts.any { it.contains("first=" + if (hazard == "sender") "SENDER_WITHHELD" else "ANSWER_TRANSITION") })
+                    assertTrue(receipts.all { NativeCallDiagnostics.sanitize(it) == it })
+                }
+            } finally { bridge.close() }
+        }
+    }
+
     @Test fun qualifiedRejectUsesSeparateIap2IntentAndWaitsForRemoteEnd() {
         val tokens = mutableListOf<String>()
         val hid = mutableListOf<PhoneControl>()
