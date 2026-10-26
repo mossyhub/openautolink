@@ -6,6 +6,7 @@ class CarPlayMicrophonePcmConverter(private val profile: CarPlayMicrophoneExperi
         CarPlayMicrophoneCaptureRate.NEGOTIATED -> negotiatedRate
         CarPlayMicrophoneCaptureRate.HZ_24000 -> 24000
         CarPlayMicrophoneCaptureRate.HZ_48000 -> 48000
+        CarPlayMicrophoneCaptureRate.HZ_16000 -> 16000
     }
     val captureChannels = if (profile.channels == CarPlayMicrophoneChannels.TWO) 2 else 1
     val captureFrameBytes = captureRate / 50 * captureChannels * 2
@@ -28,7 +29,7 @@ class CarPlayMicrophonePcmConverter(private val profile: CarPlayMicrophoneExperi
             val value = when {
                 captureRate == negotiatedRate -> mono(index)
                 captureRate > negotiatedRate -> (mono(index * 2) + mono(index * 2 + 1)) / 2
-                else -> mono(index / 2)
+                else -> mono(index * captureRate / negotiatedRate)
             }
             output[index * 2] = value.toByte()
             output[index * 2 + 1] = (value shr 8).toByte()

@@ -146,7 +146,9 @@ class CarPlayCaptureProductionIntegrationTest {
             owner.close();assertTrue(owner.awaitClosed(0));assertEquals(3,attempts.get())
         } finally {unblock.countDown();owner.close();owner.awaitClosed(10000)}
     }
-    @Test fun stalledActualCaptureRetainsExactReceiverAndPersistsBeforeUiAfterDetailExhaustionThenUploadsIdenticalBytes() {
+    @Test fun stalledActualCaptureRetainsExactReceiverAndPersistsBeforeUiAfterDetailExhaustionThenUploadsIdenticalBytes() = stalledCaptureExport(false)
+    @Test @Config(sdk=[32,34]) fun aaStyleActualReleaseAndFourPartTerminalSurviveUiAbsenceAndManualZip() = stalledCaptureExport(true)
+    private fun stalledCaptureExport(aaStyle:Boolean) {
         reading=CountDownLatch(1);releasing=CountDownLatch(1);release=CountDownLatch(1)
         val app=RuntimeEnvironment.getApplication();shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         val microphone=mockk<MicrophoneInfo>()
@@ -157,6 +159,7 @@ class CarPlayCaptureProductionIntegrationTest {
         shadowOf(app.getSystemService(AudioManager::class.java)).setInputDevices(listOf(device))
         File(app.noBackupFilesDir,"pairing-probe").deleteRecursively();logs(app).listFiles().orEmpty().forEach {it.delete()}
         CarPlayMicrophoneExperiments.disarm()
+        if(aaStyle) CarPlayMicrophoneExperiments.arm(CarPlayMicrophoneExperimentProfile(source=MicrophoneSource.VOICE_RECOGNITION,rate=CarPlayMicrophoneCaptureRate.HZ_16000,aaStyle=true))
         val raw=CopyOnWriteArrayList<String>();val exported=CopyOnWriteArrayList<String>();val threads=CopyOnWriteArrayList<String>()
         val reporter=CarPlayAudioDiagnosticReporter(539,{0L},exported::add)
         repeat(64) {reporter.record("media stage=audio-queue-overflow")}
@@ -168,7 +171,10 @@ class CarPlayCaptureProductionIntegrationTest {
                 assertTrue(terminals(app).single().readText().contains(line));threads.add(Thread.currentThread().name)
             }
         }
+        val oldLogger=DiagnosticLog.fileLogWriter
+        DiagnosticLog.fileLogWriter=null
         val owner=receiver(app,notify,productionSink(app,notify))
+        CarPlayMicrophoneExperiments.disarm() // UI gone / future Off must not mutate frozen owner
         val ledger=field(owner,"captureLedger") as CaptureAcquisitionLedger
         val statuses=field(owner,"statuses") as ThreadPoolExecutor
         val sink=field(owner,"sink") as AndroidMediaSink
@@ -193,11 +199,17 @@ class CarPlayCaptureProductionIntegrationTest {
                 waitFor("pending owner must export on passive worker") {exported.any {"state=release-pending" in it}}
                 assertTrue(raw.none {it.startsWith("media stage=microphone-terminal ")})
                 release.countDown();assertTrue(owner.awaitClosed(10000))
-                assertEquals(1,terminals(app).size);assertEquals(3,threads.size)
+                assertEquals(1,terminals(app).size);assertEquals(if(aaStyle) 4 else 3,threads.size)
                 assertTrue(threads.all {it=="lab-media-status"})
                 val bytes=terminals(app).single().readBytes()
                 assertTrue(bytes.toString(Charsets.UTF_8).contains("receiver=${ledger.receiverOrdinal} "))
                 assertTrue(bytes.toString(Charsets.UTF_8).contains("signal=zeros"))
+                if(aaStyle) {
+                    val acquisition=bytes.toString(Charsets.UTF_8).lineSequence().single { "part=acquisition" in it }
+                    assertTrue(acquisition.contains("captureRate=16000 captureChannels=1 wireRate=24000"))
+                    assertNotNull(CarPlayAudioDiagnostics.sanitize(1,acquisition))
+                    assertNull(CarPlayAudioDiagnostics.sanitize(1,acquisition+" private suffix"))
+                }
                 val routeLog=File(logs(app),"oal_actual_owner_routes.log").apply {
                     writeText(exported.filter {"stage=microphone-owned " in it}.joinToString("\n",postfix="\n"))
                 }
@@ -213,7 +225,7 @@ class CarPlayCaptureProductionIntegrationTest {
                 assertArrayEquals(routeLog.readBytes(),members[routeLog.name])
                 owner.close();assertTrue(owner.awaitClosed(0));assertEquals(1,terminals(app).size)
                 MicrophoneCaptureFence.tryDiagnostic()!!.release()
-            } finally {release.countDown();owner.close();owner.awaitClosed(10000)}
+            } finally {release.countDown();owner.close();owner.awaitClosed(10000);DiagnosticLog.fileLogWriter=oldLogger;CarPlayMicrophoneExperiments.disarm()}
         }
     }
     @Test @Config(shadows=[Recorder::class,FailingCaptureAtomicStore::class])

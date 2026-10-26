@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.shilapi.xcertplay.media
 
-enum class CarPlayMicrophoneCaptureRate { NEGOTIATED, HZ_24000, HZ_48000 }
+enum class CarPlayMicrophoneCaptureRate { NEGOTIATED, HZ_24000, HZ_48000, HZ_16000 }
 enum class CarPlayMicrophoneChannels { MONO, TWO }
 enum class CarPlayMicrophoneChannelSelection { AVERAGE, FIRST, SECOND }
 enum class CarPlayMicrophoneCodec { AUTO, LPCM, OPUS }
@@ -29,8 +29,10 @@ data class CarPlayMicrophoneExperimentProfile(
     val selection: CarPlayMicrophoneChannelSelection = CarPlayMicrophoneChannelSelection.AVERAGE,
     val codec: CarPlayMicrophoneCodec = CarPlayMicrophoneCodec.AUTO,
     val independent: CarPlayMicrophoneIndependentSelection? = null,
+    val aaStyle: Boolean = false,
 ) {
     init {
+        require(!aaStyle || (source == MicrophoneSource.VOICE_RECOGNITION && rate == CarPlayMicrophoneCaptureRate.HZ_16000 && channels == CarPlayMicrophoneChannels.MONO && independent == null && codec == CarPlayMicrophoneCodec.AUTO))
         require(channels == CarPlayMicrophoneChannels.TWO || selection == CarPlayMicrophoneChannelSelection.AVERAGE) {
             "Channel selection requires two-channel capture"
         }

@@ -69,6 +69,15 @@ internal object HostMediaDiagnosticSink {
         true
     } catch (_: Exception) { false }
 
+    /** Same bounded durable worker and manual-upload barrier; never disk IO on capture. */
+    fun offerAaMic(directory: java.io.File?, marker: String) {
+        val safe = com.openautolink.app.audio.AaMicDiagnostics.sanitize(marker) ?: return
+        try { worker.execute { persist(directory, safe) } }
+        catch (_: java.util.concurrent.RejectedExecutionException) {
+            lost.updateAndGet { if(it==Long.MAX_VALUE) it else it+1 }
+        }
+    }
+
     fun offer(reporter: CarPlayAudioDiagnosticReporter, marker: String) {
         try {
             worker.execute {

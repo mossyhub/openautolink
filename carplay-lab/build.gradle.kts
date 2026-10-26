@@ -13,6 +13,8 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 dependencies {
+    // Permission contract only; no new runtime implementation or permission.
+    compileOnly("androidx.annotation:annotation-jvm:1.8.1")
     implementation("org.bouncycastle:bcprov-jdk18on:1.79")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
