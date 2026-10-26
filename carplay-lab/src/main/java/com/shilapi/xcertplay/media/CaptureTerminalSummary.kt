@@ -11,6 +11,7 @@ class CaptureTerminalSummary(
     val blocks: Long, val nonzeroBlocks: Long, val partialBytes: Int,
     raw: Pcm16Window.Snapshot, converted: Pcm16Window.Snapshot,
     val route: Route = Route.UNKNOWN,
+    val acquisition: String? = null,
 ) {
     enum class History { NORMAL, MANUAL }
     enum class Profile { DEFAULT, EXPERIMENT }
@@ -19,13 +20,14 @@ class CaptureTerminalSummary(
     val raw = freeze(raw)
     val converted = freeze(converted)
     init {
-        require(receiver > 0 && owner > 0 && captureRate in listOf(24000,48000) && wireRate in listOf(24000,48000))
+        require(receiver > 0 && owner > 0 && captureRate in listOf(16000,24000,48000) && wireRate in listOf(24000,48000))
         require(captureChannels in 1..2 && this.raw.channels.size == captureChannels && this.converted.channels.size == 1)
+        require(acquisition == null || (captureRate == 16000 && captureChannels == 1 && source == MicrophoneSource.VOICE_RECOGNITION && acquisitionSchema.matches(acquisition)))
         require(blocks >= 0 && nonzeroBlocks in 0..blocks && partialBytes >= 0)
     }
     fun withPcm(raw: Pcm16Window.Snapshot, converted: Pcm16Window.Snapshot) = CaptureTerminalSummary(
         receiver,owner,history,profile,source,captureRate,captureChannels,wireRate,selection,reason,
-        blocks,nonzeroBlocks,partialBytes,raw,converted,route)
+        blocks,nonzeroBlocks,partialBytes,raw,converted,route,acquisition)
     fun lines(): List<String> {
         val prefix = "media stage=microphone-terminal receiver=$receiver owner=$owner"
         val signal = if (raw.observedFrames == 0L) "no-frames" else if (raw.channels.all { it.nonzero == 0 }) "zeros" else "nonzero"
@@ -37,9 +39,11 @@ class CaptureTerminalSummary(
             }
             return "$prefix part=$boundary observed=${value.observedFrames} scanned=${value.scannedFrames} tail=${value.tailBytes} channels=${value.channels.size} limit=2048 coverage=${if(value.observedFrames > value.scannedFrames) "prefix" else "full"} ${ch(0)} ${ch(1)}"
         }
-        return listOf(summary,pcm("raw",raw),pcm("converted",converted))
+        return listOf(summary,pcm("raw",raw),pcm("converted",converted)) +
+            listOfNotNull(acquisition?.replace("media stage=microphone-acquisition", "$prefix part=acquisition"))
     }
     companion object {
+        private val acquisitionSchema = Regex("media stage=microphone-acquisition path=aa-style source=VOICE_RECOGNITION captureRate=16000 captureChannels=1 wireRate=(24000|48000) ns=(enabled|disabled|unavailable|failed) agc=(enabled|disabled|unavailable|failed) aec=(enabled|disabled|unavailable|failed)")
         private fun freeze(value:Pcm16Window.Snapshot):Pcm16Window.Snapshot {
             require(value.observedFrames >= 0 && value.scannedFrames in 0..2048 && value.scannedFrames <= value.observedFrames && value.tailBytes >= 0 && value.channels.size in 1..2)
             value.channels.forEach { require(it.samples == value.scannedFrames && it.nonzero in 0..it.samples && it.peak in 0..32768 && it.rms in 0..32768 && it.clipped in 0..it.samples) }

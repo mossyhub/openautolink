@@ -131,6 +131,16 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
     HorizontalDivider()
     Text("CarPlay microphone experiment", style = MaterialTheme.typography.titleLarge)
     val status = controller.liveStatus
+    val aaStyle = status.profile?.aaStyle == true
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Use Android Auto capture path (experimental)", Modifier.weight(1f))
+        Switch(checked = aaStyle, enabled = aaStyle || (!status.armed && controller.canArmLive),
+            onCheckedChange = { if (it) controller.armAaStyle() else controller.disarmLive() },
+            modifier = Modifier.testTag("mic-aa-style"))
+    }
+    Text(if (status.armed && !aaStyle) "AA-style unavailable: turn the existing manual/independent profile Off first."
+        else if (aaStyle) "AA-style acquisition selected. Turn Off before selecting a different profile."
+        else "Default off. Classic recognition 16 kHz mono, AA post-start effects. CarPlay wire format remains negotiated; not the AA protocol pipeline.", style = MaterialTheme.typography.bodySmall)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Live microphone profile")
         Switch(checked = status.armed, enabled = status.armed || controller.canArmLive,
@@ -147,7 +157,7 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
             style = MaterialTheme.typography.bodySmall)
     }
     val profile = controller.liveProfile
-    val enabled = !controller.busy
+    val enabled = !controller.busy && !aaStyle
     val independent = controller.independentSelection
     Text("Independent Siri lab · history and live capture", style = MaterialTheme.typography.titleMedium)
     Choices("Qualification history bundle · genuine order / offers",
@@ -166,7 +176,7 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
         else "Unsupported: manual VR48/two history never qualifies VR24 mono. Choose normal history or VR48 two; no extra recorder will be opened.",
         Modifier.testTag("mic-independent-admission"), style = MaterialTheme.typography.bodySmall)
     Text("Stop and await recorder/receiver retirement before applying a new profile. Nonzero levels do not prove understood speech.", style = MaterialTheme.typography.bodySmall)
-    Button(controller::armIndependentLive, enabled = controller.canArmIndependent,
+    Button(controller::armIndependentLive, enabled = controller.canArmIndependent && !aaStyle,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-independent-arm")) {
         Text("Apply independent profile · reconnect")
     }
@@ -197,7 +207,7 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
         Modifier.testTag("mic-live-codec-note"), style = MaterialTheme.typography.bodySmall)
     Text("Actual negotiated codec is in manual Upload Logs. Caller audio and echo remain unverified.",
         style = MaterialTheme.typography.bodySmall)
-    Button(controller::armLive, enabled = controller.canArmLive,
+    Button(controller::armLive, enabled = controller.canArmLive && !aaStyle,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-arm")) { Text("Apply profile · reconnect") }
     OutlinedButton(controller::disarmLive,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-disarm")) { Text("Off · future recorders only") }

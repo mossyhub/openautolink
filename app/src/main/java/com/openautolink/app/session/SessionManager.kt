@@ -1320,7 +1320,7 @@ class SessionManager(
 
         // Create mic capture -- sends frames via AasdkSession
         _micCaptureManager?.release()
-        _micCaptureManager = MicCaptureManager { frame ->
+        _micCaptureManager = MicCaptureManager(com.openautolink.app.audio.AaMicDiagnostics.sink(context)) { frame ->
             aasdkSession?.let { session ->
                 scope.launch { session.sendMicAudio(frame.data) }
             }

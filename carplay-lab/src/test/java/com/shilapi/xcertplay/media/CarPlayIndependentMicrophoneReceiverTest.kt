@@ -74,6 +74,10 @@ class CarPlayIndependentMicrophoneReceiverTest {
             body?.let { BplistCodec.encode(it) } ?: ByteArray(0))) as RtspMessage.Response
     }
     private fun arm(history: String, live: String) {
+        if (history == "AA_STYLE") {
+            CarPlayMicrophoneExperiments.arm(CarPlayMicrophoneExperimentProfile(source=MicrophoneSource.VOICE_RECOGNITION, rate=CarPlayMicrophoneCaptureRate.HZ_16000, aaStyle=true))
+            return
+        }
         val pkg="com.shilapi.xcertplay.media."
         val selection=runCatching { Class.forName(pkg+"CarPlayMicrophoneIndependentSelection") }.getOrNull()
         assertNotNull("Independent receiver-frozen history/live selection must exist",selection)
@@ -81,10 +85,11 @@ class CarPlayIndependentMicrophoneReceiverTest {
         val l=Class.forName(pkg+"CarPlayMicrophoneSpeechCapture")
         val request=selection!!.getConstructor(h,l).newInstance(h.enumConstants.single { it.toString()==history },l.enumConstants.single { it.toString()==live })
         val profile=CarPlayMicrophoneExperimentProfile()
-        val constructor=profile.javaClass.constructors.single { it.parameterCount==6 }
-        val frozen=constructor.newInstance(null,profile.rate,profile.channels,profile.selection,profile.codec,request) as CarPlayMicrophoneExperimentProfile
+        val constructor=profile.javaClass.constructors.single { it.parameterCount==7 }
+        val frozen=constructor.newInstance(null,profile.rate,profile.channels,profile.selection,profile.codec,request,false) as CarPlayMicrophoneExperimentProfile
         CarPlayMicrophoneExperiments.arm(frozen)
     }
+    @Test @Config(sdk=[32,34]) fun aaStyleQualifiedReceiverConvertsAuthenticatedUplink() = receiver("AA_STYLE","AA_STYLE",9,640)
     @Test fun normalHistory24() = receiver("NORMAL","VR24_MONO",5,960)
     @Test fun normalHistory48() = receiver("NORMAL","VR48_TWO",5,3840)
     @Test fun manualHistory48() = receiver("MANUAL_VR48_TWO","VR48_TWO",9,3840)
@@ -112,7 +117,9 @@ class CarPlayIndependentMicrophoneReceiverTest {
             MicrophoneCaptureFence.tryDiagnostic()!!.release()
         } finally { AllRecorder.rejectStereo=false;CarPlayMicrophoneExperiments.disarm() }
     }
-    @Test fun independentManualEncoderDoesNotReloadNormalRecorderHistory() {
+    @Test fun independentManualEncoderDoesNotReloadNormalRecorderHistory() = encoderDoesNotReloadNormalHistory(false)
+    @Test @Config(sdk=[32,34]) fun aaStyleQualifiedOpusUsesConvertedFortyEightKAndRetires() = encoderDoesNotReloadNormalHistory(true)
+    private fun encoderDoesNotReloadNormalHistory(aaStyle:Boolean) {
         val app=RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         val device=AudioDeviceInfoBuilder.newBuilder().setType(AudioDeviceInfo.TYPE_BUILTIN_MIC).build()
@@ -126,11 +133,13 @@ class CarPlayIndependentMicrophoneReceiverTest {
         AndroidMicrophoneSupport.initialize(object : android.content.ContextWrapper(app) {
             override fun getApplicationContext(): android.content.Context = this
         })
-        val profile=CarPlayMicrophoneIndependentSelection(
+        val profile=if(aaStyle) CarPlayMicrophoneExperimentProfile(source=MicrophoneSource.VOICE_RECOGNITION,rate=CarPlayMicrophoneCaptureRate.HZ_16000,aaStyle=true) else CarPlayMicrophoneIndependentSelection(
             CarPlayMicrophoneQualificationHistory.MANUAL_VR48_TWO,CarPlayMicrophoneSpeechCapture.VR48_TWO).captureProfile()
         val capability=AndroidMicrophoneSupport.experimentCapability(app,profile)
         assertTrue(0x20000000L in capability.bits("speechrecognition"))
-        ShadowMediaCodec.addEncoder("qualified.opus.encoder",ShadowMediaCodec.CodecConfig(4096,1275) { _, out ->
+        val convertedPcm=java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        ShadowMediaCodec.addEncoder("qualified.opus.encoder",ShadowMediaCodec.CodecConfig(4096,1275) { input, out ->
+            convertedPcm.add(ByteArray(input.remaining()).also { input.get(it) })
             out.put(byteArrayOf(0x98.toByte(),0x33))
         })
         AndroidMicrophoneExperimentQualificationTest.captureReads.clear()
@@ -152,6 +161,9 @@ class CarPlayIndependentMicrophoneReceiverTest {
                 val bytes=packet.data.copyOf(packet.length)
                 assertArrayEquals(byteArrayOf(0x98.toByte(),0x33),AirPlayCrypto.chachaOpen(key,
                     ByteArray(4)+bytes.takeLast(8).toByteArray(),bytes.copyOfRange(12,bytes.size-8),bytes.copyOfRange(4,12)))
+                assertEquals(1920,convertedPcm.single().size)
+                val samples=ByteBuffer.wrap(convertedPcm.single()).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+                while(samples.hasRemaining()) assertEquals(1000,samples.get().toInt())
                 assertNull("Live independent uplink must not initialize normal recorder qualification",ReflectionHelpers.getField<Any?>(AndroidMicrophoneSupport,"configured"))
             } finally { uplink.close(); assertTrue(uplink.isRetired) }
         }
@@ -159,13 +171,16 @@ class CarPlayIndependentMicrophoneReceiverTest {
     @Test
     @Config(shadows=[com.shilapi.xcertplay.media.capture.StalledReleaseRecorder::class],
         instrumentedPackages=["com.shilapi.xcertplay.media.capture"])
-    fun independentCancellationRetainsPhysicalLeaseUntilReleaseReturns() {
+    fun independentCancellationRetainsPhysicalLeaseUntilReleaseReturns() = heldRelease(false)
+    @Test @Config(sdk=[32,34],shadows=[com.shilapi.xcertplay.media.capture.StalledReleaseRecorder::class],instrumentedPackages=["com.shilapi.xcertplay.media.capture"])
+    fun aaStyleCancellationRetainsPhysicalLeaseUntilActualRelease() = heldRelease(true)
+    private fun heldRelease(aaStyle:Boolean) {
         val fixture=com.shilapi.xcertplay.media.capture.StalledReleaseRecorder.install()
         val app=RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         AndroidMicrophoneSupport.initialize(app)
         val cap=MicrophoneCapability.of(mapOf("speechrecognition" to setOf(0x40L)))
-        val profile=CarPlayMicrophoneIndependentSelection().captureProfile()
+        val profile=if(aaStyle) CarPlayMicrophoneExperimentProfile(source=MicrophoneSource.VOICE_RECOGNITION,rate=CarPlayMicrophoneCaptureRate.HZ_16000,aaStyle=true) else CarPlayMicrophoneIndependentSelection().captureProfile()
         DatagramSocket(0,InetAddress.getLoopbackAddress()).use { udp ->
             fun config()=MicrophoneSupport.negotiate(cap,100,"speechrecognition",0x40L,
                 udp.localPort,480,udp.localAddress,ByteArray(32) { 1 })!!
@@ -220,8 +235,9 @@ class CarPlayIndependentMicrophoneReceiverTest {
             assertEquals(if (history=="NORMAL") null else actualOutputs,field(receiver,"outputAudioFormats"))
             val capability=field(receiver,"microphoneCapability") as MicrophoneCapability
             assertEquals("Preserve genuine normal offers; manual intersects actual outputs",if (history=="NORMAL") setOf(0x40L,0x20000000L) else setOf(0x40L),capability.bits("speechrecognition"))
-            if (history!="NORMAL") assertTrue("Manual VR48 history cannot admit automatic MIC24 default input it never qualified",capability.bits("default").isEmpty())
-            assertNull(field(receiver,"microphoneExperiment"))
+            if (history=="MANUAL_VR48_TWO") assertTrue("Manual VR48 history cannot admit automatic MIC24 default input it never qualified",capability.bits("default").isEmpty())
+            if (history=="AA_STYLE") assertTrue((field(receiver,"microphoneExperiment") as CarPlayMicrophoneExperimentProfile).aaStyle)
+            else assertNull(field(receiver,"microphoneExperiment"))
             CarPlayMicrophoneExperiments.disarm() // future owners only
             val ip=NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp }
                 .flatMap { it.inetAddresses.toList() }.filterIsInstance<Inet4Address>()
@@ -266,7 +282,7 @@ class CarPlayIndependentMicrophoneReceiverTest {
                 AndroidMicrophoneExperimentQualificationTest.captureReads.clear()
                 DatagramSocket(0,InetAddress.getLoopbackAddress()).use { udp ->
                     udp.soTimeout=3000
-                    if (history!="NORMAL") {
+                    if (history=="MANUAL_VR48_TWO") {
                         val defaultReply=request(session,"SETUP","/",mapOf("streams" to listOf(mapOf(
                             "type" to 100,"audioType" to "default","audioFormat" to 0x40L,
                             "spf" to 480,"streamConnectionID" to 7654L,"dataPort" to udp.localPort))))
@@ -310,10 +326,11 @@ class CarPlayIndependentMicrophoneReceiverTest {
             listOf("source","rate","channels").joinToString(":") { name -> Regex("$name=([A-Z_0-9]+)").find(it)!!.groupValues[1] }
         }
         assertEquals(if (history=="NORMAL") listOf("MIC:24000:1","MIC:48000:1","VOICE_RECOGNITION:24000:1",
-            "VOICE_RECOGNITION:48000:1","VOICE_RECOGNITION:48000:2") else List(9) { "VOICE_RECOGNITION:48000:2" },shapes)
+            "VOICE_RECOGNITION:48000:1","VOICE_RECOGNITION:48000:2") else List(9) { if(history=="AA_STYLE") "VOICE_RECOGNITION:16000:1" else "VOICE_RECOGNITION:48000:2" },shapes)
         assertEquals(1,AllRecorder.starts)
         val receiverOrdinal=Regex("receiver=([0-9]+)").find(creates.first())!!.groupValues[1]
-        assertTrue(ledgerLines.any { it=="media stage=microphone-control receiver=$receiverOrdinal history=${if (history=="NORMAL") "normal" else "manual-vr48-two"} live=${if (live=="VR24_MONO") "vr24-mono" else "vr48-two"}" })
+        if(history=="AA_STYLE") assertTrue(ledgerLines.any { "stage=microphone-acquisition path=aa-style" in it })
+        else assertTrue(ledgerLines.any { it=="media stage=microphone-control receiver=$receiverOrdinal history=${if (history=="NORMAL") "normal" else "manual-vr48-two"} live=${if (live=="VR24_MONO") "vr24-mono" else "vr48-two"}" })
         creates.zipWithNext().forEach { (before,after) ->
             val owner=Regex("owner=([0-9]+)").find(before)!!.groupValues[1]
             assertTrue(ledgerLines.indexOfFirst { "owner=$owner " in it && "action=released " in it } < ledgerLines.indexOf(after))

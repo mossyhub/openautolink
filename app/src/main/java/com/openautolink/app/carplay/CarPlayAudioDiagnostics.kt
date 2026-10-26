@@ -41,15 +41,16 @@ object CarPlayAudioDiagnostics {
         "media stage=playing-publication previous=(none|paused|playing) new=(none|paused|playing) active=true mode=(normal|suppress) owner=current",
         "media stage=microphone-owner receiver=$number owner=$number state=(release-pending|release-failed)",
         "media stage=microphone-retention receiver=$number final=$bool pending=([0-9]|1[0-2]) owners=([0-9]|1[0-2]) lost=$number",
-        "media stage=microphone-terminal receiver=$number owner=$number part=summary history=(normal|manual) profile=(default|experiment) source=$micRequestedSource captureRate=(24000|48000) captureChannels=(1|2) wireRate=(24000|48000) selection=(AVERAGE|FIRST|SECOND) reason=(cancelled|permission|failed|ineligible) state=released blocks=$number nonzeroBlocks=$number partialBytes=[0-9]{1,10} signal=(no-frames|zeros|nonzero) route=(unknown|same|changed|unavailable)",
+        "media stage=microphone-terminal receiver=$number owner=$number part=summary history=(normal|manual) profile=(default|experiment) source=$micRequestedSource captureRate=(16000|24000|48000) captureChannels=(1|2) wireRate=(24000|48000) selection=(AVERAGE|FIRST|SECOND) reason=(cancelled|permission|failed|ineligible) state=released blocks=$number nonzeroBlocks=$number partialBytes=[0-9]{1,10} signal=(no-frames|zeros|nonzero) route=(unknown|same|changed|unavailable)",
+        "media stage=microphone-terminal receiver=$number owner=$number part=acquisition path=aa-style source=VOICE_RECOGNITION captureRate=16000 captureChannels=1 wireRate=(24000|48000) ns=(enabled|disabled|unavailable|failed) agc=(enabled|disabled|unavailable|failed) aec=(enabled|disabled|unavailable|failed)",
         "media stage=microphone-terminal receiver=$number owner=$number part=(raw|converted) observed=$number scanned=$pcmCount tail=$number channels=(1|2) limit=2048 coverage=(full|prefix) $pcmChannels",
         "media stage=microphone-control receiver=$number history=(normal|manual-vr48-two) live=(vr24-mono|vr48-two)",
         "media stage=microphone-route scope=own routed=(unknown|[1-9]|[12][0-9]|3[0-2]) active=(unknown|[1-9]|[12][0-9]|3[0-2]) equality=(same|different|unknown) stability=(same|different|unknown) truncated=$bool",
         "media stage=microphone-mapping scope=own result=(ok|empty|unsupported|denied|unavailable) examined=[0-4] truncated=$bool",
         "media stage=microphone-channel scope=own row=[0-3] channel=(unknown|[0-7]) mapping=(direct|processed|unknown)",
         "media stage=audio-pcm stream=$number type=(100|101|102) audioType=(default|media|telephony|speechrecognition|alert|compatibility) codec=$codec purpose=(media|call|siri|ring|nav) phase=(decoded|accepted) event=(start|periodic|terminal) window=$number rate=(8000|16000|24000|32000|44100|48000) channels=(1|2) observed=$number scanned=$pcmCount tail=$number limit=2048 coverage=(full|prefix) $pcmChannels queueDrops=$number",
-        "media stage=microphone-pcm receiver=$number event=$ledgerEvent owner=$number boundary=(raw|converted) phase=(first|ended|released) rate=(24000|48000) channels=(1|2) observed=$number scanned=$pcmCount tail=$number limit=2048 coverage=(full|prefix) $pcmChannels",
-        "media stage=microphone-ledger receiver=$number event=$ledgerEvent owner=$number history=(manual|normal) kind=(receiver|probe|live) action=(snapshot|inputs|recorder-cache|encoder-cache|decoder-cache|create|buffer|validate|start|end|stop|release-begin|released|release-failed|retired|limit) result=(attempt|ok|failed|hit|miss|absent|blocked|cancelled|dropped) source=(NONE|MIC|VOICE_RECOGNITION|VOICE_COMMUNICATION) rate=(0|24000|48000) channels=[0-2] bytes=[0-9]{1,10} elapsedUs=$number",
+        "media stage=microphone-pcm receiver=$number event=$ledgerEvent owner=$number boundary=(raw|converted) phase=(first|ended|released) rate=(16000|24000|48000) channels=(1|2) observed=$number scanned=$pcmCount tail=$number limit=2048 coverage=(full|prefix) $pcmChannels",
+        "media stage=microphone-ledger receiver=$number event=$ledgerEvent owner=$number history=(manual|normal) kind=(receiver|probe|live) action=(snapshot|inputs|recorder-cache|encoder-cache|decoder-cache|create|buffer|validate|start|end|stop|release-begin|released|release-failed|retired|limit) result=(attempt|ok|failed|hit|miss|absent|blocked|cancelled|dropped) source=(NONE|MIC|VOICE_RECOGNITION|VOICE_COMMUNICATION) rate=(0|16000|24000|48000) channels=[0-2] bytes=[0-9]{1,10} elapsedUs=$number",
         "media stage=microphone-signal receiver=$number event=$ledgerEvent owner=$number blocks=$number nonzeroBlocks=$number partialBytes=[0-9]{1,10} reason=(cancelled|permission|failed|ineligible) phase=(ended|released) elapsedUs=$number",
         "CarPlay USB configuration found=$bool appleEthernet=$bool transitions=[01] decision=(reuse-descriptors|reuse-without-apple-ethernet|request-transition|reject-missing-configuration)",
         "CarPlay USB transition attempt=1 result=(accepted|rejected) fallback=$bool",
@@ -169,10 +170,11 @@ object CarPlayAudioDiagnostics {
         "media stage=bluetooth-observer scope=device owner=unknown enabled=$bool result=(attached|unavailable|disabled) epoch=$number",
         "media stage=media-control index=[1-5] outcome=(sent|failed)",
         "media stage=microphone-capture type=100 audioType=(default|telephony|speechrecognition) frames=$number nonzeroFrames=$number state=(1|3|unknown) ended=$bool",
-        "media stage=microphone-policy scope=own source=(MIC|VOICE_COMMUNICATION|VOICE_RECOGNITION) rate=(24000|48000) permission=(granted|denied|unknown) mute=(true|false|unknown) route=(builtin|wired|usb|bluetooth|other|none|unknown) silenced=(true|false|unknown) result=(ok|partial|unavailable)",
-        "media stage=microphone-config scope=own requested=$micRequestedSource rate=(24000|48000) recorder=($micObservedSources|unknown|unavailable) mode=(normal|ringtone|call|communication|unknown|unavailable) config=(present|absent|unavailable) client=($micObservedSources|$micMissing) active=($micObservedSources|$micMissing) clientRate=$micRate deviceRate=$micRate clientChannels=$micChannels deviceChannels=$micChannels clientEncoding=$micEncoding deviceEncoding=$micEncoding route=(builtin|wired|usb|bluetooth|bus|none|$micMissing)",
-        "media stage=microphone-effects scope=own source=$micRequestedSource rate=(24000|48000) chain=(client|capture) result=(ok|partial|truncated|absent|unavailable) examined=$micEffectCount truncated=$bool aec=(true|false|unknown) ns=(true|false|unknown) agc=(true|false|unknown) other=$micEffectCount",
-        "media stage=microphone-experiment source=(MIC|VOICE_RECOGNITION|VOICE_COMMUNICATION) captureRate=(24000|48000) captureChannels=(1|2) selection=(AVERAGE|FIRST|SECOND) wireRate=(24000|48000)",
+        "media stage=microphone-policy scope=own source=(MIC|VOICE_COMMUNICATION|VOICE_RECOGNITION) rate=(16000|24000|48000) permission=(granted|denied|unknown) mute=(true|false|unknown) route=(builtin|wired|usb|bluetooth|other|none|unknown) silenced=(true|false|unknown) result=(ok|partial|unavailable)",
+        "media stage=microphone-config scope=own requested=$micRequestedSource rate=(16000|24000|48000) recorder=($micObservedSources|unknown|unavailable) mode=(normal|ringtone|call|communication|unknown|unavailable) config=(present|absent|unavailable) client=($micObservedSources|$micMissing) active=($micObservedSources|$micMissing) clientRate=$micRate deviceRate=$micRate clientChannels=$micChannels deviceChannels=$micChannels clientEncoding=$micEncoding deviceEncoding=$micEncoding route=(builtin|wired|usb|bluetooth|bus|none|$micMissing)",
+        "media stage=microphone-effects scope=own source=$micRequestedSource rate=(16000|24000|48000) chain=(client|capture) result=(ok|partial|truncated|absent|unavailable) examined=$micEffectCount truncated=$bool aec=(true|false|unknown) ns=(true|false|unknown) agc=(true|false|unknown) other=$micEffectCount",
+        "media stage=microphone-experiment source=(MIC|VOICE_RECOGNITION|VOICE_COMMUNICATION) captureRate=(16000|24000|48000) captureChannels=(1|2) selection=(AVERAGE|FIRST|SECOND) wireRate=(24000|48000)",
+        "media stage=microphone-acquisition path=aa-style source=VOICE_RECOGNITION captureRate=16000 captureChannels=1 wireRate=(24000|48000) ns=(enabled|disabled|unavailable|failed) agc=(enabled|disabled|unavailable|failed) aec=(enabled|disabled|unavailable|failed)",
         "media stage=microphone-experiment-rejected codec=(AUTO|LPCM|OPUS) reason=no-qualified-input",
         "media stage=microphone-started type=100; uplink audibility unverified",
         "media stage=microphone-datagram-sent packets=$number; phone receipt unverified",
@@ -261,7 +263,7 @@ class CarPlayAudioDiagnosticReporter(
         if (terminal != null) {
             val receiver = terminal.groupValues[1].toLongOrNull()?.takeIf { it > 0 } ?: return
             val owner = terminal.groupValues[2].toLongOrNull()?.takeIf { it > 0 } ?: return
-            val bit = when (terminal.groupValues[3]) { "summary" -> 1; "raw" -> 2; "converted" -> 4; "release-pending" -> 8; else -> 16 }
+            val bit = when (terminal.groupValues[3]) { "summary" -> 1; "raw" -> 2; "converted" -> 4; "release-pending" -> 8; "acquisition" -> 32; else -> 16 }
             val admitted = synchronized(this) {
                 val key = receiver to owner
                 val seen = terminalOwners[key] ?: if (terminalOwners.size < 48) 0 else return@synchronized false
@@ -326,7 +328,7 @@ class CarPlayAudioDiagnosticReporter(
         const val MAX_EVENTS_PER_SECOND = 64
         private val retentionReceipt = Regex("media stage=microphone-retention receiver=([0-9]+) final=(true|false) pending=(?:[0-9]|1[0-2]) owners=(?:[0-9]|1[0-2]) lost=[0-9]{1,19}")
         private val ownerReceipt = Regex("^media stage=microphone-owner receiver=([0-9]+) owner=([0-9]+) state=(release-pending|release-failed)$")
-        private val terminalReceipt = Regex("^media stage=microphone-terminal receiver=([0-9]+) owner=([0-9]+) part=(summary|raw|converted) ")
+        private val terminalReceipt = Regex("^media stage=microphone-terminal receiver=([0-9]+) owner=([0-9]+) part=(summary|raw|converted|acquisition) ")
         private val ledgerReceipt = Regex("^media stage=microphone-(?:ledger|signal|pcm|owned) receiver=([0-9]+) event=([0-9]+) ")
         private val networkCompletionAttempt = Regex("^USB network stage=send-end attempt=([0-9]+) ")
         private val neighborReceipt = Regex("^USB network stage=nd-receipt receipt=([1-8]) ")

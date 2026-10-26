@@ -111,14 +111,14 @@ object AndroidMicrophoneSupport {
         return if (permissionGranted()) result else emptyMap()
     }
 
-    private fun qualifies(source: MicrophoneSource, rate: Int, channels: Int = 1): Boolean? {
+    private fun qualifies(source: MicrophoneSource, rate: Int, channels: Int = 1, aaStyle: Boolean = false): Boolean? {
         val observation = CaptureAcquisitionLedger.current.get()?.owner(CaptureAcquisitionLedger.Kind.PROBE, source, rate, channels)
         val lease = MicrophoneCaptureFence.tryNormal() ?: return null.also { observation?.event(Action.CREATE, Result.BLOCKED) }
         var record: AudioRecord? = null
         var valid = false
         try {
             observation?.event(Action.CREATE)
-            record = recorder(source, rate, channels, observation)
+            record = recorder(source, rate, channels, observation, aaStyle)
             valid = record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == rate &&
                 record.channelCount == channels && record.audioFormat == AudioFormat.ENCODING_PCM_16BIT
             observation?.event(Action.VALIDATE, if (valid) Result.OK else Result.FAILED)
@@ -146,7 +146,7 @@ object AndroidMicrophoneSupport {
             MicrophoneSupport.implementedBits.filter { bit ->
                 val wireRate = if (bit in MicrophoneSupport.pcmBits) 24000 else 48000
                 val converter = CarPlayMicrophonePcmConverter(profile, wireRate)
-                val valid = qualifies(source, converter.captureRate, converter.captureChannels)
+                val valid = qualifies(source, converter.captureRate, converter.captureChannels, profile.aaStyle)
                     ?: return MicrophoneCapability.NONE
                 valid && (bit in MicrophoneSupport.pcmBits || encoders.containsKey(bit))
             }.toSet()
@@ -158,11 +158,13 @@ object AndroidMicrophoneSupport {
         MicrophonePolicyDiagnostics.forRecorder(checkNotNull(context), record, source, rate, report)
 
     internal fun recorder(source: MicrophoneSource, sampleRate: Int = 48000, channels: Int = 1,
-        observation: CaptureAcquisitionLedger.Owner? = null): AudioRecord {
-        require(sampleRate in setOf(24000,48000) && channels in 1..2)
+        observation: CaptureAcquisitionLedger.Owner? = null, aaStyle: Boolean = false): AudioRecord {
+        require(if (aaStyle) source == MicrophoneSource.VOICE_RECOGNITION && sampleRate == 16000 && channels == 1
+            else sampleRate in setOf(24000,48000) && channels in 1..2)
         val app = checkNotNull(context)
         if (app.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             throw SecurityException("Microphone consent unavailable")
+        if (aaStyle) return AndroidAutoCapturePath.recorder()
         val mask = if (channels == 2) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
         val minimum = AudioRecord.getMinBufferSize(sampleRate, mask, AudioFormat.ENCODING_PCM_16BIT)
         require(minimum > 0)

@@ -60,6 +60,8 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
     private fun run() {
         var encoder: OpusEncoder? = null
         var capture: AudioRecord? = null
+        var aaEffects: AndroidAutoCapturePath.Effects? = null
+        var acquisitionReceipt: String? = null
         var transport: DatagramSocket? = null
 
         var capturedFrames = 0L
@@ -115,7 +117,8 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
                 convertedWindow = Pcm16Window(config.channels)
             }
             observation?.event(Action.CREATE)
-            val record = AndroidMicrophoneSupport.recorder(source, captureRate, captureChannels, observation)
+            if (profile?.aaStyle == true) android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            val record = AndroidMicrophoneSupport.recorder(source, captureRate, captureChannels, observation, profile?.aaStyle == true)
             capture = record
             require(record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == captureRate &&
                 record.channelCount == captureChannels && record.audioFormat == android.media.AudioFormat.ENCODING_PCM_16BIT)
@@ -128,6 +131,12 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
                 if (closed.get() || !AndroidMicrophoneSupport.permissionGranted()) return
                 recorder = record
                 record.startRecording()
+            }
+            if (profile?.aaStyle == true) {
+                aaEffects = AndroidAutoCapturePath.Effects(record.audioSessionId)
+                val effects = checkNotNull(aaEffects)
+                acquisitionReceipt = "media stage=microphone-acquisition path=aa-style source=VOICE_RECOGNITION captureRate=16000 captureChannels=1 wireRate=${config.sampleRate} ns=${effects.ns} agc=${effects.agc} aec=${effects.aec}"
+                report(checkNotNull(acquisitionReceipt))
             }
             observation?.event(Action.START, Result.OK)
             if (closed.get()) return
@@ -203,7 +212,9 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             runCatching { capture?.stop() }
             observation?.event(Action.RELEASE_BEGIN, if (capture == null) Result.ABSENT else Result.ATTEMPT)
             if (capture != null) observation?.let { captureLedger?.terminals?.releasePending(captureLedger.receiverOrdinal,it.ordinal) }
-            val captureReleased = runCatching { capture?.release() }.isSuccess
+            val recorderReleased = runCatching { capture?.release() }.isSuccess
+            val effectsReleased = aaEffects?.release() ?: true
+            val captureReleased = recorderReleased && effectsReleased
             if (!captureReleased) observation?.let { captureLedger?.terminals?.releaseFailed(captureLedger.receiverOrdinal,it.ordinal) }
             observation?.event(if (captureReleased) Action.RELEASED else Action.RELEASE_FAILED,
                 if (!captureReleased) Result.FAILED else if (capture == null) Result.ABSENT else Result.OK)
@@ -227,7 +238,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
                         if (ledger.manualHistory) CaptureTerminalSummary.History.MANUAL else CaptureTerminalSummary.History.NORMAL,
                         if (observedExperiment) CaptureTerminalSummary.Profile.EXPERIMENT else CaptureTerminalSummary.Profile.DEFAULT,
                         source, observedCaptureRate, raw.channels.size, config.sampleRate, observedSelection,
-                        termination, capturedFrames, nonzeroFrames, partialBytes, raw, converted))
+                        termination, capturedFrames, nonzeroFrames, partialBytes, raw, converted, acquisition=acquisitionReceipt))
                 }
                 captureLease?.release()
                 physicalOwner.compareAndSet(this, null)

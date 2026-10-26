@@ -14,7 +14,7 @@ class CaptureTerminalLogStore(context:Context, private val remove:(File)->Boolea
     fun save(summary:CaptureTerminalSummary):Boolean = synchronized(lock) {
         try {
             val lines=summary.lines()
-            require(lines.size==3 && lines.all { CarPlayAudioDiagnostics.sanitize(1,it)!=null })
+            require(lines.size in 3..4 && lines.all { CarPlayAudioDiagnostics.sanitize(1,it)!=null })
             val bytes=lines.joinToString("\n",postfix="\n").toByteArray(Charsets.UTF_8)
             require(bytes.size <= MAX_BYTES)
             val base=app.getExternalFilesDir(null) ?: return false

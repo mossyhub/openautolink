@@ -27,10 +27,11 @@ import java.util.concurrent.atomic.AtomicReference
  * Timer-based sampling at ~40ms intervals (~25 Hz), 512-sample circular reads.
  * Sample rate comes from mic_start control message (typically 16000 Hz).
  */
-class MicCaptureManager(private val sendMicFrame: (AudioFrame) -> Unit) {
+class MicCaptureManager(private val diagnostic: (String) -> Unit = {}, private val sendMicFrame: (AudioFrame) -> Unit) {
 
     companion object {
         private const val TAG = "MicCaptureManager"
+        private val owners = java.util.concurrent.atomic.AtomicLong()
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_ENCODING = AudioFormat.ENCODING_PCM_16BIT
         private const val SAMPLES_PER_READ = 512
@@ -144,12 +145,15 @@ class MicCaptureManager(private val sendMicFrame: (AudioFrame) -> Unit) {
         val readBuf = ByteArray(SAMPLES_PER_READ * 2) // 16-bit PCM = 2 bytes/sample
         var frameCount = 0L
         var silentFrameCount = 0L
+        val signal = AaMicSignal()
+        val owner = owners.incrementAndGet()
 
         try {
             while (capturing.get() && !Thread.currentThread().isInterrupted) {
                 val bytesRead = recorder.read(readBuf, 0, readBuf.size)
                 if (bytesRead > 0) {
                     frameCount++
+                    signal.read(readBuf, bytesRead)
 
                     // Calculate RMS to detect silence (check first few frames + periodic)
                     if (frameCount <= 5 || frameCount % 500 == 0L) {
@@ -167,6 +171,7 @@ class MicCaptureManager(private val sendMicFrame: (AudioFrame) -> Unit) {
                     )
                     sendMicFrame(frame)
                 } else if (bytesRead < 0) {
+                    signal.readError()
                     Log.w(TAG, "AudioRecord.read error: $bytesRead")
                     break
                 }
@@ -175,12 +180,14 @@ class MicCaptureManager(private val sendMicFrame: (AudioFrame) -> Unit) {
             // Expected on stop
         } finally {
             Log.i(TAG, "Mic capture ending: $frameCount frames captured, $silentFrameCount silent")
+            runCatching { diagnostic(signal.line(owner, sampleRate)) }
             releaseAudioEffects()
             try {
                 recorder.stop()
             } catch (_: IllegalStateException) {}
             recorder.release()
             captureReleased = true
+            runCatching { diagnostic("AA_MIC owner=$owner state=released") }
             audioRecord = null
             capturing.set(false)
         }
