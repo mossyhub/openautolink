@@ -79,7 +79,19 @@ class CarPlaySessionLeaseCoordinatorTest {
             runtime.started.waitFor()
             service.destroy()
             assertTrue("Loss must cancel an already-running runtime",runtime.finish.await(250,TimeUnit.MILLISECONDS))
-        } finally { runtime.allowClose.countDown(); owner.close(); eventually { runtime.closing.count == 0L } }
+        } finally {
+            runtime.allowClose.countDown()
+            val returned = CountDownLatch(1)
+            owner.returnToAndroidAuto { returned.countDown() }
+            // Runtime.close entry is not retirement: releaseAndAwait still dispatches
+            // exact foreground removal to Main. Finish it before Robolectric resets Main.
+            eventually { returned.count == 0L }
+            owner.close()
+        }
+        val diagnostic = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
+        try {
+            assertNotNull("Service-loss fixture must acknowledge its exact capture claim retirement", diagnostic)
+        } finally { diagnostic?.release() }
     }
 
     @Test fun canceledLateFactoryRetainsExactLeaseUntilItsRuntimeCloses() {
