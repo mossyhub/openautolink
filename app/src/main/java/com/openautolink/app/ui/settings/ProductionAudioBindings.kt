@@ -193,22 +193,23 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
         },
         microphoneMessage = microphoneMessage.ifBlank {
             when {
+                mic.retiring -> "Stopping microphone capture before reconnecting CarPlay."
                 !mic.permissionGranted -> "Allow microphone access for CarPlay calls and Siri."
-                mic.inputAdvertised == false -> "Reconnect CarPlay when not in a call to enable microphone input."
+                mic.reconnectRequired || mic.inputAdvertised == false -> "Reconnect CarPlay when not in a call to enable microphone input."
                 mic.baseReady && !mic.micReady -> "Open OpenAutoLink to enable background microphone access."
                 else -> ""
             }
         },
         microphoneAction = when {
-            micPermissionPending -> null
+            micPermissionPending || mic.retiring -> null
             !mic.permissionGranted -> "Enable microphone"
-            mic.inputAdvertised == false -> "Reconnect CarPlay"
+            mic.reconnectRequired || mic.inputAdvertised == false -> "Reconnect CarPlay"
             mic.baseReady && !mic.micReady -> "Enable microphone"
             else -> null
         },
         onMicrophoneAction = {
-            if (visible() && !micPermissionPending) {
-                if (currentMic.permissionGranted && currentMic.inputAdvertised == false) {
+            if (visible() && !micPermissionPending && !currentMic.retiring) {
+                if (currentMic.permissionGranted && (currentMic.reconnectRequired || currentMic.inputAdvertised == false)) {
                     if (com.openautolink.carplaylab.telecom.ManagedTelecomExperiment.get(application).hasAdmittedCall)
                         microphoneMessage = "Reconnect after the current call ends."
                     else onReconnectCarPlay()

@@ -238,7 +238,9 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
         private fun publishSnapshot() {
             val lease=leases.values.filter { !it.retired.get() && !it.lost.get() }.maxByOrNull { it.id }
             CarPlayMicrophoneSnapshots.mutable.value=lease?.let {
-                CarPlayMicrophoneSnapshot(it.base,it.captureAllowed(),it.permission,it.advertised,it.permissionRevoked.get() && it.mic)
+                CarPlayMicrophoneSnapshot(it.base,it.captureAllowed(),it.permission,it.advertised,
+                    retiring = it.permissionRevoked.get() && it.mic,
+                    reconnectRequired = it.permissionRevoked.get())
             } ?: CarPlayMicrophoneSnapshot()
         }
         private fun releaseExact(lease: Lease) {

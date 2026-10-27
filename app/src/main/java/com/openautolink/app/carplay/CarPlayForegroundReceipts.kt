@@ -37,6 +37,8 @@ data class CarPlayMicrophoneSnapshot(
     val permissionGranted: Boolean = false,
     val inputAdvertised: Boolean? = null,
     val retiring: Boolean = false,
+    /** This exact receiver's capture was permanently revoked; only a new owner can recover. */
+    val reconnectRequired: Boolean = false,
 )
 internal object CarPlayMicrophoneSnapshots {
     val mutable = MutableStateFlow(CarPlayMicrophoneSnapshot())
