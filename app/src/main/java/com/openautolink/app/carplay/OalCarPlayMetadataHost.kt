@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
 internal interface CarPlayMetadataHost : AutoCloseable {
+    fun mediaAvailability(ready:Boolean) {}
     fun start(): Boolean
     fun publish(media: CarPlayMediaMetadata?, navigation: CarPlayNavigationMetadata?, artwork: ByteArray?)
     /** Compatibility bridge for hosts that consume only instruction metadata. */
@@ -29,8 +30,13 @@ internal class OalCarPlayMetadataHost(private val context: Context,
     constructor(context: Context, receipt: (String) -> Unit, mediaCommand: (Int) -> Boolean) :
         this(context, receipt, null, mediaCommand)
     private val owner = Any()
+    @Volatile private var controlsReady=false
+    override fun mediaAvailability(ready:Boolean) {
+        controlsReady=ready
+        mediaManager?.setCarPlayMediaReady(owner,ready)
+    }
     private var cluster: ClusterManager? = null
-    private var mediaManager: OalMediaSessionManager? = null
+    @Volatile private var mediaManager: OalMediaSessionManager? = null
     private var previousMedia: CarPlayMediaMetadata? = null
     private var previousArt: ByteArray? = null
     private var previousNavigation: CarPlayNavigationMetadata? = null
@@ -61,6 +67,7 @@ internal class OalCarPlayMetadataHost(private val context: Context,
                     mediaCommand(index)
                 }
             }, onDiagnostic = receipt)
+            mediaManager?.setCarPlayMediaReady(owner,controlsReady)
             if (enabled) cluster = ClusterManager(context).also { it.setClusterEnabled(true) }
         }
         return true

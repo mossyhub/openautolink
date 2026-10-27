@@ -43,7 +43,7 @@ class CarPlayReceiverMediaControlTest {
     @Test fun commandUsesBoundedInputWorkerAndExactAuthenticatedSession() {
         val receiver=receiver();val session=mock(AirPlaySession::class.java);val sent=CountDownLatch(1)
         admit(receiver,session)
-        `when`(session.sendMedia(2)).thenAnswer { assertEquals("lab-media-input",Thread.currentThread().name);sent.countDown();true }
+        `when`(session.sendMedia(org.mockito.ArgumentMatchers.eq(2),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))).thenAnswer { assertEquals("lab-media-input",Thread.currentThread().name);sent.countDown();true }
         try {
             assertTrue(command(receiver,session,2));assertTrue(sent.await(3,TimeUnit.SECONDS))
             assertFalse(command(receiver,mock(AirPlaySession::class.java),2))
@@ -57,10 +57,10 @@ class CarPlayReceiverMediaControlTest {
         try {
             org.robolectric.Shadows.shadowOf(manager).setNextFocusRequestResponse(android.media.AudioManager.AUDIOFOCUS_REQUEST_FAILED)
             assertTrue(command(receiver,session,1));input.submit {}.get(3,TimeUnit.SECONDS)
-            verify(session,never()).sendMedia(1)
+            verify(session,never()).sendMedia(org.mockito.ArgumentMatchers.eq(1),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))
             org.robolectric.Shadows.shadowOf(manager).setNextFocusRequestResponse(android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
             assertTrue(command(receiver,session,1));input.submit {}.get(3,TimeUnit.SECONDS)
-            verify(session).sendMedia(1)
+            verify(session).sendMedia(org.mockito.ArgumentMatchers.eq(1),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))
         } finally { receiver.close();assertTrue(receiver.awaitClosed(3000)) }
     }
     @Test fun liveAssistantPlayForwardsTransportWithoutClaimingMediaGrant() {
@@ -77,10 +77,10 @@ class CarPlayReceiverMediaControlTest {
                 requireNotNull(com.shilapi.xcertplay.media.AudioOutputSupport.negotiate(0x4000L,100,"speechrecognition")),0)
             val assistant=shadow.lastAudioFocusRequest
             shadow.setNextFocusRequestResponse(android.media.AudioManager.AUDIOFOCUS_REQUEST_FAILED)
-            `when`(session.sendMedia(1)).thenReturn(true)
+            `when`(session.sendMedia(org.mockito.ArgumentMatchers.eq(1),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))).thenReturn(true)
             assertTrue(command(receiver,session,1));input.submit {}.get(3,TimeUnit.SECONDS)
             statuses.submit {}.get(3,TimeUnit.SECONDS)
-            verify(session).sendMedia(1)
+            verify(session).sendMedia(org.mockito.ArgumentMatchers.eq(1),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))
             assertSame("no conflicting media request",assistant,shadow.lastAudioFocusRequest)
             assertTrue(lines.contains("media stage=media-play-disposition result=deferred transport=permitted output=withheld"))
             assertFalse(lines.contains("media stage=media-focus-recovery reason=user-play result=permitted"))
@@ -107,9 +107,9 @@ class CarPlayReceiverMediaControlTest {
                 val assistant=start("speechrecognition")
                 val last=shadow.lastAudioFocusRequest
                 assertTrue(command(receiver,session,1));input.submit {}.get(3,TimeUnit.SECONDS)
-                verify(session).sendMedia(1)
+                verify(session).sendMedia(org.mockito.ArgumentMatchers.eq(1),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))
                 when(cancellation) {
-                    "stop" -> { assertTrue(command(receiver,session,2));input.submit {}.get(3,TimeUnit.SECONDS);verify(session).sendMedia(2) }
+                    "stop" -> { assertTrue(command(receiver,session,2));input.submit {}.get(3,TimeUnit.SECONDS);verify(session).sendMedia(org.mockito.ArgumentMatchers.eq(2),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true })) }
                     "replacement" -> admit(receiver,mock(AirPlaySession::class.java))
                     "revoke" -> receiver.revokePendingAdmission()
                 }
@@ -142,8 +142,8 @@ class CarPlayReceiverMediaControlTest {
             sink.onAudioStopped(assistant);start("media")
             assertSame("STOP must cancel before its HID worker can drain",last,shadow.lastAudioFocusRequest)
             release.countDown();input.submit {}.get(3,TimeUnit.SECONDS)
-            verify(session,times(1)).sendMedia(1)
-            verify(session).sendMedia(2)
+            verify(session,times(1)).sendMedia(org.mockito.ArgumentMatchers.eq(1),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))
+            verify(session).sendMedia(org.mockito.ArgumentMatchers.eq(2),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))
             assertSame("earlier queued PLAY cannot rearm intent after STOP",last,shadow.lastAudioFocusRequest)
         } finally { release.countDown();receiver.close();assertTrue(receiver.awaitClosed(3000)) }
     }
@@ -156,7 +156,7 @@ class CarPlayReceiverMediaControlTest {
             assertTrue(entered.await(3,TimeUnit.SECONDS));assertTrue(command(receiver,session,2))
             admit(receiver,mock(AirPlaySession::class.java));release.countDown()
             input.submit {}.get(3,TimeUnit.SECONDS)
-            verify(session,never()).sendMedia(anyInt())
+            verify(session,never()).sendMedia(anyInt(),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))
         } finally { release.countDown();receiver.close();assertTrue(receiver.awaitClosed(3000)) }
     }
     @Test fun diagnosticsAreFiniteBoundedDedupedNonblockingAndExactOwnerFenced() {
@@ -239,7 +239,7 @@ class CarPlayReceiverMediaControlTest {
             statuses.submit {}.get(3,TimeUnit.SECONDS)
             assertTrue(lines.contains("media stage=media-command-queue index=1 outcome=accepted reason=admitted"))
             assertTrue(lines.contains("media stage=media-focus-recovery reason=user-play result=denied"))
-            verify(session,never()).sendMedia(1)
+            verify(session,never()).sendMedia(org.mockito.ArgumentMatchers.eq(1),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))
             assertFalse(receiver.mediaCommand(session,9));statuses.submit {}.get(3,TimeUnit.SECONDS)
             assertTrue(lines.contains("media stage=media-command-queue index=0 outcome=declined reason=invalid-index"))
             val listener=field(receiver,"listener").get(receiver) as com.shilapi.xcertplay.airplay.AirPlaySessionListener
@@ -256,7 +256,7 @@ class CarPlayReceiverMediaControlTest {
             assertTrue(entered.await(3,TimeUnit.SECONDS));assertTrue(command(receiver,session,2))
             receiver.revokePendingAdmission();release.countDown()
             input.submit {}.get(3,TimeUnit.SECONDS)
-            verify(session,never()).sendMedia(anyInt())
+            verify(session,never()).sendMedia(anyInt(),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true }))
             assertFalse(command(receiver,session,2))
         } finally { release.countDown();receiver.close();assertTrue(receiver.awaitClosed(3000)) }
     }

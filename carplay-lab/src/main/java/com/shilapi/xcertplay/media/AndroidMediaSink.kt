@@ -80,6 +80,39 @@ class AndroidMediaSink(
     private val focusOwners = CarPlayFocusPurpose.entries.associateWith { FocusOwner(it) }
     private class MediaPlayAuthorization(val generation: Long, val current: () -> Boolean)
     private val mediaPlayGeneration = AtomicLong()
+    private val phoneResumeEpoch=AtomicLong()
+    private class PhoneResumePermit(val epoch:Long,val current:()->Boolean)
+    private val pendingPhoneResume=java.util.concurrent.atomic.AtomicReference<PhoneResumePermit?>()
+    fun phoneResumeGeneration():Long=phoneResumeEpoch.get()
+    fun cancelPhoneResume() { phoneResumeEpoch.incrementAndGet(); pendingPhoneResume.set(null) }
+    @Volatile private var communicationMode:Int?=runCatching { manager?.mode }.getOrNull()
+    @Volatile private var phoneInteractionBusy=false
+    private val communicationListener=AudioManager.OnModeChangedListener { mode ->
+        communicationMode=mode;cancelPhoneResume()
+    }
+    init { runCatching { manager?.addOnModeChangedListener(java.util.concurrent.Executor { it.run() },communicationListener) } }
+    fun phoneResumeEligible():Boolean = !closed.get() && !phoneInteractionBusy && !knownCommunicationBusy(communicationMode)
+    private fun knownCommunicationBusy(mode:Int?):Boolean = mode?.let {
+        it == AudioManager.MODE_IN_CALL || it == AudioManager.MODE_IN_COMMUNICATION || it == AudioManager.MODE_RINGTONE
+    } == true
+    private fun communicationBusy():Boolean = runCatching { manager?.mode }.getOrNull()?.let {
+        it == AudioManager.MODE_IN_CALL || it == AudioManager.MODE_IN_COMMUNICATION || it == AudioManager.MODE_RINGTONE
+    } == true // absence remains UNKNOWN, never evidence of a globally call-free vehicle
+    /** MEDIA-only, no HID and no other-purpose recovery or call-end stash. */
+    @Synchronized fun preparePhoneResume(current:()->Boolean):Boolean {
+        if (closed.get() || !current() || hasLiveInteraction() || communicationBusy()) return false
+        val permit=PhoneResumePermit(phoneResumeEpoch.get(),current)
+        if (trackPurposes.values.none { it == CarPlayFocusPurpose.MEDIA }) { pendingPhoneResume.set(permit);return true }
+        return consumePhoneResume(permit)
+    }
+    private fun consumePhoneResume(permit:PhoneResumePermit):Boolean {
+        fun current()=!closed.get() && permit.epoch==phoneResumeEpoch.get() && permit.current()
+        if (!current() || hasLiveInteraction() || communicationBusy()) return false
+        val media=focusOwners.getValue(CarPlayFocusPurpose.MEDIA)
+        media.blocked=true;media.volume=0f;media.mute="denied";applyFocus(media)
+        abandonFocus(media)
+        return requestFocus(media,"phone-resume",::current)
+    }
     private var deferredMediaStartGeneration: Long? = null
     private val pendingMediaPlay = java.util.concurrent.atomic.AtomicReference<MediaPlayAuthorization?>()
     private fun authorized(play: MediaPlayAuthorization) = !closed.get() &&
@@ -87,6 +120,7 @@ class AndroidMediaSink(
 
     /** PAUSE/STOP and owner retirement cancel intent without waiting for a platform call. */
     fun cancelPendingMediaPlay() {
+        cancelPhoneResume()
         mediaPlayGeneration.incrementAndGet()
         pendingMediaPlay.set(null)
     }
@@ -156,9 +190,12 @@ class AndroidMediaSink(
         if (owner.retiring != null) return false // Never overlap an unacknowledged predecessor.
         val revision = ++focusRevision
         owner.revision = revision
+        // Listener ingress is lock-free: a loss may arrive while Binder holds this monitor.
+        val restrictiveEvent=java.util.concurrent.atomic.AtomicInteger()
         val request = AudioFocusRequest.Builder(owner.purpose.gain)
             .setAudioAttributes(owner.purpose.attributes())
             .setOnAudioFocusChangeListener({ change ->
+                if (change < 0) restrictiveEvent.set(change)
                 synchronized(this) {
                     if (!closed.get() && owner.request != null && owner.revision == revision &&
                         owner.granted && !owner.blocked) {
@@ -190,14 +227,15 @@ class AndroidMediaSink(
             reportFocus(owner,reason,"closed")
             return false
         }
+        val restricted=restrictiveEvent.get()
         owner.granted = granted
-        owner.blocked = !granted
-        owner.volume = if (granted) 1f else 0f
-        owner.mute = if (granted) "unmuted" else "denied"
+        owner.blocked = !granted || restricted == AudioManager.AUDIOFOCUS_LOSS
+        owner.volume = when { !granted -> 0f; restricted == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> 0.2f; restricted < 0 -> 0f; else -> 1f }
+        owner.mute = when { !granted -> "denied"; restricted == AudioManager.AUDIOFOCUS_LOSS -> "permanent-loss"; restricted == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> "transient"; restricted < 0 -> "duck"; else -> "unmuted" }
         applyFocus(owner)
         report(if (granted) "media stage=audio-focus-granted" else "media stage=audio-focus-denied")
         reportFocus(owner,reason,if (granted) "granted" else "denied")
-        return granted
+        return granted && restricted >= 0
     }
     private fun reportMute(owner: FocusOwner, reason: String) {
         report("media stage=audio-mute reason=$reason revision=${owner.revision} volumePercent=${(owner.volume * 100).toInt()} mute=${owner.mute}")
@@ -302,7 +340,13 @@ class AndroidMediaSink(
     @Synchronized override fun onMicrophoneStopped(id: MicrophoneStreamId) {
         microphones.stop(id)
     }
-    @Synchronized override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
+    override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
+        if (CarPlayFocusPurpose.of(format)?.let { it != CarPlayFocusPurpose.MEDIA } == true) {
+            phoneInteractionBusy=true;cancelPhoneResume()
+        }
+        synchronized(this) { try { startAudioLocked(id,format,firstSample) } finally { phoneInteractionBusy=hasLiveInteraction() } }
+    }
+    private fun startAudioLocked(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
         if (closed.get() || !supportsAudio(format)) return
         require(format.channels in 1..2)
         val retiredPurposes = mutableSetOf<CarPlayFocusPurpose>()
@@ -332,6 +376,8 @@ class AndroidMediaSink(
                     owner.volume = 0f
                     owner.mute = "deferred"
                 }
+            } else if (purpose == CarPlayFocusPurpose.MEDIA && pendingPhoneResume.get()!=null) {
+                pendingPhoneResume.getAndSet(null)?.let { consumePhoneResume(it) }
             } else if (purpose == CarPlayFocusPurpose.MEDIA && pendingMediaPlay.get() != null) {
                 requestAuthorizedMedia(owner)
             } else if (owner.recoveryAuthorized) {
@@ -369,8 +415,7 @@ class AndroidMediaSink(
     @Synchronized fun prepareUserPlay(current: () -> Boolean = { true }): CarPlayPlayDisposition {
         val media = focusOwners.getValue(CarPlayFocusPurpose.MEDIA)
         if (closed.get() || !current()) { reportFocus(media,"user-play", "closed"); return CarPlayPlayDisposition.CLOSED }
-        val disposition = if (media.request != null && !media.blocked &&
-            (media.volume > 0f || hasLiveInteraction())) {
+        val disposition = if (hasLiveInteraction() && media.request != null && !media.blocked) {
             reportFocus(media,"user-play", "retained")
             if (media.volume > 0f) CarPlayPlayDisposition.RETAINED else CarPlayPlayDisposition.INTERRUPTED
         } else if (hasLiveInteraction()) {
@@ -424,7 +469,12 @@ class AndroidMediaSink(
         if (trackPurposes[id] != CarPlayFocusPurpose.MEDIA) onAudioStopped(id)
     }
 
-    @Synchronized override fun onAudioStopped(id: AudioStreamId) {
+    override fun onAudioStopped(id: AudioStreamId) {
+        // Stream retirement invalidates metadata permission before waiting for a stalled focus call.
+        cancelPhoneResume()
+        synchronized(this) { try { stopAudioLocked(id) } finally { phoneInteractionBusy=hasLiveInteraction() } }
+    }
+    private fun stopAudioLocked(id: AudioStreamId) {
         tracks[id]?.let { old -> old.close(); if (old.isRetired) tracks.remove(id, old) }
         val purpose = trackPurposes.remove(id) ?: return
         if (trackPurposes.values.none { it == purpose }) {
@@ -604,6 +654,7 @@ class AndroidMediaSink(
         videoThread.interrupt()
     }
     override fun close() {
+        runCatching { manager?.removeOnModeChangedListener(communicationListener) }
         cancelPendingMediaPlay()
         routeDiagnostics.close()
         presentation.close()

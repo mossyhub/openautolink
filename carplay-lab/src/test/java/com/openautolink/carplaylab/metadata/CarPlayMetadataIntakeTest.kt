@@ -5,6 +5,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CarPlayMetadataIntakeTest {
+    @Test fun explicitPlaybackPresenceComesOnlyFromFullyValidatedCurrentFrame() {
+        val intake=CarPlayMetadataIntake { 0L }.apply { authenticate() }
+        val getter=intake.javaClass.methods.firstOrNull { it.name=="getExplicitPlayback" }
+        assertNotNull("real intake must expose parsed playback presence independently of inherited snapshots",getter)
+        fun event()=getter!!.invoke(intake)
+        intake.handle(Iap2Messages.buildRaw(0x5001) { group(1) { u8(0,2) } })
+        assertNotNull(event())
+        intake.handle(Iap2Messages.buildRaw(0x5001) { group(0) { string(1,"Title") } })
+        assertNull("title-only is not playback evidence",event())
+        intake.handle(Iap2Messages.buildRaw(0x5001) { group(1) { u8(0,99) } })
+        val unknown=event(); assertNotNull(unknown)
+        assertNull(unknown!!.javaClass.getMethod("getPlaying").invoke(unknown))
+        intake.handle(Iap2Messages.buildRaw(0x5001) { group(1) { u8(0,1); u8(0,2) } })
+        assertNull("malformed frame supplies no authority",event())
+    }
+
     @Test fun changedOrEmptyCurrentInvalidatesImmediatelyAtEveryOwnershipAge() {
         for (age in listOf(0L, 30_000L, 119_999L)) {
             var now = 0L

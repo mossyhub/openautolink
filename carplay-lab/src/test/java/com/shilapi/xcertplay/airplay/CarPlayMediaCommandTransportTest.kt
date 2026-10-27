@@ -6,6 +6,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CarPlayMediaCommandTransportTest {
+    @Test fun mediaCommandRechecksCapturedOwnerAfterActualEventWriterMonitor() {
+        val session=AirPlaySession(Socket(),AirPlayConfig("test","id","mac","950.7.1",AirPlayDisplayConfig(800,480)),
+            AirPlayIdentity.generate(),PairingStore(),null,object:AirPlaySessionListener {},object:AirPlayMediaHandler {})
+        try {
+            val method=session.javaClass.methods.firstOrNull { it.name=="sendMedia" && it.parameterCount==2 }
+            assertNotNull("real media writer needs the original authority predicate",method)
+            ServerSocket(0).use { server -> Socket("127.0.0.1",server.localPort).use { phone -> server.accept().use { event ->
+                val key=ByteArray(32) { (it+1).toByte() }
+                field(session,"eventSocket").set(session,event);field(session,"eventCipher").set(session,ControlCipher(key,key))
+                val current=java.util.concurrent.atomic.AtomicBoolean(true)
+                val lock=field(session,"eventWriteLock").get(session)
+                var result:Any?=null
+                val writer=Thread { result=method!!.invoke(session,2,{current.get()}) }
+                synchronized(lock) {
+                    writer.start()
+                    val deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+                    while(writer.state!=Thread.State.BLOCKED && System.nanoTime()<deadline) Thread.yield()
+                    assertEquals(Thread.State.BLOCKED,writer.state)
+                    current.set(false)
+                }
+                writer.join(3000);assertFalse(writer.isAlive);assertEquals(false,result)
+                phone.soTimeout=100
+                assertTrue("revoked press cannot escape after the writer monitor",runCatching { phone.getInputStream().read() }.exceptionOrNull() is java.net.SocketTimeoutException)
+            } } }
+        } finally {session.close()}
+    }
+
     private fun field(session: AirPlaySession,name: String)=session.javaClass.getDeclaredField(name).apply { isAccessible=true }
     @Test fun mediaPressAndReleaseUseAdvertisedConsumerHidOverEncryptedCommandTransport() {
         val session=AirPlaySession(Socket(),AirPlayConfig("test","id","mac","950.7.1",AirPlayDisplayConfig(800,480)),

@@ -246,12 +246,16 @@ class SessionManager(
     }
 
     private fun adoptSessionOwnership(session: AasdkSession) {
-        synchronized(sessionStateLock) { aasdkSession = session }
+        synchronized(sessionStateLock) {
+            aasdkSession?.takeIf { it !== session }?.let { OalMediaSessionManager.instanceOrNull()?.retireAndroidAutoMedia(it) }
+            aasdkSession = session
+        }
     }
 
     /** Caller must hold [sessionStateLock]. */
     private fun revokeSessionOwnershipLocked(): AasdkSession? {
         val current = aasdkSession
+        if(current!=null) OalMediaSessionManager.instanceOrNull()?.retireAndroidAutoMedia(current)
         aasdkSession = null
         if (current != null) retiringAasdkSession = current
         return current ?: retiringAasdkSession
@@ -2809,6 +2813,9 @@ class SessionManager(
                     override fun onCommand(command: GmMediaControlPolicy.Command) {
                         routeMediaSessionCommand(command)
                     }
+                    override fun onCommandForOwner(command:GmMediaControlPolicy.Command,owner:Any,nativeGeneration:Long) {
+                        routeMediaSessionCommand(command,owner,nativeGeneration)
+                    }
                 }
             registerMuteStateReceiver()
             syncGmMuteState("controls-installed")
@@ -2816,12 +2823,15 @@ class SessionManager(
         }
     }
 
-    private fun routeMediaSessionCommand(command: GmMediaControlPolicy.Command) {
+    private fun routeMediaSessionCommand(command: GmMediaControlPolicy.Command, expectedOwner:Any?=null, expectedGeneration:Long=0) {
         val keyCode = GmMediaControlPolicy.keyCodeFor(command)
 
         val lifecycle = lifecycleGeneration
         val target = synchronized(sessionStateLock) {
-            aasdkSession?.let { it to it.currentNativeSessionGeneration() }
+            aasdkSession?.takeIf { expectedOwner==null || it===expectedOwner }?.let {
+                val generation=it.currentNativeSessionGeneration()
+                if(expectedOwner!=null && generation!=expectedGeneration) null else it to generation
+            }
         }
         if (target == null || target.second == 0L) {
             OalLog.i(
@@ -3250,6 +3260,7 @@ class SessionManager(
             }
             when (message) {
             is ControlMessage.PhoneConnected -> {
+                OalMediaSessionManager.instanceOrNull()?.setAndroidAutoMediaReady(sourceSession,sourceSession.currentNativeSessionGeneration())
                 _remoteDiagnostics?.log(DiagnosticLevel.INFO, "session", "Phone connected: ${message.phoneName}")
                 resetLatchedVehicleSensorState("phone_connected")
                 seedCurrentUiNightMode("phone_connected")
@@ -3285,6 +3296,7 @@ class SessionManager(
                 lastVideoFrameArrivedMs = SystemClock.elapsedRealtime() + VIDEO_STALL_WARMUP_MS
             }
             is ControlMessage.PhoneDisconnected -> {
+                OalMediaSessionManager.instanceOrNull()?.retireAndroidAutoMedia(sourceSession)
                 _remoteDiagnostics?.log(DiagnosticLevel.INFO, "session", "Phone disconnected: ${message.reason}")
                 _gnssForwarder?.stop()
                 detachProcessVehicleSession()

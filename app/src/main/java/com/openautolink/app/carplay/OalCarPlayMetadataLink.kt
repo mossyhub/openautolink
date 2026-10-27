@@ -14,7 +14,9 @@ internal class OalCarPlayMetadataLink(
     private val receipt: (String) -> Unit,
     private val host: CarPlayMetadataHost? = null,
 ) : RuntimeMetadataLink {
+    @Volatile var capturePlaybackObservation: () -> ((Boolean?) -> Unit)? = { null }
     private val intake = CarPlayMetadataIntake(elapsedMs).apply { onDiagnostic = receipt }
+    override fun mediaAvailability(ready:Boolean) { if (!retired.get()) host?.mediaAvailability(ready) }
     private val retired = AtomicBoolean()
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "oal-carplay-metadata").apply { isDaemon = true } }
     private var scheduled = false
@@ -31,7 +33,9 @@ internal class OalCarPlayMetadataLink(
     }
     @Synchronized override fun handle(frame: Iap2Frame): Boolean {
         if (retired.get()) return frame.messageId in setOf(0x5001,0x5201,0x5202)
+        val observation=if(authenticated) capturePlaybackObservation() else null
         val handled = intake.handle(frame)
+        intake.explicitPlayback?.let { observation?.invoke(it.playing) }
         if (handled && authenticated) {
             accepted++
             if (accepted == 1L || accepted % 100 == 0L) receipt("carplay-metadata received=$accepted media=${intake.media != null} guidance=${intake.navigation != null} hostPublication=$published")
@@ -103,7 +107,7 @@ internal class OalCarPlayMetadataLink(
             }
         }
     }
-    override fun revoke() { retired.set(true); synchronized(this) { intake.revoke(); dirty = false } }
+    override fun revoke() { retired.set(true); host?.mediaAvailability(false); synchronized(this) { intake.revoke(); dirty = false } }
     override fun close() {
         revoke()
         worker.shutdown()

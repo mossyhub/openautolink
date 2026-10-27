@@ -11,13 +11,15 @@ import androidx.media.MediaBrowserServiceCompat
  *
  * Exposes the [MediaSessionCompat.Token] so AAOS system UI, cluster, and steering wheel
  * controls can discover and interact with the current playback session. The browse tree
- * is empty — we're a projection app, not a content library.
+ * exposes one live connected-phone entry, not an imported phone content library.
  */
 class OalMediaBrowserService : MediaBrowserServiceCompat() {
 
     companion object {
         private const val TAG = "OalMediaBrowser"
-        private const val EMPTY_ROOT_ID = "oal_empty_root"
+        const val ROOT_ID = "oal_media_root"
+        const val PHONE_FOLDER_ID = "oal_phone_audio"
+        const val PHONE_MEDIA_ID = "oal_phone_current"
 
         @Volatile
         var mediaSessionToken: MediaSessionCompat.Token? = null
@@ -69,11 +71,16 @@ class OalMediaBrowserService : MediaBrowserServiceCompat() {
         mediaSessionToken?.let { token ->
             setSessionToken(token)
         }
+        OalMediaSessionManager.getInstance(this).observeBrowse(this) {
+            notifyChildrenChanged(ROOT_ID)
+            notifyChildrenChanged(PHONE_FOLDER_ID)
+        }
         Log.d(TAG, "Service created")
     }
 
     override fun onDestroy() {
-        instance = null
+        if (instance === this) instance = null
+        OalMediaSessionManager.instanceOrNull()?.removeBrowseObserver(this)
         super.onDestroy()
     }
 
@@ -90,13 +97,13 @@ class OalMediaBrowserService : MediaBrowserServiceCompat() {
                 } catch (_: IllegalStateException) { }
             }
         }
-        return BrowserRoot(EMPTY_ROOT_ID, null)
+        return BrowserRoot(ROOT_ID, null)
     }
 
     override fun onLoadChildren(
         parentId: String,
         result: Result<MutableList<MediaBrowserCompat.MediaItem>>
     ) {
-        result.sendResult(mutableListOf())
+        result.sendResult(OalMediaSessionManager.getInstance(this).browseChildren(parentId))
     }
 }

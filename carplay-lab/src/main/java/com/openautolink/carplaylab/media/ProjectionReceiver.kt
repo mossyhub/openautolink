@@ -271,7 +271,7 @@ class ProjectionReceiver(
         }
         override fun onSessionActive(session: AirPlaySession) {
             if (closed.get() || session !in sessions || (active != null && active !== session)) return
-            active = session; status("media stage=record-active; rendering unverified")
+            active = session; runtimeMetadata[session]?.mediaAvailability(currentMediaOwner(session)); status("media stage=record-active; rendering unverified")
         }
         override fun onSessionEnded(session: AirPlaySession) {
             peerAdmission?.release(session)
@@ -512,6 +512,7 @@ class ProjectionReceiver(
                     carData?.authenticate()
                     metadata?.authenticate()
                     runtimeReady = true
+                    metadata?.mediaAvailability(currentMediaOwner(session))
                     incoming = telecomExperiment.authenticatedLink(
                         controlSender = { command, fence -> queuePhoneControl(session, command, fence) },
                         rejectSender = { fence -> queueReject(session, channel, fence) },
@@ -532,6 +533,7 @@ class ProjectionReceiver(
                     val replyPolicy = com.openautolink.carplaylab.WirelessReplyPolicy()
                     while (!closed.get() && !channel.isClosed && !session.isClosed) {
                         carData?.tick(session.encryptedEventReady)
+                        metadata?.mediaAvailability(currentMediaOwner(session))
                         metadata?.tick()
                         val frame = channel.recv(carData?.pollTimeout(1000) ?: 1000)
                         if (frame != null) {
@@ -571,6 +573,7 @@ class ProjectionReceiver(
                 }
                 finally {
                     if (runtimeOwner === session) runtimeReady = false
+                    metadata?.mediaAvailability(false)
                     incoming?.close()
                     if (incoming?.awaitClosed(0) == true) runtimeIncoming.remove(session, incoming)
                     metadata?.close()
@@ -606,6 +609,69 @@ class ProjectionReceiver(
         } catch (_: RejectedExecutionException) { false }
     }
     private val mediaPlayEpoch = java.util.concurrent.atomic.AtomicLong()
+    class MediaRecoveryStamp internal constructor(
+        internal val session:AirPlaySession, internal val commandEpoch:Long, internal val experimentEpoch:Long,
+        internal val ingressMs:Long, internal val sinkEpoch:Long, internal val selected:()->Boolean)
+    private val recoveryLock=Any()
+    private var recoveryOwner:AirPlaySession?=null
+    private var recoveryExperiment=Long.MIN_VALUE
+    private var recoveryCommand=Long.MIN_VALUE
+    private var recoverySink=Long.MIN_VALUE
+    private var lastExplicitPlayback:Boolean?=null
+    private val playbackRevision=java.util.concurrent.atomic.AtomicLong()
+    private data class ResumeCandidate(val stamp:MediaRecoveryStamp,val revision:Long)
+    private val resumeCandidate=java.util.concurrent.atomic.AtomicReference<ResumeCandidate?>()
+    private val resumeDrain=java.util.concurrent.atomic.AtomicBoolean()
+    /** Nonblocking authority capture BEFORE parse. No platform work or metadata inference. */
+    fun captureMediaRecoveryStamp(session:AirPlaySession, experimentEpoch:Long, selected:()->Boolean):MediaRecoveryStamp? {
+        val commandEpoch=mediaPlayEpoch.get()
+        val sinkEpoch=sink.phoneResumeGeneration()
+        val ingressMs=android.os.SystemClock.elapsedRealtime()
+        if (!currentMediaOwner(session) || !sink.phoneResumeEligible() || !selected() ||
+            commandEpoch!=mediaPlayEpoch.get() || sinkEpoch!=sink.phoneResumeGeneration()) return null
+        return MediaRecoveryStamp(session,commandEpoch,experimentEpoch,ingressMs,sinkEpoch,selected)
+    }
+    private fun recoveryCurrent(stamp:MediaRecoveryStamp):Boolean = currentMediaOwner(stamp.session) &&
+        stamp.commandEpoch==mediaPlayEpoch.get() && stamp.sinkEpoch==sink.phoneResumeGeneration() &&
+        android.os.SystemClock.elapsedRealtime()-stamp.ingressMs in 0..5000 && stamp.selected()
+    /** Constant space event channel, deliberately independent of display coalescing. */
+    fun offerPhonePlaybackObservation(session:AirPlaySession, playing:Boolean?, stamp:MediaRecoveryStamp):Boolean {
+        if (stamp.session !== session || !recoveryCurrent(stamp)) return false
+        synchronized(recoveryLock) {
+            if (stamp.commandEpoch!=mediaPlayEpoch.get()) return false
+            if (recoveryOwner !== session || recoveryExperiment!=stamp.experimentEpoch || recoveryCommand!=stamp.commandEpoch || recoverySink!=stamp.sinkEpoch) {
+                recoveryOwner=session;recoveryExperiment=stamp.experimentEpoch;recoveryCommand=stamp.commandEpoch;recoverySink=stamp.sinkEpoch
+                lastExplicitPlayback=null;resumeCandidate.set(null)
+            }
+            val previous=lastExplicitPlayback
+            lastExplicitPlayback=playing
+            if (playing != true) {
+                playbackRevision.incrementAndGet();resumeCandidate.set(null)
+            } else if (previous == false) {
+                resumeCandidate.set(ResumeCandidate(stamp,playbackRevision.incrementAndGet()))
+            }
+        }
+        if (resumeCandidate.get()!=null) scheduleResumeDrain()
+        return true
+    }
+    private fun scheduleResumeDrain() {
+        if (!resumeDrain.compareAndSet(false,true)) return
+        try { input.execute {
+            try {
+                while (true) {
+                    val candidate=resumeCandidate.getAndSet(null) ?: break
+                    fun current()=candidate.revision==playbackRevision.get() && recoveryCurrent(candidate.stamp)
+                    if (current()) sink.preparePhoneResume(::current)
+                }
+            } finally {
+                resumeDrain.set(false)
+                if (resumeCandidate.get()!=null) scheduleResumeDrain()
+            }
+        } } catch (_:RejectedExecutionException) {
+            resumeCandidate.set(null);playbackRevision.incrementAndGet();resumeDrain.set(false);sink.cancelPhoneResume()
+        }
+    }
+
     /** Source-qualified communications EndCall(action0). Separate from active-call HID Drop. */
     private fun queueReject(session: AirPlaySession, channel: Iap2Session, commandCurrent: () -> Boolean): Boolean {
         fun current() = currentMediaOwner(session) && tunnels[session] === channel && commandCurrent()
@@ -626,13 +692,15 @@ class ProjectionReceiver(
     }
     /** Queue only for the exact authenticated metadata owner; queue admission is not phone receipt. */
     fun mediaCommand(session: AirPlaySession, index: Int): Boolean {
-        val playEpoch = mediaPlayEpoch.get()
-        fun current() = currentMediaOwner(session) && (index != 1 || playEpoch == mediaPlayEpoch.get())
         if (index !in 1..5) { commandQueue(0, "declined", "invalid-index"); return false }
-        if (!current()) { commandQueue(index, "declined", "stale-owner"); return false }
+        if (!currentMediaOwner(session)) { commandQueue(index, "declined", "stale-owner"); return false }
+        val playEpoch = if (index==1 || index==2) mediaPlayEpoch.incrementAndGet() else mediaPlayEpoch.get()
+        fun current() = currentMediaOwner(session) && (index != 1 || playEpoch == mediaPlayEpoch.get())
+        if (index == 1 || index == 2) {
+            playbackRevision.incrementAndGet();resumeCandidate.set(null);sink.cancelPhoneResume()
+        }
         if (index == 2) {
             // Cancel intent at ingress even if the bounded HID worker is blocked/full.
-            mediaPlayEpoch.incrementAndGet()
             sink.cancelPendingMediaPlay()
         }
         return try {
@@ -650,7 +718,7 @@ class ProjectionReceiver(
                     if (!live || disposition.outputPermitted || !disposition.transportPermitted)
                         status("media stage=media-focus-recovery reason=user-play result=${if (!live) "stale-owner" else if (disposition.outputPermitted) "permitted" else "denied"}")
                 }
-                val sent = (disposition?.transportPermitted != false) && current() && session.sendMedia(index)
+                val sent = (disposition?.transportPermitted != false) && current() && session.sendMedia(index,::current)
                 status("media stage=media-control index=$index outcome=${if (sent) "sent" else "failed"}")
             }
             commandQueue(index, "accepted", "admitted")

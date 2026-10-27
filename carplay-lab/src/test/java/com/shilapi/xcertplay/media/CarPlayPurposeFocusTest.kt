@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
 
 /** Real production sink/track owners and listeners; only the OS focus boundary is mocked. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk=[32], manifest=Config.NONE)
+@Config(sdk=[32,34], manifest=Config.NONE)
 class CarPlayPurposeFocusTest {
     private class Fixture : AutoCloseable {
         val status = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -64,6 +64,27 @@ class CarPlayPurposeFocusTest {
             listener.onAudioFocusChange(value)
         }
         override fun close() { sink.close(); assertTrue(sink.awaitRetired(3000)) }
+    }
+
+    @Test fun explicitPlayRefreshesAnOtherwiseStalePositiveMediaGrantOnce() = Fixture().use { f ->
+        val media=f.start("media")
+        val old=f.requests.single()
+        assertTrue(f.sink.requestFocusForUserPlay())
+        assertEquals("OEM Play must refresh even an old logical positive grant",2,f.requests.size)
+        assertSame(old,f.abandoned.single())
+        f.change(old,AudioManager.AUDIOFOCUS_GAIN)
+        f.response=AudioManager.AUDIOFOCUS_REQUEST_FAILED
+        assertFalse(f.sink.requestFocusForUserPlay())
+        assertEquals(3,f.requests.size)
+        assertEquals(0f,f.volume(media),0f)
+        f.sink.onAudioRtp(media,requireNotNull(AudioOutputSupport.negotiate(0x4000L,100,"media")),byteArrayOf(),0)
+        assertEquals("packets do not retry",3,f.requests.size)
+    }
+
+    @Test fun sameRequestLossDuringPlatformCallCannotBeOverwrittenByLateGrant() = Fixture().use { f ->
+        f.duringRequest={ f.change(f.requests.last(),AudioManager.AUDIOFOCUS_LOSS) }
+        val id=f.start("media")
+        assertEquals("a synchronous loss belongs to this request, not the previous grant",0f,f.volume(id),0f)
     }
 
     @Test fun deniedMediaDoesNotPoisonCallOrGetClearedByItsGrant() = Fixture().use { f ->
@@ -319,26 +340,26 @@ class CarPlayPurposeFocusTest {
             f.response = AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             assertTrue(f.sink.requestFocusForUserPlay())
             repeat(3) { assertTrue(f.sink.requestFocusForUserPlay()) }
-            assertEquals("inactive nonmedia gets coalesced authorization, not an invented interaction/request",4,f.requests.size)
+            assertEquals("four explicit MEDIA refreshes; inactive nonmedia still gets only coalesced authorization",7,f.requests.size)
             // Deny these authorized attempts: each must consume only its own one-shot permission.
             f.response = AudioManager.AUDIOFOCUS_REQUEST_FAILED
             kinds.forEachIndexed { index,kind ->
                 val id = f.start(kind)
-                assertEquals("explicit PLAY permits the next real purpose request",5+index,f.requests.size)
+                assertEquals("explicit PLAY permits the next real purpose request",8+index,f.requests.size)
                 assertEquals(old[index].audioAttributes,f.requests.last().audioAttributes)
                 assertEquals(old[index].focusGain,f.requests.last().focusGain)
                 assertEquals(0f,f.volume(id),0f)
                 f.change(old[index],AudioManager.AUDIOFOCUS_GAIN)
                 repeat(4) { f.sink.onAudioStopped(id); f.start(kind) }
-                assertEquals("no renewed authorization on SETUP",5+index,f.requests.size)
+                assertEquals("no renewed authorization on SETUP",8+index,f.requests.size)
                 assertEquals(0f,f.volume(id),0f)
                 f.sink.onAudioStopped(id)
             }
             f.response = AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             assertTrue(f.sink.requestFocusForUserPlay())
-            assertEquals(7,f.requests.size)
+            assertEquals(11,f.requests.size)
             kinds.forEach { kind -> assertEquals(1f,f.volume(f.start(kind)),0f) }
-            assertEquals(10,f.requests.size)
+            assertEquals(14,f.requests.size)
         } }
     }
 
