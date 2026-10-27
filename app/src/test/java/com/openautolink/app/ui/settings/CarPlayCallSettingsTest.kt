@@ -78,6 +78,21 @@ class CarPlayCallSettingsTest {
         compose.onNodeWithTag("extraCarRingtone").assertDoesNotExist()
     }
 
+    @Test fun missingMicrophoneAndFrozenInputUseOneContextualActionWithoutArming() {
+        var invoked = 0
+        val bindings = bindings(CarPlayCallUiState(preferencesLoaded = true), mutableListOf()).copy(
+            microphoneMessage = "Reconnect CarPlay when not in a call to enable microphone input.",
+            microphoneAction = "Reconnect CarPlay", onMicrophoneAction = { invoked++ })
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            AudioMicrophoneSettings("car", {}, bindings)
+        } } }
+        compose.onNodeWithTag("carPlayMicrophoneStatus").assertExists()
+        compose.onNodeWithTag("carPlayMicrophoneAction").performScrollTo().performClick()
+        assertEquals(1, invoked)
+        compose.onNodeWithText("Arm").assertDoesNotExist()
+        compose.onNodeWithText("Save & Reconnect").assertDoesNotExist()
+    }
+
     @Test fun bluetoothPrerequisiteRemainsVisibleWhenSetupOrSaveFails() {
         val events = mutableListOf<String>()
         compose.setContent { MaterialTheme { Column {

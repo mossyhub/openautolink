@@ -11,7 +11,8 @@ import androidx.compose.ui.unit.dp
 
 /** Protocol scope is visible even when disconnected or projecting the other protocol. */
 @Composable
-internal fun AudioMicrophoneSettings(source: String, onSourceChange: (String) -> Unit) {
+internal fun AudioMicrophoneSettings(source: String, onSourceChange: (String) -> Unit,
+    bindings: AudioSettingsBindings? = null) {
     AudioSectionTitle("Microphone")
     AudioSectionTitle("Android Auto")
     Text("Assistant microphone", style = MaterialTheme.typography.titleMedium)
@@ -20,6 +21,12 @@ internal fun AudioMicrophoneSettings(source: String, onSourceChange: (String) ->
     AudioReadOnlyRow("Calls", "Car Bluetooth")
     AudioSectionTitle("CarPlay")
     AudioReadOnlyRow("Calls and Siri", "Car microphone")
+    if (!bindings?.microphoneMessage.isNullOrBlank()) Text(bindings!!.microphoneMessage,
+        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayMicrophoneStatus"))
+    bindings?.microphoneAction?.let { label ->
+        OutlinedButton(onClick = bindings.onMicrophoneAction,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("carPlayMicrophoneAction")) { Text(label) }
+    }
 }
 
 @Composable

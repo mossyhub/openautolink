@@ -41,7 +41,7 @@ fun AppNavHost(
     val settingsViewModel: SettingsViewModel = viewModel()
     val projectionViewModel: ProjectionViewModel = viewModel()
     val settingsScope = rememberCoroutineScope()
-    val audioBindings = com.openautolink.app.ui.settings.rememberProductionAudioBindings()
+    val audioBindings = com.openautolink.app.ui.settings.rememberProductionAudioBindings(projectionViewModel::reconnectCarPlay)
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val mediaActivity = androidx.compose.ui.platform.LocalContext.current as androidx.activity.ComponentActivity
     val mediaDiagnosticsViewModel = remember(mediaActivity) {

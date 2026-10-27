@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Production CarPlay calls and native Audio
+
+- Use the owner-tested CarPlay car-microphone acquisition package for normal calls and button-initiated Siri without diagnostic arming; preserve qualified wire formats, independent music/guidance output and acknowledged recorder/effect retirement.
+- Persist CarPlay/Car Bluetooth call handling and the extra-car-ringtone preference (Off by default), reuse the existing approved Android account, and provide one contextual setup flow for the remaining real Android approval. Supported incoming Answer/Reject/End are included; outgoing/held/conference features are not added.
+- Explicit CarPlay mode requires the iPhone disconnected from vehicle Bluetooth. Unknown Bluetooth status is not proof of disconnection and does not override the user's selected configuration; detected conflicts warn and block new OAL native calls. No automatic duplicate prevention, profile disconnection, seamless handover or global ringtone changes are promised.
+- Add native Audio source discovery, neutral phone-audio browsing/current-owner Play, correctly represented browser/session association and a shared Audio-screen launcher. Refresh stale focus on admitted native Play; keep automatic phone-resume recovery a separately labeled process-only default-Off diagnostic.
+- Add independently acknowledged media/connected-device foreground protection with optional legitimate microphone eligibility, exact service-loss/retirement handling and the same process MediaSession in the notification. A service upgrade is not live input-offer renegotiation or acoustic proof.
+- Make Audio settings concise, protocol-scoped and autosaved independently from video/display drafts. Apply Android Auto assistant microphone selection at its next capture without changing cellular HFP routing or an active recorder.
+- Add bounded media comparisons, finite historical state in the existing authorized manual diagnostic ZIP with File Logging Off, and explicit local SAF saving of the fixed media host's public APK files. No audio recordings, private app data or automatic vendor-binary uploads.
+- Preserve OpenAutoLink identity, signing/CI, existing USB defaults/consent and newer call/capture/Bluetooth/navigation safeguards. The combined change remains under software/artifact qualification; this entry is not a Play rollout or a universal restart/ignition/vehicle-success claim.
+
 ## 0.1.545 — Android Auto touch alignment, CarPlay setup and experimental diagnostics
 
 Includes all changes since public GitHub release 0.1.541, including the earlier Play-only 542–544 updates.

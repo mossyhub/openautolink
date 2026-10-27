@@ -55,12 +55,14 @@ private fun Context.audioActivity(): Activity? = when (this) {
 
 /** One owner above both Settings surfaces. Composition/resume only refresh; setup is explicit. */
 @Composable
-fun rememberProductionAudioBindings(): AudioSettingsBindings {
+fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioSettingsBindings {
     val context = LocalContext.current
     val application = context.applicationContext
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val controller = remember(application) { CarPlayCallController.get(application) }
     val state by controller.state.collectAsStateWithLifecycle()
+    val mic by com.openautolink.app.carplay.CarPlaySessionLeases.microphoneState.collectAsStateWithLifecycle()
+    val currentMic by rememberUpdatedState(mic)
     val currentState by rememberUpdatedState(state)
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -68,11 +70,25 @@ fun rememberProductionAudioBindings(): AudioSettingsBindings {
     var actionMessage by remember { mutableStateOf("") }
     var selectionGeneration by remember { mutableLongStateOf(0) }
     var pendingPermission by remember { mutableStateOf<Long?>(null) }
+    var microphoneMessage by remember { mutableStateOf("") }
+    var micPermissionPending by remember { mutableStateOf(false) }
+    var micPermissionGeneration by remember { mutableLongStateOf(0) }
+    var requestedMicGeneration by remember { mutableStateOf<Long?>(null) }
     fun visible() = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
         context.audioActivity()?.let { !it.isFinishing && !it.isDestroyed } == true
     fun stillSelected(generation: Long) = generation == selectionGeneration &&
         currentState.preferences?.handler == CarPlayCallPreferences.Handler.CARPLAY
 
+    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val generation = requestedMicGeneration
+        requestedMicGeneration = null; micPermissionPending = false
+        if (generation == micPermissionGeneration) {
+            com.openautolink.app.carplay.CarPlaySessionLeases.reconcile(application)
+            microphoneMessage = if (granted && currentMic.inputAdvertised == false)
+                "Reconnect CarPlay when not in a call to enable microphone input."
+            else if (!granted) "Microphone permission is needed for calls and Siri." else ""
+        }
+    }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val generation = pendingPermission
         pendingPermission = null
@@ -92,6 +108,7 @@ fun rememberProductionAudioBindings(): AudioSettingsBindings {
     DisposableEffect(controller, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) scope.launch {
+                microphoneMessage = ""
                 try { controller.prepare() }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { message = "Call setup could not be checked." }
@@ -101,6 +118,7 @@ fun rememberProductionAudioBindings(): AudioSettingsBindings {
         onDispose {
             lifecycle.removeObserver(observer)
             selectionGeneration++
+            micPermissionGeneration++
             pendingPermission = null
         }
     }
@@ -171,6 +189,38 @@ fun rememberProductionAudioBindings(): AudioSettingsBindings {
                 OalMediaHostLauncher.Result.REQUESTED -> "Vehicle Audio requested."
                 OalMediaHostLauncher.Result.UNAVAILABLE -> "Vehicle Audio is unavailable."
                 OalMediaHostLauncher.Result.DENIED -> "Vehicle Audio could not be opened."
+            }
+        },
+        microphoneMessage = microphoneMessage.ifBlank {
+            when {
+                !mic.permissionGranted -> "Allow microphone access for CarPlay calls and Siri."
+                mic.inputAdvertised == false -> "Reconnect CarPlay when not in a call to enable microphone input."
+                mic.baseReady && !mic.micReady -> "Open OpenAutoLink to enable background microphone access."
+                else -> ""
+            }
+        },
+        microphoneAction = when {
+            micPermissionPending -> null
+            !mic.permissionGranted -> "Enable microphone"
+            mic.inputAdvertised == false -> "Reconnect CarPlay"
+            mic.baseReady && !mic.micReady -> "Enable microphone"
+            else -> null
+        },
+        onMicrophoneAction = {
+            if (visible() && !micPermissionPending) {
+                if (currentMic.permissionGranted && currentMic.inputAdvertised == false) {
+                    if (com.openautolink.carplaylab.telecom.ManagedTelecomExperiment.get(application).hasAdmittedCall)
+                        microphoneMessage = "Reconnect after the current call ends."
+                    else onReconnectCarPlay()
+                } else {
+                    com.openautolink.app.carplay.CarPlaySessionLeases.requestMicrophone(application) {
+                        if (!micPermissionPending) {
+                            micPermissionPending = true
+                            requestedMicGeneration = ++micPermissionGeneration
+                            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                }
             }
         },
         actionMessage = actionMessage,

@@ -2262,7 +2262,7 @@ internal fun AudioTab(viewModel: SettingsViewModel, uiState: SettingsUiState, bi
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        AudioMicrophoneSettings(uiState.micSource, viewModel::updateMicSource)
+        AudioMicrophoneSettings(uiState.micSource, viewModel::updateMicSource, bindings)
         CarPlayCallSettings(bindings)
         AudioSectionTitle("Both")
         OutlinedButton(onClick = { bindings?.onOpenVehicleAudio?.invoke() }, enabled = bindings != null,

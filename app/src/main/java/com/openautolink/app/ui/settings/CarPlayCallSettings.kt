@@ -33,6 +33,9 @@ data class AudioSettingsBindings(
     val actionMessage: String = "",
     /** Cancels only a pending UI setup continuation; never account/call ownership. */
     val onCallSetupHidden: () -> Unit = {},
+    val microphoneMessage: String = "",
+    val microphoneAction: String? = null,
+    val onMicrophoneAction: () -> Unit = {},
 )
 
 @Composable
