@@ -1,5 +1,19 @@
 # OpenAutoLink App Screenshots
 
+## Current Audio settings and actual GM approval page
+
+- [Audio settings, landscape](Audio-Settings-Landscape.png): actual Compose UI rendered with Robolectric NativeGraphics, API 34, 1000×700 dp, OAL dark theme. The call setup state is an explicit test fixture, not a live account/vehicle approval claim.
+- [CarPlay call controls](Audio-Settings-CarPlay-Calls.png): same actual landscape render scrolled to handler, setup, extra ringtone Off and optional system shortcuts.
+- [Android Auto volume offsets, narrow / large text](Audio-Settings-Narrow-Volume.png): percentage values remain visible alongside wrapped labels.
+- [Audio settings, narrow / large text](Audio-Settings-Narrow-Large-Text.png): same implemented UI at 320×640 dp with 150% font scale; scroll and Back are exercised by the Compose test.
+- [GM Calling accounts](GM-Calling-Accounts-Redacted.jpg): actual owner photograph, cropped to remove system-status details and black-redacted over the private Bluetooth address. The historical account label is not retouched: production uses **OpenAutoLink**. Independent switches show Android account approval, not audio ownership.
+
+Generated app renders are not GM vehicle screenshots. No before-548 screenshot is available. The real GM image is not an emulator/mock. No raw private photograph or identifiers are published. See [calls and microphones](../phone-calls.md).
+
+## Historical screenshot archive
+
+The remaining screenshots below describe older app revisions, not current setup instructions. In particular, historical Bridge/Phones/call-quality controls are not current production Audio controls.
+
 Captured from the BlazerEV AAOS emulator (2400×960, Android 13 API 33).
 Emulator VHAL provides mock vehicle data for the Car diagnostics tab.
 

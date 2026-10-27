@@ -53,7 +53,7 @@ class TelecomPermissionUiTest {
             CompositionLocalProvider(LocalActivityResultRegistryOwner provides object : ActivityResultRegistryOwner {
                 override val activityResultRegistry = registry
             }) { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
-                if (visible) ManagedTelecomPanel()
+                if (visible) LegacyManagedTelecomPanel()
             } } }
         }
     }

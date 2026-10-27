@@ -129,25 +129,15 @@ private fun CustomCaptureControls(controller: MicrophoneDiagnosticController) {
 @Composable
 private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
     HorizontalDivider()
-    Text("CarPlay microphone experiment", style = MaterialTheme.typography.titleLarge)
+    Text("Advanced CarPlay microphone override", style = MaterialTheme.typography.titleLarge)
     val status = controller.liveStatus
-    val aaStyle = status.profile?.aaStyle == true
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Use Android Auto capture path (experimental)", Modifier.weight(1f))
-        Switch(checked = aaStyle, enabled = aaStyle || (!status.armed && controller.canArmLive),
-            onCheckedChange = { if (it) controller.armAaStyle() else controller.disarmLive() },
-            modifier = Modifier.testTag("mic-aa-style"))
-    }
-    Text(if (status.armed && !aaStyle) "AA-style unavailable: turn the existing manual/independent profile Off first."
-        else if (aaStyle) "AA-style acquisition selected. Turn Off before selecting a different profile."
-        else "Default off. Classic recognition 16 kHz mono, AA post-start effects. CarPlay wire format remains negotiated; not the AA protocol pipeline.", style = MaterialTheme.typography.bodySmall)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Live microphone profile")
+        Text("Advanced microphone override")
         Switch(checked = status.armed, enabled = status.armed || controller.canArmLive,
             onCheckedChange = { if (it) controller.armLive() else controller.disarmLive() },
             modifier = Modifier.testTag("mic-live-enabled"))
     }
-    Text(if (status.armed) "On · until Off or app restart" else "OFF · normal CarPlay defaults",
+    Text(if (status.armed) "Advanced override · until Off or app restart" else "Production capture · no override",
         Modifier.testTag("mic-live-status"), style = MaterialTheme.typography.titleMedium)
     Text("Apply on reconnect / new recorder only. An active recorder keeps its original profile.",
         style = MaterialTheme.typography.bodySmall)
@@ -157,7 +147,7 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
             style = MaterialTheme.typography.bodySmall)
     }
     val profile = controller.liveProfile
-    val enabled = !controller.busy && !aaStyle
+    val enabled = !controller.busy
     val independent = controller.independentSelection
     Text("Independent Siri lab · history and live capture", style = MaterialTheme.typography.titleMedium)
     Choices("Qualification history bundle · genuine order / offers",
@@ -176,7 +166,7 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
         else "Unsupported: manual VR48/two history never qualifies VR24 mono. Choose normal history or VR48 two; no extra recorder will be opened.",
         Modifier.testTag("mic-independent-admission"), style = MaterialTheme.typography.bodySmall)
     Text("Stop and await recorder/receiver retirement before applying a new profile. Nonzero levels do not prove understood speech.", style = MaterialTheme.typography.bodySmall)
-    Button(controller::armIndependentLive, enabled = controller.canArmIndependent && !aaStyle,
+    Button(controller::armIndependentLive, enabled = controller.canArmIndependent,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-independent-arm")) {
         Text("Apply independent profile · reconnect")
     }
@@ -203,14 +193,14 @@ private fun LiveExperimentControls(controller: MicrophoneDiagnosticController) {
     }
     Choices("Microphone codec negotiation preference", CarPlayMicrophoneCodec.entries.map { it to it.name },
         profile.codec, enabled, { "mic-live-codec-${it.name}" }) { controller.updateLiveProfile(profile.copy(codec = it)) }
-    Text("Phone selects the codec from qualified offers. Restricting offers may prevent connection. Off + reconnect restores defaults.",
+    Text("Phone selects the codec from qualified offers. Restricting offers may prevent connection. Off + reconnect restores production capture.",
         Modifier.testTag("mic-live-codec-note"), style = MaterialTheme.typography.bodySmall)
     Text("Actual negotiated codec is in manual Upload Logs. Caller audio and echo remain unverified.",
         style = MaterialTheme.typography.bodySmall)
-    Button(controller::armLive, enabled = controller.canArmLive && !aaStyle,
+    Button(controller::armLive, enabled = controller.canArmLive,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-arm")) { Text("Apply profile · reconnect") }
     OutlinedButton(controller::disarmLive,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-disarm")) { Text("Off · future recorders only") }
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-disarm")) { Text("Off · return to production capture") }
     OutlinedButton(controller::resetLive, enabled = enabled,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mic-live-reset")) { Text("Reset profile and turn off") }
 }

@@ -1,109 +1,54 @@
-# Phone calls in Android Auto and USB CarPlay on GM vehicles
+# Phone calls and microphones
 
-## USB CarPlay: two current audio setups
+## Android Auto — USB and wireless
 
-Connect using the [README USB steps](../README.md#usb-1), accepting the GM USB access, OAL local VPN and any iPhone Trust prompts. USB CarPlay does not require vehicle Bluetooth pairing or car Wi-Fi configuration. Keep **OAL selected as the car's media source** for either option below.
+- **USB:** select **Settings → Connection → Android Auto connection → USB**, save, and connect a data-capable cable. No companion is required. On GM, accept both USB access prompts on every connection.
+- **Wireless:** install the matching Android companion, select **Wireless (WPP)** in the car, configure the car hotspot and select the paired car in companion Auto-Start. See [WPP setup](wireless-wpp.md).
+- For **both**, pair the Android phone with the vehicle and keep Bluetooth **Phone calls ON**. USB carries projection, not cellular voice; native Bluetooth hands-free audio carries calls through the car microphone/speakers. Wireless Bluetooth also bootstraps the projection connection; that is separate from carrying call audio. Disabling Phone calls can therefore break calls and wireless startup.
+- **Settings → Audio → Android Auto → Assistant microphone → Car / Phone** controls the assistant only. Car is the fresh-install default; a saved Phone choice is preserved. Changes save automatically for the next microphone stream, without changing an active recorder. This selector does not route cellular calls or change CarPlay.
 
-### Option 1 — Leave vehicle Bluetooth unpaired
+## CarPlay — recommended unpaired USB
 
-Leave the iPhone unpaired from the vehicle and use USB CarPlay for normal music and navigation. This avoids the competing native Bluetooth media connection, but is **not a cabin-microphone fix**. **Car microphone input for calls/Siri is inconsistent: it works for some users, fails for others, and may work in one session but not the next—even on the same car. We are investigating; do not rely on it yet.** The maintainer has experienced both success and failure. This appears to be GM AAOS-specific microphone/routing weirdness that I’m still trying to pin down. Calls may instead use the iPhone; this is not a claim that every Bluetooth-free call uses the handset.
+1. Install OAL with your own [authorized authentication identity](carplay-private-mfi-assets.md). Select **Connection → CarPlay → USB**, then **Save & Reconnect** if changing the connection.
+2. Leave the iPhone **unpaired from vehicle Bluetooth**. Connect a data-capable USB cable; approve both GM access prompts each time, OAL's separate local VPN consent and any iPhone Trust prompt. USB needs no car Wi-Fi configuration.
+3. Keep **OpenAutoLink selected in vehicle Audio**; the shared **Settings → Audio → Both → Open OpenAutoLink in vehicle Audio** action requests that view on supported cars. A launch request is not proof the car selected the source.
+4. Open **Settings → Audio → CarPlay calls**. Leave **Call handling → CarPlay**, the fresh-install default, and **Extra car ringtone → Off** for CarPlay ringing without a second native ring.
+5. Tap **Set up calls**, allow Android's phone permission, turn on **OpenAutoLink** in **Calling accounts**, then return to OAL. The page rereads actual approval automatically. **Ready** requires permission, enabled account and safe call availability; a saved handler choice alone is not Ready. OAL cannot enable its own Android account for you.
 
-### Option 2 — Keep native calls with Phone ON / Media OFF
+No diagnostic Arm, profile, Apply or Save is required for normal calls or button-initiated Siri. Cabin capture still needs microphone permission. If permission was missing when input offers were frozen, grant it and explicitly reconnect when not in a call; OAL does not interrupt calls automatically. “Hey Siri” wake detection on the iPhone is a separate path from accessory-button/Maps Siri.
 
-The maintainer confirmed separate CarPlay music/navigation volume and working native hands-free calls during this setup's tested interval on a 2024 Chevrolet Blazer EV:
+**Upgrade:** an already approved OAL account keeps its identity; no repeated setup on every reconnect or mandatory visit to Audio. Audio/call preferences save independently of connection/video/display changes. Changing handler during an admitted call applies to the next call and does not hang up the current one. A failed preference write remains visible rather than reporting Saved.
 
-1. Keep the iPhone paired with the vehicle and **Phone calls ON**.
-2. In OAL, open **Settings → Connection → CarPlay → Android Bluetooth settings** using the button we added. It opens an alternate system Bluetooth screen on supported vehicles; OAL itself does not change profiles.
-3. For the connected iPhone, disable **Media audio** (the **music-note icon**). Leave **Phone calls ON**.
-4. Press the iPhone's **Bluetooth** button to disconnect, then reconnect it again.
-5. Return to OAL and keep **OAL selected** as the media source, not Bluetooth.
-6. Open the vehicle's native **Phone** app, tap its **Settings** gear, set **Active Call OFF** (“Show active call view when answering call”) and **Privacy ON** (“Only show call alerts in cluster”). These are display settings, separate from Bluetooth profiles.
+<img src="screenshots/GM-Calling-Accounts-Redacted.jpg" alt="Actual GM Calling accounts page with independent HFP and OAL account switches; Bluetooth address redacted" width="900">
 
-CarPlay carries music and navigation on separate volume paths; native Bluetooth HFP carries the call microphone and speakers. The owner-reported successful calls are real, but do not prove every vehicle, reconnect or Siri path works.
+*Actual owner GM photograph, cropped and address-redacted. It shows the historical “OAL CarPlay incoming experiment” label; the production label is OpenAutoLink. Independent account switches are approval, not proof of same-phone audio ownership.*
 
-**GM may turn Media back on after you leave/wake the car.** If it does, or pausing returns, reopen **OAL → Settings → Connection → CarPlay → Android Bluetooth settings**, turn Media OFF again, disconnect/reconnect using the Bluetooth button, then return to OAL. Repeat when needed: this is a manual workaround, not automatic or proven durable policy preservation.
+### Alternative — Car Bluetooth calls
 
-### Older Bluetooth-selected fallback is not equivalent
+Select **Call handling → Car Bluetooth** in Audio. Pair the iPhone to the vehicle, keep **Phone calls ON / Media audio OFF**, then disconnect/reconnect that pairing using **Connection → CarPlay → Android Bluetooth settings** and return to OAL. Keep OAL as the media source for CarPlay music/navigation. The selector controls OAL's native-call integration; it does not itself reroute iPhone audio or alter Bluetooth profiles. OAL does not announce/control calls in this mode; Siri cabin capture remains independent. OAL account approval is not needed for this Bluetooth call path.
 
-Keeping Media ON and selecting Bluetooth with the steering-wheel audio-source button in the instrument cluster produced some working intervals, but later owner testing reproduced pauses. That route also shares music/navigation volume rather than preserving separate CarPlay volume. It is **not one of the two current recommendations** above. OAL cannot independently amplify guidance already mixed into the native Bluetooth media stream.
+GM may restore Media audio after leaving/waking the car. Repeat the manual Media OFF + disconnect/reconnect procedure if needed. Leaving Media ON and selecting Bluetooth in the cluster is not equivalent: it shares media/navigation volume and previously reproduced pauses.
 
-### Experimental microphone and native-call integration — not ready
+Wireless CarPlay remains a development option, not working in the maintainer's vehicle. Its Bluetooth enrollment/bootstrap is not a requirement for USB and does not itself prove a hands-free call route.
 
-These Diagnostics tools are attempts to make CarPlay better and more native, **not required for normal CarPlay or native HFP calls**:
+## Audio settings illustrations
 
-| Area | Current status |
-|---|---|
-| Cabin microphone / Siri | Car microphone input works for some users, fails for others and can change between sessions on the same car, including the maintainer's. We are investigating; do not rely on it yet. In a previously tested setup, “Hey Siri” used the iPhone microphone for wake detection and responses played through the car; accessory-button/in-app Siri is a separate input path, not proved by wake-phrase success. |
-| **Diagnostics → Microphone** | Optional local capture and Java/native AAudio comparisons; numeric results are not proof of caller audibility and do not repair routing. No audio recordings are saved or uploaded. |
-| **Diagnostics → Native CarPlay calls** | Experimental **Native call integration** and separate **Native Answer/End** controls. Not ready; native GM/cluster acceptance remains unverified. **Reject is unsupported**; decline on the iPhone or in CarPlay. |
-| Native account permission | Enabling that experiment may request Android's **READ_PHONE_NUMBERS** permission for OAL's own PhoneAccount readback and require Android account enablement. This is **not required for regular Bluetooth Phone calls/HFP** and does not grant microphone routing or cluster acceptance. |
-| Media-session experiments | Playing-status suppression and **INACTIVE** did not stop pausing in owner testing. INACTIVE can remove title/art; neither is a normal setup requirement. |
+<img src="screenshots/Audio-Settings-Landscape.png" alt="Implemented OAL Audio settings with separate Android Auto and CarPlay microphone scopes and no global Save action" width="800">
 
-Native-call integration choices last until **Off or app restart**; established choices survive leaving Diagnostics. Reconnect CarPlay after changing controls. The experiment does not replace the iPhone's cellular service or fix cabin audio. For local microphone collection, see the [microphone diagnostic guide](microphone-diagnostic.md).
+<img src="screenshots/Audio-Settings-CarPlay-Calls.png" alt="Implemented CarPlay call handling, setup, extra ringtone Off and optional Android settings actions" width="800">
 
-## Android Auto: native Bluetooth hands-free audio
+*Actual app Compose renders, not GM photographs; the setup state is a test fixture. [Narrow / large-text render and image provenance](screenshots/README.md#current-audio-settings-and-actual-gm-approval-page).*
 
-OpenAutoLink can keep Android Auto's incoming-call and in-call interface on the center display while the vehicle's native Bluetooth hands-free system carries microphone and speaker audio.
+## GM display preferences and limitations
 
-These are two separate paths:
+In the vehicle's native **Phone → Settings**, **Active Call OFF** (Show active call view when answering call) and **Privacy ON** (Only show call alerts in cluster) can keep the projected center screen visible. These are display preferences, not Bluetooth or OAL permission switches. Optional **Android call settings** and **Android sound settings** actions in Audio open system pages only; OAL does not change global call/sound settings.
 
-```text
-Call UI/control: Android Auto → OpenAutoLink input → phone call action
-Voice audio:     phone ↔ vehicle Bluetooth HFP/SCO ↔ microphone and speakers
-```
+The owner accepted build 548 calls, CarPlay Maps Siri, wheel Answer/Reject/End and native call presentation. Five released capture owners contained 3095/3095 nonzero raw blocks; those are not five independently qualified calls or a guarantee of every vehicle/restart/ignition cycle. Native presentation/control remains subject to Android authority and conservative Bluetooth coexistence checks; unknown ownership can withhold native integration while microphone/projection remain usable. Supported controls concern known single incoming calls, not outgoing/held/conference features. Keep **Extra car ringtone Off** for the accepted single-ring setup; turn it On only as a deliberate compatibility fallback if alerts disappear.
 
-## GM call privacy settings
+**Cluster caller names:** some GM consumers use the number/phonebook and discard the display name OAL supplies. Account approval does not repair that limitation.
 
-Configure this once in the vehicle's native **Phone** app:
+## Verify while parked
 
-> **Phone → Settings → Active Call OFF → Privacy ON**
+Test incoming Answer/Reject/End, both directions of speech, one ringtone, button-initiated Siri and return to music/navigation. Seeing call UI or nonzero samples alone does not prove the far-end caller hears the cabin microphone. Test a later reconnect separately. If calls lack audio, check the selected handler and the iPhone's actual audio route; for Bluetooth calls verify Phone calls remains enabled. If setup is unavailable, follow the one visible action or use the Bluetooth alternative rather than repeatedly toggling diagnostics.
 
-1. Open the native **Phone** app.
-2. Tap the **Settings** gear.
-3. Turn **Active Call** **OFF**. Its description is **“Show active call view when answering call.”**
-4. Turn **Privacy** **ON**. Its description is **“Only show call alerts in cluster.”**
-
-These settings keep native incoming-call alerts in the cluster and stop the native active-call screen from replacing Android Auto on the center display.
-
-## Bluetooth setting that must remain enabled
-
-Keep the Bluetooth profile named **Phone calls** enabled for the phone.
-
-Do not confuse it with the two display settings above. The Bluetooth profile:
-
-- carries the vehicle's hands-free call audio;
-- uses the vehicle microphone and speakers;
-- keeps the Bluetooth link required to start Wireless WPP on Android Auto 17.4+.
-
-Disabling **Phone calls** can break both voice audio and wireless projection startup.
-
-Bluetooth **Media audio** is separate and may be disabled when it competes with Android Auto media playback.
-
-## End-to-end verification
-
-A complete call test must show all of these:
-
-1. Incoming-call UI appears inside Android Auto while projection stays foreground.
-2. Android Auto's **Answer** control changes the phone from ringing to active.
-3. Projected mute/keypad/end controls remain usable.
-4. Caller audio is heard through the vehicle speakers.
-5. The vehicle microphone reaches the caller.
-6. The native Phone app does not take over the center display.
-7. Ending the call returns cleanly to the previous projected screen.
-
-Seeing Android Auto answer the call does not by itself prove which path carries voice audio. The expected GM/OpenAutoLink topology uses native Bluetooth HFP/SCO for voice.
-
-## If the native Phone app still takes over
-
-- Recheck **Active Call OFF** and **Privacy ON** inside the native Phone app.
-- Confirm you changed the Phone-app display settings, not the phone pairing's Bluetooth profiles.
-- Restart the native Phone app or the head unit after changing the settings.
-- Record the exact vehicle, AAOS version, incoming/answered state, and which screen appeared.
-
-## If controls work but voice does not
-
-- Confirm Bluetooth **Phone calls** is enabled.
-- Confirm the phone shows the vehicle as the current call-audio route.
-- Test both directions of audio.
-- Re-pair Bluetooth if the HFP profile is absent or unstable.
-- Do not diagnose the projected UI as the audio transport; they are independent.
+Advanced repair/status and numeric capture tools remain in [Diagnostics](microphone-diagnostic.md); they are not normal setup prerequisites.

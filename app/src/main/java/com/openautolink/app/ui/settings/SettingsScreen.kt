@@ -89,6 +89,7 @@ import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.transport.aasdk.GalProtocolPolicy
 import com.openautolink.app.ui.components.LocalEchoTextField
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
 import com.openautolink.app.ui.theme.OalUiScale
 
 // Standard MAC form aa:bb:cc:dd:ee:ff. gearhead rejects anything else
@@ -137,11 +138,12 @@ fun SettingsScreen(
     onNavigateToSafeAreaEditor: () -> Unit = {},
     onNavigateToCarPlaySafeAreaEditor: () -> Unit = {},
     activeProtocolStatus: String? = null,
+    audioBindings: AudioSettingsBindings? = null,
 ) {
     OalUiScale {
         SettingsScreenContent(viewModel, sessionState, onSaveAndConnect, onBack,
             onNavigateToDiagnostics, onNavigateToSafeAreaEditor,
-            onNavigateToCarPlaySafeAreaEditor, activeProtocolStatus)
+            onNavigateToCarPlaySafeAreaEditor, activeProtocolStatus, audioBindings)
     }
 }
 
@@ -155,11 +157,13 @@ private fun SettingsScreenContent(
     onNavigateToSafeAreaEditor: () -> Unit,
     onNavigateToCarPlaySafeAreaEditor: () -> Unit,
     activeProtocolStatus: String?,
+    audioBindings: AudioSettingsBindings?,
 ) {
     val uiState by viewModel.settingsState.collectAsStateWithLifecycle()
     val carPlaySaving by viewModel.carPlaySettingsSaving.collectAsStateWithLifecycle()
     val carPlayLoaded by viewModel.carPlaySettingsLoaded.collectAsStateWithLifecycle()
     val applyError by viewModel.carPlayApplyError.collectAsStateWithLifecycle()
+    val audioError by viewModel.audioSaveError.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableStateOf(SettingsTab.CONNECTION) }
 
     Surface(
@@ -193,8 +197,14 @@ private fun SettingsScreenContent(
                     onSaveAndConnect = onSaveAndConnect,
                     saving = carPlaySaving,
                     ready = carPlayLoaded,
+                    showSave = selectedTab != SettingsTab.AUDIO,
                 )
-                if (applyError.isNotEmpty()) {
+                if (selectedTab == SettingsTab.AUDIO && audioError.isNotEmpty()) {
+                    Text(audioError, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.testTag("audioSaveError"))
+                }
+                if (selectedTab != SettingsTab.AUDIO && applyError.isNotEmpty()) {
                     Text(applyError, color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.testTag("settingsApplyError"))
@@ -217,7 +227,7 @@ private fun SettingsScreenContent(
                             onNavigateToCarPlaySafeAreaEditor,
                         )
                         SettingsTab.VIDEO -> VideoTab(viewModel, uiState)
-                        SettingsTab.AUDIO -> AudioTab(viewModel, uiState)
+                        SettingsTab.AUDIO -> AudioTab(viewModel, uiState, audioBindings)
                         SettingsTab.INPUT -> InputTab(viewModel, uiState)
                         SettingsTab.EV -> EvEnergyModelTab()
                         SettingsTab.DIAGNOSTICS -> DiagnosticsSettingsTab(
@@ -288,6 +298,7 @@ private fun ConnectionStatusBar(
     onSaveAndConnect: () -> Unit,
     saving: Boolean,
     ready: Boolean,
+    showSave: Boolean,
 ) {
     val statusColor = if (activeProtocolStatus != null) MaterialTheme.colorScheme.primary else when (sessionState) {
         SessionState.STREAMING -> Color(0xFF4CAF50) // Green
@@ -311,8 +322,8 @@ private fun ConnectionStatusBar(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // Save & Connect button — left-aligned, first element
-        Button(
+        // Audio persists independently; never commits a video/connection draft.
+        if (showSave) Button(
             onClick = onSaveAndConnect,
             enabled = ready && !saving,
             modifier = Modifier.testTag("saveAndConnectButton"),
@@ -362,6 +373,39 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         CarPlaySettingsSection(viewModel)
+        SectionHeader("Android Auto · Advanced connection")
+        // BT MAC override — used in the SDR's bluetooth_service.car_address.
+        // Some phones won't enter wireless AA pairing without a valid car MAC.
+        // Does NOT affect call audio routing.
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        ) {
+            Text(
+                text = "Bluetooth MAC override",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Override the Bluetooth MAC reported to the phone in the AA Service Discovery " +
+                    "Response. Leave blank to auto-detect. Some phones won't enter wireless AA pairing " +
+                    "if auto-detect returns empty or 02:00:00:00:00:00. Read the head unit's BT MAC from " +
+                    "Settings → About → Bluetooth address and paste it here (format AA:BB:CC:DD:EE:FF). " +
+                    "Does NOT affect call audio routing. Requires Save & Reconnect.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            LocalEchoTextField(
+                value = uiState.btMacOverride,
+                onValueChange = { filtered -> viewModel.updateBtMacOverride(filtered) },
+                filter = { it.filter { c -> c.isLetterOrDigit() || c == ':' || c == '-' }.take(17).uppercase() },
+                placeholder = { Text("AA:BB:CC:DD:EE:FF") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("btMacOverride"),
+            )
+        }
+
+
         SectionHeader("Android Auto")
         Text("Android Auto connection", style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 16.dp))
@@ -2212,122 +2256,29 @@ private fun InputTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
 }
 
 @Composable
-private fun AudioTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
+internal fun AudioTab(viewModel: SettingsViewModel, uiState: SettingsUiState, bindings: AudioSettingsBindings? = null) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        // --- Microphone Source ---
-        SectionHeader("Microphone Source")
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = "Choose which microphone is used for voice assistant " +
-                    "and phone calls during Android Auto.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
-        micSourceOptions.forEach { option ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { viewModel.updateMicSource(option.key) }
-                    .padding(vertical = 10.dp)
-                    .testTag("micSource_${option.key}"),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadioButton(
-                    selected = uiState.micSource == option.key,
-                    onClick = { viewModel.updateMicSource(option.key) }
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = option.label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (uiState.micSource == option.key) FontWeight.SemiBold else FontWeight.Normal,
-                    )
-                    Text(
-                        text = option.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+        AudioMicrophoneSettings(uiState.micSource, viewModel::updateMicSource)
+        CarPlayCallSettings(bindings)
+        AudioSectionTitle("Both")
+        OutlinedButton(onClick = { bindings?.onOpenVehicleAudio?.invoke() }, enabled = bindings != null,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("openVehicleAudio")) {
+            Text("Open OpenAutoLink in vehicle Audio")
         }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        HorizontalDivider(modifier = Modifier.fillMaxWidth())
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // --- Phone Call Routing ---
-        SectionHeader("Phone Calls")
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = "Android Auto routes call audio through your phone's Bluetooth pairing, not through OpenAutoLink. " +
-                "With \"Call audio\" enabled on the phone for this car's BT pairing, calls play through the car " +
-                "speakers and the car's built-in phone app takes the screen during the call. With \"Call audio\" " +
-                "disabled, AA shows its in-projection call card and audio plays through the phone earpiece. " +
-                "This matches every factory head unit.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-        )
-
-        // BT MAC override — used in the SDR's bluetooth_service.car_address.
-        // Some phones won't enter wireless AA pairing without a valid car MAC.
-        // Does NOT affect call audio routing.
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        ) {
-            Text(
-                text = "Bluetooth MAC override",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "Override the Bluetooth MAC reported to the phone in the AA Service Discovery " +
-                    "Response. Leave blank to auto-detect. Some phones won't enter wireless AA pairing " +
-                    "if auto-detect returns empty or 02:00:00:00:00:00. Read the head unit's BT MAC from " +
-                    "Settings → About → Bluetooth address and paste it here (format AA:BB:CC:DD:EE:FF). " +
-                    "Does NOT affect call audio routing. Requires Save & Reconnect.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            LocalEchoTextField(
-                value = uiState.btMacOverride,
-                onValueChange = { filtered -> viewModel.updateBtMacOverride(filtered) },
-                filter = { it.filter { c -> c.isLetterOrDigit() || c == ':' || c == '-' }.take(17).uppercase() },
-                placeholder = { Text("AA:BB:CC:DD:EE:FF") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("btMacOverride"),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        HorizontalDivider(modifier = Modifier.fillMaxWidth())
-
-        Spacer(modifier = Modifier.height(24.dp))
+        if (bindings?.actionMessage?.isNotBlank() == true)
+            Text(bindings.actionMessage, modifier = Modifier.testTag("audioActionMessage"))
 
         // --- Per-Purpose Volume Offsets ---
-        SectionHeader("Volume Offsets")
+        SectionHeader("Android Auto · Volume offsets")
 
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "Adjust relative volume for each audio purpose. " +
-                    "0 = default. Positive = louder, negative = quieter. " +
-                    "Requires Save & Reconnect.",
+            text = "Saved for the next Android Auto connection; 0 is the default.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp)
@@ -2364,7 +2315,8 @@ private fun VolumeOffsetSlider(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
             val display = if (value >= 0) "+$value%" else "$value%"
             Text(
                 display,
@@ -2383,25 +2335,6 @@ private fun VolumeOffsetSlider(
         )
     }
 }
-
-private data class MicSourceOption(
-    val key: String,
-    val label: String,
-    val description: String,
-)
-
-private val micSourceOptions = listOf(
-    MicSourceOption(
-        "car",
-        "Car Microphone",
-        "Uses the head unit's built-in microphone. Best for in-car voice control."
-    ),
-    MicSourceOption(
-        "phone",
-        "Phone Microphone",
-        "Uses the phone's microphone via Bluetooth. Useful if the car mic is poor quality."
-    ),
-)
 
 @Composable
 private fun SettingRow(label: String, value: String) {

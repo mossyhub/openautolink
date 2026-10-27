@@ -1,6 +1,6 @@
 # Capture-side microphone policy diagnostics
 
-These are diagnostics, not a repair for Siri silence. In the 0.1.519 vehicle upload, three speech-recognition attempts completed 341, 315 and 313 frames (969 total), all zero before endian conversion, sealing or UDP. Positive recording state and sends do not establish audible capture or phone receipt.
+Normal CarPlay calls and button-initiated Siri now use the owner-accepted build 548 capture package without diagnostic arming; see [normal Audio/call setup](phone-calls.md) and [current microphone policy](microphone-diagnostic.md#normal-carplay-calls). The investigation below is historical 519 evidence, not the current production default. In the 0.1.519 vehicle upload, three speech-recognition attempts completed 341, 315 and 313 frames (969 total), all zero before endian conversion, sealing or UDP. Positive recording state and sends do not establish audible capture or phone receipt.
 
 ## Historical Android Auto comparison
 
@@ -31,8 +31,8 @@ Sample after completed frames 1, 250 and 500, at most three attempts per capture
 
 Close revokes best-effort results immediately, including while the recorder read remains stalled. There is no OS-query join/cancel wait in close/finally. A callback already entering the existing status sink can race revocation, as with other best-effort receipts; downstream session qualification remains authoritative. Recorder/codec/socket release, exact physical capture ownership, read-after-cancel fencing, original packet sealing/counters and permission checks remain unchanged.
 
-## Physical unknowns / discriminating next evidence
+## Historical physical unknowns / interpretation
 
-No device access, upload, release or physical validation was performed. First inspect one short parked Siri attempt on a build containing this schema: zero capture plus silenced=true supports Android concurrent-capture policy; mute=true supports global mute; an unexpected exact input-route class supports routing investigation. `unknown` identifies missing access, not a negative result. Known builtin route + unsilenced + unmuted still cannot rule out source/rate/HAL/AppOps policy.
+The original diagnostic-only investigation performed no device access, upload, release or physical validation. Its suggested interpretation was: inspect one short parked Siri attempt on a build containing this schema: zero capture plus silenced=true supports Android concurrent-capture policy; mute=true supports global mute; an unexpected exact input-route class supports routing investigation. `unknown` identifies missing access, not a negative result. Known builtin route + unsilenced + unmuted still cannot rule out source/rate/HAL/AppOps policy.
 
 If those predicates do not discriminate, a separately authorized current Android Auto capture on the same build would distinguish a shared regression from CarPlay-specific rate/activation differences. Do not describe historical Android Auto success as that test, ask for repeated uninstrumented Siri attempts, automatically change sources/rates, or claim that new diagnostics fixed audibility.

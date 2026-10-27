@@ -17,29 +17,19 @@ import org.robolectric.annotation.Config
 @Config(application=Application::class,sdk=[32],qualifiers="w800dp-h600dp-mdpi")
 class MicrophoneIndependentControlsTest {
     @get:Rule val compose=createOalComposeRule()
-    @Test @Config(sdk=[32,34]) fun aaStyleSwitchIsExclusiveFutureOwnerSelectionWithoutNewConsent() {
+    @Test @Config(sdk=[32,34]) fun promotedCaptureHasNoArmSwitchButDeliberateAdvancedOverrideRemains() {
         CarPlayMicrophoneExperiments.disarm()
         val controller=MicrophoneDiagnosticController(FakeMicrophoneBackend(),automotive=false,eligibility={true})
         try {
             compose.setContent { MaterialTheme { MicrophoneDiagnosticPanel(controller) } }
-            compose.onNodeWithTag("mic-aa-style").performScrollTo().assertIsOff().performClick()
-            compose.onNodeWithTag("mic-aa-style").assertIsOn()
-            val selected=CarPlayMicrophoneExperiments.snapshot()!!
-            assertTrue(selected.aaStyle)
-            assertEquals(CarPlayMicrophoneCaptureRate.HZ_16000,selected.rate)
-            compose.runOnIdle {
-                controller.armLive();controller.armIndependentLive()
-                assertSame(selected,CarPlayMicrophoneExperiments.snapshot())
-                controller.updateForeground(false)
-                assertSame(selected,CarPlayMicrophoneExperiments.snapshot())
-                controller.updateForeground(true)
-            }
-            compose.onNodeWithTag("mic-live-arm").performScrollTo().assertIsNotEnabled()
-            compose.onNodeWithTag("mic-aa-style").performScrollTo().performClick()
-            compose.runOnIdle { assertNull(CarPlayMicrophoneExperiments.snapshot()); controller.armLive() }
-            compose.onNodeWithTag("mic-aa-style").assertIsNotEnabled()
-            compose.runOnIdle { controller.armAaStyle();assertFalse(CarPlayMicrophoneExperiments.snapshot()!!.aaStyle) }
-            compose.onNodeWithTag("mic-live-consent").assertDoesNotExist()
+            compose.onNodeWithTag("mic-aa-style").assertDoesNotExist()
+            compose.onNodeWithTag("mic-live-enabled").performScrollTo().assertIsOff()
+            compose.onNodeWithTag("mic-live-arm").performScrollTo().performClick()
+            compose.runOnIdle { assertTrue(CarPlayMicrophoneExperiments.status().armed) }
+            compose.onNodeWithTag("mic-live-status").assertTextContains("Advanced override", substring = true)
+            compose.onNodeWithTag("mic-live-disarm").performScrollTo().performClick()
+            compose.runOnIdle { assertNull(CarPlayMicrophoneExperiments.snapshot()) }
+            compose.onNodeWithTag("mic-live-status").assertTextContains("Production", substring = true)
         } finally { CarPlayMicrophoneExperiments.disarm() }
     }
     @Test fun independentApplyRechecksEligibilityAndKeepsSelectedProfileUntilOff() {

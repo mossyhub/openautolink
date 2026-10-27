@@ -643,8 +643,28 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { preferences.setDisplayMode(mode) }
     }
 
+    private val audioMutation = Mutex()
+    private val _audioSaveError = MutableStateFlow("")
+    val audioSaveError: StateFlow<String> = _audioSaveError
+
+    /** Ordinary audio writes never validate or commit the connection/video/display draft. */
+    private fun saveAudio(write: suspend () -> Unit) {
+        viewModelScope.launch {
+            audioMutation.withLock {
+                try {
+                    write()
+                    _audioSaveError.value = ""
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    _audioSaveError.value = "Audio settings could not be saved. Try again."
+                }
+            }
+        }
+    }
+
     fun updateMicSource(source: String) {
-        viewModelScope.launch { preferences.setMicSource(source) }
+        saveAudio { preferences.setMicSource(source) }
     }
 
     fun updateBtMacOverride(mac: String) {
@@ -834,15 +854,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateVolumeOffsetMedia(offset: Int) {
-        viewModelScope.launch { preferences.setVolumeOffsetMedia(offset) }
+        saveAudio { preferences.setVolumeOffsetMedia(offset) }
     }
 
     fun updateVolumeOffsetNavigation(offset: Int) {
-        viewModelScope.launch { preferences.setVolumeOffsetNavigation(offset) }
+        saveAudio { preferences.setVolumeOffsetNavigation(offset) }
     }
 
     fun updateVolumeOffsetAssistant(offset: Int) {
-        viewModelScope.launch { preferences.setVolumeOffsetAssistant(offset) }
+        saveAudio { preferences.setVolumeOffsetAssistant(offset) }
     }
 
     fun updateManualIpEnabled(enabled: Boolean) {

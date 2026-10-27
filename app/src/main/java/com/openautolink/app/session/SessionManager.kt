@@ -3227,7 +3227,22 @@ class SessionManager(
         }
     }
 
-    private fun handleControlMessage(sourceSession: AasdkSession, message: ControlMessage) {
+    private suspend fun handleControlMessage(sourceSession: AasdkSession, message: ControlMessage) {
+        // Both USB and wireless collectors reach this boundary. Read storage outside the
+        // ownership lock, then recheck the exact session before starting its next stream.
+        // Never stop/reconfigure an already-running recorder in response to a preference edit.
+        val nextMicSource = if (message is ControlMessage.MicStart) {
+            try {
+                context?.let { AppPreferences.getInstance(it).micSource.first() } ?: micSource
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // An unreadable preference is not authority to assume Car. Withhold only
+                // this request; never fail the parent control/frame collectors or log details.
+                OalLog.w(TAG, "Assistant microphone source unavailable; MicStart withheld")
+                null
+            }
+        } else null
         synchronized(sessionStateLock) {
             if (aasdkSession !== sourceSession) {
                 OalLog.i(TAG, "Ignoring control message from stale session: ${message::class.simpleName}")
@@ -3359,8 +3374,8 @@ class SessionManager(
                 _audioPlayer?.stopPurpose(message.purpose)
             }
             is ControlMessage.MicStart -> {
-                DiagnosticLog.i("mic", "MicStart: rate=${message.sampleRate}, source=$micSource")
-                if (micSource == "car") {
+                DiagnosticLog.i("mic", "MicStart: rate=${message.sampleRate}, source=$nextMicSource")
+                if (nextMicSource == "car") {
                     _micCaptureManager?.start(message.sampleRate)
                 }
             }
