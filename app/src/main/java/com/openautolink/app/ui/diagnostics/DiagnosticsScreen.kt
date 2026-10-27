@@ -73,6 +73,7 @@ private enum class DiagnosticsTab(
     SYSTEM("System", Icons.Default.Info),
     NETWORK("Network", Icons.Default.NetworkCheck),
     CAR("Car", Icons.Default.DirectionsCar),
+    MEDIA("Media", Icons.Default.Info),
     MICROPHONE("Microphone", Icons.Default.Mic),
     NATIVE_CALLS("Native CarPlay calls", Icons.Default.BugReport),
     BLUETOOTH("BT recorder", Icons.Default.BugReport),
@@ -85,9 +86,10 @@ fun DiagnosticsScreen(
     viewModel: DiagnosticsViewModel = viewModel(),
     onBack: () -> Unit = {},
     microphoneController: MicrophoneDiagnosticController? = null,
+    mediaViewModel: MediaDiagnosticsViewModel? = null,
 ) {
     val unavailable = remember { MicrophoneDiagnosticController() }
-    OalUiScale { DiagnosticsScreenContent(viewModel, onBack, microphoneController ?: unavailable) }
+    OalUiScale { DiagnosticsScreenContent(viewModel, onBack, microphoneController ?: unavailable, mediaViewModel) }
 }
 
 @Composable
@@ -95,6 +97,7 @@ private fun DiagnosticsScreenContent(
     viewModel: DiagnosticsViewModel,
     onBack: () -> Unit,
     microphoneController: MicrophoneDiagnosticController,
+    mediaViewModel: MediaDiagnosticsViewModel?,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableStateOf(DiagnosticsTab.SYSTEM) }
@@ -159,6 +162,7 @@ private fun DiagnosticsScreenContent(
                     DiagnosticsTab.SYSTEM -> SystemTab(uiState.system)
                     DiagnosticsTab.NETWORK -> NetworkTab(uiState.network, uiState.networkProbe, viewModel)
                     DiagnosticsTab.CAR -> CarTab(uiState.car)
+                    DiagnosticsTab.MEDIA -> if (mediaViewModel != null) MediaIntegrationPanel(mediaViewModel) else Text("Media diagnostics owner unavailable.")
                     DiagnosticsTab.MICROPHONE -> MicrophoneDiagnosticPanel(microphoneController)
                     DiagnosticsTab.NATIVE_CALLS -> Column(Modifier.verticalScroll(rememberScrollState())) {
                         com.openautolink.app.ui.settings.ManagedTelecomPanel()

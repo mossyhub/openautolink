@@ -70,6 +70,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.openautolink.app.ui.diagnostics.bindMediaDiagnosticsExport(this,
+            ViewModelProvider(this)[com.openautolink.app.ui.diagnostics.MediaDiagnosticsViewModel::class.java])
         enableEdgeToEdge()
         usbVpnConsentGeneration = savedInstanceState?.getLong("usbVpnConsentGeneration")?.takeIf { it > 0 }
         lifecycleScope.launch {

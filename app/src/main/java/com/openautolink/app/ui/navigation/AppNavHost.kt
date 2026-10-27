@@ -43,6 +43,10 @@ fun AppNavHost(
     val settingsScope = rememberCoroutineScope()
     val audioBindings = com.openautolink.app.ui.settings.rememberProductionAudioBindings()
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val mediaActivity = androidx.compose.ui.platform.LocalContext.current as androidx.activity.ComponentActivity
+    val mediaDiagnosticsViewModel = remember(mediaActivity) {
+        androidx.lifecycle.ViewModelProvider(mediaActivity)[com.openautolink.app.ui.diagnostics.MediaDiagnosticsViewModel::class.java]
+    }
     val microphoneBinding = remember(projectionViewModel, appContext) {
         com.openautolink.app.ui.diagnostics.MicrophoneDiagnosticBinding(
             appContext, projectionViewModel::microphoneDiagnosticEligible,
@@ -103,7 +107,7 @@ fun AppNavHost(
                     )
                 },
                 diagnosticsOverlay = { onBack ->
-                    DiagnosticsScreen(onBack = onBack, microphoneController = microphoneBinding.controller)
+                    DiagnosticsScreen(onBack = onBack, microphoneController = microphoneBinding.controller, mediaViewModel = mediaDiagnosticsViewModel)
                 },
                 carPlaySafeEditorOverlay = { onBack ->
                     CarPlaySafeEditor(settingsViewModel, onBack)
@@ -139,7 +143,7 @@ fun AppNavHost(
             }
         }
         composable(AppDestinations.DIAGNOSTICS) {
-            DiagnosticsScreen(onBack = { navController.popBackStack() }, microphoneController = microphoneBinding.controller)
+            DiagnosticsScreen(onBack = { navController.popBackStack() }, microphoneController = microphoneBinding.controller, mediaViewModel = mediaDiagnosticsViewModel)
         }
         composable(AppDestinations.SAFE_AREA_EDITOR) {
             val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()

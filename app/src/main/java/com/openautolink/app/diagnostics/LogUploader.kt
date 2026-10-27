@@ -41,6 +41,7 @@ class LogUploader(
     private val openConnection: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
     private val flushTelemetry: () -> Boolean = { EvTelemetryRecorder.flushForUpload(timeoutMs = 2000) },
     private val flushBluetooth: () -> Boolean = { BluetoothReconnectService.flush() },
+    private val prepareMedia: () -> MediaStoreStatus = { MediaDiagnosticStore.prepareForManualUpload(context) },
 ) {
     companion object {
         private const val TAG = "LogUploader"
@@ -66,7 +67,8 @@ class LogUploader(
             val bluetoothFlushed = try { flushBluetooth() } catch (_: Exception) { false }
             check(com.openautolink.app.carplay.HostMediaDiagnosticSink.flush()) { "host media diagnostics pending" }
             check(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush()) { "native call diagnostics pending" }
-            val plan = LogUploadArchive.select(allLogFiles(), System.currentTimeMillis())
+            val mediaStatus = try { prepareMedia() } catch (_: Exception) { MediaStoreStatus.UNAVAILABLE }
+            val plan = LogUploadArchive.select(allLogFiles(), System.currentTimeMillis(), mediaStatus)
             if (plan.selected.isEmpty()) return UploadResult.Failure(
                 "no eligible log files; ${plan.skipped.size} omitted (age/size/member limits)", UploadFailureCode.NO_LOGS
             )
