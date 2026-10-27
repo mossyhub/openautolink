@@ -41,6 +41,7 @@ fun AppNavHost(
     val settingsViewModel: SettingsViewModel = viewModel()
     val projectionViewModel: ProjectionViewModel = viewModel()
     val settingsScope = rememberCoroutineScope()
+    val audioBindings = com.openautolink.app.ui.settings.rememberProductionAudioBindings()
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val microphoneBinding = remember(projectionViewModel, appContext) {
         com.openautolink.app.ui.diagnostics.MicrophoneDiagnosticBinding(
@@ -77,6 +78,7 @@ fun AppNavHost(
                 settingsOverlay = { onBack, onShowDiagnostics, onCarPlaySafeEditor ->
                     SettingsScreen(
                         viewModel = settingsViewModel,
+                        audioBindings = audioBindings,
                         sessionState = projectionUiState.sessionState,
                         activeProtocolStatus = if (carPlayState.selected) when {
                             carPlayState.evidence.videoRendered && carPlayState.evidence.runtimeAuthenticated -> "CarPlay · video active"
@@ -116,6 +118,7 @@ fun AppNavHost(
             Box(Modifier.fillMaxSize()) {
                 SettingsScreen(
                     viewModel = settingsViewModel,
+                    audioBindings = audioBindings,
                     onBack = { navController.popBackStack() },
                     onSaveAndConnect = {
                         settingsScope.launch {
