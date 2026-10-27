@@ -235,6 +235,7 @@ class ManagedTelecomOsTest {
         assertEquals(1, os.allIncomingCalls.size)
         service.onDestroy()
     }
+    @Test fun productionSetupHotEnablesActualAuthenticatedRuntimeWithoutReconnectOrSeedCall() = runWiredNativeControls(null, hotEnable = true)
     @Test fun actualWiredAuthenticatedRuntimeDispatchesProtocolIntoTelecomAndRevokesOnClose() = runWiredNativeControls(null)
     @Test fun nativeQueuedRejectCannotCrossPermissionRevocation() = runWiredNativeControls("rejectPermission")
     @Test fun nativeQueuedAnswerCannotCrossControlDisable() = runWiredNativeControls("controls")
@@ -243,9 +244,9 @@ class ManagedTelecomOsTest {
     @Test fun nativeQueuedAnswerCannotCrossReplacement() = runWiredNativeControls("replacement")
     @Test fun nativeQueuedAnswerCannotCrossAccountAuthorityLoss() = runWiredNativeControls("account")
     @Test fun nativeDisplayConsentAloneEmitsNoPhoneCommands() = runWiredNativeControls("display")
-    private fun runWiredNativeControls(revocation: String?) {
-        arm()
-        if (revocation != "display") assertEquals(ManagedTelecomExperiment.ControlResult.CONTROLS_ENABLED,
+    private fun runWiredNativeControls(revocation: String?, hotEnable: Boolean = false) {
+        if (!hotEnable) arm()
+        if (!hotEnable && revocation != "display") assertEquals(ManagedTelecomExperiment.ControlResult.CONTROLS_ENABLED,
             experiment.enableNativeControls())
         val format = android.media.MediaFormat.createVideoFormat(android.media.MediaFormat.MIMETYPE_VIDEO_AVC, 1280, 720)
         val caps = org.robolectric.shadows.MediaCodecInfoBuilder.CodecCapabilitiesBuilder.newBuilder()
@@ -292,6 +293,13 @@ class ManagedTelecomOsTest {
                 if (frame?.messageId == 0x4154 && frame.body().has(12)) modernSubscription = true
             }
             assertTrue(modernSubscription)
+            if (hotEnable) {
+                assertTrue("setup must never seed a ringing or active call", os.allIncomingCalls.isEmpty())
+                experiment.applyProductionPolicy(true, false) { true }
+                assertEquals(ManagedTelecomExperiment.Result.REGISTERED_USER_ENABLE_REQUIRED, experiment.prepareProduction())
+                os.enablePhoneAccount(experiment.handle, true)
+                assertEquals(ManagedTelecomExperiment.Result.ENABLED_FOR_THIS_PROCESS, experiment.prepareProduction())
+            }
             phone.send(Iap2Frame(0x4155, call().payload + field(9, byteArrayOf(0)) +
                 field(0, "+15550123456".toByteArray() + byteArrayOf(0)) +
                 field(1, "Initial 私密".toByteArray() + byteArrayOf(0))))

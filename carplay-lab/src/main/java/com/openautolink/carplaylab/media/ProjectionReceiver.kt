@@ -517,8 +517,10 @@ class ProjectionReceiver(
                     failureStage = RuntimeControlFailureStage.TRANSPORT
                     status("media stage=runtime-authentication-accepted")
                     Iap2ControlMessages.subscriptions().forEach { channel.send(it) }
-                    if (incoming != null) channel.send(com.openautolink.carplaylab.telecom.CallObservationSubscriptions.nonlegacyCalls())
-                    status("media stage=runtime-subscriptions-sent count=${if (incoming == null) 5 else 6}")
+                    // Always request real authenticated call observations. Setup may finish after
+                    // authentication; subscription is not Telecom admission and never seeds a call.
+                    channel.send(com.openautolink.carplaylab.telecom.CallObservationSubscriptions.nonlegacyCalls())
+                    status("media stage=runtime-subscriptions-sent count=6")
                     var received = 0L
                     val replyPolicy = com.openautolink.carplaylab.WirelessReplyPolicy()
                     while (!closed.get() && !channel.isClosed && !session.isClosed) {
@@ -526,6 +528,19 @@ class ProjectionReceiver(
                         metadata?.tick()
                         val frame = channel.recv(carData?.pollTimeout(1000) ?: 1000)
                         if (frame != null) {
+                            // Install against the live runtime owner at the next actual observation,
+                            // never against a one-time authentication snapshot or fake replay.
+                            if (incoming == null && (frame.messageId == 0x4155 || frame.messageId == 0x4158)) {
+                                incoming = telecomExperiment.authenticatedLink(
+                                    controlSender = { command, fence -> queuePhoneControl(session, command, fence) },
+                                    rejectSender = { fence -> queueReject(session, channel, fence) },
+                                    diagnostic = { line -> audioDiagnostic(session, line) },
+                                ) {
+                                    !closed.get() && !admissionRevoked.get() && runtimeReady && runtimeOwner === session &&
+                                        session in sessions && session.controlAuthenticated && !session.isClosed
+                                }
+                                incoming?.let { runtimeIncoming[session] = it }
+                            }
                             if (incoming?.handle(frame) != true && metadata?.handle(frame) != true && carData?.handle(frame) != true && replyPolicy.allow(frame.messageId)) {
                                 val reply = runtimeReply?.invoke(frame)
                                 if (reply != null) { channel.send(reply) }

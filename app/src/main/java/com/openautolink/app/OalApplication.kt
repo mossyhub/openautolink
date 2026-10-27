@@ -39,6 +39,9 @@ class OalApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Application is created before ConnectionService too: no Settings/Activity visit is
+        // required to load durable call intent. Admission remains closed while the IO load runs.
+        com.openautolink.app.carplay.CarPlayCallController.get(this)
         // Install before any session infrastructure can launch AndroidX CarAppActivity.
         // onActivityPreCreated applies zero-alpha/non-focusable protection before
         // BaseCarAppActivity creates the Templates Host surface.
