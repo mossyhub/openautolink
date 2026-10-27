@@ -21,23 +21,29 @@ import org.robolectric.annotation.*
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class CaptureReleaseLedgerTest {
     @Test fun cancellationKeepsFenceAndNeverAcknowledgesStalledActualReleaseOrRelabelsLateOwner() {
-        val fixture=com.shilapi.xcertplay.media.capture.StalledReleaseRecorder.install()
-        val reading=fixture.reading; val releasing=fixture.releasing; val allowRelease=fixture.allowRelease
         val app=RuntimeEnvironment.getApplication();shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         AndroidMicrophoneSupport.initialize(app)
         val lines=CopyOnWriteArrayList<String>();val tasks=LinkedBlockingQueue<Runnable>()
         val ledger=CaptureAcquisitionLedger(false);ledger.bind(Executor { tasks.add(it) },lines::add)
         fun flush() { while(true) (tasks.poll() ?: return).run() }
         val constructor=MicrophoneUplink::class.java.declaredConstructors.firstOrNull {
-            it.parameterTypes.size==6 && it.parameterTypes[4]==CaptureAcquisitionLedger::class.java &&
-                it.parameterTypes.last()==CarPlayMicrophoneExperimentProfile::class.java }
+            it.parameterTypes.size==8 && it.parameterTypes[4]==CaptureAcquisitionLedger::class.java &&
+                it.parameterTypes[5]==CarPlayMicrophoneExperimentProfile::class.java &&
+                it.parameterTypes[6]==MicrophoneCaptureAdmission::class.java &&
+                it.parameterTypes[7]==Boolean::class.javaPrimitiveType }
         assertNotNull("actual uplink must retain the receiver's exact acquisition ledger",constructor)
         val cap=MicrophoneCapability.of(mapOf("telephony" to setOf(0x40L)))
         DatagramSocket(0,InetAddress.getLoopbackAddress()).use { peer ->
             val config=MicrophoneSupport.negotiate(cap,100,"telephony",0x40L,peer.localPort,480,peer.localAddress,ByteArray(32){1})!!
             val report: (String) -> Unit = {}
-            val uplink=constructor!!.apply { isAccessible=true }.newInstance(config,report,null,cap,ledger,null) as MicrophoneUplink
+            var owner: MicrophoneUplink? = null
+            val fixture=com.shilapi.xcertplay.media.capture.StalledReleaseRecorder.install()
             try {
+                val reading=fixture.reading; val releasing=fixture.releasing; val allowRelease=fixture.allowRelease
+                val uplink=constructor!!.apply { isAccessible=true }.newInstance(
+                    config,report,null,cap,ledger,null,MicrophoneCaptureAdmission { true },false
+                ) as MicrophoneUplink
+                owner=uplink
                 uplink.start();assertTrue(reading.await(3,TimeUnit.SECONDS))
                 assertFalse(uplink.isRetired); assertNull(MicrophoneCaptureFence.tryDiagnostic())
                 uplink.close();assertTrue(releasing.await(3,TimeUnit.SECONDS));flush()
@@ -62,7 +68,10 @@ class CaptureReleaseLedgerTest {
                 assertEquals(1,lines.count { "kind=live action=retired result=ok" in it })
                 assertFalse(newer.any { "kind=live" in it })
                 assertTrue(lines.any { "stage=microphone-signal" in it && "blocks=0 " in it && "phase=released" in it })
-            } finally { allowRelease.countDown();uplink.close();fixture.close() }
+            } finally {
+                fixture.allowRelease.countDown()
+                try { owner?.close() } finally { fixture.close() }
+            }
         }
         MicrophoneCaptureFence.tryDiagnostic()!!.release()
     }
