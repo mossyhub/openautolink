@@ -104,7 +104,7 @@ class CarPlaySettingsPlacementTest {
         assertTrue(settings.contains("activeProtocolStatus: String? = null"))
         val content = function(screen, "SettingsScreenContent")
         assertTrue(settings.contains("SettingsScreenContent(viewModel, sessionState, onSaveAndConnect, onBack,"))
-        assertTrue(settings.contains("onNavigateToCarPlaySafeAreaEditor, activeProtocolStatus)"))
+        assertTrue(settings.contains("onNavigateToCarPlaySafeAreaEditor, activeProtocolStatus, audioBindings)"))
         assertTrue(content.contains("activeProtocolStatus = activeProtocolStatus"))
         assertTrue(status.contains("val statusText = activeProtocolStatus ?: when (sessionState)"))
         assertTrue(status.contains("if (activeProtocolStatus != null)"))

@@ -110,14 +110,15 @@ class CarPlayPlayingSuppressionTest {
                     h.publish(CarPlayMediaMetadata(playing=true),null,null)
                     assertEquals(if(armed) PlaybackStateCompat.STATE_NONE else PlaybackStateCompat.STATE_PLAYING,controller.playbackState!!.state)
                     val actions=PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_STOP or
-                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or PlaybackStateCompat.ACTION_PLAY_PAUSE
+                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or PlaybackStateCompat.ACTION_PLAY_PAUSE or
+                        PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID
                     assertEquals(actions,controller.playbackState!!.actions)
                     commands()
                     assertEquals(listOf(1,2,2,4,5),sent)
                     assertTrue(aa.isEmpty())
                     assertTrue(session().isActive)
                     assertEquals(token,browser.get().sessionToken)
-                    assertEquals("oal_empty_root",browser.get().onGetRoot("fixture",1,null).rootId)
+                    assertEquals("oal_media_root",browser.get().onGetRoot("fixture",1,null).rootId)
                 } finally { h.close() }
                 commands()
                 assertEquals(GmMediaControlPolicy.Command.entries.toSet(),aa.toSet())
