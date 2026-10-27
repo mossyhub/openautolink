@@ -1,5 +1,7 @@
 # Phone calls and microphones
 
+For music playback, source selection and disconnected-state guidance, see [Play phone media from vehicle Audio](../README.md#play-phone-media-from-vehicle-audio). Native Audio playback and call handling are separate; selecting the media source does not select a call route.
+
 ## Android Auto — USB and wireless
 
 - **USB:** select **Settings → Connection → Android Auto connection → USB**, save, and connect a data-capable cable. No companion is required. On GM, accept both USB access prompts on every connection.

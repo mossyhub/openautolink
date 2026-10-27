@@ -233,6 +233,17 @@ Public GitHub APKs and ordinary source builds omit the CarPlay authentication fi
 
 *App UI rendered by Compose/NativeGraphics; setup state is a test fixture, not an actual Android approval. The call guide separately includes a sanitized real GM Calling accounts photograph.*
 
+### Play phone media from vehicle Audio
+
+1. Connect Android Auto or CarPlay using the setup above. OpenAutoLink is the vehicle Audio source for either protocol; it is not a separate Bluetooth media connection.
+2. Open the vehicle’s native **Audio** app and select **OpenAutoLink**. Or use **OAL → Settings → Audio → Both → Open OpenAutoLink in vehicle Audio**. That shortcut requests the native view; if unavailable or denied, open Audio manually. Confirm the selected source in the vehicle UI—the shortcut does not prove selection.
+3. Where the vehicle shows a browse view, open **Phone audio → Connected phone** to request playback from the current phone. The subtitle identifies **Android Auto** or **CarPlay**. This is a playback entry, not a catalog of phone apps, playlists or tracks; choose those in Android Auto or CarPlay.
+4. Use the vehicle’s available Play/Pause and track controls, or the projected music app. Controls and title/artwork depend on the phone app and vehicle. Some GM hosts request Play as soon as the source is selected, so selection may resume audio without a separate Play tap.
+
+**No phone connected?** The source can still appear with **Phone audio — Connect a phone**, but there is no playable **Connected phone** entry. Opening Audio does not connect a phone or start projection. Connect normally, then reopen the source if the vehicle has not refreshed it. During connection or shutdown, the subtitle may read **Connecting** or **Unavailable**.
+
+**No sound?** Confirm OpenAutoLink is selected, start media in the projected app, check the vehicle’s media volume and try native **Play** once; admitted native Play refreshes OAL’s audio-focus request. A visible source, track title or accepted Play request alone does not prove audible playback. For paired CarPlay Bluetooth calls, keep **Phone calls ON / Media audio OFF** as described in the [call guide](docs/phone-calls.md#alternative--car-bluetooth-calls). Do not enable diagnostic recovery or microphone overrides as a normal setup step.
+
 ## Adjust text, icons and UI size
 
 Configure these while parked in **OAL → Settings → Display**. Android Auto and CarPlay have separate scaling controls; changing one does not change the other. Tap **Save changes** after adjusting them, then reconnect your phone to apply the settings to the next projection session. Wireless reconnects automatically; for USB, unplug and reconnect.
