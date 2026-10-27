@@ -71,4 +71,26 @@ class MediaDiagnosticStoreTest {
         assertEquals(MediaOutcomeSummary.Outcome.CONTROL_RECEIVED, state.last)
         assertEquals(MediaTruth.UNKNOWN, state.beforeProcess)
     }
+    @Test fun foregroundReceiptsUseSeparateExactOwnerAndSurviveMediaRetirement() {
+        val summary = MediaOutcomeSummary(); val media = Any(); val foreground = Any()
+        summary.admit(media); summary.admitForeground(foreground)
+        summary.recordForeground(media, MediaOutcomeSummary.ForegroundOutcome.STARTED)
+        summary.recordForeground(foreground, MediaOutcomeSummary.ForegroundOutcome.START_FAILED)
+        summary.retire(media)
+        summary.recordForeground(foreground, MediaOutcomeSummary.ForegroundOutcome.STOPPED)
+        summary.retireForeground(foreground)
+        summary.recordForeground(foreground, MediaOutcomeSummary.ForegroundOutcome.STARTED)
+        assertEquals(2L, summary.snapshot().foregroundEvents)
+        assertEquals(2L, summary.snapshot().foregroundRejected)
+        assertEquals(MediaOutcomeSummary.ForegroundOutcome.STOPPED, summary.snapshot().lastForeground)
+    }
+    @Test fun previousFiniteSchemaStillValidAfterTypedOutcomeExtension() {
+        val dir = temp.newFolder(); val store = MediaDiagnosticStore({ dir })
+        store.save(MediaOwnSnapshot(), MediaCoverage())
+        val file = dir.listFiles()!!.single()
+        val added = setOf("submission_failed", "recoveries", "last_recovery", "foreground_events", "foreground_rejected", "last_foreground", "foreground_stage", "foreground_status", "foreground_mask")
+        file.writeText(file.readLines().filter { it.substringBefore('=') !in added }
+            .joinToString("\n", postfix = "\n").replace("media_summary_schema=2", "media_summary_schema=1"))
+        assertTrue(MediaDiagnosticStore.valid(file))
+    }
 }

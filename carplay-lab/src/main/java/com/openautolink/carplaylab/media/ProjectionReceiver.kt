@@ -922,6 +922,8 @@ class ProjectionReceiver(
     private companion object {
         private const val btState = "(disconnected|connecting|connected|disconnecting|stopped|started|off|turning_off|on|turning_on|unknown)"
         val audioDiagnosticSchemas = listOf(
+            "media stage=playing-publication previous=(none|paused|playing) new=(none|paused|playing) active=true mode=(normal|suppress) owner=current",
+            "media stage=audio-focus-request reason=phone-resume result=(granted|denied|closed) revision=[0-9]{1,19} volumePercent=(0|20|100) mute=(permanent-loss|transient|denied|duck|unmuted)",
             "media stage=media-command-ingress command=(PLAY|PAUSE|STOP|NEXT|PREVIOUS) controller=(bluetooth|car-service|system-ui|oem|other|unknown) sequence=[0-9]{1,19} elapsedMs=[0-9]{1,19}",
             "carplay-bt event=(hfp-client|a2dp-sink) state=(disconnected|connecting|connected|disconnecting|unknown) previous=(disconnected|connecting|connected|disconnecting|unknown) scope=device owner=unknown",
             "carplay-bt event=hfp-audio state=(disconnected|connecting|connected|unknown) previous=(disconnected|connecting|connected|unknown) scope=device owner=unknown",

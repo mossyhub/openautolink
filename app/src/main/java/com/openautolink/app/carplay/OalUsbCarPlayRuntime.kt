@@ -94,7 +94,12 @@ class OalUsbCarPlayRuntime(
     }
     private fun status(line:String) { if(!canceled.get()) { audioDiagnostics.record(line);report(line) } }
     // Exact historical receiver evidence remains exportable after cancellation; live UI does not.
-    private fun receiverStatus(line:String) { audioDiagnostics.record(line);if(!canceled.get()) report(line) }
+    private fun receiverStatus(line:String) {
+        if (!canceled.get()) attemptContext?.hostMedia?.let {
+            com.openautolink.app.diagnostics.MediaDiagnosticHooks.recordReceiverReceipt(it, line)
+        }
+        audioDiagnostics.record(line);if(!canceled.get()) report(line)
+    }
     private fun <T:AutoCloseable> own(create:()->T):T = synchronized(resourcesLock) {
         // Serialize creation and installation against close's canceled retirement snapshot.
         check(!canceled.get()) { "USB CarPlay attempt revoked" }

@@ -172,6 +172,9 @@ class OalCarPlayRuntime(
     // Historical exact-receiver diagnostics survive runtime cancellation; only live UI is gated.
     // Called by that receiver's passive worker, never resolved through the mutable receiver field.
     private fun receiverStatus(message: String) {
+        if (!canceled.get()) attemptContext?.hostMedia?.let {
+            com.openautolink.app.diagnostics.MediaDiagnosticHooks.recordReceiverReceipt(it, message)
+        }
         audioDiagnostics.record(message)
         if (!canceled.get()) onStatus(message)
     }

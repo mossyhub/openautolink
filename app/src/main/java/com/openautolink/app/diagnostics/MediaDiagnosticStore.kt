@@ -72,16 +72,53 @@ class MediaDiagnosticStore(private val directory: () -> File?, private val clock
         private var lastSequence = 0L
         private val processNonce = UUID.randomUUID().toString()
         @Volatile var latestCoverage = MediaCoverage()
+        private data class Terminal(val context: Context, val own: MediaOwnSnapshot?,
+            val outcomes: MediaOutcomeSummary.Snapshot, val coverage: MediaCoverage)
+        private val terminalLock = Object()
+        private val terminals = java.util.ArrayDeque<Terminal>()
+        private var terminalRunning = false
+        /** Latest-three bounded handoff. No filesystem, logger, PM or HTTP on producer threads. */
+        fun retainTerminal(context: Context, own: MediaOwnSnapshot?, outcomes: MediaOutcomeSummary.Snapshot) {
+            synchronized(terminalLock) {
+                if (terminals.size == MAX_RUNS) terminals.removeFirst()
+                terminals.addLast(Terminal(context.applicationContext, own, outcomes, latestCoverage))
+                if (terminalRunning) return
+                terminalRunning = true
+                try { Thread({
+                    while (true) {
+                        val next = synchronized(terminalLock) {
+                            if (terminals.isEmpty()) {
+                                terminalRunning = false; terminalLock.notifyAll(); null
+                            } else terminals.removeFirst()
+                        } ?: break
+                        forContext(next.context).save(next.own ?: MediaDiagnosticHooks.own(), next.coverage, next.outcomes)
+                    }
+                }, "oal-media-terminal").apply { isDaemon = true }.start() }
+                catch (_: Exception) { terminalRunning = false; terminalLock.notifyAll() }
+            }
+        }
+        fun retainForegroundTerminal(context: Context, outcomes: MediaOutcomeSummary.Snapshot) = retainTerminal(context, null, outcomes)
+        fun flushTerminals(timeoutMs: Long = 2000): Boolean = synchronized(terminalLock) {
+            val end = System.nanoTime() + timeoutMs.coerceIn(0, 10000) * 1_000_000
+            while (terminalRunning) {
+                val remaining = end - System.nanoTime()
+                if (remaining <= 0) return@synchronized false
+                try { terminalLock.wait(maxOf(1, remaining / 1_000_000)) }
+                catch (_: InterruptedException) { Thread.currentThread().interrupt(); return@synchronized false }
+            }
+            terminals.isEmpty()
+        }
         fun sequence(name: String): Long? = if (runName.matches(name)) name.removePrefix("media_integration_run_").removeSuffix(".log").toLongOrNull() else null
         fun forContext(context: Context) = MediaDiagnosticStore({ context.getExternalFilesDir(null)?.let { File(it, "openautolink/logs") } })
         fun prepareForManualUpload(context: Context): MediaStoreStatus {
+            if (!flushTerminals()) return MediaStoreStatus.UNAVAILABLE
             val store = forContext(context)
             store.prune()
             store.save(MediaDiagnosticHooks.own(), latestCoverage)
             return store.status
         }
         private fun encode(run: Long, now: Long, own: MediaOwnSnapshot, c: MediaCoverage, o: MediaOutcomeSummary.Snapshot): ByteArray = buildString {
-            appendLine("media_summary_schema=1")
+            appendLine("media_summary_schema=2")
             appendLine("run=$run")
             appendLine("process=$processNonce")
             appendLine("captured_ms=$now")
@@ -117,6 +154,15 @@ class MediaDiagnosticStore(private val directory: () -> File?, private val clock
             appendLine("losses=${o.losses}")
             appendLine("rejected=${o.rejected}")
             appendLine("last_outcome=${o.last}")
+            appendLine("submission_failed=${o.submissionFailed}")
+            appendLine("recoveries=${o.recoveries}")
+            appendLine("last_recovery=${o.lastRecovery}")
+            appendLine("foreground_events=${o.foregroundEvents}")
+            appendLine("foreground_rejected=${o.foregroundRejected}")
+            appendLine("last_foreground=${o.lastForeground}")
+            appendLine("foreground_stage=${o.foregroundStage?.name ?: "UNKNOWN"}")
+            appendLine("foreground_status=${o.foregroundStatus?.name ?: "UNKNOWN"}")
+            appendLine("foreground_mask=${o.foregroundMask}")
             appendLine("before_process=UNKNOWN")
         }.toByteArray(Charsets.UTF_8)
         /** Whitelist schema validation at upload boundary, not just a filename/size check. */
@@ -124,12 +170,15 @@ class MediaDiagnosticStore(private val directory: () -> File?, private val clock
             if (!file.isFile || file.length() !in 1..MAX_BYTES || !runName.matches(file.name)) false
             else {
                 val rows = file.readText(Charsets.UTF_8).split('\n').filter { it.isNotEmpty() }
+                val schema = rows.firstOrNull()?.substringAfter('=')
+                val added = setOf("submission_failed", "recoveries", "last_recovery", "foreground_events", "foreground_rejected", "last_foreground", "foreground_stage", "foreground_status", "foreground_mask")
                 val expected = encode(sequence(file.name)!!, 1, MediaOwnSnapshot(), MediaCoverage(), MediaOutcomeSummary.Snapshot())
                     .toString(Charsets.UTF_8).trim().lines().map { it.substringBefore('=') }
+                    .filter { schema != "1" || it !in added }
                 val values = rows.map { it.substringAfter('=', "") }
                 rows.map { it.substringBefore('=') } == expected && rows.zip(values).all { (row, value) ->
                     when (row.substringBefore('=')) {
-                        "media_summary_schema" -> value == "1"
+                        "media_summary_schema" -> value in listOf("1", "2")
                         "run" -> value == sequence(file.name).toString()
                         "process" -> Regex("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}").matches(value)
                         "initialized", "token_present", "clock_rollback" -> value in listOf("true", "false")
@@ -140,7 +189,11 @@ class MediaDiagnosticStore(private val directory: () -> File?, private val clock
                         "admission" -> value in MediaAdmission.entries.map { it.name }
                         "inspection_status" -> value in MediaCoverageStatus.entries.map { it.name }
                         "media_handler", "home_handler" -> value in MediaHandlerKind.entries.map { it.name }
-                        "last_outcome" -> value in MediaOutcomeSummary.Outcome.entries.map { it.name }
+                        "last_outcome", "last_recovery" -> value in MediaOutcomeSummary.Outcome.entries.map { it.name }
+                        "last_foreground" -> value in MediaOutcomeSummary.ForegroundOutcome.entries.map { it.name }
+                        "foreground_stage" -> value == "UNKNOWN" || value in com.openautolink.app.carplay.CarPlayForegroundStage.entries.map { it.name }
+                        "foreground_status" -> value == "UNKNOWN" || value in com.openautolink.app.carplay.CarPlayForegroundStatus.entries.map { it.name }
+                        "foreground_mask" -> value in com.openautolink.app.carplay.CarPlayForegroundMask.entries.map { it.name }
                         "age_semantics" -> value == "WALL_APPROXIMATE_MONOTONIC_UNKNOWN"
                         else -> Regex("[0-9]{1,19}").matches(value) && value.toLongOrNull() != null
                     }

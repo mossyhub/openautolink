@@ -33,6 +33,8 @@ class MediaIntegrationInspection(private val context: Context,
             catch (_: Exception) { failed++; "FAILED" }
         out.line("Public registrations only; absence is not exclusion, selection, audio ownership or OEM receipt.")
         out.line("Own boundary: initialized=${own.initialized} token=${own.tokenPresent} active=${own.active} phone=${own.phonePlaying} submitted=${own.submitted} cached=${own.cached} mode=${own.mode} owner=${own.owner} admission=${own.admission}")
+        val outcomes = MediaOutcomeSummary.process.snapshot()
+        out.line("Process receipts: controls=${outcomes.controlReceived} playback=${outcomes.playbackSubmitted} metadata=${outcomes.metadataSubmitted} losses=${outcomes.losses} failed=${outcomes.submissionFailed} recovery=${outcomes.lastRecovery} foreground=${outcomes.lastForeground}; submission is not OEM receipt or audibility")
         for (action in listOf("android.media.browse.MediaBrowserService", "androidx.media3.session.MediaLibraryService")) {
             out.line("Action $action")
             val rows = try { pm.queryIntentServices(Intent(action), PackageManager.GET_META_DATA) }
