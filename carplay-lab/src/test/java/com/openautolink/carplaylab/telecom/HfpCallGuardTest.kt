@@ -74,7 +74,7 @@ class HfpCallGuardTest {
         guard.refresh(); assertFalse("OFF is also the platform service/error sentinel", guard.isClear)
         guard.close()
     }
-    @Test fun startupSilenceIsUnknownAndOnlyLiveCurrentProxyQueryEstablishesDisconnected() {
+    @Test fun startupCallbackAndEmptyCurrentProxyQueryNeverEstablishDisconnected() {
         val app = RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(android.Manifest.permission.BLUETOOTH_CONNECT)
         val adapter = app.getSystemService(BluetoothManager::class.java).adapter
@@ -83,8 +83,10 @@ class HfpCallGuardTest {
         assertFalse(guard.isClear)
         val profile = Profile()
         guard.listener.onServiceConnected(16, profile)
+        assertEquals("attachment callback is not service health", HfpCallGuard.Status.UNKNOWN, guard.status)
         guard.refresh()
         assertFalse("empty profile result is also the platform's swallowed-error sentinel", guard.isClear)
+        assertEquals(HfpCallGuard.Status.UNKNOWN, guard.status)
         profile.denied = true
         guard.refresh()
         assertEquals(HfpCallGuard.Status.UNKNOWN, guard.status)
@@ -94,7 +96,7 @@ class HfpCallGuardTest {
         assertFalse("old proxy survives disconnect", guard.isClear)
         guard.close()
     }
-    @Test fun anyPassengerHfpAlsoBlocksAndPermissionRevocationInvalidatesCachedClear() {
+    @Test fun anyPassengerHfpBlocksAndEmptyOrPermissionRevocationNeverClaimsClear() {
         val app = RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(android.Manifest.permission.BLUETOOTH_CONNECT)
         val adapter = app.getSystemService(BluetoothManager::class.java).adapter
@@ -104,6 +106,7 @@ class HfpCallGuardTest {
         profile.devices = listOf(adapter.getRemoteDevice("02:00:00:00:00:01"))
         guard.refresh(); assertEquals(HfpCallGuard.Status.HFP_OWNED, guard.status)
         profile.devices = emptyList(); guard.refresh(); assertFalse(guard.isClear)
+        assertEquals(HfpCallGuard.Status.UNKNOWN, guard.status)
         shadowOf(app).denyPermissions(android.Manifest.permission.BLUETOOTH_CONNECT)
         assertFalse(guard.isClear)
         guard.close()

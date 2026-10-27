@@ -10,13 +10,14 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * Current ANY-HFP-client census via public BluetoothAdapter/BluetoothProfile methods.
+ * Best-effort ANY-HFP-client conflict observation via BluetoothAdapter/BluetoothProfile methods.
  * Profile16 is source-qualified on AOSP12L/13/14 and retained GM, not a public SDK constant.
  * No reflection, direct Binder, privileged permission, device identity, or policy setter.
  * Broadcasts are invalidation/wakeup only, NEVER positive disconnected authority.
  * Nonempty results conservatively block. Empty/OFF are ambiguous platform error sentinels,
- * not absence authority, even after binding. No production positive-clear source is qualified;
- * native CarPlay admission remains blocked pending a supported authority/product decision.
+ * not absence authority, even after binding. No production positive-clear source is qualified.
+ * Explicit CarPlay mode may separately permit UNKNOWN under the user-visible requirement to
+ * disconnect the iPhone from car Bluetooth. That product choice must NOT turn isClear true.
  * A snapshot cannot atomically exclude a different provider announcing after the read.
  */
 class HfpCallGuard(private val context: Context, private val changed: (Status) -> Unit = {}) : AutoCloseable {
@@ -85,7 +86,7 @@ class HfpCallGuard(private val context: Context, private val changed: (Status) -
         if (previous != value) runCatching { changed(value) }
     }
     private fun invalidate() { revision.incrementAndGet(); publish(Status.UNKNOWN) }
-    /** Off-main Binder work. A profile callback and enabled adapter qualify snapshot coverage. */
+    /** Off-main Binder work. A callback/ON getter does not prove service health or complete coverage. */
     fun refresh() {
         if (closed || !hasPermission) { invalidate(); return }
         val ticket = revision.incrementAndGet()

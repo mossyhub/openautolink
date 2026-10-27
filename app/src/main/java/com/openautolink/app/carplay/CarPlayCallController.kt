@@ -24,16 +24,42 @@ class CarPlayCallController internal constructor(
     val state: StateFlow<State> = mutableState.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val operations = Mutex()
+    @Volatile private var closed = false
+    private val cleanupLock = Any()
+    private var cleanupInFlight = 0
     private val backend = ManagedTelecomExperiment.get(context)
     private val guard = HfpCallGuard(context) { status ->
-        // Positive HFP conflict: withdraw own local presentation only, NEVER send END/Reject.
-        if (status == HfpCallGuard.Status.HFP_OWNED) {
-            mutableState.update { it.copy(localCleanupPending = true) }
-            backend.repairLocalPresentation().whenComplete { acknowledged, error ->
-                mutableState.update { it.copy(localCleanupPending = false, localCleanupFailed = error != null || acknowledged != true) }
-            }
-        }
         mutableState.update { it.copy(hfp = status) }
+        // Positive HFP conflict: withdraw own local presentation only, NEVER send END/Reject.
+        if (status == HfpCallGuard.Status.HFP_OWNED) requestLocalRepair()
+    }
+    private fun requestLocalRepair(): java.util.concurrent.CompletableFuture<Boolean> {
+        val completion = java.util.concurrent.CompletableFuture<Boolean>()
+        synchronized(cleanupLock) {
+            cleanupInFlight++
+            mutableState.update { it.copy(localCleanupPending = true) }
+        }
+        fun acknowledge(success: Boolean) {
+            val repaired = synchronized(cleanupLock) {
+                cleanupInFlight--
+                // No exact predecessor retry handle is exposed by this backend API. Never let
+                // a successful successor repair erase an earlier failed retirement: retain
+                // the failure for this controller/process lifetime instead of claiming repair.
+                val state = mutableState.updateAndGet {
+                    val failed = it.localCleanupFailed || !success
+                    it.copy(localCleanupPending = cleanupInFlight != 0, localCleanupFailed = failed,
+                        setup = if (failed) Setup.UNAVAILABLE else it.setup)
+                }
+                !state.localCleanupPending && !state.localCleanupFailed
+            }
+            completion.complete(repaired)
+        }
+        try {
+            backend.repairLocalPresentation().whenComplete { acknowledged, error ->
+                acknowledge(error == null && acknowledged == true)
+            }
+        } catch (_: RuntimeException) { acknowledge(false) }
+        return completion
     }
     private var nextCall = false
     private val lifecycle = object : Application.ActivityLifecycleCallbacks {
@@ -47,7 +73,7 @@ class CarPlayCallController internal constructor(
     }
     init {
         // Fail closed until durable intent has loaded; no diagnostics/Compose visit is involved.
-        backend.applyProductionPolicy(false, false) { guard.isClear }
+        backend.applyProductionPolicy(false, false, ::permitsNativeCallEffects)
         (context.applicationContext as? Application)?.registerActivityLifecycleCallbacks(lifecycle)
         guard.start()
         scope.launch {
@@ -72,8 +98,19 @@ class CarPlayCallController internal constructor(
             }
         }
     }
+    /** Command/admission safety, NOT proof that another provider is absent.
+     * The backend separately checks the selected handler for NEW admission only, so an
+     * ordinary next-call switch preserves the exact admitted owner's working controls.
+     * Explicit CarPlay requires the user to disconnect the iPhone from car Bluetooth.
+     * UNKNOWN stays unknown; detected ANY-HFP conflict blocks all native call effects. */
+    private fun permitsNativeCallEffects(): Boolean {
+        val state = mutableState.value
+        return !closed && !state.localCleanupPending && !state.localCleanupFailed &&
+            guard.status != HfpCallGuard.Status.HFP_OWNED
+    }
     private fun apply(value: CarPlayCallPreferences) {
-        backend.applyProductionPolicy(value.handler == CarPlayCallPreferences.Handler.CARPLAY, value.extraRingtone) { guard.isClear }
+        backend.applyProductionPolicy(value.handler == CarPlayCallPreferences.Handler.CARPLAY,
+            value.extraRingtone, ::permitsNativeCallEffects)
     }
     private suspend fun prepareBackend(value: CarPlayCallPreferences): State {
         val result = withContext(Dispatchers.IO) { backend.prepareProduction() }
@@ -83,7 +120,8 @@ class CarPlayCallController internal constructor(
             ManagedTelecomExperiment.Result.ENABLED_FOR_THIS_PROCESS -> Setup.READY
             else -> Setup.UNAVAILABLE
         }
-        return mutableState.updateAndGet { it.copy(preferences = value, setup = setup,
+        return mutableState.updateAndGet { it.copy(preferences = value,
+            setup = if (it.localCleanupFailed) Setup.UNAVAILABLE else setup,
             appliesToNextCall = nextCall && backend.hasAdmittedCall, hfp = guard.status) }
     }
     /** Startup, visible resume, or actual permission-result callback. Never prompts or launches UI. */
@@ -115,12 +153,13 @@ class CarPlayCallController internal constructor(
             TelecomAccountSettings.Launch.PUBLIC_ACTION_CANDIDATE_LAUNCHED)
     }
     /** Local repair is intentionally not a handler setter and does not unregister the approved account. */
-    suspend fun repairLocalPresentation(): Boolean = withContext(Dispatchers.IO) { backend.repairLocalPresentation().get() }
+    suspend fun repairLocalPresentation(): Boolean = withContext(Dispatchers.IO) { requestLocalRepair().get() }
     override fun close() {
+        closed = true
         scope.cancel()
         guard.close()
         (context.applicationContext as? Application)?.unregisterActivityLifecycleCallbacks(lifecycle)
-        backend.repairLocalPresentation()
+        requestLocalRepair()
     }
     companion object {
         @Volatile private var instance: CarPlayCallController? = null
