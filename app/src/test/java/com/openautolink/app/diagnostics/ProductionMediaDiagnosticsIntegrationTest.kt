@@ -22,6 +22,11 @@ import java.util.zip.ZipInputStream
 @Config(application = Application::class, sdk = [32, 34])
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class ProductionMediaDiagnosticsIntegrationTest {
+    @Before fun installProductionDiagnostics() {
+        // Match OalApplication installation even when a prior upload fixture replaced
+        // the process provider and this sandbox already has the manager singleton.
+        MediaDiagnosticHooks.install(RuntimeEnvironment.getApplication())
+    }
     @After fun cleanup() { OalMediaSessionManager.instanceOrNull()?.release(); unmockkAll() }
     @Test fun ownSnapshotUsesActualManagerNotPresenceOnly() {
         val manager = OalMediaSessionManager.getInstance(RuntimeEnvironment.getApplication())
@@ -33,6 +38,23 @@ class ProductionMediaDiagnosticsIntegrationTest {
         assertEquals(MediaSubmittedState.PLAYING, own.submitted)
         assertEquals(MediaTruth.TRUE, own.active)
     }
+    @Test fun productionInstallationRestoresActualProviderAfterUploadFixtureOnExistingManager() {
+        val app = RuntimeEnvironment.getApplication()
+        val manager = OalMediaSessionManager.getInstance(app)
+        manager.initialize()
+        manager.updatePlaybackState(true, 12)
+        // Same provider left by MediaManualUploadTest.cleanup in the full worker.
+        MediaDiagnosticHooks.snapshotProvider = MediaSnapshotProvider { MediaOwnSnapshot() }
+        try {
+            assertSame(manager, OalMediaSessionManager.getInstance(app))
+            assertEquals(true, manager.diagnosticSnapshot().phonePlaying)
+            assertEquals(MediaTruth.UNKNOWN, MediaDiagnosticHooks.own().phonePlaying)
+            installProductionDiagnostics()
+            assertEquals(MediaTruth.TRUE, MediaDiagnosticHooks.own().phonePlaying)
+            assertEquals(MediaSubmittedState.PLAYING, MediaDiagnosticHooks.own().submitted)
+        } finally { MediaDiagnosticHooks.install(app) }
+    }
+
     @Test fun actualForegroundRegistryDenialIsDurableWithoutPanelOrFileLoggerAndUploaded() {
         val app = RuntimeEnvironment.getApplication()
         MediaDiagnosticHooks.install(app)
@@ -83,7 +105,10 @@ class ProductionMediaDiagnosticsIntegrationTest {
         field.set(manager, session)
         every { session.setPlaybackState(any()) } throws IllegalStateException("private failure")
         try {
-            assertTrue(runCatching { manager.updatePlaybackState(true, 10) }.isFailure)
+            val failure = runCatching { manager.updatePlaybackState(true, 10) }.exceptionOrNull()
+            assertTrue("the injected Android submission, not fixture setup, must fail", failure is IllegalStateException)
+            assertEquals("private failure", failure?.message)
+            assertEquals(true, manager.diagnosticSnapshot().phonePlaying)
             val own = MediaDiagnosticHooks.own()
             assertEquals(MediaTruth.TRUE, own.phonePlaying)
             assertEquals(MediaSubmittedState.PAUSED, own.submitted)
@@ -140,8 +165,9 @@ class ProductionMediaDiagnosticsIntegrationTest {
         @Suppress("UNCHECKED_CAST")
         (field("sessions").get(receiver) as MutableSet<com.shilapi.xcertplay.airplay.AirPlaySession>).add(session)
         field("active").set(receiver, session); field("runtimeOwner").set(receiver, session); field("runtimeReady").set(receiver, true)
+        val commands = mutableListOf<Int>()
         val host = OalCarPlayMetadataHost(app, receipt = { marker -> assertTrue(receiver.audioDiagnostic(session, marker)) },
-            attemptContext = CarPlayAttemptContext(lease)) { true }
+            attemptContext = CarPlayAttemptContext(lease)) { index -> commands.add(index); true }
         try {
             assertTrue(host.start())
             val audio = app.getSystemService(android.media.AudioManager::class.java)
@@ -163,7 +189,15 @@ class ProductionMediaDiagnosticsIntegrationTest {
             host.publish(CarPlayMediaMetadata(playing = true, title = "private-title-canary", artist = "private-artist-canary"), null, null)
             (field("statuses").get(receiver) as java.util.concurrent.ExecutorService).submit {}.get(3, java.util.concurrent.TimeUnit.SECONDS)
             assertTrue("actual producer must pass receiver allowlist and app sanitizer", receiptLines.any { "stage=playing-publication" in it })
-            android.support.v4.media.session.MediaControllerCompat(app, manager.getSessionToken()!!).transportControls.pause()
+            // Robolectric's MediaSession shadow supplies no Binder transport dispatch.
+            // Enter the exact callback installed by production, not an outcome/helper fake.
+            val compatSession = manager.javaClass.getDeclaredField("mediaSession").apply { isAccessible = true }
+                .get(manager) as android.support.v4.media.session.MediaSessionCompat
+            val implementation = compatSession.javaClass.getDeclaredField("mImpl").apply { isAccessible = true }.get(compatSession)
+            val callback = implementation.javaClass.methods.first { it.name == "getCallback" }.apply { isAccessible = true }
+                .invoke(implementation) as android.support.v4.media.session.MediaSessionCompat.Callback
+            callback.onPause()
+            assertEquals("real installed control callback must reach current host", listOf(2), commands)
             org.robolectric.shadows.ShadowLooper.idleMainLooper()
             (field("statuses").get(receiver) as java.util.concurrent.ExecutorService).submit {}.get(3, java.util.concurrent.TimeUnit.SECONDS)
             assertEquals(MediaTruth.TRUE, MediaDiagnosticHooks.own().phonePlaying)
@@ -185,6 +219,10 @@ class ProductionMediaDiagnosticsIntegrationTest {
             val summaries = members.filterKeys { MediaDiagnosticStore.runName.matches(it) }.values.map { it.toString(Charsets.UTF_8) }
             assertTrue("terminal snapshot must preserve pre-reset phone truth", summaries.any { "phone_playing=TRUE" in it && "submitted=PLAYING" in it })
             assertTrue(MediaOutcomeSummary.process.snapshot().playbackSubmitted > before.playbackSubmitted)
+            assertTrue("actual control receipt must survive store and transmitted ZIP", summaries.any { text ->
+                text.lineSequence().any { it.substringBefore('=') == "control_received" &&
+                    (it.substringAfter('=').toIntOrNull() ?: 0) > before.controlReceived }
+            })
             assertTrue(MediaOutcomeSummary.process.snapshot().controlReceived > before.controlReceived)
             assertTrue(MediaOutcomeSummary.process.snapshot().metadataSubmitted > before.metadataSubmitted)
             assertTrue(MediaOutcomeSummary.process.snapshot().losses > before.losses)
