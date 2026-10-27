@@ -1,0 +1,83 @@
+{
+  "kind": "production Compose host renders; not vehicle photographs",
+  "renderer": "Robolectric 4.14.1 NativeGraphics: LocalView.current.rootView.draw(Canvas(bitmap))",
+  "generator": "app/src/test/java/com/openautolink/app/ui/settings/CarPlayCallSettingsTest.kt",
+  "production_screen": "app/src/main/java/com/openautolink/app/ui/settings/SettingsScreen.kt",
+  "base_commit": "5e6347e1",
+  "api": 34,
+  "theme": "OpenAutoLinkTheme(oalUiScalePercent = 100), dark",
+  "fixture": {
+    "handler": "CARPLAY",
+    "setup": "SETUP_REQUIRED",
+    "preferencesLoaded": true,
+    "extraCarRingtone": false,
+    "busy": false,
+    "appliesToNextCall": false,
+    "message": "",
+    "connection": "Disconnected",
+    "live_account_or_vehicle_approval": false
+  },
+  "sources_sha256": {
+    "app/src/main/java/com/openautolink/app/ui/settings/CarPlayCallSettings.kt": "ed9e629b60467d63fa827010ee7200290dc7ee165c03df0efc416fb698d0b08c",
+    "app/src/test/java/com/openautolink/app/ui/settings/CarPlayCallSettingsTest.kt": "b971c7b873689831bd59793ebe40fee1e6e35ab1d23f8b878486c887c67197e8"
+  },
+  "images": [
+    {
+      "file": "Audio-Settings-Landscape.png",
+      "source": "audio-landscape-top-api34.png",
+      "test": "landscapeRendersActualSettingsAndSingleSharedNativeAudioAction",
+      "size_dp": [1000, 700],
+      "font_scale": 1.0,
+      "sha256": "13871030cc279849b9c1539108f749bc47243cb14b67a57809a93c9c339ad85a"
+    },
+    {
+      "file": "Audio-Settings-CarPlay-Calls.png",
+      "source": "audio-landscape-calls-api34.png",
+      "test": "landscapeRendersActualSettingsAndSingleSharedNativeAudioAction",
+      "size_dp": [1000, 700],
+      "font_scale": 1.0,
+      "scroll_target": "extraCarRingtoneHelper",
+      "sha256": "d982b023610061d83c708ae23d8f6a44081fff1d10c0314a7daeee3ddd91a301"
+    },
+    {
+      "file": "Audio-Settings-Narrow-Large-Text.png",
+      "source": "audio-narrow-large-text-setup-api34.png",
+      "test": "narrowLargeTextRemainsScrollableAndBackIsReachable",
+      "size_dp": [320, 640],
+      "font_scale": 1.5,
+      "scroll_target": "extraCarRingtoneHelper",
+      "sha256": "0474a354231e49492f1a7101c0f8a5b100b95b9ef6f035da3c37a87fd1c8483f"
+    },
+    {
+      "file": "Audio-Settings-Narrow-Volume.png",
+      "source": "audio-narrow-large-text-volume-api34.png",
+      "test": "narrowLargeTextRemainsScrollableAndBackIsReachable",
+      "size_dp": [320, 640],
+      "font_scale": 1.5,
+      "scroll_target": "volumeOffset_Assistant / Speech",
+      "sha256": "bc96ddcb3c3efb08a642191bc963278afabb0cb2bfc8fc220e2e2ef214deac08"
+    }
+  ],
+  "verification": {
+    "scope": "focused Debug host unit/Compose class, SDK annotations [32, 34]; not full suite, native build or physical vehicle verification",
+    "red": {"tests": 2, "failures": 2, "reason": "extraCarRingtoneHelper absent on API 32/34"},
+    "green": {"tests": 16, "failures": 0, "errors": 0, "skipped": 0},
+    "finalized_test_hash_identical_red_green": true,
+    "tracked_kotlin_and_build_input_hashes_unchanged_during_each_run": true,
+    "semantics": "After scrolling to helper, prerequisite, Set up calls and helper assertIsDisplayed; ringtone asserts Off. Helper and ringtone absent after switching to Car Bluetooth. Scroll, 48dp setup action and Back exercised.",
+    "pixel_review": "All four committed API 34 renders inspected directly. Guidance and controls legible; normal scrolled viewport cropping above narrow call section and above volume section.",
+    "evidence_directory": "/hermes_work/reviews/sierralink/implementation/integration/call-ui-guidance",
+    "red_xml": "red/results/TEST-com.openautolink.app.ui.settings.CarPlayCallSettingsTest.xml",
+    "green_xml": "green/results/TEST-com.openautolink.app.ui.settings.CarPlayCallSettingsTest.xml"
+  },
+  "regeneration": {
+    "jdk": "/hermes_work/.jdk17",
+    "android_sdk": "/hermes_work/.android-sdk",
+    "lock": "/hermes_work/.oal-gradle.lock",
+    "command": "python3 /hermes_work/reviews/sierralink/implementation/integration/call-ui-guidance/run_gate.py NEW_RUN_DIRECTORY",
+    "gradle_task": ":app:testDebugUnitTest --tests '*CarPlayCallSettingsTest'",
+    "limits": "--no-daemon --max-workers=1; Gradle and test heap 2g; ActiveProcessorCount=2; external host-unit.init.gradle disables app CMake only",
+    "output_directory": "app/build/reports/audio-settings",
+    "copy_policy": "Copy the four API 34 source files above byte-for-byte; no compositing, redraw or retouching. Do not modify GM-Calling-Accounts-Redacted.jpg."
+  }
+}

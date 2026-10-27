@@ -72,7 +72,13 @@ internal fun CarPlayCallSettings(bindings: AudioSettingsBindings?) {
             CarPlayCallSetup.UNAVAILABLE -> Text("Call setup unavailable", modifier = Modifier.testTag("callSetupUnavailable"))
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("Extra car ringtone", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            Column(Modifier.weight(1f)) {
+                Text("Extra car ringtone", style = MaterialTheme.typography.bodyLarge)
+                Text("Adds a vehicle ringtone alongside CarPlay.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("extraCarRingtoneHelper"))
+            }
             Switch(state.extraCarRingtone, onCheckedChange = { bindings?.onExtraCarRingtoneChange?.invoke(it) },
                 enabled = editable, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag("extraCarRingtone"))
         }

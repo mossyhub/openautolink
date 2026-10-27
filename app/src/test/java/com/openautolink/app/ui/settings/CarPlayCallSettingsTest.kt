@@ -78,6 +78,25 @@ class CarPlayCallSettingsTest {
         compose.onNodeWithTag("extraCarRingtone").assertDoesNotExist()
     }
 
+    @Test fun extraRingtoneExplainsOptionalVehicleRingOnlyForCarPlay() {
+        var state by mutableStateOf(CarPlayCallUiState(preferencesLoaded = true,
+            setup = CarPlayCallSetup.SETUP_REQUIRED))
+        val events = mutableListOf<String>()
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            CarPlayCallSettings(bindings(state, events))
+        } } }
+        compose.onNodeWithTag("extraCarRingtoneHelper").performScrollTo()
+            .assertIsDisplayed().assertTextEquals("Adds a vehicle ringtone alongside CarPlay.")
+        compose.onNodeWithTag("extraCarRingtone").assertIsOff()
+        compose.runOnIdle {
+            assertTrue("Reading guidance must not change intent", events.isEmpty())
+            state = state.copy(handler = CarPlayCallHandler.CAR_BLUETOOTH)
+        }
+        compose.onNodeWithTag("extraCarRingtoneHelper").assertDoesNotExist()
+        compose.onNodeWithTag("extraCarRingtone").assertDoesNotExist()
+        compose.onNodeWithTag("carPlayBluetoothPrerequisite").assertDoesNotExist()
+    }
+
     @Test fun missingMicrophoneAndFrozenInputUseOneContextualActionWithoutArming() {
         var invoked = 0
         val bindings = bindings(CarPlayCallUiState(preferencesLoaded = true), mutableListOf()).copy(
@@ -90,7 +109,7 @@ class CarPlayCallSettingsTest {
         compose.onNodeWithTag("carPlayMicrophoneAction").performScrollTo().performClick()
         assertEquals(1, invoked)
         compose.onNodeWithText("Arm").assertDoesNotExist()
-        compose.onNodeWithText("Save & Reconnect").assertDoesNotExist()
+        compose.onNodeWithText("Save changes").assertDoesNotExist()
     }
 
     @Test fun bluetoothPrerequisiteRemainsVisibleWhenSetupOrSaveFails() {
@@ -116,7 +135,7 @@ class CarPlayCallSettingsTest {
         compose.onNodeWithText("Native call integration").assertDoesNotExist()
         compose.onNodeWithText("Native Answer/Reject/End").assertDoesNotExist()
         compose.onNodeWithText("Inspect").assertDoesNotExist()
-        compose.onNodeWithText("Save & Reconnect").assertDoesNotExist()
+        compose.onNodeWithText("Save changes").assertDoesNotExist()
     }
 
     @Test fun landscapeRendersActualSettingsAndSingleSharedNativeAudioAction() {
@@ -129,7 +148,10 @@ class CarPlayCallSettingsTest {
         } }
         compose.onNodeWithTag("settingsTab_AUDIO").performClick()
         screenshot("audio-landscape-top")
-        compose.onNodeWithTag("androidSoundSettings").performScrollTo()
+        compose.onNodeWithTag("extraCarRingtoneHelper").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("carPlayBluetoothPrerequisite").assertIsDisplayed()
+        compose.onNodeWithTag("callSetup").assertIsDisplayed().assertTextEquals("Set up calls")
+        compose.onNodeWithTag("extraCarRingtone").assertIsOff()
         screenshot("audio-landscape-calls")
         compose.onNodeWithTag("openVehicleAudio").performScrollTo().performClick()
         assertEquals(listOf("audio"), events)
@@ -146,12 +168,15 @@ class CarPlayCallSettingsTest {
                 captureView()
                 SettingsScreen(viewModel = vm, onBack = { events += "back" },
                     audioBindings = bindings(CarPlayCallUiState(preferencesLoaded = true,
-                        setup = CarPlayCallSetup.ENABLE_ACCOUNT), events))
+                        setup = CarPlayCallSetup.SETUP_REQUIRED), events))
             }
         } }
         compose.onNodeWithTag("settingsTab_AUDIO").performScrollTo().performClick()
         screenshot("audio-narrow-large-text-top")
-        compose.onNodeWithTag("callSetup").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("extraCarRingtoneHelper").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("carPlayBluetoothPrerequisite").assertIsDisplayed()
+        compose.onNodeWithTag("callSetup").assertIsDisplayed().assertTextEquals("Set up calls")
+        compose.onNodeWithTag("extraCarRingtone").assertIsOff()
         screenshot("audio-narrow-large-text-setup")
         compose.onNodeWithTag("callSetup").assertHeightIsAtLeast(48.dp)
         compose.onNodeWithTag("volumeOffset_Assistant / Speech").performScrollTo()

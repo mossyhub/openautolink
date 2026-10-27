@@ -2,13 +2,17 @@
 
 ## Current Audio settings and actual GM approval page
 
-- [Audio settings, landscape](Audio-Settings-Landscape.png): actual Compose UI rendered with Robolectric NativeGraphics, API 34, 1000×700 dp, OAL dark theme. The call setup state is an explicit test fixture, not a live account/vehicle approval claim.
-- [CarPlay call controls](Audio-Settings-CarPlay-Calls.png): same actual landscape render scrolled to handler, setup, extra ringtone Off and optional system shortcuts.
-- [Android Auto volume offsets, narrow / large text](Audio-Settings-Narrow-Volume.png): percentage values remain visible alongside wrapped labels.
-- [Audio settings, narrow / large text](Audio-Settings-Narrow-Large-Text.png): same implemented UI at 320×640 dp with 150% font scale; scroll and Back are exercised by the Compose test.
+- [Audio settings, landscape](Audio-Settings-Landscape.png): actual production Compose UI rendered with Robolectric NativeGraphics, API 34, 1000×700 dp, OAL dark theme, 100% font scale. Shows **Set up calls** and the persistent iPhone/car Bluetooth prerequisite.
+- [CarPlay call controls](Audio-Settings-CarPlay-Calls.png): same landscape screen scrolled to show the Bluetooth prerequisite, **Set up calls**, **Extra car ringtone → Off**, and its visible helper: “Adds a vehicle ringtone alongside CarPlay.”
+- [Android Auto volume offsets, narrow / large text](Audio-Settings-Narrow-Volume.png): 320×640 dp, 150% font scale; percentage values remain visible alongside wrapped labels.
+- [Audio settings, narrow / large text](Audio-Settings-Narrow-Large-Text.png): same implemented UI at 320×640 dp with 150% font scale, scrolled to show the complete Bluetooth prerequisite, **Set up calls**, and ringtone helper. Content above this scroll position is cropped normally; the Compose test exercises scroll and Back.
 - [GM Calling accounts](GM-Calling-Accounts-Redacted.jpg): actual owner photograph, cropped to remove system-status details and black-redacted over the private Bluetooth address. The historical account label is not retouched: production uses **OpenAutoLink**. Independent switches show Android account approval, not audio ownership.
 
-Generated app renders are not GM vehicle screenshots. No before-548 screenshot is available. The real GM image is not an emulator/mock. No raw private photograph or identifiers are published. See [calls and microphones](../phone-calls.md).
+All four Audio renders use explicit **SETUP_REQUIRED** fixtures, **CarPlay** handling and **Extra car ringtone Off**; none depicts live account/vehicle approval or a Ready account. The Bluetooth prerequisite is inline guidance, not an error-only message. The ringtone option allows the normal Android/vehicle ringtone alongside CarPlay; actual ringing still depends on Android approval, admitted call ownership and vehicle behavior, not an unconditional promise of two rings. No preference defaults or runtime policy changed for these renders.
+
+[Render provenance and SHA-256 hashes](Audio-Settings-Provenance.json) record the exact fixture, source mapping, focused API 32/34 test receipt and regeneration command. The existing `CarPlayCallSettingsTest` harness mounts production `SettingsScreen`, captures its actual Android root View with NativeGraphics, and asserts prerequisite/helper visibility after scrolling; it does not draw a substitute UI.
+
+Generated app renders are not GM vehicle screenshots. No before-548 screenshot is available. The real GM image is unchanged by this refresh, not an emulator/mock. No raw private photograph or identifiers are published. See [calls and microphones](../phone-calls.md).
 
 ## Historical screenshot archive
 
