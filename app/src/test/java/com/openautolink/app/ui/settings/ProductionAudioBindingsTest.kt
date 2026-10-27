@@ -11,8 +11,15 @@ class ProductionAudioBindingsTest {
         val value = productionCallUi(CarPlayCallController.State(CarPlayCallPreferences(),
             CarPlayCallController.Setup.READY, false, HfpCallGuard.Status.UNKNOWN), false, "")
         assertEquals(CarPlayCallSetup.READY, value.setup)
-        assertTrue(value.message.contains("Keep the iPhone disconnected"))
+        assertEquals("", value.message) // prerequisite is an independent always-visible UI row
         assertTrue(value.preferencesLoaded)
+    }
+    @Test fun detectedHfpConflictBlocksNativeSetupReadyWithoutChangingSavedChoice() {
+        val value = productionCallUi(CarPlayCallController.State(CarPlayCallPreferences(),
+            CarPlayCallController.Setup.READY, false, HfpCallGuard.Status.HFP_OWNED), false, "")
+        assertEquals(CarPlayCallSetup.UNAVAILABLE, value.setup)
+        assertEquals(CarPlayCallHandler.CARPLAY, value.handler)
+        assertTrue(value.message.contains("Disconnect iPhone Bluetooth"))
     }
     @Test fun currentDisconnectedAndApprovedAccountCanShowReady() {
         val value = productionCallUi(CarPlayCallController.State(CarPlayCallPreferences(),

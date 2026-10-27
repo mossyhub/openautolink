@@ -67,8 +67,8 @@ Check the source revision and release notes for your installed build. USB hot-pl
 - No iPhone companion app or additional projection hardware.
 - **USB projection**, with wireless connection retained separately for development.
 - **USB CarPlay music, navigation and touch controls**, with unpaired USB recommended and an explicit **Car Bluetooth** call alternative.
-- **Car microphone for calls and button-initiated Siri**, without diagnostic arming. Owner acceptance on build 548 includes calls and Maps Siri; five released capture owners had 3095/3095 nonzero raw blocks. This is a tested vehicle interval, not a guarantee across all vehicles, restarts or ignition cycles.
-- **Call handling → CarPlay** combines supported native incoming-call presentation and Answer/Reject/End after Android approval and safe call-ownership checks. **Extra car ringtone** defaults Off to avoid a second native ring; missing authority or uncertain Bluetooth ownership leaves native integration unavailable without blocking projection. See [calls and setup](docs/phone-calls.md).
+- **Car microphone for calls and button-initiated Siri**, without diagnostic arming. Calls and Maps Siri have been tested in the maintainer’s car; restart/ignition reliability remains under validation.
+- **Call handling → CarPlay** combines supported native incoming-call presentation and Answer/Reject/End after Android approval. Keep the iPhone disconnected from vehicle Bluetooth in this mode; choose **Car Bluetooth** for paired hands-free calls. **Extra car ringtone** defaults Off. Detected Bluetooth conflicts warn and withhold new OAL native calls, but OAL cannot guarantee automatic duplicate prevention across Bluetooth reconnects. See [calls and setup](docs/phone-calls.md).
 - **Multi-touch gestures**, including map pinch-to-zoom.
 - **Adjustable video quality, Fit to window and safe-control calibration** for wide or curved screens.
 - **Music information and artwork on supported vehicle displays**. Cluster route guidance is still being refined.

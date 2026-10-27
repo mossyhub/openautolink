@@ -38,13 +38,13 @@ internal fun productionCallUi(state: CarPlayCallController.State, busy: Boolean,
     val admissionMessage = if (handler == CarPlayCallHandler.CARPLAY && state.setup == CarPlayCallController.Setup.READY) {
         when (state.hfp) {
             HfpCallGuard.Status.HFP_OWNED -> "Disconnect iPhone Bluetooth for CarPlay calls, or choose Car Bluetooth."
-            HfpCallGuard.Status.UNKNOWN -> "Keep the iPhone disconnected from car Bluetooth for CarPlay calls."
+            HfpCallGuard.Status.UNKNOWN -> "" // explicit prerequisite is always visible in CarPlayCallSettings
             HfpCallGuard.Status.KNOWN_DISCONNECTED -> ""
         }
     } else ""
     return CarPlayCallUiState(handler = handler, extraCarRingtone = preferences?.extraRingtone ?: false,
         setup = setup, busy = busy, preferencesLoaded = preferences != null,
-        appliesToNextCall = state.appliesToNextCall, message = message.ifBlank { admissionMessage })
+        appliesToNextCall = state.appliesToNextCall, message = listOf(admissionMessage, message).filter { it.isNotBlank() }.distinct().joinToString("\n"))
 }
 
 private fun Context.audioActivity(): Activity? = when (this) {
@@ -174,5 +174,10 @@ fun rememberProductionAudioBindings(): AudioSettingsBindings {
             }
         },
         actionMessage = actionMessage,
+        onCallSetupHidden = {
+            selectionGeneration++
+            // Keep the OS request slot until its result arrives; it must not adopt a successor.
+            busy = pendingPermission != null
+        },
     )
 }

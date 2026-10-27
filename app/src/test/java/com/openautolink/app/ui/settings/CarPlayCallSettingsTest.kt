@@ -37,6 +37,21 @@ class CarPlayCallSettingsTest {
         SideEffect { rootView = view.rootView }
     }
 
+    @Test fun leavingCallPageCancelsOnlyPendingUiSetupAndUsesLatestBinding() {
+        var shown by mutableStateOf(true)
+        var generation by mutableIntStateOf(1)
+        val disposed = mutableListOf<Int>()
+        compose.setContent { MaterialTheme {
+            if (shown) CarPlayCallSettings(bindings(CarPlayCallUiState(preferencesLoaded = true), mutableListOf())
+                .copy(onCallSetupHidden = { disposed.add(generation) }))
+        } }
+        compose.runOnIdle { generation = 2 }
+        compose.waitForIdle()
+        compose.runOnIdle { shown = false }
+        compose.waitForIdle()
+        assertEquals(listOf(2), disposed)
+    }
+
     @Test fun actionsReachSuppliedBackendAndDisplayedValuesWaitForReadback() {
         var state by mutableStateOf(CarPlayCallUiState(preferencesLoaded = true, setup = CarPlayCallSetup.SETUP_REQUIRED))
         val events = mutableListOf<String>()
@@ -61,6 +76,17 @@ class CarPlayCallSettingsTest {
         compose.onNodeWithTag("callNextCall").assertExists()
         compose.onNodeWithTag("callSetup").assertDoesNotExist()
         compose.onNodeWithTag("extraCarRingtone").assertDoesNotExist()
+    }
+
+    @Test fun bluetoothPrerequisiteRemainsVisibleWhenSetupOrSaveFails() {
+        val events = mutableListOf<String>()
+        compose.setContent { MaterialTheme { Column {
+            CarPlayCallSettings(bindings(CarPlayCallUiState(preferencesLoaded = true,
+                setup = CarPlayCallSetup.SETUP_REQUIRED, message = "Setting was not saved."), events))
+        } } }
+        compose.onNodeWithTag("carPlayBluetoothPrerequisite").assertExists()
+        compose.onNodeWithText("Setting was not saved.").assertExists()
+        compose.onNodeWithTag("callSetup").assertExists()
     }
 
     @Test fun accountApprovalIsOneContextActionNotInspectionOrIndependentControlToggles() {

@@ -31,10 +31,16 @@ data class AudioSettingsBindings(
     val onOpenSoundSettings: () -> Unit,
     val onOpenVehicleAudio: () -> Unit,
     val actionMessage: String = "",
+    /** Cancels only a pending UI setup continuation; never account/call ownership. */
+    val onCallSetupHidden: () -> Unit = {},
 )
 
 @Composable
 internal fun CarPlayCallSettings(bindings: AudioSettingsBindings?) {
+    val latestBindings = androidx.compose.runtime.rememberUpdatedState(bindings)
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { latestBindings.value?.onCallSetupHidden?.invoke() }
+    }
     val state = bindings?.calls ?: CarPlayCallUiState(
         setup = CarPlayCallSetup.UNAVAILABLE, message = "Call settings are unavailable.")
     AudioSectionTitle("CarPlay calls")
@@ -47,6 +53,8 @@ internal fun CarPlayCallSettings(bindings: AudioSettingsBindings?) {
     if (state.appliesToNextCall) Text("Applies to the next call", style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.testTag("callNextCall"))
     if (state.handler == CarPlayCallHandler.CARPLAY) {
+        Text("Keep the iPhone disconnected from car Bluetooth for CarPlay calls.",
+            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayBluetoothPrerequisite"))
         when (state.setup) {
             CarPlayCallSetup.READY -> AudioReadOnlyRow("Setup", "Ready")
             CarPlayCallSetup.LOADING -> Text("Checking call setup…", modifier = Modifier.testTag("callSetupChecking"))

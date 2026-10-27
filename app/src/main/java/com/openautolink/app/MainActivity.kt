@@ -191,6 +191,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         com.openautolink.app.carplay.CarPlayForegroundVisibility.resumed(this)
+        com.openautolink.app.carplay.PhonePlaybackResumeRecovery.setResumed(true)
         com.openautolink.app.carplay.CarPlaySessionLeases.reconcile(this)
         com.openautolink.app.input.ProcessVehicleDataRuntime.requestSubscriptionRefresh("activity-resume")
         com.openautolink.app.diagnostics.DiagnosticLog.i("lifecycle", "MainActivity.onResume")
@@ -207,6 +208,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         com.openautolink.app.carplay.CarPlayForegroundVisibility.paused(this)
+        com.openautolink.app.carplay.PhonePlaybackResumeRecovery.setResumed(
+            com.openautolink.app.carplay.CarPlayForegroundVisibility.isResumed())
         super.onPause()
         com.openautolink.app.diagnostics.DiagnosticLog.i("lifecycle", "MainActivity.onPause")
         com.openautolink.app.wake.PreWakeMonitor.reportActivity(
@@ -221,6 +224,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         com.openautolink.app.carplay.CarPlayForegroundVisibility.paused(this)
+        com.openautolink.app.carplay.PhonePlaybackResumeRecovery.setResumed(
+            com.openautolink.app.carplay.CarPlayForegroundVisibility.isResumed())
         super.onDestroy()
     }
 
