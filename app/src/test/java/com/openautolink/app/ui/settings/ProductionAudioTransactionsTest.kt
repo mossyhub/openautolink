@@ -419,6 +419,107 @@ class ProductionAudioTransactionsTest {
         } finally { host.pause().stop().destroy() }
     }
 
+    @Test fun actualRegistryPhoneLaunchFailureRollsBackOnlyPhoneSlotAndAllowsExplicitRetry() {
+        permissionLaunchFailure(Manifest.permission.READ_PHONE_NUMBERS)
+    }
+
+    @Test fun actualRegistryMicrophoneLaunchFailureRollsBackOnlyMicSlotAndAllowsExplicitRetry() {
+        permissionLaunchFailure(Manifest.permission.RECORD_AUDIO)
+    }
+
+    private fun permissionLaunchFailure(failedPermission: String) {
+        val phoneFails = failedPermission == Manifest.permission.READ_PHONE_NUMBERS
+        val otherPermission = if (phoneFails) Manifest.permission.RECORD_AUDIO else Manifest.permission.READ_PHONE_NUMBERS
+        val host = Robolectric.buildActivity(PermissionLaunchFailureActivity::class.java).setup()
+        fun drain(done: () -> Boolean) = compose.waitUntil(10000) {
+            shadowOf(Looper.getMainLooper()).idle(); done()
+        }
+        fun invoke(activity: PermissionLaunchFailureActivity, permission: String) {
+            compose.runOnIdle {
+                if (permission == Manifest.permission.READ_PHONE_NUMBERS) activity.binding!!.onSetUpCalls()
+                else activity.binding!!.onMicrophoneAction()
+            }
+            // Serialize the controller IO lane before reading the UI continuation.
+            runBlocking { CarPlayCallController.get(app).prepare() }
+            shadowOf(Looper.getMainLooper()).idle(); compose.waitForIdle()
+        }
+        fun deliver(activity: PermissionLaunchFailureActivity, request: PermissionLaunchRequest, granted: Boolean) {
+            if (granted) shadowOf(app).grantPermissions(request.permission)
+            else shadowOf(app).denyPermissions(request.permission)
+            compose.runOnIdle {
+                assertTrue(activity.permissionRegistry.dispatchResult(request.code, android.app.Activity.RESULT_OK,
+                    Intent().putExtra(ActivityResultContracts.RequestMultiplePermissions.EXTRA_PERMISSIONS, arrayOf(request.permission))
+                        .putExtra(ActivityResultContracts.RequestMultiplePermissions.EXTRA_PERMISSION_GRANT_RESULTS,
+                            intArrayOf(if (granted) android.content.pm.PackageManager.PERMISSION_GRANTED else android.content.pm.PackageManager.PERMISSION_DENIED))))
+            }
+            runBlocking { CarPlayCallController.get(app).prepare() }
+            shadowOf(Looper.getMainLooper()).idle(); compose.waitForIdle()
+        }
+        try {
+            val first = host.get()
+            drain { first.binding?.calls?.preferencesLoaded == true }
+            invoke(first, otherPermission)
+            drain { first.permissionRegistry.accepted.size == 1 }
+            val other = first.permissionRegistry.accepted.single()
+            assertEquals(otherPermission, other.permission)
+            first.permissionRegistry.throwOnceFor = failedPermission
+            invoke(first, failedPermission) // The real registry removes its launched key and rethrows.
+            drain { first.permissionRegistry.attempts.size == 2 }
+            assertEquals(listOf(otherPermission, failedPermission), first.permissionRegistry.attempts)
+            assertEquals(1, first.permissionRegistry.accepted.size)
+            if (phoneFails) {
+                assertFalse("Failed phone launch must release busy without waiting for a result", first.binding!!.calls.busy)
+                assertTrue(first.binding!!.calls.message.contains("Try again"))
+                assertNull("Successful microphone request must keep its own slot", first.binding!!.microphoneAction)
+            } else {
+                assertEquals("Enable microphone", first.binding!!.microphoneAction)
+                assertTrue(first.binding!!.microphoneMessage.contains("Try again"))
+                assertTrue("Failed mic launch must not clear the outstanding phone request", first.binding!!.calls.busy)
+            }
+            assertNull(shadowOf(app).nextStartedActivity)
+            assertEquals(0, first.reconnects)
+            host.recreate()
+            val next = host.get()
+            drain { next.binding?.calls?.preferencesLoaded == true }
+            assertTrue("No permission launch on recreation", next.permissionRegistry.attempts.isEmpty())
+            invoke(next, otherPermission)
+            assertTrue("Successful pre-recreation request still owns the other slot", next.permissionRegistry.attempts.isEmpty())
+            invoke(next, failedPermission)
+            drain { next.permissionRegistry.accepted.size == 1 }
+            assertEquals(listOf(failedPermission), next.permissionRegistry.attempts)
+            val retry = next.permissionRegistry.accepted.single()
+            invoke(next, failedPermission)
+            assertEquals("No duplicate while explicit retry is outstanding", 1, next.permissionRegistry.attempts.size)
+            deliver(next, retry, false)
+            if (phoneFails) drain { !next.binding!!.calls.busy }
+            else assertEquals("Enable microphone", next.binding!!.microphoneAction)
+            assertEquals("Callback must not automatically retry", 1, next.permissionRegistry.attempts.size)
+            // A successful callback consumes its own slot; another explicit request can launch.
+            invoke(next, failedPermission)
+            drain { next.permissionRegistry.accepted.size == 2 }
+            deliver(next, next.permissionRegistry.accepted.last(), true)
+            if (phoneFails) {
+                drain { !next.binding!!.calls.busy }
+                assertEquals(TelecomAccountSettings.exactComponent, shadowOf(app).nextStartedActivity?.component)
+                assertNull(next.binding!!.microphoneAction)
+            } else {
+                assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED,
+                    app.checkSelfPermission(Manifest.permission.RECORD_AUDIO))
+                assertNull(shadowOf(app).nextStartedActivity)
+            }
+            deliver(next, other, false) // Restored result consumes only its old OS slot, no continuation.
+            assertFalse(next.binding!!.calls.busy)
+            if (phoneFails) assertEquals("Enable microphone", next.binding!!.microphoneAction)
+            invoke(next, otherPermission)
+            drain { next.permissionRegistry.accepted.size == 3 }
+            assertEquals(otherPermission, next.permissionRegistry.accepted.last().permission)
+            deliver(next, next.permissionRegistry.accepted.last(), false)
+            assertEquals(3, next.permissionRegistry.attempts.size)
+            assertEquals(0, next.reconnects)
+            assertNull(shadowOf(app).nextStartedActivity)
+        } finally { host.pause().stop().destroy() }
+    }
+
     @Test fun bothRealNavigationSettingsSitesShareProductionBindingAndExplicitViewModelReconnect() {
         val source = java.io.File("src/main/java/com/openautolink/app/ui/AppNavHost.kt").let {
             if (it.isFile) it else java.io.File("src/main/java/com/openautolink/app/ui/navigation/AppNavHost.kt")
@@ -426,6 +527,58 @@ class ProductionAudioTransactionsTest {
         assertEquals(1, Regex("rememberProductionAudioBindings\\(").findAll(source).count())
         assertTrue(source.contains("projectionViewModel::reconnectCarPlay"))
         assertEquals(2, Regex("audioBindings = audioBindings").findAll(source).count())
+    }
+}
+
+/** Only the OS launch boundary fails; register/launch/result/save/restore are AndroidX code. */
+data class PermissionLaunchRequest(val code: Int, val permission: String)
+
+class ThrowOncePermissionRegistry(private val context: android.content.Context) : ActivityResultRegistry() {
+    var throwOnceFor: String? = null
+    val attempts = mutableListOf<String>()
+    val accepted = mutableListOf<PermissionLaunchRequest>()
+    override fun <I, O> onLaunch(code: Int, contract: ActivityResultContract<I, O>, input: I, options: ActivityOptionsCompat?) {
+        val intent = contract.createIntent(context, input)
+        assertEquals(ActivityResultContracts.RequestMultiplePermissions.ACTION_REQUEST_PERMISSIONS, intent.action)
+        val permission = intent.getStringArrayExtra(ActivityResultContracts.RequestMultiplePermissions.EXTRA_PERMISSIONS)!!.single()
+        attempts.add(permission)
+        if (throwOnceFor == permission) {
+            throwOnceFor = null
+            throw IllegalStateException("Injected permission launch failure")
+        }
+        accepted.add(PermissionLaunchRequest(code, permission))
+    }
+}
+
+class PermissionLaunchFailureActivity : androidx.activity.ComponentActivity() {
+    var binding: AudioSettingsBindings? = null
+    var reconnects = 0
+    val permissionRegistry = ThrowOncePermissionRegistry(this)
+    override fun onResume() {
+        super.onResume()
+        CarPlayForegroundVisibility.resumed(this)
+        CarPlaySessionLeases.reconcile(this)
+    }
+    override fun onPause() {
+        CarPlayForegroundVisibility.paused(this)
+        super.onPause()
+    }
+    override fun onCreate(state: android.os.Bundle?) {
+        super.onCreate(state)
+        permissionRegistry.onRestoreInstanceState(state?.getBundle("permission-registry"))
+        setContent {
+            CompositionLocalProvider(LocalActivityResultRegistryOwner provides object : ActivityResultRegistryOwner {
+                override val activityResultRegistry = permissionRegistry
+            }) {
+                val actual = rememberProductionAudioBindings { reconnects++ }
+                SideEffect { binding = actual }
+                MaterialTheme { AudioMicrophoneSettings("car", {}, actual) }
+            }
+        }
+    }
+    override fun onSaveInstanceState(outState: android.os.Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBundle("permission-registry", android.os.Bundle().also(permissionRegistry::onSaveInstanceState))
     }
 }
 

@@ -166,7 +166,19 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
                                     if (application.checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) != PackageManager.PERMISSION_GRANTED) {
                                         pendingPermission = generation
                                         phonePermissionPending = true
-                                        permission.launch(Manifest.permission.READ_PHONE_NUMBERS)
+                                        try { permission.launch(Manifest.permission.READ_PHONE_NUMBERS) }
+                                        catch (cancelled: CancellationException) { throw cancelled }
+                                        catch (_: Exception) {
+                                            // A synchronous result may already have consumed/replaced this request.
+                                            if (pendingPermission == generation) {
+                                                pendingPermission = null
+                                                phonePermissionPending = false
+                                                if (selectionGeneration == generation) {
+                                                    busy = false
+                                                    message = "Call setup could not be completed. Try again."
+                                                }
+                                            }
+                                        }
                                     } else controller.prepare()
                                 }
                                 CarPlayCallController.Setup.ACCOUNT_DISABLED ->
@@ -176,7 +188,7 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
                       catch (_: Exception) { message = "Call setup could not be completed. Try again." }
-                    finally { if (!phonePermissionPending) busy = false }
+                    finally { if (selectionGeneration == generation && !phonePermissionPending) busy = false }
                 }
             }
         },
@@ -223,8 +235,17 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
                     com.openautolink.app.carplay.CarPlaySessionLeases.requestMicrophone(application) {
                         if (!micPermissionPending) {
                             micPermissionPending = true
-                            requestedMicGeneration = ++micPermissionGeneration
-                            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                            val generation = ++micPermissionGeneration
+                            requestedMicGeneration = generation
+                            try { microphonePermission.launch(Manifest.permission.RECORD_AUDIO) }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) {
+                                if (requestedMicGeneration == generation) {
+                                    requestedMicGeneration = null
+                                    micPermissionPending = false
+                                    microphoneMessage = "Microphone permission could not be requested. Try again."
+                                }
+                            }
                         }
                     }
                 }
