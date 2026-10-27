@@ -358,6 +358,67 @@ class ProductionAudioTransactionsTest {
         } finally { host.pause().stop().destroy() }
     }
 
+    @Test fun actualActivityRecreationRetainsPhoneSlotWithoutAdoptingSuccessorSetup() {
+        val host = Robolectric.buildActivity(ProductionAudioTransactionsActivity::class.java).setup()
+        fun drain(done: () -> Boolean) = compose.waitUntil(10000) {
+            shadowOf(Looper.getMainLooper()).idle(); done()
+        }
+        try {
+            val first = host.get()
+            drain { first.binding?.calls?.preferencesLoaded == true }
+            first.binding!!.onSetUpCalls() // A: denied permission, actual shared Activity registry.
+            var phone: org.robolectric.shadows.ShadowActivity.IntentForResult? = null
+            drain { if (phone == null) phone = shadowOf(first).nextStartedActivityForResult; phone != null }
+            assertEquals("android.content.pm.action.REQUEST_PERMISSIONS", phone!!.intent.action)
+            assertArrayEquals(arrayOf(Manifest.permission.READ_PHONE_NUMBERS),
+                phone!!.intent.getStringArrayExtra("android.content.pm.extra.REQUEST_PERMISSIONS_NAMES"))
+            assertEquals("android.content.pm.action.REQUEST_PERMISSIONS", shadowOf(app).nextStartedActivity?.action)
+            assertNull(shadowOf(app).nextStartedActivity)
+            host.recreate()
+            val next = host.get()
+            drain { next.binding?.calls?.preferencesLoaded == true }
+            assertNotSame(first, next)
+            compose.waitForIdle()
+            assertTrue(next.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+            assertEquals(android.content.pm.PackageManager.PERMISSION_DENIED,
+                app.checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS))
+            assertEquals(CarPlayCallHandler.CARPLAY, next.binding!!.calls.handler)
+            assertFalse("Recreated binding must not retain the old continuation's busy state", next.binding!!.calls.busy)
+            assertFalse(next.isDestroyed)
+            assertFalse(next.isFinishing)
+            assertNull(shadowOf(next).nextStartedActivityForResult)
+            assertNull(shadowOf(next).lastRequestedPermission)
+            compose.runOnIdle { next.binding!!.onSetUpCalls() } // B: explicit successor before A.
+            compose.waitForIdle()
+            // Serialize readback behind B's prepare, then drain its main-thread continuation.
+            runBlocking { CarPlayCallController.get(app).prepare() }
+            drain { !next.binding!!.calls.busy || shadowOf(next).lastRequestedPermission != null }
+            compose.waitForIdle()
+            // Android may suppress a concurrent dialog; assert the actual OS request boundary too.
+            assertNull("B must not request permission while A occupies the OS slot", shadowOf(next).lastRequestedPermission)
+            assertNull("B must retain A's outstanding OS permission slot", shadowOf(next).nextStartedActivityForResult)
+            assertNull(shadowOf(app).nextStartedActivity)
+            shadowOf(app).grantPermissions(Manifest.permission.READ_PHONE_NUMBERS)
+            assertTrue(next.activityResultRegistry.dispatchResult(phone!!.requestCode, android.app.Activity.RESULT_OK,
+                Intent().putExtra(ActivityResultContracts.RequestMultiplePermissions.EXTRA_PERMISSIONS, arrayOf(Manifest.permission.READ_PHONE_NUMBERS))
+                    .putExtra(ActivityResultContracts.RequestMultiplePermissions.EXTRA_PERMISSION_GRANT_RESULTS, intArrayOf(android.content.pm.PackageManager.PERMISSION_GRANTED))))
+            drain { !next.binding!!.calls.busy }
+            assertNull("A cannot continue B into Android account settings", shadowOf(app).nextStartedActivity)
+            assertNull(shadowOf(next).nextStartedActivityForResult)
+            assertEquals(CarPlayCallHandler.CARPLAY, next.binding!!.calls.handler)
+            assertEquals(CarPlayCallPreferences.Handler.CARPLAY,
+                CarPlayCallController.get(app).state.value.preferences?.handler)
+            assertEquals(0, next.reconnects)
+            next.binding!!.onSetUpCalls() // C: A consumed; only this explicit action may continue.
+            drain { !next.binding!!.calls.busy && next.binding!!.calls.setup == CarPlayCallSetup.ENABLE_ACCOUNT }
+            assertEquals(TelecomAccountSettings.exactComponent, shadowOf(app).nextStartedActivity?.component)
+            assertNull(shadowOf(app).nextStartedActivity)
+            assertEquals(TelecomAccountSettings.exactComponent, shadowOf(next).nextStartedActivityForResult?.intent?.component)
+            assertNull(shadowOf(next).nextStartedActivityForResult)
+            assertEquals(0, next.reconnects)
+        } finally { host.pause().stop().destroy() }
+    }
+
     @Test fun bothRealNavigationSettingsSitesShareProductionBindingAndExplicitViewModelReconnect() {
         val source = java.io.File("src/main/java/com/openautolink/app/ui/AppNavHost.kt").let {
             if (it.isFile) it else java.io.File("src/main/java/com/openautolink/app/ui/navigation/AppNavHost.kt")

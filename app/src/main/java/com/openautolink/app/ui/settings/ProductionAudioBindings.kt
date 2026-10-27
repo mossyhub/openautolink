@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -69,9 +70,11 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
     var message by remember { mutableStateOf("") }
     var actionMessage by remember { mutableStateOf("") }
     var selectionGeneration by remember { mutableLongStateOf(0) }
+    // Match the restored ActivityResult launcher lifetime, not the old UI continuation.
+    var phonePermissionPending by rememberSaveable { mutableStateOf(false) }
     var pendingPermission by remember { mutableStateOf<Long?>(null) }
     var microphoneMessage by remember { mutableStateOf("") }
-    var micPermissionPending by remember { mutableStateOf(false) }
+    var micPermissionPending by rememberSaveable { mutableStateOf(false) }
     var micPermissionGeneration by remember { mutableLongStateOf(0) }
     var requestedMicGeneration by remember { mutableStateOf<Long?>(null) }
     fun visible() = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
@@ -91,6 +94,7 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val generation = pendingPermission
+        phonePermissionPending = false // Consume the OS slot even when its continuation expired.
         pendingPermission = null
         if (generation == null || !stillSelected(generation)) { busy = false }
         else scope.launch {
@@ -120,6 +124,7 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
             selectionGeneration++
             micPermissionGeneration++
             pendingPermission = null
+            requestedMicGeneration = null
         }
     }
     return AudioSettingsBindings(
@@ -148,7 +153,7 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
             finally { busy = false }
         } },
         onSetUpCalls = {
-            if (!busy && pendingPermission == null && visible() &&
+            if (!busy && !phonePermissionPending && visible() &&
                 currentState.preferences?.handler == CarPlayCallPreferences.Handler.CARPLAY) {
                 val generation = ++selectionGeneration
                 busy = true; message = ""
@@ -160,6 +165,7 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
                                 CarPlayCallController.Setup.PERMISSION_NEEDED -> {
                                     if (application.checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) != PackageManager.PERMISSION_GRANTED) {
                                         pendingPermission = generation
+                                        phonePermissionPending = true
                                         permission.launch(Manifest.permission.READ_PHONE_NUMBERS)
                                     } else controller.prepare()
                                 }
@@ -170,7 +176,7 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
                       catch (_: Exception) { message = "Call setup could not be completed. Try again." }
-                    finally { if (pendingPermission == null) busy = false }
+                    finally { if (!phonePermissionPending) busy = false }
                 }
             }
         },
@@ -228,7 +234,7 @@ fun rememberProductionAudioBindings(onReconnectCarPlay: () -> Unit = {}): AudioS
         onCallSetupHidden = {
             selectionGeneration++
             // Keep the OS request slot until its result arrives; it must not adopt a successor.
-            busy = pendingPermission != null
+            busy = phonePermissionPending
         },
     )
 }
