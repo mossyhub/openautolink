@@ -17,6 +17,9 @@ import java.util.concurrent.atomic.AtomicReference
 interface CarPlaySessionLease {
     fun awaitReady() {}
     fun captureAllowed(): Boolean = false
+    /** Worker-only: return only after exact capture resources have actually retired. */
+    fun onCaptureRetirement(retire: () -> Unit) {}
+    fun inputAdvertised(available: Boolean) {}
     fun revokeCapture() {}
     fun onProtectionLost(callback: () -> Unit) {}
     fun release() {}
@@ -30,6 +33,14 @@ fun interface CarPlaySessionLeaseSource {
 class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSource {
     override fun acquire(): CarPlaySessionLease = Registry.acquire(context)
     companion object {
+        val microphoneState: kotlinx.coroutines.flow.StateFlow<CarPlayMicrophoneSnapshot> get() = CarPlayMicrophoneSnapshots.state
+        fun status(): CarPlayMicrophoneSnapshot = microphoneState.value
+        /** Called only by explicit contextual UI; no background prompting or automatic reconnect. */
+        fun requestMicrophone(context: Context, requestPermission: () -> Unit) {
+            if (!CarPlayForegroundVisibility.isResumed()) return
+            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) requestPermission()
+            else reconcile(context)
+        }
         fun forContext(context: Context): CarPlaySessionLeaseSource = CarPlaySessionLeases(context.applicationContext)
         fun reconcile(context: Context) = Registry.reconcile(context.applicationContext)
         fun refreshNotification() = Registry.refreshNotification()
@@ -49,8 +60,20 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
             @Volatile var delivered = false
             @Volatile var lastReconcile: Pair<Long?, Boolean>? = null
             @Volatile var removal = CompletableFuture<Unit>()
+            @Volatile var permission = false
+            @Volatile var advertised: Boolean? = null
+            val captureRetirement = AtomicReference<(() -> Unit)?>(null)
+            val captureRetiring = AtomicBoolean()
+            val permissionRevoked = AtomicBoolean()
+            override fun onCaptureRetirement(retire: () -> Unit) {
+                check(captureRetirement.compareAndSet(null,retire)) { "Capture retirement owner already installed" }
+                if (permissionRevoked.get()) retireCapture(this)
+            }
+            override fun inputAdvertised(available: Boolean) { onMain {
+                if (leases[id] === this && !retired.get() && !lost.get()) { advertised=available; publishSnapshot() }
+            } }
             override fun awaitReady() { ready.get(10, TimeUnit.SECONDS) }
-            override fun captureAllowed(): Boolean = base && mic && !retired.get() && !revoked.get() && !lost.get() && granted(context)
+            override fun captureAllowed(): Boolean = base && mic && !retired.get() && !revoked.get() && !lost.get() && permission
             override fun revokeCapture() { revoked.set(true) }
             override fun onProtectionLost(callback: () -> Unit) {
                 lossCallback.set(callback)
@@ -68,7 +91,8 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
                 removal.get(10, TimeUnit.SECONDS)
             }
         }
-        private data class Request(val lease: Lease, val visible: Long?)
+        private data class Request(val lease: Lease, val visible: Long?, var epoch: CarPlaySessionService?)
+        private val retirementWorker = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it,"oal-carplay-capture-retirement").apply { isDaemon=true } }
         private val main = Handler(Looper.getMainLooper())
         private val sequence = AtomicLong()
         private val leases = ConcurrentHashMap<Long, Lease>()
@@ -92,12 +116,18 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
         }
         private fun requestStart(lease: Lease) {
             val id = sequence.incrementAndGet()
-            val request = Request(lease,CarPlayForegroundVisibility.generation())
+            lease.permission=granted(lease.context)
+            val request = Request(lease,CarPlayForegroundVisibility.generation(),service?.takeIf { owner ->
+                leases.values.any { it.epoch === owner && it.base && !it.retired.get() && !it.lost.get() }
+            })
             requests[id] = request
+            publishSnapshot()
+            CarPlayForegroundReceipts.emit(CarPlayForegroundStage.START,CarPlayForegroundStatus.REQUESTED)
             try {
                 lease.context.startForegroundService(Intent(lease.context,CarPlaySessionService::class.java)
                     .putExtra("attempt",lease.id).putExtra("request",id)) ?: error("CarPlay foreground service unavailable")
             } catch (failure: Exception) {
+                CarPlayForegroundReceipts.emit(CarPlayForegroundStage.START,CarPlayForegroundStatus.DENIED)
                 requests.remove(id)
                 if (!lease.base) {
                     lease.loss(failure)
@@ -110,9 +140,9 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
         fun created(owner: CarPlaySessionService) {
             val previous = service
             service = owner; startId = 0
-            if (previous != null && previous !== owner) {
-                leases.values.filter { it.epoch === previous }.forEach { it.loss(IllegalStateException("CarPlay service replaced")) }
-            }
+            if (previous != null && previous !== owner) loseEpoch(previous)
+            requests.values.filter { it.epoch == null }.forEach { it.epoch=owner }
+            publishSnapshot()
         }
         fun started(owner: CarPlaySessionService, id: Int, attempt: Long, requestId: Long) {
             if (service !== owner) return
@@ -138,8 +168,10 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
                             check(owner.foregroundServiceType and CarPlayForegroundPolicy.BASE == CarPlayForegroundPolicy.BASE)
                         }
                     }
-                    lease.lastReconcile = CarPlayForegroundVisibility.generation() to granted(lease.context)
+                    lease.permission=granted(lease.context)
+                    lease.lastReconcile = CarPlayForegroundVisibility.generation() to lease.permission
                     if (!lease.retired.get()) lease.ready.complete(Unit)
+                    publishSnapshot()
                 }
                 reconcileRemoval(owner)
             } catch (failure: Exception) {
@@ -159,15 +191,55 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
         fun reconcile(context: Context) = onMain {
             val visible = CarPlayForegroundVisibility.generation()
             val grant = granted(context)
-            leases.values.filter { it.delivered && !it.retired.get() && !it.revoked.get() && !it.lost.get() }.forEach { lease ->
-                if (!grant) { lease.mic = false; return@forEach }
+            leases.values.filter { it.delivered && !it.retired.get() && !it.lost.get() }.forEach { lease ->
+                lease.permission=grant
+                if ((!grant || lease.permissionRevoked.get()) && lease.mic) {
+                    lease.revoked.set(true)
+                    lease.permissionRevoked.set(true)
+                    retireCapture(lease)
+                    return@forEach
+                }
                 val tuple = visible to grant
-                if (!lease.mic && visible != null && lease.lastReconcile != tuple) {
+                if (!lease.revoked.get() && !lease.mic && visible != null && lease.lastReconcile != tuple) {
                     lease.lastReconcile = tuple
                     // Fresh same-service visible start refreshes API32 while-in-use admission too.
                     requestStart(lease)
                 }
             }
+            publishSnapshot()
+        }
+        private fun retireCapture(lease: Lease) {
+            val retire = lease.captureRetirement.get() ?: return
+            if (!lease.captureRetiring.compareAndSet(false,true)) return
+            CarPlayForegroundReceipts.emit(CarPlayForegroundStage.MICROPHONE,CarPlayForegroundStatus.PENDING)
+            retirementWorker.execute {
+                try {
+                    retire() // exact recorder/effects/encoder owner, never a posted-close acknowledgement.
+                    onMain {
+                        if (leases[lease.id] !== lease || lease.lost.get()) return@onMain
+                        lease.mic=false
+                        lease.captureRetiring.set(false)
+                        service?.takeIf { it === lease.epoch }?.let { owner ->
+                            try { owner.promote(maskFor(owner)) }
+                            catch (_: Exception) {
+                                lease.loss(IllegalStateException("CarPlay microphone demotion failed"))
+                                CarPlayForegroundReceipts.emit(CarPlayForegroundStage.MICROPHONE,CarPlayForegroundStatus.FAILED)
+                            }
+                        }
+                        publishSnapshot()
+                    }
+                } catch (_: Exception) {
+                    lease.captureRetiring.set(false)
+                    CarPlayForegroundReceipts.emit(CarPlayForegroundStage.MICROPHONE,CarPlayForegroundStatus.FAILED)
+                    // Keep the OS MIC purpose and retirement debt; next reconcile retries exact close.
+                }
+            }
+        }
+        private fun publishSnapshot() {
+            val lease=leases.values.filter { !it.retired.get() && !it.lost.get() }.maxByOrNull { it.id }
+            CarPlayMicrophoneSnapshots.mutable.value=lease?.let {
+                CarPlayMicrophoneSnapshot(it.base,it.captureAllowed(),it.permission,it.advertised,it.permissionRevoked.get() && it.mic)
+            } ?: CarPlayMicrophoneSnapshot()
         }
         private fun releaseExact(lease: Lease) {
             lease.revoked.set(true); lease.retired.set(true)
@@ -183,11 +255,12 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
         }
         private fun finishRemoval(lease: Lease) {
             leases.remove(lease.id,lease); lease.base = false; lease.mic = false; lease.removal.complete(Unit)
+            publishSnapshot()
         }
         private fun reconcileRemoval(owner: CarPlaySessionService) {
             if (service !== owner) return
             val retiring = leases.values.filter { it.retired.get() && requests.values.none { request -> request.lease === it } }
-            val live = leases.values.filter { !it.retired.get() && it.delivered && it.epoch === owner }
+            val live = leases.values.filter { !it.retired.get() && !it.lost.get() && it.delivered && it.epoch === owner }
             try {
                 if (live.isNotEmpty()) {
                     val mask = CarPlayForegroundPolicy.BASE or if (live.any { it.mic }) CarPlayForegroundPolicy.MIC else 0
@@ -195,6 +268,7 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
                 } else if (requests.isEmpty() && startId != 0) {
                     owner.stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE)
                     check(owner.foregroundServiceType == 0) { "CarPlay foreground removal not acknowledged" }
+                    CarPlayForegroundReceipts.emit(CarPlayForegroundStage.RETIREMENT,CarPlayForegroundStatus.ACKNOWLEDGED,0)
                     owner.stopSelfResult(startId) // false means a newer start; never unconditional stop.
                 }
                 retiring.forEach(::finishRemoval)
@@ -203,10 +277,18 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
         fun destroyed(owner: CarPlaySessionService) {
             if (service !== owner) return
             service = null
-            leases.values.filter { it.epoch === owner }.forEach {
-                it.loss(IllegalStateException("CarPlay foreground service destroyed"))
-                if (it.retired.get() && requests.values.none { request -> request.lease === it }) finishRemoval(it)
+            loseEpoch(owner)
+        }
+        private fun loseEpoch(owner: CarPlaySessionService) {
+            val pending=requests.entries.filter { it.value.epoch === owner }
+            pending.forEach { requests.remove(it.key,it.value) }
+            val affected=leases.values.filter { it.epoch === owner || pending.any { request -> request.value.lease === it } }
+            affected.forEach {
+                it.loss(IllegalStateException("CarPlay foreground service lost"))
+                if (it.retired.get()) finishRemoval(it)
             }
+            CarPlayForegroundReceipts.emit(CarPlayForegroundStage.SERVICE,CarPlayForegroundStatus.LOST)
+            publishSnapshot()
         }
     }
 }

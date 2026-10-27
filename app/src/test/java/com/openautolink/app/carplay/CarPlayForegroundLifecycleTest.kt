@@ -92,6 +92,67 @@ class CarPlayForegroundLifecycleTest {
         } finally { second.release(); waiter.join(2000); service.destroy() }
     }
 
+    @Test fun permissionRevocationWaitsForExactCaptureRetirementBeforeDemotion() {
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup()
+        CarPlayForegroundVisibility.resumed(activity.get())
+        val lease = CarPlaySessionLeases.forContext(app).acquire()
+        val start = nextStart(app)
+        val service = Robolectric.buildService(CarPlaySessionService::class.java).create()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val released = java.util.concurrent.CountDownLatch(1)
+        try {
+            service.get().onStartCommand(start,0,1)
+            lease.awaitReady()
+            val retire = CarPlaySessionLease::class.java.methods.firstOrNull { it.name == "onCaptureRetirement" }
+            assertNotNull("Exact recorder retirement hook must exist",retire)
+            retire!!.invoke(lease, { entered.countDown(); released.await(2,java.util.concurrent.TimeUnit.SECONDS); Unit })
+            shadowOf(app).denyPermissions(android.Manifest.permission.RECORD_AUDIO)
+            CarPlaySessionLeases.reconcile(app)
+            assertFalse(lease.captureAllowed())
+            assertTrue(entered.await(2,java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(CarPlayForegroundPolicy.BASE or CarPlayForegroundPolicy.MIC,service.get().foregroundServiceType)
+            released.countDown()
+            repeat(100) {
+                shadowOf(android.os.Looper.getMainLooper()).idle()
+                if (service.get().foregroundServiceType == CarPlayForegroundPolicy.BASE) return@repeat
+                Thread.sleep(5)
+            }
+            assertEquals("Only recorder retirement acknowledges microphone purpose removal",CarPlayForegroundPolicy.BASE,service.get().foregroundServiceType)
+        } finally { released.countDown(); lease.release(); service.destroy(); CarPlayForegroundVisibility.paused(activity.get()); activity.pause().stop().destroy() }
+    }
+
+    @Test fun serviceDeathBeforeInitialIntentFailsPendingAttemptAndAcknowledgesRetirement() {
+        val app = RuntimeEnvironment.getApplication()
+        val lease = CarPlaySessionLeases.forContext(app).acquire()
+        val start = nextStart(app)
+        val service = Robolectric.buildService(CarPlaySessionService::class.java).create()
+        service.destroy()
+        val done = java.util.concurrent.CompletableFuture<Boolean>()
+        Thread {
+            try { lease.awaitReady(); done.complete(false) }
+            catch (_: Exception) { done.complete(true) }
+        }.start()
+        try {
+            assertTrue("Pending starts belong to the dead service epoch",done.get(2,java.util.concurrent.TimeUnit.SECONDS))
+            val removed = java.util.concurrent.CompletableFuture<Unit>()
+            Thread { try { lease.releaseAndAwait(); removed.complete(Unit) } catch (e:Exception) { removed.completeExceptionally(e) } }.start()
+            repeat(20) { shadowOf(android.os.Looper.getMainLooper()).idle(); Thread.sleep(5) }
+            removed.get(2,java.util.concurrent.TimeUnit.SECONDS)
+            val replacement = Robolectric.buildService(CarPlaySessionService::class.java).create()
+            try { replacement.get().onStartCommand(start,0,1); assertFalse(lease.captureAllowed()) }
+            finally { replacement.destroy() }
+        } finally { lease.release() }
+    }
+
+    @Test fun finiteForegroundReceiptApiExistsWithoutFreeTextOrOwnerIdentifiers() {
+        val type = runCatching { Class.forName("com.openautolink.app.carplay.CarPlayForegroundReceipt") }.getOrNull()
+        assertNotNull("Foreground outcomes must have typed finite hooks",type)
+        assertEquals(setOf("stage","status","mask"),type!!.declaredFields.filterNot { it.isSynthetic || java.lang.reflect.Modifier.isStatic(it.modifiers) }.map { it.name }.toSet())
+        assertTrue(type.declaredFields.filterNot { it.isSynthetic || java.lang.reflect.Modifier.isStatic(it.modifiers) }.all { it.type.isEnum })
+    }
+
     @Test fun deniedMicrophoneStillAcknowledgesConnectionAndPlayback() {
         val app = RuntimeEnvironment.getApplication()
         shadowOf(app).denyPermissions(android.Manifest.permission.RECORD_AUDIO)

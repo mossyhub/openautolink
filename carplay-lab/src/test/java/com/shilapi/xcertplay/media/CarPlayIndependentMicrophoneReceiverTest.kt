@@ -40,9 +40,12 @@ class CarPlayIndependentMicrophoneReceiverTest {
             var starts=0
             var minimumCalls=0
             var rejectStereo=false
+            var rejectAll=false
+            var onMinimum: (() -> Unit)? = null
             @JvmStatic @Implementation fun native_get_min_buff_size(rate: Int, channels: Int, format: Int): Int {
                 minimumCalls++
-                return if (rejectStereo && channels==2) -2 else 1024
+                onMinimum?.invoke()
+                return if (rejectAll || (rejectStereo && channels==2)) -2 else 1024
             }
         }
         @Implementation fun native_start(event: Int, session: Int): Int { starts++; return 0 }
@@ -103,6 +106,35 @@ class CarPlayIndependentMicrophoneReceiverTest {
             val capability=receiver.javaClass.getDeclaredField("microphoneCapability").apply { isAccessible=true }.get(receiver) as MicrophoneCapability
             assertFalse(capability.available)
         } finally { CarPlayMicrophoneExperiments.disarm(); receiver.close(); assertTrue(receiver.awaitClosed(5000)) }
+    }
+    @Test @Config(sdk=[32,34]) fun unsupportedProductionInputFreezesNoneAndKeepsReceiverPlaybackAlive() {
+        AllRecorder.rejectAll=true
+        try { productionWithoutInput { true } }
+        finally { AllRecorder.rejectAll=false }
+    }
+    @Test @Config(sdk=[32,34]) fun revokedDuringProductionQualificationFreezesNoneWithoutFurtherProbes() {
+        var admitted=true
+        AllRecorder.onMinimum={ admitted=false }
+        try {
+            productionWithoutInput { admitted }
+            assertEquals("Revocation fences every subsequent individual acquisition",1,AllRecorder.minimumCalls)
+        } finally { AllRecorder.onMinimum=null }
+    }
+    private fun productionWithoutInput(admission: () -> Boolean) {
+        val app=RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        CarPlayMicrophoneExperiments.disarm()
+        AllRecorder.minimumCalls=0
+        val surface=mock(Surface::class.java);`when`(surface.isValid).thenReturn(true)
+        val receiver=ProjectionReceiver(app,"00:11:22:33:44:55",surface,mock(MfiAuthenticator::class.java),
+            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),
+            captureAdmission=admission,onStatus={})
+        try {
+            val capability=receiver.javaClass.getDeclaredField("microphoneCapability").apply { isAccessible=true }.get(receiver) as MicrophoneCapability
+            assertFalse(capability.available)
+            assertFalse("Playback output inventory survives unavailable input",AudioOutputSupport.wirelessRows(AudioOutputSupport.implementedBits).isEmpty())
+            assertTrue("Receiver still owns its non-capture resources",receiver.pairingId.isNotBlank())
+        } finally { receiver.close(); assertTrue(receiver.awaitClosed(5000)) }
     }
     @Test @Config(sdk=[32,34]) fun productionQualifiedReceiverPreservesAcceptedArmHistoryAndAuthenticatedUplink() = receiver("PRODUCTION","AA_STYLE",9,640)
     @Test @Config(sdk=[32,34]) fun aaStyleQualifiedReceiverConvertsAuthenticatedUplink() = receiver("AA_STYLE","AA_STYLE",9,640)
@@ -244,8 +276,9 @@ class CarPlayIndependentMicrophoneReceiverTest {
         arm(history,live)
         val surface=mock(Surface::class.java);`when`(surface.isValid).thenReturn(true)
         val ledgerLines=java.util.concurrent.CopyOnWriteArrayList<String>()
+        val terminals=java.util.concurrent.CopyOnWriteArrayList<CaptureTerminalSummary>()
         val receiver=ProjectionReceiver(app,"00:11:22:33:44:55",surface,mock(MfiAuthenticator::class.java),
-            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),captureAdmission={true},onStatus=ledgerLines::add)
+            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),captureAdmission={true},onCaptureTerminal={ terminals.add(it); true },onStatus=ledgerLines::add)
         assertEquals("Qualification must never start recording",0,AllRecorder.starts)
         fun field(owner: Any, name: String): Any? = owner.javaClass.getDeclaredField(name).apply { isAccessible=true }.get(owner)
         try {
@@ -345,6 +378,11 @@ class CarPlayIndependentMicrophoneReceiverTest {
         assertEquals(if (history=="NORMAL") listOf("MIC:24000:1","MIC:48000:1","VOICE_RECOGNITION:24000:1",
             "VOICE_RECOGNITION:48000:1","VOICE_RECOGNITION:48000:2") else List(9) { if(history in setOf("AA_STYLE","PRODUCTION")) "VOICE_RECOGNITION:16000:1" else "VOICE_RECOGNITION:48000:2" },shapes)
         assertEquals(1,AllRecorder.starts)
+        if (history in setOf("PRODUCTION","AA_STYLE")) {
+            assertEquals(history != "PRODUCTION",ledgerLines.any { "stage=microphone-experiment " in it })
+            assertEquals(if (history=="PRODUCTION") CaptureTerminalSummary.Profile.DEFAULT else CaptureTerminalSummary.Profile.EXPERIMENT,terminals.single().profile)
+            assertEquals(if (history=="PRODUCTION") CaptureTerminalSummary.History.NORMAL else CaptureTerminalSummary.History.MANUAL,terminals.single().history)
+        }
         val receiverOrdinal=Regex("receiver=([0-9]+)").find(creates.first())!!.groupValues[1]
         if(history in setOf("AA_STYLE","PRODUCTION")) assertTrue(ledgerLines.any { "stage=microphone-acquisition path=aa-style" in it })
         else assertTrue(ledgerLines.any { it=="media stage=microphone-control receiver=$receiverOrdinal history=${if (history=="NORMAL") "normal" else "manual-vr48-two"} live=${if (live=="VR24_MONO") "vr24-mono" else "vr48-two"}" })

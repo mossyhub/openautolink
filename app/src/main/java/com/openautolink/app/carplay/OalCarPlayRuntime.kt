@@ -345,6 +345,8 @@ class OalCarPlayRuntime(
                 }, receipt)
             } }, drivingRestrictions = config.restrictionPolicy.enabled,
             onCaptureTerminal = captureTerminalSink(context, ::receiverStatus), onStatus = ::receiverStatus) }
+        attemptContext?.onInputAdvertised?.invoke(projection.inputAdvertised)
+        attemptContext?.onCaptureRetirement?.invoke(projection::retireMicrophoneCapture)
         // Log the actual decoder-qualified offer, not an earlier requested preset or coded viewport.
         active()
         onDisplayQualified(projection.displayConfiguration)

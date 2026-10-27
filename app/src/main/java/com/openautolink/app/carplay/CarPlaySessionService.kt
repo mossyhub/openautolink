@@ -12,6 +12,27 @@ import com.openautolink.app.MainActivity
 
 /** Process priority only: protocol/resource ownership stays in the coordinator. */
 class CarPlaySessionService : Service() {
+    private val tokenHandler=android.os.Handler(android.os.Looper.getMainLooper())
+    private var observedToken: android.media.session.MediaSession.Token? = null
+    private var tokenWatchScheduled=false
+    private val tokenWatch=object : Runnable {
+        override fun run() {
+            tokenWatchScheduled=false
+            if (foregroundServiceType and CarPlayForegroundPolicy.BASE != CarPlayForegroundPolicy.BASE) return
+            val token=currentToken()
+            if (token != null && token != observedToken) refreshNotification()
+            // Process token is stable once published; never initialize its manager to observe it.
+            if (token == null) scheduleTokenWatch()
+        }
+    }
+    private fun currentToken() = runCatching {
+        com.openautolink.app.media.OalMediaSessionManager.instanceOrNull()?.getSessionToken()?.token as? android.media.session.MediaSession.Token
+    }.getOrNull()
+    private fun scheduleTokenWatch() {
+        if (!tokenWatchScheduled) {
+            tokenWatchScheduled=tokenHandler.postDelayed(tokenWatch,1_000)
+        }
+    }
     override fun onCreate() {
         super.onCreate()
         CarPlaySessionLeases.Registry.created(this)
@@ -25,8 +46,16 @@ class CarPlaySessionService : Service() {
     internal fun promote(mask: Int = CarPlayForegroundPolicy.BASE) {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "CarPlay connection", NotificationManager.IMPORTANCE_LOW))
-        startForeground(NOTIFICATION, notification(mask), mask)
-        check(foregroundServiceType == mask) { "CarPlay foreground type not acknowledged" }
+        val stage=if (mask and CarPlayForegroundPolicy.MIC != 0) CarPlayForegroundStage.MICROPHONE else CarPlayForegroundStage.BASE
+        try {
+            startForeground(NOTIFICATION, notification(mask), mask)
+            check(foregroundServiceType == mask) { "CarPlay foreground type not acknowledged" }
+            CarPlayForegroundReceipts.emit(stage,CarPlayForegroundStatus.ACKNOWLEDGED,foregroundServiceType)
+            if (observedToken == null) scheduleTokenWatch()
+        } catch (failure: Exception) {
+            CarPlayForegroundReceipts.emit(stage,CarPlayForegroundStatus.DENIED,runCatching { foregroundServiceType }.getOrNull())
+            throw failure
+        }
     }
     private fun notification(mask: Int): Notification {
         val openApp = PendingIntent.getActivity(this, NOTIFICATION, Intent(this, MainActivity::class.java),
@@ -42,15 +71,19 @@ class CarPlaySessionService : Service() {
             .setOnlyAlertOnce(true)
             .setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
         // Snapshot only: never initialize or replace the process-stable session for an FGS.
-        val token = runCatching { com.openautolink.app.media.OalMediaSessionManager.instanceOrNull()?.getSessionToken()?.token as? android.media.session.MediaSession.Token }.getOrNull()
+        val token = currentToken()
+        observedToken=token
         if (token != null) builder.setStyle(Notification.MediaStyle().setMediaSession(token))
         return builder.build()
     }
     internal fun refreshNotification() {
         if (foregroundServiceType and CarPlayForegroundPolicy.BASE != CarPlayForegroundPolicy.BASE) return
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(foregroundServiceType))
+        CarPlayForegroundReceipts.emit(CarPlayForegroundStage.NOTIFICATION,CarPlayForegroundStatus.ACKNOWLEDGED,foregroundServiceType)
     }
     override fun onDestroy() {
+        tokenHandler.removeCallbacks(tokenWatch)
+        tokenWatchScheduled=false
         CarPlaySessionLeases.Registry.destroyed(this)
         super.onDestroy()
     }

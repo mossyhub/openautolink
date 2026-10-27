@@ -119,6 +119,24 @@ class CarPlaySessionServiceTest {
         } finally { successor.release(); next.destroy() }
     }
 
+    @Test fun tokenCreatedAfterForegroundPromotionRefreshesTheExistingNotification() {
+        val app=RuntimeEnvironment.getApplication()
+        val lease=CarPlaySessionLeases.forContext(app).acquire()
+        val start=nextStart(app)
+        val controller=Robolectric.buildService(CarPlaySessionService::class.java).create()
+        try {
+            controller.get().onStartCommand(start,0,1)
+            lease.awaitReady()
+            val manager=com.openautolink.app.media.OalMediaSessionManager.getInstance(app)
+            manager.initialize()
+            val token=manager.getSessionToken()!!.token
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(2))
+            val notification=shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).getNotification(160)
+            assertNotNull("Actual late token creation must refresh without another host-media begin",notification)
+            assertEquals(token,notification!!.extras.getParcelable<android.media.session.MediaSession.Token>(android.app.Notification.EXTRA_MEDIA_SESSION))
+        } finally { lease.release(); controller.destroy() }
+    }
+
     @Test fun exactLeaseStartsConnectedDeviceForegroundServiceBeforeReady() {
         val app = RuntimeEnvironment.getApplication()
         val lease = CarPlaySessionLeases.forContext(app).acquire()

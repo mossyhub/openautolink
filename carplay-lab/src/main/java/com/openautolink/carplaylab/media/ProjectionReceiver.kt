@@ -71,7 +71,7 @@ class ProjectionReceiver(
     private val microphoneExperiment = microphoneRequest?.takeIf { it.independent == null }
     private val microphoneQualification = microphoneIndependent?.qualificationProfile() ?: microphoneExperiment
     private val speechRecognitionProfile = microphoneIndependent?.captureProfile()
-    private val captureLedger = com.shilapi.xcertplay.media.CaptureAcquisitionLedger(microphoneQualification != null)
+    private val captureLedger = com.shilapi.xcertplay.media.CaptureAcquisitionLedger(microphoneOverride != null && microphoneQualification != null)
     // Manual experiments retain their receiver-wide exact output inventory.
     // Normal calls qualify against actual output rows without changing noncall offers.
     private val outputAudioFormats = microphoneQualification?.let {
@@ -128,7 +128,7 @@ class ProjectionReceiver(
             }
             val result = com.shilapi.xcertplay.media.CarPlayMicrophoneExperimentPolicy.resolveCapability(
                 profile, wired, admitted, rows)
-            require(profile == null || result.available)
+            require(microphoneOverride == null || result.available)
             require(microphoneIndependent == null || result.bits("speechrecognition").isNotEmpty()) {
                 "Independent capture has no admitted speech input"
             }
@@ -240,6 +240,7 @@ class ProjectionReceiver(
     fun telemetrySnapshot(): ReceiverTelemetrySnapshot = telemetry.snapshot(System.nanoTime())
     private val sink = AndroidMediaSink(context, surface, display = displaySelection, onStatus = ::status, telemetry = telemetry, videoSelection = videoSelection,
         microphoneExperiment = microphoneExperiment, microphoneCapability = microphoneCapability,
+        manualMicrophoneExperiment = microphoneOverride != null,
         captureLedger = captureLedger, audioDiagnostic = { line, current -> enqueueStatus(line, current) },
         speechRecognitionProfile = speechRecognitionProfile,
         captureAdmission = { !closed.get() && !admissionRevoked.get() && captureAdmission() })
@@ -789,6 +790,11 @@ class ProjectionReceiver(
             runCatching { onStatus(message) }
         }; true }.getOrDefault(false)
     }
+    /** Receiver-frozen input advertisement, not current permission or FGS state. */
+    val inputAdvertised: Boolean get() = microphoneCapability.available
+    /** Exact capture-only retirement; normal playback/transport remain active. Worker-only. */
+    fun retireMicrophoneCapture() = sink.retireMicrophoneCapture()
+
     /** Cancel fences late authentication without releasing storage or waiting for control workers. */
     fun revokePendingAdmission() {
         admissionRevoked.set(true)

@@ -53,6 +53,7 @@ class AndroidMediaSink(
     private val audioDiagnostic: ((String, () -> Boolean) -> Boolean)? = null,
     private val speechRecognitionProfile: CarPlayMicrophoneExperimentProfile? = null,
     private val captureAdmission: () -> Boolean = { false },
+    private val manualMicrophoneExperiment: Boolean = microphoneExperiment != null || speechRecognitionProfile != null,
 ) : MediaSink, Closeable {
     private val closed = AtomicBoolean()
     init { AndroidMicrophoneSupport.initialize(context) }
@@ -60,6 +61,7 @@ class AndroidMediaSink(
     private val microphones = MicrophoneOwnerSlot<MicrophoneStreamId, MicrophoneUplink>(
         { it.isRetired }, { it.isClosed })
     private val microphoneOwners = ConcurrentHashMap.newKeySet<MicrophoneUplink>()
+    private val captureRevoked = AtomicBoolean()
     private val manager = context.applicationContext.getSystemService(AudioManager::class.java)
     private var focusRevision = 0L
     // Last platform request retained for existing diagnostic/test readers, never used for ownership.
@@ -328,11 +330,12 @@ class AndroidMediaSink(
         MicrophoneSupport.source(format.audioType) != null &&
         MicrophoneSupport.bits(format)?.let { it in (microphoneCapability ?: AndroidMicrophoneSupport.capability).bits(format.audioType) } == true
     @Synchronized override fun onMicrophoneStarted(id: MicrophoneStreamId, config: MicrophoneConfig) {
-        if (closed.get() || id.session.isClosed || id.type != 100 || id.audioType != config.audioType ||
+        if (closed.get() || captureRevoked.get() || id.session.isClosed || id.type != 100 || id.audioType != config.audioType ||
             (!captureAdmission() || !AndroidMicrophoneSupport.permissionGranted())) { config.key.fill(0); return }
         microphoneOwners.removeIf { it.isRetired }
         val accepted = microphones.start(id) { MicrophoneUplink(config, ::report, microphoneExperiment, microphoneCapability, captureLedger,
-            speechRecognitionProfile, captureAdmission = MicrophoneCaptureAdmission { !closed.get() && !id.session.isClosed && captureAdmission() }).apply {
+            speechRecognitionProfile, captureAdmission = MicrophoneCaptureAdmission { !closed.get() && !captureRevoked.get() && !id.session.isClosed && captureAdmission() },
+            manualCapture = manualMicrophoneExperiment).apply {
             microphoneOwners.add(this); start()
         } }
         if (!accepted) { config.key.fill(0); report("media stage=microphone-owner-busy") }
@@ -646,6 +649,20 @@ class AndroidMediaSink(
         } catch (_: InterruptedException) { /* shutdown */ }
         finally { release(); videoRetired.set(true); report("media stage=video-retired") }
     }
+    /** Capture-only retirement: playback/video remain live. Worker-only, retryable on timeout. */
+    fun retireMicrophoneCapture(timeoutMs: Long = 10_000) {
+        captureRevoked.set(true)
+        // Fence in-flight installation before snapshot; no platform calls while this monitor is held.
+        val owners = synchronized(this) { microphoneOwners.toList() }
+        owners.forEach { it.close() }
+        val deadline=System.nanoTime()+TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (owners.any { !it.isRetired }) {
+            check(System.nanoTime() < deadline) { "CarPlay recorder retirement not acknowledged" }
+            Thread.sleep(10)
+        }
+        microphoneOwners.removeAll(owners.toSet())
+    }
+
     /** Nonblocking cancellation while user PLAY may be inside the platform focus call. */
     fun revokePendingWork() {
         cancelPendingMediaPlay()

@@ -26,7 +26,8 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
     private val qualifiedCapability: MicrophoneCapability? = null,
     private val captureLedger: CaptureAcquisitionLedger? = null,
     private val speechRecognitionProfile: CarPlayMicrophoneExperimentProfile? = null,
-    private val captureAdmission: MicrophoneCaptureAdmission = MicrophoneCaptureAdmission { false }) : Closeable {
+    private val captureAdmission: MicrophoneCaptureAdmission = MicrophoneCaptureAdmission { false },
+    private val manualCapture: Boolean = experiment != null || speechRecognitionProfile != null) : Closeable {
     private fun canCapture() = !closed.get() && captureAdmission.allowed() && AndroidMicrophoneSupport.permissionGranted()
     private val closed = AtomicBoolean()
     private val retired = AtomicBoolean()
@@ -116,7 +117,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             observedCaptureRate = captureRate
             observedSource = source
             observedSelection = CaptureTerminalSummary.Selection.valueOf(profile?.selection?.name ?: "AVERAGE")
-            observedExperiment = profile != null
+            observedExperiment = manualCapture
             if (observation != null) {
                 rawWindow = Pcm16Window(captureChannels)
                 convertedWindow = Pcm16Window(config.channels)
@@ -148,7 +149,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             check(record.recordingState == AudioRecord.RECORDSTATE_RECORDING)
             report("media stage=microphone-format type=100 audioType=${config.audioType} codec=${config.codec} rate=${config.sampleRate} channels=${config.channels} spf=${config.rtpSamplesPerPacket} source=$source")
             report("media stage=microphone-started type=100; uplink audibility unverified")
-            if (experiment != null) report("media stage=microphone-experiment source=$source captureRate=$captureRate captureChannels=$captureChannels selection=${experiment.selection} wireRate=${config.sampleRate}")
+            if (manualCapture && experiment != null) report("media stage=microphone-experiment source=$source captureRate=$captureRate captureChannels=$captureChannels selection=${experiment.selection} wireRate=${config.sampleRate}")
             policy = AndroidMicrophoneSupport.policyDiagnostics(record, source, captureRate) { message ->
                 report(message)
                 observation?.receipt(message)

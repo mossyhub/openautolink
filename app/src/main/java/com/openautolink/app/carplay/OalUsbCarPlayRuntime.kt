@@ -381,6 +381,8 @@ class OalUsbCarPlayRuntime(
             captureAdmission = { !canceled.get() && attemptContext?.captureAdmission?.invoke() == true },
             advertisedBluetoothAddress = manualBluetoothAddress,
             onCaptureTerminal=captureTerminalSink(context,::receiverStatus),onStatus=::receiverStatus) }
+        attemptContext?.onInputAdvertised?.invoke(projection.inputAdvertised)
+        attemptContext?.onCaptureRetirement?.invoke(projection::retireMicrophoneCapture)
         active();onDisplayQualified(projection.displayConfiguration)
         projection.setNetworkStartupDiagnosticStop(ncm::stopStartupDiagnostics)
         val scale=com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnostic(projection.displayConfiguration)
