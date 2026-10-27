@@ -89,7 +89,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
                 label = { Text(label) }, modifier = Modifier.testTag("carPlayConnection_$mode"))
         }
     }
-    SettingsHelp("CarPlay's normal connection is independent of Android Auto. USB uses the local USB bridge and requires USB/VPN consent; iPhone may ask for Trust. Wireless uses iPhone Bluetooth and the car Wi-Fi; wireless CarPlay is unverified in the car. Selecting a connection does not enable CarPlay. Changes apply with Save & Reconnect.")
+    SettingsHelp("CarPlay's normal connection is independent of Android Auto. USB uses the local USB bridge and requires USB/VPN consent; iPhone may ask for Trust. Wireless uses iPhone Bluetooth and the car Wi-Fi; wireless CarPlay is unverified in the car. Selecting a connection does not enable CarPlay. Save changes, then reconnect your phone.")
 
     if (!settings.enabled) return
 
@@ -107,7 +107,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
                 it.copy(drivingRestrictionsEnabled = value, alwaysInPark = if (value) it.alwaysInPark else false)
             } }, modifier = Modifier.testTag("carPlayDrivingRestrictions"))
     }
-    Text("When enabled, only fresh, valid vehicle Park unlocks the main-screen keyboard and lists. Missing or invalid gear stays restricted. Save & Reconnect applies changes.",
+    Text("When enabled, only fresh, valid vehicle Park unlocks the main-screen keyboard and lists. Missing or invalid gear stays restricted. Save changes, then reconnect your phone.",
         style = MaterialTheme.typography.bodySmall)
     if (com.openautolink.app.BuildConfig.CARPLAY_DRIVING_RESTRICTIONS) {
         Text("This build keeps restriction control enabled.", style = MaterialTheme.typography.bodySmall)
@@ -122,7 +122,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
             onCheckedChange = { value -> viewModel.updateCarPlayDraft { it.copy(alwaysInPark = value) } },
             modifier = Modifier.testTag("carPlayAlwaysInPark"))
     }
-    Text("Use only while safely parked. Overrides CarPlay main-screen UI restrictions even when gear is missing or not Park; it does not change actual vehicle gear, Android Auto, secondary displays or video permissions. Turn off to restore vehicle-based restrictions. Enable Vehicle-based UI restrictions above first. Changes require Save & Reconnect.",
+    Text("Use only while safely parked. Overrides CarPlay main-screen UI restrictions even when gear is missing or not Park; it does not change actual vehicle gear, Android Auto, secondary displays or video permissions. Turn off to restore vehicle-based restrictions. Enable Vehicle-based UI restrictions above first. Save changes, then reconnect your phone.",
         style = MaterialTheme.typography.bodySmall)
     var password: String? by remember { mutableStateOf(viewModel.pendingCarPlayPassword()) }
     var advanced by remember { mutableStateOf(false) }
@@ -262,10 +262,10 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
             CarPlayField("Actual Wi-Fi SSID", draft.ssid, !saving) { value -> viewModel.updateCarPlayDraft { it.copy(ssid = value) } }
             OutlinedTextField(value = password ?: "", onValueChange = { password = it; viewModel.updateCarPlayPassword(it) }, enabled = !saving,
                 label = { Text(if (passwordSaved) "New passphrase (unchanged keeps saved)" else "Wi-Fi passphrase") },
-                supportingText = { Text("Stored encrypted, excluded from backups. Saved with Save & Reconnect.") },
+                supportingText = { Text("Stored encrypted, excluded from backups. Tap Save changes to store it.") },
                 visualTransformation = PasswordVisualTransformation(), singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("carPlayPassphrase"))
-            if (passwordSaved) TextButton(onClick = { password = ""; viewModel.updateCarPlayPassword("") }, enabled = !saving) { Text("Clear saved passphrase on Save & Reconnect") }
+            if (passwordSaved) TextButton(onClick = { password = ""; viewModel.updateCarPlayPassword("") }, enabled = !saving) { Text("Clear saved passphrase on Save changes") }
         }
         // One existing saved value applies to both CarPlay transports, not Android Auto.
         CarPlayField("Head unit Bluetooth MAC (USB and wireless)", draft.receiverAddress, !saving) { value ->
@@ -275,7 +275,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
             "Optional for USB. Leave empty to preserve existing USB behavior. Bluetooth association effects are unverified."
             else "Required for wireless CarPlay.", style = MaterialTheme.typography.bodySmall)
         SettingsHelp("On GM, open the car's Settings app → System → About, then scroll to Bluetooth address. Enter that address, not the phone address or Wi-Fi BSSID. Android's 02:00:00:00:00:00 placeholder cannot be used.")
-        Text("Changes apply with Save & Reconnect.", style = MaterialTheme.typography.bodySmall)
+        Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("Android Auto settings below apply only to Android phones.", style = MaterialTheme.typography.bodySmall)
@@ -364,7 +364,7 @@ fun CarPlayDisplaySettingsSection(
         }
         Text("Larger UI shows less content; smaller UI shows more.", style = MaterialTheme.typography.bodySmall)
         SettingsHelp("Calibration: physical width $sliderWidthMm mm. Smaller physical width makes the UI larger. Auto estimates width from the viewport; this is CarPlay metadata, not Android Auto DPI.")
-        Text("Changes apply with Save & Reconnect.", style = MaterialTheme.typography.bodySmall)
+        Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider()
         Text("Android Auto settings below apply only to Android phones.", style = MaterialTheme.typography.bodySmall)
@@ -487,12 +487,12 @@ fun CarPlayVideoSettingsSection(viewModel: SettingsViewModel) {
                 }
             }
         }
-        SettingsHelp("Automatic codec always retains H.264 and offers HEVC only when the same exact size, rate and profile qualify. Automatic is the default for new settings; saved H.264 choices are preserved. HEVC has been verified on one phone/display after a negotiation correction, not on every device. If connection fails, select H.264 and Save & Reconnect. Local qualification is not phone acceptance; no automatic retry is performed.")
+        SettingsHelp("Automatic codec always retains H.264 and offers HEVC only when the same exact size, rate and profile qualify. Automatic is the default for new settings; saved H.264 choices are preserved. HEVC has been verified on one phone/display after a negotiation correction, not on every device. If connection fails, select H.264, save changes, then reconnect your phone. Local qualification is not phone acceptance; no automatic retry is performed.")
         if (videoError != null) Text(videoError, color = MaterialTheme.colorScheme.error)
         else if (!draft.usesWindowGeometry && !supportedProfile) Text("This exact size and maximum FPS are not supported by the local decoder.",
             color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         SettingsHelp("Maximum FPS is a cap, not a constant achieved rate. 30 and 60 are common choices; 1–60 is the current product range, not a protocol limit. Local decoder support does not verify iPhone acceptance.")
-        Text("Changes apply with Save & Reconnect.", style = MaterialTheme.typography.bodySmall)
+        Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider()
         Text("Android Auto settings below apply only to Android phones.", style = MaterialTheme.typography.bodySmall)

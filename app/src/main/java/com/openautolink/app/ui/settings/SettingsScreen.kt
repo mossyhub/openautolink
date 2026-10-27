@@ -37,7 +37,7 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.BatteryChargingFull
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.VideoSettings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -190,7 +190,7 @@ private fun SettingsScreenContent(
                     .weight(1f)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                // Connection status bar + Save & Connect button — always visible
+                // Status and transaction guidance stay outside the scrolling tab content.
                 ConnectionStatusBar(
                     sessionState = sessionState,
                     activeProtocolStatus = activeProtocolStatus,
@@ -315,48 +315,55 @@ private fun ConnectionStatusBar(
         SessionState.ERROR -> "Error"
     }
 
-    FlowRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        // Audio persists independently; never commits a video/connection draft.
-        if (showSave) Button(
-            onClick = onSaveAndConnect,
-            enabled = ready && !saving,
-            modifier = Modifier.testTag("saveAndConnectButton"),
+    Column(Modifier.fillMaxWidth()) {
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Icon(
-                imageVector = Icons.Default.Refresh,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(if (saving) "Saving…" else "Save & Reconnect")
-        }
+            // Audio persists independently; never commits a video/connection draft.
+            if (showSave) Button(
+                onClick = onSaveAndConnect,
+                enabled = ready && !saving,
+                modifier = Modifier.testTag("saveAndConnectButton"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Save,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (saving) "Saving…" else "Save changes")
+            }
 
-        // Status indicator dot + text
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .background(statusColor, shape = MaterialTheme.shapes.small),
-            )
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (sessionState == SessionState.CONNECTING) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            // Status indicator dot + text
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(statusColor, shape = MaterialTheme.shapes.small),
+                )
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (sessionState == SessionState.CONNECTING) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                }
             }
         }
+        if (showSave) Text(
+            "Wireless: reconnects automatically. USB: unplug and reconnect.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -390,7 +397,7 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
                     "Response. Leave blank to auto-detect. Some phones won't enter wireless AA pairing " +
                     "if auto-detect returns empty or 02:00:00:00:00:00. Read the head unit's BT MAC from " +
                     "Settings → About → Bluetooth address and paste it here (format AA:BB:CC:DD:EE:FF). " +
-                    "Does NOT affect call audio routing. Requires Save & Reconnect.",
+                    "Does NOT affect call audio routing. Save changes, then reconnect your phone.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp),
@@ -1074,7 +1081,7 @@ private fun DisplayTab(
             text = "How the video fits your screen. " +
                     "Letterbox shows the full frame with black bars on the sides. " +
                     "Crop fills the screen but cuts off top/bottom. " +
-                    "Requires reconnect (Save & Reconnect).",
+                    "Save changes, then reconnect your phone.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp)
@@ -1313,7 +1320,7 @@ private fun DisplayTab(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Changes to video settings require an AA session reconnect (Save & Reconnect).",
+            text = "For Android Auto video changes, save changes, then reconnect your phone.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1746,7 +1753,7 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             }
         }
         SettingsHelp(
-            text = "Save & Reconnect applies the selected raw HU-requested version. " +
+            text = "Save changes, then reconnect your phone to use the selected raw HU-requested version. " +
                     "GAL 6.0 is verified over USB and wireless with H.265 at 1440p.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1942,7 +1949,7 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             text = "Keyframes smaller than the selected codec's threshold are treated as " +
                 "startup placeholders and decoded silently for 2.5 seconds. Set 0 to disable " +
                 "the guard for that codec. Defaults come from uploaded vehicle logs: H.264 " +
-                "10,000 bytes, H.265 4,096 bytes, VP9 disabled. Requires Save & Reconnect.",
+                "10,000 bytes, H.265 4,096 bytes, VP9 disabled. Save changes, then reconnect your phone.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
@@ -1991,7 +1998,7 @@ private fun VideoTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Android Auto video changes apply with Save & Reconnect.", style = MaterialTheme.typography.bodySmall)
+        Text("For Android Auto video changes, save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
     }
 }
 

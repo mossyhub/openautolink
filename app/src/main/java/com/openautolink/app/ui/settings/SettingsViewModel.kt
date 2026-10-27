@@ -211,7 +211,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 } == true
                 _carPlayCredentialImportStatus.value = if (imported) {
                     _carPlayIdentityReady.value = true
-                    "Identity imported and locally validated. Use Save & Reconnect for the next connection. Phone acceptance is not verified."
+                    "Identity imported and locally validated. Save changes, then reconnect your phone. Phone acceptance is not verified."
                 } else "Import failed. Choose a matching P-256 PKCS#8 key and single certificate (each at most 16 KiB). Existing identity is unchanged."
             } catch (_: Exception) {
                 _carPlayCredentialImportStatus.value = "Could not read or import the selected files. Existing identity is unchanged."
@@ -878,7 +878,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         super.onCleared()
     }
 
-    /** Reconnect the AA session with current settings. Called from Settings "Save & Reconnect". */
+    /** Reconnect the AA session with current settings. Called from Settings "Save changes". */
     fun saveAndReconnect() {
         viewModelScope.launch {
             val sm = com.openautolink.app.session.SessionManager.instanceOrNull() ?: return@launch

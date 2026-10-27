@@ -46,7 +46,7 @@ Check the source revision and release notes for your installed build. USB hot-pl
 ### Shared application
 
 - One car app for Android Auto and CarPlay.
-- Draggable Settings/Stats controls. Audio/call preferences save automatically; connection, video and display changes use **Save & Reconnect**.
+- Draggable Settings/Stats controls. Audio/call preferences save automatically; connection, video and display changes use **Save changes**. Wireless: reconnects automatically. USB: unplug and reconnect.
 - **Settings → Audio → Both → Open OpenAutoLink in vehicle Audio** requests the car’s native media view for either protocol; unavailable platforms report that rather than claiming source selection.
 - Configurable display layout, safe areas and video sizing for wide AAOS screens.
 - Built-in diagnostics, optional log upload and network/vehicle inspection tools.
@@ -122,10 +122,10 @@ For Android Auto 17.4 or newer:
 
 1. Install matching current car and companion releases; enable the car's Wi-Fi access point.
 2. In **OAL → Settings → Connection → Android Auto connection**, select **Wireless** (WPP).
-3. To avoid typing the AP name/BSSID, select the paired car under companion **Auto-Start → Select Devices**, tap **Start WPP config listener** in the car's WPP settings, then use companion **Send WPP WiFi to Car → Scan & Send to Car** and tap the car hotspot. [Full walkthrough and troubleshooting](docs/wireless-wpp.md#send-ssidbssid-from-the-phone-instead-of-typing-them). **Only SSID/BSSID are sent**: enter the hotspot password in the car app, verify the interface serving that AP, then tap **Save & Reconnect**. Manual SSID/BSSID entry is also available.
+3. To avoid typing the AP name/BSSID, select the paired car under companion **Auto-Start → Select Devices**, tap **Start WPP config listener** in the car's WPP settings, then use companion **Send WPP WiFi to Car → Scan & Send to Car** and tap the car hotspot. [Full walkthrough and troubleshooting](docs/wireless-wpp.md#send-ssidbssid-from-the-phone-instead-of-typing-them). **Only SSID/BSSID are sent**: enter the hotspot password in the car app, verify the interface serving that AP, then tap **Save changes**. Wireless reconnects automatically; if using USB, unplug and reconnect the phone. Manual SSID/BSSID entry is also available.
 4. For the WPP migration, pair the phone to the car again after updating. Keep Bluetooth **Phone calls** enabled; **Media audio** may be disabled.
 5. Remove any old **Car WiFi** entry in the companion so it does not compete with Android Auto for the radio.
-6. Select the car under companion **Auto-Start → Select Devices**, then save and reconnect.
+6. Select the car under companion **Auto-Start → Select Devices**, then tap **Save changes** for automatic wireless reconnection.
 
 Bluetooth pairing bootstraps wireless projection; Bluetooth **Phone calls** also carries cellular call audio, a separate role. The **Audio → Android Auto → Assistant microphone** choice does not change call routing.
 
@@ -160,7 +160,7 @@ This handoff is implemented for both phone protocols; successful end-to-end swit
 
 ### Android Auto video quality
 
-If text or maps look soft, try **1440p** as the recommended manual quality setting: in **OAL → Settings → Video → Android Auto**, turn **Auto (Recommended)** off so it reads **Manual**, select **Video Codec → H.265 / HEVC**, then **AA Resolution → 1440p (2560×1440)** and tap **Save & Reconnect**. Keep **GAL / PDK protocol version → 6.0** for the verified modern HEVC path.
+If text or maps look soft, try **1440p** as the recommended manual quality setting: in **OAL → Settings → Video → Android Auto**, turn **Auto (Recommended)** off so it reads **Manual**, select **Video Codec → H.265 / HEVC**, then **AA Resolution → 1440p (2560×1440)** and tap **Save changes**, then reconnect your phone (wireless reconnects automatically; for USB, unplug and reconnect). Keep **GAL / PDK protocol version → 6.0** for the verified modern HEVC path.
 
 **4K (3840×2160)** is an optional higher-detail setting if your phone and head-unit decoder support it. It costs more bandwidth and processing; return to 1440p if it stutters or fails to connect. Auto does not guarantee a particular negotiated resolution, and a blurry image alone does not prove the stream is 1080p. These codec controls apply to Android Auto, not CarPlay.
 
@@ -172,13 +172,13 @@ Keep the vehicle parked while configuring. Disconnect the iPhone from any other 
 
 1. Install a current OAL build with a valid accessory authentication identity. Public GitHub APKs and source builds require your own compatible files. See the [authentication/build policy](docs/carplay-private-mfi-assets.md).
 2. Use **USB** under **OAL → Settings → Connection → CarPlay → CarPlay connection** for wired projection. Wireless remains a development option; CarPlay and Android Auto connection modes are independent.
-3. Apply any changes with **Save & Reconnect**. Keep file logging enabled for testing and upload results, including failed attempts.
+3. Tap **Save changes**, then reconnect your phone. Wireless reconnects automatically; for USB, unplug and reconnect. Keep file logging enabled for testing and upload results, including failed attempts.
 
 If you previously turned off iPhone projection, OAL retains that choice. Only in that case, turn **Enable iPhone projection** back on in the same settings page and save. There is no separate enablement step for normal setup.
 
 ### USB
 
-1. Select **CarPlay connection → USB** in OAL and save.
+1. Select **CarPlay connection → USB** in OAL and tap **Save changes**. If already plugged in, unplug the iPhone before the next step.
 2. Connect the iPhone to a data-capable head-unit USB port with a data-capable cable. If another projection is active, choose **Switch** to attempt temporary USB takeover.
 3. [Tap **OK** on both GM USB access prompts every time](#gm-usb-prompts--android-auto-and-carplay), even if you saved the choice. Accept OAL’s separate local VPN consent when requested. If the iPhone asks to trust the connection, unlock it and approve **Trust** on the iPhone itself.
 4. Leave the iPhone **unpaired from vehicle Bluetooth** for the recommended USB setup, and keep **OpenAutoLink selected in vehicle Audio**. USB does not need car Wi-Fi fields or Bluetooth pairing.
@@ -209,15 +209,15 @@ validated on every vehicle, so ordinary builds do not enable it automatically.
 **Always in Park** is a separate CarPlay override, also default **OFF**, available when restriction
 control is enabled. It releases main-screen keyboard/list restrictions even without Park information;
 use it only while safely parked. It does not change actual gear, Android Auto settings, secondary
-displays or video permissions. Tap **Save & Reconnect** to apply either choice to a fresh session.
+displays or video permissions. Tap **Save changes**, then reconnect your phone to apply either choice to a fresh session. Wireless reconnects automatically; for USB, unplug and reconnect.
 No special build flag is needed. See the [policy and validation limits](docs/carplay-driving-restriction-policy.md).
 
 ### Video and display controls
 
-- New CarPlay settings default to **Automatic** resolution targeting a decoder-qualified **1440p-class** image and **Codec → Automatic (H.264 + qualified HEVC)**, with qualified lower-detail fallbacks. Saved video choices are retained. If you choose manual settings, open **OAL → Settings → Video → CarPlay**, select **Manual** under **Resolution / detail**, then choose **1440p** (recommended) or try **4K** if supported. **Fit to window (standard detail tiers)** keeps the selected detail tier at the available window aspect without stretching; custom resolutions retain their chosen aspect ratio. Tap **Save & Reconnect** to apply.
-- **Codec → Automatic (H.264 + qualified HEVC)** is the default for new CarPlay settings. If you choose manual video settings, we recommend this codec setting with **1440p** for the best balance of detail and performance. It offers HEVC only when the exact size/rate qualifies and retains H.264; it does **not** force the iPhone to use HEVC or change your resolution. Existing saved H.264 choices are preserved, so users with saved H.264 settings should select Automatic explicitly. If connection fails, select **H.264** and **Save & Reconnect**. 4K adds bandwidth and processing demand; return to 1440p if it stutters. Blurry video alone does not establish the negotiated resolution.
+- New CarPlay settings default to **Automatic** resolution targeting a decoder-qualified **1440p-class** image and **Codec → Automatic (H.264 + qualified HEVC)**, with qualified lower-detail fallbacks. Saved video choices are retained. If you choose manual settings, open **OAL → Settings → Video → CarPlay**, select **Manual** under **Resolution / detail**, then choose **1440p** (recommended) or try **4K** if supported. **Fit to window (standard detail tiers)** keeps the selected detail tier at the available window aspect without stretching; custom resolutions retain their chosen aspect ratio. Tap **Save changes**, then reconnect your phone. Wireless reconnects automatically; for USB, unplug and reconnect.
+- **Codec → Automatic (H.264 + qualified HEVC)** is the default for new CarPlay settings. If you choose manual video settings, we recommend this codec setting with **1440p** for the best balance of detail and performance. It offers HEVC only when the exact size/rate qualifies and retains H.264; it does **not** force the iPhone to use HEVC or change your resolution. Existing saved H.264 choices are preserved, so users with saved H.264 settings should select Automatic explicitly. If connection fails, select **H.264**, tap **Save changes**, then reconnect your phone (for USB, unplug and reconnect; wireless reconnects automatically). 4K adds bandwidth and processing demand; return to 1440p if it stutters. Blurry video alone does not establish the negotiated resolution.
 - **For CarPlay on curved screens, we recommend Display → System UI Visible.** OAL starts in fullscreen mode by default, but CarPlay controls can be clipped by the physical screen curves in fullscreen.
-- In **Display → Calibrate safe controls**, adjust the safe rectangle to inset CarPlay controls as far from the edges as you prefer. This is manual adjustment, not automatic curve detection; without suitable insets, fullscreen can cut off parts of the UI. Confirm the calibration, then **Save & Reconnect**.
+- In **Display → Calibrate safe controls**, adjust the safe rectangle to inset CarPlay controls as far from the edges as you prefer. This is manual adjustment, not automatic curve detection; without suitable insets, fullscreen can cut off parts of the UI. Confirm the calibration, tap **Save changes**, then reconnect your phone (for USB, unplug and reconnect; wireless reconnects automatically).
 - If you prefer fullscreen, **swipe down from the top edge of the screen to reveal the GM navigation bar** when you need the vehicle's system controls. This does not replace safe-control calibration.
 - Available resolutions and frame rates depend on the phone and head unit. A frame-rate setting is a limit, not a guarantee. Safe-area calibration and system-bars-visible layouts still need broader vehicle testing.
 
@@ -227,7 +227,7 @@ Public GitHub APKs and ordinary source builds omit the CarPlay authentication fi
 
 ## Audio and call settings
 
-**Settings → Audio** keeps Android Auto, CarPlay and shared actions visibly separate, whether connected or not. Ordinary audio/call choices save automatically; this page has no global **Save & Reconnect**. Android Auto assistant source applies to its next microphone stream; its volume offsets apply at the next Android Auto connection. Connection/video/display drafts stay separate. See the [complete call guide and app/GM illustrations](docs/phone-calls.md).
+**Settings → Audio** keeps Android Auto, CarPlay and shared actions visibly separate, whether connected or not. Ordinary audio/call choices save automatically; this page has no global **Save changes** button. Android Auto assistant source applies to its next microphone stream; its volume offsets apply at the next Android Auto connection. Connection/video/display drafts stay separate. See the [complete call guide and app/GM illustrations](docs/phone-calls.md).
 
 <img src="docs/screenshots/Audio-Settings-Landscape.png" alt="Actual OAL Compose Audio settings render, not a vehicle photograph, with explicit Android Auto and CarPlay scope" width="720">
 
@@ -235,7 +235,7 @@ Public GitHub APKs and ordinary source builds omit the CarPlay authentication fi
 
 ## Adjust text, icons and UI size
 
-Configure these while parked in **OAL → Settings → Display**. Android Auto and CarPlay have separate scaling controls; changing one does not change the other. Select **Save & Reconnect** after adjusting them to apply the settings to the next projection session.
+Configure these while parked in **OAL → Settings → Display**. Android Auto and CarPlay have separate scaling controls; changing one does not change the other. Tap **Save changes** after adjusting them, then reconnect your phone to apply the settings to the next projection session. Wireless reconnects automatically; for USB, unplug and reconnect.
 
 ### Android Auto — DPI scaling
 

@@ -9,7 +9,7 @@
 
 ## CarPlay — recommended unpaired USB
 
-1. Install OAL with your own [authorized authentication identity](carplay-private-mfi-assets.md). Select **Connection → CarPlay → USB**, then **Save & Reconnect** if changing the connection.
+1. Install OAL with your own [authorized authentication identity](carplay-private-mfi-assets.md). Select **Connection → CarPlay → USB**, then tap **Save changes** if changing the connection. If already plugged in, unplug and reconnect the iPhone to apply changes.
 2. Leave the iPhone **unpaired from vehicle Bluetooth**. Connect a data-capable USB cable; approve both GM access prompts each time, OAL's separate local VPN consent and any iPhone Trust prompt. USB needs no car Wi-Fi configuration.
 3. Keep **OpenAutoLink selected in vehicle Audio**; the shared **Settings → Audio → Both → Open OpenAutoLink in vehicle Audio** action requests that view on supported cars. A launch request is not proof the car selected the source.
 4. Open **Settings → Audio → CarPlay calls**. Leave **Call handling → CarPlay**, the fresh-install default, and **Extra car ringtone → Off** for CarPlay ringing without a second native ring.
