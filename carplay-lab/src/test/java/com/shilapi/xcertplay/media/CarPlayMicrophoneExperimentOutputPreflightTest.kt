@@ -60,7 +60,7 @@ class CarPlayMicrophoneExperimentOutputPreflightTest {
         try {
             val failure=runCatching { receiver=ProjectionReceiver(app,"00:11:22:33:44:55",mock(Surface::class.java),
                 mock(MfiAuthenticator::class.java),display=CarPlayDisplayPreferences(
-                    qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),onStatus=receipts::add) }.exceptionOrNull()
+                    qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),captureAdmission={true},onStatus=receipts::add) }.exceptionOrNull()
             receiver?.let { it.close();assertTrue(it.awaitClosed(3000)) }
             assertEquals(listOf("media stage=microphone-experiment-rejected codec=$codec reason=no-qualified-input"),receipts)
             assertTrue(failure is IllegalArgumentException)

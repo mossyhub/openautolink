@@ -38,7 +38,7 @@ class CarPlayProductionCallReceiverTest {
     class ProvenRecorder {
         companion object {
             @JvmStatic @Implementation fun native_get_min_buff_size(rate: Int, channels: Int, format: Int): Int =
-                if (rate==48000 && channels==2) 1024 else -2
+                if (rate==16000 && channels==1) 1024 else -2
         }
         @Implementation fun native_start(event: Int, session: Int): Int = 0
         @Implementation fun native_read_in_byte_array(b: ByteArray, offset: Int, size: Int, blocking: Boolean): Int {
@@ -49,7 +49,7 @@ class CarPlayProductionCallReceiverTest {
             return size
         }
     }
-    @Test fun productionOpusUsesIndependentEncoderWithStereoOnlyCaptureAndNegotiatedClock() {
+    @Test fun productionOpusUsesIndependentEncoderWithAcceptedMonoCaptureAndNegotiatedClock() {
         val app=RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         val device=AudioDeviceInfoBuilder.newBuilder().setType(AudioDeviceInfo.TYPE_BUILTIN_MIC).build()
@@ -59,9 +59,11 @@ class CarPlayProductionCallReceiverTest {
             .setMediaFormat(OpusEncoder.format(64000)).setIsEncoder(true).build()
         ShadowMediaCodecList.addCodec(MediaCodecInfoBuilder.newBuilder().setName("qualified.opus.encoder")
             .setIsEncoder(true).setCapabilities(caps).build())
-        val cap=AndroidMicrophoneSupport.probe(app)
+        val profile=CarPlayMicrophoneCapturePolicy.production
+        assertFalse("Accepted capture must not rely on legacy recorder qualification",AndroidMicrophoneSupport.probe(app).available)
+        val cap=AndroidMicrophoneSupport.experimentCapability(app,profile)
         assertTrue(0x20000000L in cap.bits("telephony"))
-        assertTrue(cap.bits("default").isEmpty()); assertTrue(cap.bits("speechrecognition").isEmpty())
+        assertTrue(0x40L in cap.bits("default")); assertTrue(0x40L in cap.bits("speechrecognition"))
         val captured=java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
         ShadowMediaCodec.addEncoder("qualified.opus.encoder",ShadowMediaCodec.CodecConfig(4096,1275) { input, output ->
             val pcm=ByteArray(input.remaining());input.get(pcm);captured.add(pcm)
@@ -72,7 +74,7 @@ class CarPlayProductionCallReceiverTest {
         DatagramSocket(0,InetAddress.getLoopbackAddress()).use { peer ->
             peer.soTimeout=3000
             val config=MicrophoneSupport.negotiate(cap,100,"telephony",0x20000000L,peer.localPort,480,peer.localAddress,key.copyOf())!!
-            val uplink=MicrophoneUplink(config,qualifiedCapability=cap)
+            val uplink=MicrophoneUplink(config,experiment=profile,qualifiedCapability=cap,captureAdmission=MicrophoneCaptureAdmission {true})
             try {
                 uplink.start()
                 val packet=DatagramPacket(ByteArray(4096),4096);peer.receive(packet)
@@ -80,10 +82,11 @@ class CarPlayProductionCallReceiverTest {
                 val body=AirPlayCrypto.chachaOpen(key,ByteArray(4)+wire.takeLast(8).toByteArray(),
                     wire.copyOfRange(12,wire.size-8),wire.copyOfRange(4,12))
                 assertArrayEquals(byteArrayOf(0x98.toByte(),0x33),body)
-                assertEquals(listOf(3840),AndroidMicrophoneExperimentQualificationTest.captureReads.toList())
+                assertEquals(listOf(640),AndroidMicrophoneExperimentQualificationTest.captureReads.toList())
                 assertEquals(1920,captured.single().size)
                 val samples=ByteBuffer.wrap(captured.single()).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-                while(samples.hasRemaining()) assertEquals(500,samples.get().toInt())
+                for (index in 0 until 960) assertEquals(if(index%6<3) -1000 else 2000,samples.get().toInt())
+                assertFalse(samples.hasRemaining())
                 shadowOf(app).denyPermissions(Manifest.permission.RECORD_AUDIO)
                 val deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
                 while(!uplink.isRetired && System.nanoTime()<deadline) Thread.sleep(5)
@@ -94,7 +97,7 @@ class CarPlayProductionCallReceiverTest {
         }
         MicrophoneCaptureFence.tryDiagnostic()!!.release()
     }
-    @Test fun unarmedReceiverAdmitsOnlyQualifiedCallAndSendsAveragedMonoWithoutLegacyCapture() {
+    @Test fun unarmedReceiverFreezesAcceptedMonoCaptureAndNegotiatedWireWithoutManualExperiment() {
         val app=RuntimeEnvironment.getApplication()
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         val device=AudioDeviceInfoBuilder.newBuilder().setType(AudioDeviceInfo.TYPE_BUILTIN_MIC).build()
@@ -114,16 +117,18 @@ class CarPlayProductionCallReceiverTest {
         val surface=mock(Surface::class.java);`when`(surface.isValid).thenReturn(true)
         val ledgerLines=java.util.concurrent.CopyOnWriteArrayList<String>()
         val receiver=ProjectionReceiver(app,"00:11:22:33:44:55",surface,mock(MfiAuthenticator::class.java),
-            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),onStatus=ledgerLines::add)
+            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),captureAdmission={true},onStatus=ledgerLines::add)
         fun field(owner: Any, name: String): Any? = owner.javaClass.getDeclaredField(name).apply { isAccessible=true }.get(owner)
         try {
-            assertNull(field(receiver,"outputAudioFormats"))
+            assertEquals(actualOutputs,field(receiver,"outputAudioFormats"))
             val capability=field(receiver,"microphoneCapability") as MicrophoneCapability
             assertEquals("AUTO must discard encoded inputs absent from actual output rows",setOf(0x40L),capability.bits("telephony"))
             val sink=field(receiver,"sink") as AndroidMediaSink
-            assertNull(field(receiver,"microphoneExperiment"))
-            assertFalse(capability.bits("default").isNotEmpty())
-            assertFalse(capability.bits("speechrecognition").isNotEmpty())
+            assertNull("No advanced override is armed",field(receiver,"microphoneOverride"))
+            assertSame(CarPlayMicrophoneCapturePolicy.production,field(receiver,"microphoneRequest"))
+            assertEquals(setOf(0x40L),capability.bits("default"))
+            assertEquals(setOf(0x40L),capability.bits("speechrecognition"))
+            assertFalse(CarPlayMicrophoneExperiments.status().armed)
             CarPlayMicrophoneExperiments.disarm() // future owners only
             val ip=NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp }
                 .flatMap { it.inetAddresses.toList() }.filterIsInstance<Inet4Address>()
@@ -157,7 +162,7 @@ class CarPlayProductionCallReceiverTest {
                     assertEquals(0x40L,(it["audioInputFormats"] as Number).toLong())
                 }
                 val session=(field(receiver,"allSessions") as Set<*>).single() as AirPlaySession
-                assertNull(field(session,"outputAudioFormats"))
+                assertEquals(actualOutputs,field(session,"outputAudioFormats"))
                 assertSame(capability,session.offeredMicrophone)
                 assertEquals(setOf(0x40L),session.offeredMicrophone.bits("telephony"))
                 AndroidMicrophoneExperimentQualificationTest.captureReads.clear()
@@ -173,10 +178,11 @@ class CarPlayProductionCallReceiverTest {
                     val bytes=packet.data.copyOf(packet.length)
                     val pcm=AirPlayCrypto.chachaOpen(key,ByteArray(4)+bytes.takeLast(8).toByteArray(),
                         bytes.copyOfRange(12,bytes.size-8),bytes.copyOfRange(4,12))
-                    assertEquals(listOf(3840),AndroidMicrophoneExperimentQualificationTest.captureReads.toList())
+                    assertEquals(listOf(640),AndroidMicrophoneExperimentQualificationTest.captureReads.toList())
                     assertEquals(960,pcm.size)
                     val samples=ByteBuffer.wrap(pcm).order(ByteOrder.BIG_ENDIAN).asShortBuffer()
-                    while(samples.hasRemaining()) assertEquals(500,samples.get().toInt())
+                    for (index in 0 until 480) assertEquals(if(index%3==2) 2000 else -1000,samples.get().toInt())
+                    assertFalse(samples.hasRemaining())
                     val policyDeadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
                     while (ledgerLines.none { "stage=microphone-owned " in it } && System.nanoTime()<policyDeadline) Thread.sleep(5)
                     assertTrue("existing passive exact-recorder policy must carry the ledger owner",ledgerLines.any {
@@ -188,21 +194,20 @@ class CarPlayProductionCallReceiverTest {
         MicrophoneCaptureFence.tryDiagnostic()!!.release()
         assertTrue("raw per-channel census is pre-conversion",ledgerLines.any {
             "stage=microphone-pcm" in it && "boundary=raw phase=released" in it &&
-                "observed=960 scanned=960" in it && "ch0Peak=1000 ch0Rms=1000" in it && "ch1Peak=2000 ch1Rms=2000" in it
+                "observed=320 scanned=320" in it && "ch0Peak=2000 ch0Rms=1581" in it && "ch1Samples=0" in it
         })
         assertTrue("converted mono census is separate from capture blocks",ledgerLines.any {
             "stage=microphone-pcm" in it && "boundary=converted phase=released" in it &&
-                "observed=480 scanned=480" in it && "ch0Peak=500 ch0Rms=500" in it && "ch1Samples=0" in it
+                "observed=480 scanned=480" in it && "ch0Peak=2000 ch0Rms=1414" in it && "ch1Samples=0" in it
         })
-        assertFalse("production profile must not produce experimental UX",ledgerLines.any { "stage=microphone-experiment " in it })
         val creates=ledgerLines.filter { "kind=probe action=create " in it }
-        assertEquals("actual normal qualification must retain all five attempts",5,creates.size)
-        assertEquals(listOf("MIC:24000:1","MIC:48000:1","VOICE_RECOGNITION:24000:1",
-            "VOICE_RECOGNITION:48000:1","VOICE_RECOGNITION:48000:2"),creates.map {
+        assertEquals("actual accepted qualification must retain all nine attempts",9,creates.size)
+        assertEquals(List(9) { "VOICE_RECOGNITION:16000:1" },creates.map {
             val source=Regex("source=([A-Z_]+)").find(it)!!.groupValues[1]
             val rate=Regex("rate=([0-9]+)").find(it)!!.groupValues[1]
             val channels=Regex("channels=([0-9]+)").find(it)!!.groupValues[1]
             "$source:$rate:$channels"
         })
+        assertFalse("production profile must not produce experimental UX",ledgerLines.any { "stage=microphone-experiment " in it })
     }
 }

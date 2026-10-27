@@ -9,6 +9,8 @@ class CarPlayMicrophoneConfigurationExportTest {
 
     @Test fun finiteConfigurationAndEnabledEffectsCrossExactExporterSchemas() {
         val receipts=listOf(config,effects,
+            config.replace("VOICE_COMMUNICATION","VOICE_RECOGNITION").replace("rate=24000","rate=16000").replace("clientRate=24000","clientRate=16000").replace("mode=communication","mode=normal"),
+            effects.replace("VOICE_COMMUNICATION","VOICE_RECOGNITION").replace("rate=24000","rate=16000"),
             config.replace("config=present","config=absent").replace("client=VOICE_COMMUNICATION","client=absent").replace("active=VOICE_RECOGNITION","active=absent").replace("clientRate=24000","clientRate=absent").replace("deviceRate=48000","deviceRate=absent").replace("=mono","=absent").replace("=pcm16","=absent").replace("route=bus","route=absent"),
             effects.replace("result=ok","result=unavailable").replace("examined=2","examined=0").replace("aec=true ns=false agc=true","aec=unknown ns=unknown agc=unknown"),
             effects.replace("chain=capture","chain=client").replace("result=ok","result=truncated").replace("examined=2","examined=16").replace("truncated=false","truncated=true").replace("ns=false","ns=unknown"))
@@ -22,7 +24,7 @@ class CarPlayMicrophoneConfigurationExportTest {
     }
 
     @Test fun privateFieldsUnsupportedEnumsAndUnboundedEffectCountsFailClosed() {
-        listOf(config,effects).forEach { receipt ->
+        listOf(config,effects,config.replace("rate=24000","rate=16000"),effects.replace("rate=24000","rate=16000")).forEach { receipt ->
             listOf(" deviceId=1"," address=Call_In_Mic"," name=private"," package=private"," uuid=private"," samples=private","\n","\u0000").forEach {
                 assertNull(CarPlayAudioDiagnostics.sanitize(1,receipt+it))
             }

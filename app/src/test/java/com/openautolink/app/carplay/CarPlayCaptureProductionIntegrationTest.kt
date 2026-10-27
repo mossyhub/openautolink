@@ -78,12 +78,14 @@ class CarPlayCaptureProductionIntegrationTest {
             .invoke(null,context,notify) as (CaptureTerminalSummary)->Boolean
     }
     private fun receiver(context:Context,status:(String)->Unit,sink:((CaptureTerminalSummary)->Boolean)?=null):ProjectionReceiver {
-        val ctor=ProjectionReceiver::class.java.declaredConstructors.singleOrNull {it.parameterCount==13}
-        assertNotNull("Production receiver must accept a typed durable terminal sink",ctor)
+        val ctor=ProjectionReceiver::class.java.declaredConstructors.singleOrNull {
+            !it.isSynthetic && it.parameterCount==14 && it.parameterTypes[12]==kotlin.jvm.functions.Function0::class.java
+        }
+        assertNotNull("Production receiver must accept a typed durable terminal sink and explicit managed admission",ctor)
         val surface=mockk<Surface>();every {surface.isValid} returns true
         return ctor!!.newInstance(context,"02:00:00:00:00:01",surface,mockk<MfiAuthenticator>(relaxed=true),
             CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"test.avc")),
-            false,null,null,true,false,sink,null,status) as ProjectionReceiver
+            false,null,null,true,false,sink,null,{true},status) as ProjectionReceiver
     }
     private fun logs(context:Context)=File(context.getExternalFilesDir(null),"openautolink/logs").apply {mkdirs()}
     private fun terminals(context:Context)=logs(context).listFiles().orEmpty().filter {it.name.startsWith("carplay_capture_run_")}
@@ -199,12 +201,12 @@ class CarPlayCaptureProductionIntegrationTest {
                 waitFor("pending owner must export on passive worker") {exported.any {"state=release-pending" in it}}
                 assertTrue(raw.none {it.startsWith("media stage=microphone-terminal ")})
                 release.countDown();assertTrue(owner.awaitClosed(10000))
-                assertEquals(1,terminals(app).size);assertEquals(if(aaStyle) 4 else 3,threads.size)
+                assertEquals(1,terminals(app).size);assertEquals(4,threads.size)
                 assertTrue(threads.all {it=="lab-media-status"})
                 val bytes=terminals(app).single().readBytes()
                 assertTrue(bytes.toString(Charsets.UTF_8).contains("receiver=${ledger.receiverOrdinal} "))
                 assertTrue(bytes.toString(Charsets.UTF_8).contains("signal=zeros"))
-                if(aaStyle) {
+                run { // Accepted production and the explicit AA-style override both retain acquisition evidence.
                     val acquisition=bytes.toString(Charsets.UTF_8).lineSequence().single { "part=acquisition" in it }
                     assertTrue(acquisition.contains("captureRate=16000 captureChannels=1 wireRate=24000"))
                     assertNotNull(CarPlayAudioDiagnostics.sanitize(1,acquisition))

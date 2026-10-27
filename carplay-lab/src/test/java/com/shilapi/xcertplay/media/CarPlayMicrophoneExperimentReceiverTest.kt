@@ -20,6 +20,7 @@ import java.io.File
 class CarPlayMicrophoneExperimentReceiverTest {
     @Test fun incompatibleExperimentalCodecRejectsBeforePairingOrMediaResources() {
         val app=RuntimeEnvironment.getApplication()
+        org.robolectric.Shadows.shadowOf(app).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
         val pairing=File(app.noBackupFilesDir,"pairing-probe")
         assertFalse(pairing.exists())
         val receipts=mutableListOf<String>()
@@ -29,7 +30,7 @@ class CarPlayMicrophoneExperimentReceiverTest {
                 mock(MfiAuthenticator::class.java),
                 display=com.openautolink.carplaylab.media.CarPlayDisplayPreferences(
                     qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),
-                wired=false,onStatus=receipts::add) }.exceptionOrNull()
+                wired=false,captureAdmission={true},onStatus=receipts::add) }.exceptionOrNull()
             assertEquals(listOf("media stage=microphone-experiment-rejected codec=LPCM reason=no-qualified-input"),receipts)
             assertTrue(failure is IllegalArgumentException)
             assertFalse("Rejected experiment must not create pairing state",pairing.exists())

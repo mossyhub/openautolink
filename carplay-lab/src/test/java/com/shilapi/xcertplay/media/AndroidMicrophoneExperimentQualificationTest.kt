@@ -92,7 +92,7 @@ class AndroidMicrophoneExperimentQualificationTest {
         DatagramSocket(0,InetAddress.getLoopbackAddress()).use { peer ->
             peer.soTimeout=3000
             val config=MicrophoneSupport.negotiate(cap,100,"telephony",0x20000000L,peer.localPort,480,peer.localAddress,key.copyOf())!!
-            val uplink=MicrophoneUplink(config,experiment=profile,qualifiedCapability=cap)
+            val uplink=MicrophoneUplink(config,experiment=profile,qualifiedCapability=cap,captureAdmission=MicrophoneCaptureAdmission {true})
             try {
                 uplink.start()
                 val packet=DatagramPacket(ByteArray(4096),4096);peer.receive(packet)

@@ -62,7 +62,7 @@ class WiredPcmSessionTest {
                 val sink=object : MediaSink {
                     override fun supportsMicrophone(f: AudioFormat) = MicrophoneSupport.bits(f) in AndroidMicrophoneSupport.capability.bits(f.audioType)
                     override fun onMicrophoneStarted(id: MicrophoneStreamId,cfg: MicrophoneConfig) {
-                        capture=MicrophoneUplink(cfg).also { it.start() }; started.countDown()
+                        capture=MicrophoneUplink(cfg,captureAdmission=MicrophoneCaptureAdmission {true}).also { it.start() }; started.countDown()
                     }
                     override fun onMicrophoneStopped(id: MicrophoneStreamId) { capture?.close() }
                 }
@@ -78,14 +78,9 @@ class WiredPcmSessionTest {
                     for (kind in listOf("default","telephony","speechRecognition")) {
                         started=CountDownLatch(1)
                         ShadowAudioRecord.setSourceProvider { recorder ->
-                            val expectedSource=when (kind) {
-                                "default" -> MediaRecorder.AudioSource.MIC
-                                "telephony" -> MediaRecorder.AudioSource.VOICE_RECOGNITION
-                                else -> MediaRecorder.AudioSource.VOICE_RECOGNITION
-                            }
-                            assertEquals(expectedSource,recorder.audioSource)
-                            assertEquals(if (kind=="telephony") 48000 else 24000,recorder.sampleRate)
-                            assertEquals(if (kind=="telephony") 2 else 1,recorder.channelCount)
+                            assertEquals(MediaRecorder.AudioSource.VOICE_RECOGNITION,recorder.audioSource)
+                            assertEquals(16000,recorder.sampleRate)
+                            assertEquals(1,recorder.channelCount)
                             object : ShadowAudioRecord.AudioRecordSource {
                                 override fun readInByteArray(b: ByteArray,o: Int,n: Int,blocking: Boolean): Int {
                                     val count=minOf(n,pcm.size); pcm.copyInto(b,o,0,count); return count

@@ -39,7 +39,7 @@ class MicrophoneCaptureEvidenceTest {
             }
         })
         val surface=mock(Surface::class.java);`when`(surface.isValid).thenReturn(true)
-        val sink=AndroidMediaSink(app,surface,display=CarPlayDisplaySelection(CarPlayDisplayPreferences(),"avc.exact",false),onStatus=lines::add)
+        val sink=AndroidMediaSink(app,surface,display=CarPlayDisplaySelection(CarPlayDisplayPreferences(),"avc.exact",false),captureAdmission={true},onStatus=lines::add)
         val session=AirPlaySession(Socket(),AirPlayConfig("test","id","mac","950.7.1",AirPlayDisplayConfig(800,480)),
             AirPlayIdentity.generate(),PairingStore(),null,object : AirPlaySessionListener {},object : AirPlayMediaHandler {})
         try {
@@ -54,7 +54,7 @@ class MicrophoneCaptureEvidenceTest {
                 assertTrue("successful datagrams cannot distinguish silent capture without aggregate PCM receipts",
                     lines.any { it=="media stage=microphone-capture type=100 audioType=speechrecognition frames=2 nonzeroFrames=1 state=1 ended=true" })
                 assertTrue("exact recorder input policy must be observable without dumping identities",
-                    lines.any { it.startsWith("media stage=microphone-policy scope=own source=VOICE_RECOGNITION rate=24000 permission=granted ") })
+                    lines.any { it.startsWith("media stage=microphone-policy scope=own source=VOICE_RECOGNITION rate=16000 permission=granted ") })
                 assertTrue(lines.filter { it.contains("microphone-capture") }.all {
                     it.matches(Regex("media stage=microphone-capture type=100 audioType=speechrecognition frames=[0-9]+ nonzeroFrames=[0-9]+ state=(1|3|unknown) ended=(true|false)"))
                 })
