@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         com.openautolink.app.input.ProcessVehicleDataRuntime.requestSubscriptionRefresh("permission-result")
+        com.openautolink.app.carplay.CarPlaySessionLeases.reconcile(this)
         val denied = results.filterValues { !it }.keys
         if (denied.isNotEmpty()) {
             Log.w("MainActivity", "Permissions denied: $denied")
@@ -187,6 +188,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.openautolink.app.carplay.CarPlayForegroundVisibility.resumed(this)
+        com.openautolink.app.carplay.CarPlaySessionLeases.reconcile(this)
         com.openautolink.app.input.ProcessVehicleDataRuntime.requestSubscriptionRefresh("activity-resume")
         com.openautolink.app.diagnostics.DiagnosticLog.i("lifecycle", "MainActivity.onResume")
         com.openautolink.app.wake.PreWakeMonitor.reportActivity(
@@ -201,6 +204,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        com.openautolink.app.carplay.CarPlayForegroundVisibility.paused(this)
         super.onPause()
         com.openautolink.app.diagnostics.DiagnosticLog.i("lifecycle", "MainActivity.onPause")
         com.openautolink.app.wake.PreWakeMonitor.reportActivity(
@@ -211,6 +215,11 @@ class MainActivity : ComponentActivity() {
         // matters when streaming keeps lastActiveTimestamp fresh right up
         // until the SoC suspends.
         com.openautolink.app.session.SessionManager.instanceOrNull()?.onActivityPaused()
+    }
+
+    override fun onDestroy() {
+        com.openautolink.app.carplay.CarPlayForegroundVisibility.paused(this)
+        super.onDestroy()
     }
 
     override fun onStart() {

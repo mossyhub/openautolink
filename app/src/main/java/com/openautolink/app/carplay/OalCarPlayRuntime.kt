@@ -305,6 +305,7 @@ class OalCarPlayRuntime(
         active()
         status("CarPlay receiver MFi authentication accepted · phone AirPlay trust pending")
         val projection = ownReceiver { ProjectionReceiver(context, config.receiverAddress, surface, auth, config.display,
+            captureAdmission = { !canceled.get() && attemptContext?.captureAdmission?.invoke() == true },
             trustedOnly = true, runtimeCarDataFactory = { session, send, receipt ->
                 // Freeze truthful implemented capability flags per actual Wi-Fi link, not Bluetooth.
                 val qualifiedGps = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&

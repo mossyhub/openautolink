@@ -108,4 +108,4 @@ interface CarPlayHostMediaLeaseSource {
     }
 }
 
-data class CarPlayAttemptContext(val hostMedia: CarPlayHostMediaLease)
+data class CarPlayAttemptContext(val hostMedia: CarPlayHostMediaLease, val captureAdmission: () -> Boolean = { false })

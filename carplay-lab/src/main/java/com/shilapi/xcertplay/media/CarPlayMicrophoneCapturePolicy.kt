@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.shilapi.xcertplay.media
 
-/** Local capture only: never changes the negotiated mono codec, RTP clock or wire rate. */
+/** Receiver-frozen accepted local acquisition; negotiated formats and RTP remain unchanged. */
 internal object CarPlayMicrophoneCapturePolicy {
-    private val provenCall = CarPlayMicrophoneExperimentProfile(
+    val production = CarPlayMicrophoneExperimentProfile(
         source = MicrophoneSource.VOICE_RECOGNITION,
-        rate = CarPlayMicrophoneCaptureRate.HZ_48000,
-        channels = CarPlayMicrophoneChannels.TWO,
-        selection = CarPlayMicrophoneChannelSelection.AVERAGE)
+        rate = CarPlayMicrophoneCaptureRate.HZ_16000,
+        channels = CarPlayMicrophoneChannels.MONO,
+        aaStyle = true)
 
-    // Explicit receiver-frozen manual selection wins; disarm affects future receivers only.
+    // Explicit advanced receiver snapshot always wins. Clearing it restores production.
     fun profile(kind: String, experiment: CarPlayMicrophoneExperimentProfile?): CarPlayMicrophoneExperimentProfile? =
-        experiment ?: provenCall.takeIf { kind.equals("telephony", ignoreCase = true) }
+        experiment ?: production.takeIf { MicrophoneSupport.source(kind) != null }
 }

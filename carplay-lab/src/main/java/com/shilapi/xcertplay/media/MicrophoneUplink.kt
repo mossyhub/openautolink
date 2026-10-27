@@ -16,13 +16,18 @@ import java.util.concurrent.atomic.AtomicBoolean
 import com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Action
 import com.shilapi.xcertplay.media.CaptureAcquisitionLedger.Result
 
+/** Non-SAM wrapper preserves the existing trailing report-lambda constructor. */
+internal class MicrophoneCaptureAdmission(val allowed: () -> Boolean)
+
 /** Capture/codec/socket release share one owner; at most four pending wire-ready 20ms frames. */
 internal class MicrophoneUplink(private val config: MicrophoneConfig,
     private val report: (String) -> Unit = {},
     private val experiment: CarPlayMicrophoneExperimentProfile? = null,
     private val qualifiedCapability: MicrophoneCapability? = null,
     private val captureLedger: CaptureAcquisitionLedger? = null,
-    private val speechRecognitionProfile: CarPlayMicrophoneExperimentProfile? = null) : Closeable {
+    private val speechRecognitionProfile: CarPlayMicrophoneExperimentProfile? = null,
+    private val captureAdmission: MicrophoneCaptureAdmission = MicrophoneCaptureAdmission { false }) : Closeable {
+    private fun canCapture() = !closed.get() && captureAdmission.allowed() && AndroidMicrophoneSupport.permissionGranted()
     private val closed = AtomicBoolean()
     private val retired = AtomicBoolean()
     private val started = AtomicBoolean()
@@ -38,7 +43,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
     constructor(config: MicrophoneConfig, report: (String) -> Unit) : this(config, report, null, null)
     fun start() {
         if (!started.compareAndSet(false, true)) return
-        if (closed.get() || !physicalOwner.compareAndSet(null, this)) {
+        if (!canCapture() || !physicalOwner.compareAndSet(null, this)) {
             closed.set(true); config.key.fill(0); retired.set(true)
             report("media stage=microphone-owner-busy")
             return
@@ -91,7 +96,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             runCatching { report("media stage=microphone-capture type=100 audioType=${config.audioType} frames=$capturedFrames nonzeroFrames=$nonzeroFrames state=$state ended=$ended") }
         }
         try {
-            if (closed.get() || !AndroidMicrophoneSupport.permissionGranted()) return
+            if (!canCapture()) return
             if (config.formatBits !in (qualifiedCapability ?: AndroidMicrophoneSupport.capability).bits(config.audioType)) return
             val codec = if (config.codec == com.shilapi.xcertplay.airplay.AudioCodecKind.OPUS) {
                 val name = (if (experiment == null && speechRecognitionProfile == null) AndroidMicrophoneSupport.encoderName(config.formatBits)
@@ -118,7 +123,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             }
             observation?.event(Action.CREATE)
             if (profile?.aaStyle == true) android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
-            val record = AndroidMicrophoneSupport.recorder(source, captureRate, captureChannels, observation, profile?.aaStyle == true)
+            val record = AndroidMicrophoneSupport.recorder(source, captureRate, captureChannels, observation, profile?.aaStyle == true, ::canCapture)
             capture = record
             require(record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == captureRate &&
                 record.channelCount == captureChannels && record.audioFormat == android.media.AudioFormat.ENCODING_PCM_16BIT)
@@ -128,7 +133,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             transport = udp; socket = udp
             udp.connect(config.host, config.port) // destination comes only from authenticated SETUP peer
             synchronized(recordLock) {
-                if (closed.get() || !AndroidMicrophoneSupport.permissionGranted()) return
+                if (!canCapture()) return
                 recorder = record
                 record.startRecording()
             }
@@ -154,7 +159,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
             // Same connection-ID re-SETUP can reuse a key: randomized counters avoid restarting nonce0.
             val counters = MicrophoneCounters(nonce = SecureRandom().nextLong().ushr(1))
             var sent = 0L
-            while (!closed.get() && AndroidMicrophoneSupport.permissionGranted()) {
+            while (canCapture()) {
                 val count = record.read(pcm, filled, pcm.size - filled, AudioRecord.READ_BLOCKING)
                 if (closed.get()) break
                 check(count >= 0) { "Microphone read failed" }
@@ -181,7 +186,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig,
                         report("media stage=microphone-queue-overflow")
                     }
                 }
-                while (!closed.get() && AndroidMicrophoneSupport.permissionGranted()) {
+                while (canCapture()) {
                     val encoded = pending.poll() ?: break
                     // Delayed/dropped output preserves original capture PTS on the negotiated RTP clock.
                     counters.timestamp = (encoded.presentationTimeUs * config.rtpSamplesPerPacket / 20000).toInt()

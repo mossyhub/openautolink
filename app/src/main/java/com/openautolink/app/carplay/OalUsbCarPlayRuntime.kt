@@ -362,6 +362,7 @@ class OalUsbCarPlayRuntime(
                     }.getOrNull()
                 }, receipt)
             } },wired=true,drivingRestrictions = restrictionPolicy.enabled,
+            captureAdmission = { !canceled.get() && attemptContext?.captureAdmission?.invoke() == true },
             advertisedBluetoothAddress = manualBluetoothAddress,
             onCaptureTerminal=captureTerminalSink(context,::receiverStatus),onStatus=::receiverStatus) }
         active();onDisplayQualified(projection.displayConfiguration)

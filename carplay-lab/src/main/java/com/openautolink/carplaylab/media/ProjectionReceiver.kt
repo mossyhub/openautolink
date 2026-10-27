@@ -41,6 +41,7 @@ class ProjectionReceiver(
     private val onCaptureTerminal: ((com.shilapi.xcertplay.media.CaptureTerminalSummary) -> Boolean)? = null,
     /** Optional wired Bluetooth association only; never the Ethernet or AirPlay device identity. */
     private val advertisedBluetoothAddress: String? = null,
+    private val captureAdmission: () -> Boolean = { false },
     private val onStatus: (String) -> Unit,
 ) : Closeable {
     init {
@@ -64,7 +65,8 @@ class ProjectionReceiver(
             fps = videoSelection.fps), videoSelection.avcDecoderName, videoSelection.usedFallback)
     /** Actual advertised/sink/input configuration, including a capability-qualified fallback. */
     val displayConfiguration: CarPlayDisplayPreferences get() = displaySelection.display
-    private val microphoneRequest = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
+    private val microphoneOverride = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
+    private val microphoneRequest = microphoneOverride ?: com.shilapi.xcertplay.media.CarPlayMicrophoneCapturePolicy.production
     private val microphoneIndependent = microphoneRequest?.independent
     private val microphoneExperiment = microphoneRequest?.takeIf { it.independent == null }
     private val microphoneQualification = microphoneIndependent?.qualificationProfile() ?: microphoneExperiment
@@ -78,6 +80,8 @@ class ProjectionReceiver(
         }
     }
     private val microphoneCapability = com.shilapi.xcertplay.media.CaptureAcquisitionLedger.observe(captureLedger) {
+        if (!captureAdmission() || context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            return@observe com.shilapi.xcertplay.media.MicrophoneCapability.NONE
         val profile = microphoneQualification
         if (microphoneIndependent != null) require(!(
             microphoneIndependent.history == com.shilapi.xcertplay.media.CarPlayMicrophoneQualificationHistory.MANUAL_VR48_TWO &&
@@ -86,13 +90,15 @@ class ProjectionReceiver(
         }
         // Keep shape evidence and its capability frozen together; no additional probes.
         val baseline = synchronized(com.shilapi.xcertplay.media.AndroidMicrophoneSupport) {
-            val qualified = if (profile == null) com.shilapi.xcertplay.media.AndroidMicrophoneSupport.probe(context)
-            else com.shilapi.xcertplay.media.AndroidMicrophoneSupport.experimentCapability(context, profile)
+            val qualified = if (profile == null) com.shilapi.xcertplay.media.AndroidMicrophoneSupport.probe(context, captureAdmission)
+            else com.shilapi.xcertplay.media.AndroidMicrophoneSupport.experimentCapability(context, profile, captureAdmission)
             require(microphoneIndependent == null || com.shilapi.xcertplay.media.AndroidMicrophoneSupport.supportsSpeechCapture(microphoneIndependent)) {
                 "Independent capture not qualified by selected history"
             }
             qualified
         }
+        if (!captureAdmission() || context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            return@observe com.shilapi.xcertplay.media.MicrophoneCapability.NONE
         try {
             val rows = com.shilapi.xcertplay.media.AudioOutputSupport.wirelessRows(
                 outputAudioFormats ?: com.shilapi.xcertplay.media.AudioOutputSupport.implementedBits)
@@ -235,7 +241,8 @@ class ProjectionReceiver(
     private val sink = AndroidMediaSink(context, surface, display = displaySelection, onStatus = ::status, telemetry = telemetry, videoSelection = videoSelection,
         microphoneExperiment = microphoneExperiment, microphoneCapability = microphoneCapability,
         captureLedger = captureLedger, audioDiagnostic = { line, current -> enqueueStatus(line, current) },
-        speechRecognitionProfile = speechRecognitionProfile)
+        speechRecognitionProfile = speechRecognitionProfile,
+        captureAdmission = { !closed.get() && !admissionRevoked.get() && captureAdmission() })
     /** Presentation receipts do not take the session/control lifecycle lock or retire transport. */
     fun attachSurface(surface: Surface) { if (!closed.get() && !admissionRevoked.get()) sink.attachSurface(surface) }
     fun detachSurface(surface: Surface) { sink.detachSurface(surface) }

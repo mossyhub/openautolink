@@ -74,6 +74,9 @@ class BenchActivity : Activity() {
     @Volatile private var session: Iap2Session? = null
     @Volatile private var activeProof: ProofState? = null
     @Volatile private var destroyed = false
+    @Volatile private var captureResumed = false
+    override fun onResume() { super.onResume(); captureResumed = true }
+    override fun onPause() { captureResumed = false; super.onPause() }
     private val permissions = arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -379,7 +382,8 @@ class BenchActivity : Activity() {
                     val receiverId: String
                     val receiverKey: String
                     if (withMedia) {
-                        val receiver = ProjectionReceiver(this, receiverMac, surfaceView.holder.surface, auth) { report(it) }
+                        val receiver = ProjectionReceiver(this, receiverMac, surfaceView.holder.surface, auth,
+                            captureAdmission = { captureResumed && !destroyed }) { report(it) }
                         projection = receiver
                         receiver.setRuntimeIdentification(identification)
                         receiver.start(peer)
