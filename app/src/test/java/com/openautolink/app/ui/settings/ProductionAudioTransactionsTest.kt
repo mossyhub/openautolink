@@ -384,4 +384,3 @@ class ProductionAudioTransactionsActivity : androidx.activity.ComponentActivity(
         }
     }
 }
-
