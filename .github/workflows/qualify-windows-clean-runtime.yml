@@ -1,17 +1,7 @@
 name: Windows clean-runtime evidence (disposable CI only)
 
 on:
-  # Initial qualification must run before this new workflow reaches default.
-  # This maintainer branch is explicitly authorized for disposable CI testing.
-  push:
-    branches: ['feat/desktop-personal-builder']
-    paths:
-      - '.github/workflows/qualify-windows-clean-runtime.yml'
-      - 'desktop-builder/packaging/windows_clean_install.*'
-      - 'desktop-builder/packaging/windows_setup.py'
-      - 'desktop-builder/packaging/windows-setup/**'
-      - 'desktop-builder/packaging/build.py'
-      - 'desktop-builder/tests/test_windows_clean_install.py'
+  # Optional dormant desktop evidence, never automatic release/PR qualification.
   workflow_dispatch:
     inputs:
       authorize_disposable_test_acceptance:
@@ -36,7 +26,7 @@ env:
 
 jobs:
   clean-runtime:
-    if: ${{ github.event_name == 'push' || inputs.authorize_disposable_test_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_disposable_test_acceptance }}
     # Never add self-hosted or matrix runner overrides to this destructive test.
     runs-on: windows-2022
     timeout-minutes: 75

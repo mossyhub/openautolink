@@ -126,11 +126,11 @@ def test_workflow_uploads_only_producer_failure_json_after_attempt():
 @pytest.mark.parametrize('mutation', [None, 'changed-bytes', 'changed-size', 'different-commit', 'different-tag'])
 def test_latest_template_affinity_repair_is_exact_source_bound(tmp_path, mutation, tag, commit):
     h = harness()
-    # The reviewed checkout already contains the upstream placeholder fix.
-    # Reconstruct the exact released manifest, then bind its real digest.
-    reviewed = (Path(__file__).resolve().parents[2] / 'app/src/main/AndroidManifest.xml').read_bytes()
-    released = reviewed.replace(b'android:taskAffinity="${applicationId}.templates"',
-                                b'android:taskAffinity="com.openautolink.app.templates"')
+    # Frozen v528 source manifest (also used by v530), not today's app manifest.
+    # Bind the original released bytes; production source may evolve independently.
+    released = (Path(__file__).with_name('fixtures') / 'template-v528-manifest.xml').read_bytes()
+    reviewed = released.replace(b'android:taskAffinity="com.openautolink.app.templates"',
+                                b'android:taskAffinity="${applicationId}.templates"')
     assert hashlib.sha256(released).hexdigest() == '93bdf196c22b08f84447dd6ca6010c215a4fc93060743b1322e2c048243d29aa'
     selected = release() | {'sourceRef': tag, 'versionName': tag[1:], 'sourceCommit': commit}
     if mutation == 'changed-bytes':
@@ -185,7 +185,7 @@ def test_release_qualification_waits_for_verified_publication_and_is_read_only()
     assert 'contents: read' in call and 'secrets: inherit' not in call
     assert 'expected_release_tag: ${{ needs.produce.outputs.release_tag }}' in call
     assert 'expected_source_commit: ${{ needs.produce.outputs.source_commit }}' in call
-    assert 'builder_commit: ${{ needs.produce.outputs.source_commit }}' in call
+    assert 'builder_commit: ${{ github.workflow_sha }}' in call
     build = publisher.split('\n  qualify-desktop-aab:\n', 1)[0]
     assert 'release_tag: ${{ steps.tag.outputs.value }}' in build
     assert 'source_commit: ${{ steps.bind.outputs.source_commit }}' in build
@@ -390,7 +390,7 @@ def test_linux_producer_compiles_template_once_without_user_identity(tmp_path, m
             if failure == 'source-contract':
                 (source / 'app/build.gradle.kts').write_text('unsupported')
             if preparation_kind in {'exact528', 'exact530'}:
-                reviewed = (Path(__file__).resolve().parents[2] / 'app/src/main/AndroidManifest.xml').read_bytes()
+                reviewed = (Path(__file__).with_name('fixtures') / 'template-v528-manifest.xml').read_bytes()
                 manifest = source / 'app/src/main/AndroidManifest.xml'
                 manifest.parent.mkdir(parents=True)
                 manifest.write_bytes(reviewed.replace(b'${applicationId}.templates',

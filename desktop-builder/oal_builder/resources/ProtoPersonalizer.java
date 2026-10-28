@@ -28,7 +28,7 @@ public final class ProtoPersonalizer {
         entry("allowBackup", 0x01010280), entry("required", 0x0101028e),
         entry("supportsRtl", 0x010103af), entry("extractNativeLibs", 0x010104ea),
         entry("directBootAware", 0x01010505), entry("networkSecurityConfig", 0x01010527),
-        entry("roundIcon", 0x0101052c), entry("compileSdkVersion", 0x01010572),
+        entry("roundIcon", 0x0101052c), entry("appCategory", 0x01010545), entry("compileSdkVersion", 0x01010572),
         entry("compileSdkVersionCodename", 0x01010573), entry("appComponentFactory", 0x0101057a),
         entry("foregroundServiceType", 0x01010599), entry("dataExtractionRules", 0x0101063e)
     );
@@ -105,6 +105,14 @@ public final class ProtoPersonalizer {
                 if (item.hasRawStr()) require(item.getRawStr().getValue().equals(a.getValue()));
             }
             if (a.getNamespaceUri().equals(ANDROID)) {
+                // Preserve only the reviewed AAOS media classification, never rewrite it.
+                if (a.getName().equals("appCategory")) {
+                    require(path.equals("/manifest/application") && a.getValue().equals("audio")
+                        && a.hasCompiledItem() && a.getCompiledItem().hasPrim());
+                    var prim = a.getCompiledItem().getPrim();
+                    require(prim.getOneofValueCase() == Resources.Primitive.OneofValueCase.INT_DECIMAL_VALUE
+                        && prim.getIntDecimalValue() == 1);
+                }
                 // Protection/runtime routing must not disagree with printed XML,
                 // or resolve through an unreviewed resource reference.
                 if (Set.of("name", "permission", "process", "taskAffinity", "authorities", "appComponentFactory").contains(a.getName())

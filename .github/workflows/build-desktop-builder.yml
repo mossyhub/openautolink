@@ -1,24 +1,8 @@
 name: Desktop builder
 
 on:
-  release:
-    types: [published]
+  # Desktop distributions are dormant; retain explicit manual tooling only.
   workflow_dispatch:
-  push:
-    branches: ['feat/**']
-    paths:
-      - 'desktop-builder/**'
-      - '.github/workflows/build-desktop-builder.yml'
-      - 'LICENSE'
-      - 'THIRD_PARTY_LICENSES.md'
-      - 'docs/install-gm.md'
-  pull_request:
-    paths:
-      - 'desktop-builder/**'
-      - '.github/workflows/build-desktop-builder.yml'
-      - 'LICENSE'
-      - 'THIRD_PARTY_LICENSES.md'
-      - 'docs/install-gm.md'
 
 permissions:
   contents: read
