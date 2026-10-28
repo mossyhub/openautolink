@@ -115,6 +115,7 @@ class MediaDiagnosticStore(private val directory: () -> File?, private val clock
             val store = forContext(context)
             store.prune()
             store.save(MediaDiagnosticHooks.own(), latestCoverage)
+            if (!com.openautolink.app.media.MediaReadinessDiagnostics.retain(context)) return MediaStoreStatus.UNAVAILABLE
             return store.status
         }
         private fun encode(run: Long, now: Long, own: MediaOwnSnapshot, c: MediaCoverage, o: MediaOutcomeSummary.Snapshot): ByteArray = buildString {

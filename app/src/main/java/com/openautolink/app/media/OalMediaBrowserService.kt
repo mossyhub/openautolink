@@ -89,6 +89,7 @@ class OalMediaBrowserService : MediaBrowserServiceCompat() {
         clientUid: Int,
         rootHints: Bundle?
     ): BrowserRoot {
+        MediaReadinessDiagnostics.event(MediaReadinessDiagnostics.Event.ROOT)
         // Update token if it became available after onCreate
         if (sessionToken == null) {
             mediaSessionToken?.let { token ->

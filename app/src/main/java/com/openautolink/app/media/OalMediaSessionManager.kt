@@ -80,6 +80,11 @@ class OalMediaSessionManager private constructor(private val context: Context) {
         val owner = carPlayControls?.owner ?: return@synchronized
         if (hostMediaLease !== lease || !hostMediaApplied ||
             com.openautolink.app.carplay.CarPlayAudioDiagnostics.sanitize(1, message) == null) return@synchronized
+        val art = Regex("carplay-artwork result=(accepted|reference|unauthenticated|retired|size|limit) size=(empty|small|medium|large|oversized)").matchEntire(message)
+        if (art != null) {
+            MediaReadinessDiagnostics.event(MediaReadinessDiagnostics.Event.valueOf("TRANSFER_" + art.groupValues[1].uppercase(java.util.Locale.ROOT)))
+            return@synchronized
+        }
         val receipt = recoveryReceipt.matchEntire(message)
         val event = if (receipt != null) when(receipt.groupValues[1]) {
             "granted" -> Outcome.RECOVERY_GRANTED
@@ -111,6 +116,8 @@ class OalMediaSessionManager private constructor(private val context: Context) {
     private val browseObservers = java.util.IdentityHashMap<Any, () -> Unit>()
     /** Always queued. The barrier drains outer host effects before any foreign callback. */
     private fun browseChanged() {
+        MediaReadinessDiagnostics.readiness(browseState(), carPlayControls != null, cpReady,
+            hostMediaLease != null, hostMediaApplied)
         if (!browsePending.compareAndSet(false,true)) return
         if (!browseHandler.post {
             synchronized(com.openautolink.app.carplay.MetadataHostOwnership.process) { }
@@ -149,6 +156,11 @@ class OalMediaSessionManager private constructor(private val context: Context) {
     }
     fun browseChildren(parentId:String): MutableList<android.support.v4.media.MediaBrowserCompat.MediaItem> {
         val state=browseState()
+        MediaReadinessDiagnostics.event(when(parentId) {
+            OalMediaBrowserService.ROOT_ID -> MediaReadinessDiagnostics.Event.CHILDREN_ROOT
+            OalMediaBrowserService.PHONE_FOLDER_ID -> if(state.ready) MediaReadinessDiagnostics.Event.CHILDREN_PHONE_READY else MediaReadinessDiagnostics.Event.CHILDREN_PHONE_EMPTY
+            else -> MediaReadinessDiagnostics.Event.CHILDREN_UNKNOWN
+        })
         fun item(id:String,title:String,subtitle:String,flags:Int)=android.support.v4.media.MediaBrowserCompat.MediaItem(
             android.support.v4.media.MediaDescriptionCompat.Builder().setMediaId(id).setTitle(title).setSubtitle(subtitle).build(),flags)
         return when(parentId) {
@@ -264,6 +276,26 @@ class OalMediaSessionManager private constructor(private val context: Context) {
     internal fun retireCarPlayControls(owner: Any) = synchronized(sessionLock) {
         if (carPlayControls?.owner === owner) { terminal(owner); carPlayControls = null; cpReady=false; browseChanged() }
     }
+    /** Explicit app fallback when vehicle Audio has no accessible Play control.
+     * Captured authority never migrates to another attempt; this is not source selection.
+     * The installed host callback retains receiver command epochs and prepareUserPlay guards. */
+    fun captureCarPlayAudioResume(): (() -> Unit)? = synchronized(sessionLock) {
+        val controls = carPlayControls ?: return@synchronized null
+        val lease = hostMediaLease ?: return@synchronized null
+        if (!cpReady || !hostMediaApplied || lease.mode != com.openautolink.app.carplay.CarPlayHostMediaMode.NORMAL)
+            return@synchronized null
+        val action: () -> Unit = {
+            com.openautolink.app.carplay.MetadataHostOwnership.process.publish(controls.owner) {
+                val valid = synchronized(sessionLock) {
+                    carPlayControls === controls && hostMediaLease === lease && hostMediaApplied && cpReady
+                }
+                if (valid) dispatchMediaCommand(GmMediaControlPolicy.Command.PLAY, controls.owner)
+            }
+            Unit
+        }
+        action
+    }
+
     private fun dispatchBrowsePlay() {
         val target=synchronized(sessionLock) {
             if(!browseState().ready) return
@@ -572,7 +604,10 @@ class OalMediaSessionManager private constructor(private val context: Context) {
                     return@synchronized
                 }
                 var nextBitmap=if(clearArtwork) null else cachedBitmap
-                if (artwork != null) nextBitmap=decodeCarPlayArtwork(artwork)
+                if (artwork != null) {
+                    nextBitmap=decodeCarPlayArtwork(artwork)
+                    MediaReadinessDiagnostics.event(if(nextBitmap!=null) MediaReadinessDiagnostics.Event.DECODE_OK else MediaReadinessDiagnostics.Event.DECODE_FAILED)
+                } else if(clearArtwork) MediaReadinessDiagnostics.event(MediaReadinessDiagnostics.Event.ARTWORK_CLEARED)
                 val builder = MediaMetadataCompat.Builder()
                     .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, OalMediaBrowserService.PHONE_MEDIA_ID)
                 value.title?.let { builder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, it) }
@@ -586,6 +621,7 @@ class OalMediaSessionManager private constructor(private val context: Context) {
                 try { session.setMetadata(builder.build()) }
                 catch (failure: Exception) { outcome(Outcome.SUBMISSION_FAILED); throw failure }
                 cachedBitmap=nextBitmap
+                if(nextBitmap!=null) MediaReadinessDiagnostics.event(MediaReadinessDiagnostics.Event.BITMAP_SUBMITTED)
                 outcome(Outcome.METADATA_SUBMITTED)
                 if(clearArtwork) cachedArtHash=0
                 val position=value.elapsedMillis ?: PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN

@@ -31,6 +31,7 @@ object CarPlayAudioDiagnostics {
     // Full-string matches: unknown fields, suffixes, control characters and upstream free text fail closed.
     private const val usbByte = "(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])"
     private val schemas = listOf(
+        "carplay-artwork result=(accepted|reference|unauthenticated|retired|size|limit) size=(empty|small|medium|large|oversized)",
         "media stage=host-media event=apply active=false mode=inactive result=ok lost=$number",
         "media stage=host-media event=apply active=true mode=(normal|suppress) result=ok lost=$number",
         "media stage=host-media event=withhold active=false mode=inactive result=withheld lost=$number",

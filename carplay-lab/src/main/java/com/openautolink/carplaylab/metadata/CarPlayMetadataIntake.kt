@@ -49,7 +49,29 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
     }
     private var cover: ByteArray? = null
     val artwork: ByteArray? @Synchronized get() = cover?.copyOf()
+    private var artworkReceipts = 0
     @Synchronized fun offerArtwork(id: Int, bytes: ByteArray) {
+        val reason = when {
+            retired -> "retired"
+            !authenticated -> "unauthenticated"
+            id !in 0..255 || media?.artworkTransferId != id -> "reference"
+            bytes.isEmpty() || bytes.size > 2 * 1024 * 1024 -> "size"
+            else -> "accepted"
+        }
+        if (artworkReceipts < 32) {
+            artworkReceipts++
+            val size = when {
+                bytes.isEmpty() -> "empty"
+                bytes.size <= 64 * 1024 -> "small"
+                bytes.size <= 512 * 1024 -> "medium"
+                bytes.size <= 2 * 1024 * 1024 -> "large"
+                else -> "oversized"
+            }
+            runCatching { onDiagnostic("carplay-artwork result=$reason size=$size") }
+        } else if (artworkReceipts == 32) {
+            artworkReceipts++
+            runCatching { onDiagnostic("carplay-artwork result=limit size=empty") }
+        }
         if (!authenticated || retired || id !in 0..255 || media?.artworkTransferId != id) return
         cover = bytes.takeIf { it.isNotEmpty() && it.size <= 2 * 1024 * 1024 }?.copyOf()
     }
