@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Bluetooth permissions. BLUETOOTH_CONNECT is needed to read the head
+         unit's BT MAC address (Settings.Secure["bluetooth_address"] /
+         BluetoothAdapter.getAddress()) for the AA Service Discovery Response.
+         The other BLUETOOTH_* flags are kept as belt-and-suspenders for
+         AAOS BT adapters that gate getAddress() behind older permission
+         names; they cost nothing on modern API levels. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
+    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+
+    <!-- Car permissions for VHAL property monitoring; HAL exposure varies by vehicle.
+         Inspected Android 14 / GM firmware: CAR_ENERGY and CAR_SPEED are dangerous;
+         CAR_INFO and the powertrain/environment/ports/display-unit permissions are normal.
+         Returning from system Settings reconciles grants without restarting the process. -->
+    <uses-permission android:name="android.car.permission.CAR_SPEED" />
+    <uses-permission android:name="android.car.permission.CAR_ENERGY" />
+    <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
+    <uses-permission android:name="android.car.permission.CAR_EXTERIOR_ENVIRONMENT" />
+    <uses-permission android:name="android.car.permission.CAR_INFO" />
+    <uses-permission android:name="android.car.permission.CAR_ENERGY_PORTS" />
+    <uses-permission android:name="android.car.permission.READ_CAR_DISPLAY_UNITS" />
+    <!-- Optional privileged/signature permissions on inspected GM firmware, not ordinary
+         runtime grants for a Play app. Denied or unsupported properties degrade gracefully:
+         mileage -> odometer, tires -> tire pressure, dynamics -> ABS / traction state. -->
+    <uses-permission android:name="android.car.permission.CAR_MILEAGE" />
+    <uses-permission android:name="android.car.permission.CAR_TIRES" />
+    <uses-permission android:name="android.car.permission.CAR_DYNAMICS_STATE" />
+
+    <uses-feature
+        android:name="android.hardware.type.automotive"
+        android:required="true" />
+
+    <uses-feature
+        android:name="android.software.car.templates_host"
+        android:required="true" />
+
+    <!-- USB Host feature (optional — don't block install on devices without it) -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
+    <application
+        android:name=".OalApplication"
+        android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="OpenAutoLink"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.OpenAutoLink">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection|navigation|touchscreen"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="stateAlwaysHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Voice button investigation: see if GM routes voice as an Intent -->
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.speech.action.VOICE_SEARCH_HANDS_FREE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <!-- AAOS Distraction Optimization — allows activity while driving -->
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
+        </activity>
+
+        <!-- Hidden CarAppActivity — triggers Templates Host binding for cluster.
+             Not a launcher. Lives in separate task. Excluded from recents. -->
+        <activity
+            android:name="androidx.car.app.activity.CarAppActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.openautolink.app.templates"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.OpenAutoLink.InvisibleActivity">
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
+        </activity>
+
+        <!-- Cluster Navigation CarAppService (headless — no UI on main display) -->
+        <service
+            android:name=".cluster.OalClusterService"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+                <category android:name="androidx.car.app.category.FEATURE_CLUSTER" />
+            </intent-filter>
+            <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="6" />
+            <meta-data android:name="com.gm.homescreen.visibility" android:value="HIDDEN" />
+        </service>
+
+        <!-- Required at application level — Templates Host reads minCarApiLevel
+             from application metadata, not from service element -->
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="6" />
+
+        <!-- Declares automotive app capabilities to Templates Host -->
+        <meta-data
+            android:name="com.android.automotive"
+            android:resource="@xml/automotive_app_desc" />
+
+        <!-- Application-level distraction optimization declaration -->
+        <meta-data
+            android:name="com.android.automotive.application.DISTRACTION_OPTIMIZED"
+            android:value="true" />
+
+        <!-- ADB control receiver is private in release; debug manifest overrides exported=true. -->
+        <receiver
+            android:name=".diagnostics.SettingsReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.openautolink.app.SET_PREF" />
+                <action android:name="com.openautolink.app.RECONNECT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- USB device attached handler — routes to MainActivity -->
+        <activity
+            android:name=".transport.usb.UsbAttachedActivity"
+            android:exported="true"
+            android:enabled="true"
+            android:directBootAware="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
+        </activity>
+
+        <service
+            android:name=".carplay.CarPlaySessionService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <service
+            android:name="com.openautolink.carplaylab.usb.OalUsbCarPlayVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
+        <!-- Media source for AAOS system UI, cluster, and steering wheel controls -->
+        <service
+            android:name=".media.OalMediaBrowserService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+    </application>
+</manifest>

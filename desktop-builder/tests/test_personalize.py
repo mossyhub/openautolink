@@ -101,11 +101,11 @@ def node(name, attrs=(), children=()):
     return field(1, field(3, name) + b''.join(field(4, a) for a in attrs) + b''.join(field(5, c) for c in children) + UNKNOWN) + UNKNOWN
 
 
-def manifest(old=OLD, version=1, extra=()):
+def manifest(old=OLD, version=1, extra=(), app_attrs=()):
     return node('manifest', [attr('package', old, ''), attr('versionCode', str(version), compiled=field(7, field(6, version)))], [
         node('permission', [attr('name', old + '.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'), attr('protectionLevel', '0x00000002', compiled=field(7, field(7, 2)))]),
         node('uses-permission', [attr('name', old + '.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION')]),
-        node('application', [attr('name', 'com.openautolink.app.OalApplication')], [
+        node('application', [attr('name', 'com.openautolink.app.OalApplication'), *app_attrs], [
             node('activity', [attr('name', 'androidx.car.app.activity.CarAppActivity'), attr('taskAffinity', old + '.templates')]),
             node('provider', [attr('name', 'androidx.startup.InitializationProvider'), attr('authorities', old + '.androidx-startup')]),
             node('receiver', [attr('name', 'com.openautolink.app.diagnostics.SettingsReceiver')], [node('intent-filter', children=[node('action', [attr('name', 'com.openautolink.app.SET_PREF')])])]),

@@ -39,7 +39,14 @@ jobs:
         id: tag
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          if [[ "$EVENT_NAME" == workflow_dispatch && "$WORKFLOW_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo 'Manual publication tooling must run from the trusted default branch' >&2
+            exit 1
+          fi
           if ! [[ "$RELEASE_TAG" =~ ^v0\.1\.[1-9][0-9]{0,9}$ ]]; then
             echo 'Expected v0.1.PATCH with positive PATCH' >&2
             exit 1
@@ -138,13 +145,25 @@ jobs:
             -PappId=com.openautolink.template -PoalBuilderUnsigned=true \
             -PoalVersionCode="$RELEASE_VERSION_CODE" -PoalVersionName="$RELEASE_VERSION_NAME"
 
+      # Verification tooling is independently pinned to this trusted workflow
+      # commit. Never overlay it onto the tagged app checkout or build inputs.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .publication-tooling
+          persist-credentials: false
+          clean: true
+
       - name: Verify template and create bound descriptor
         env:
+          TOOLING_COMMIT: ${{ github.workflow_sha }}
           RELEASE_TAG: ${{ steps.tag.outputs.value }}
           RELEASE_VERSION_CODE: ${{ steps.tag.outputs.code }}
           SOURCE_COMMIT: ${{ steps.bind.outputs.source_commit }}
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C .publication-tooling rev-parse HEAD)" = "$TOOLING_COMMIT"
+          git -C .publication-tooling diff --exit-code HEAD
           git diff --exit-code HEAD
           mkdir -p "$RUNNER_TEMP/personalization-release"
           cp app/build/outputs/bundle/release/app-release.aab \
@@ -154,7 +173,7 @@ jobs:
             --output "$RUNNER_TEMP/bundletool-1.18.3.jar"
           printf '%s  %s\n' a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29 \
             "$RUNNER_TEMP/bundletool-1.18.3.jar" | sha256sum --check -
-          python -I -S desktop-builder/scripts/publish_template.py \
+          python -I -S .publication-tooling/desktop-builder/scripts/publish_template.py \
             --aab "$RUNNER_TEMP/personalization-release/openautolink-template-${RELEASE_TAG}.aab" \
             --tag "$RELEASE_TAG" --commit "$SOURCE_COMMIT" --version-code "$RELEASE_VERSION_CODE" \
             --output-dir "$RUNNER_TEMP/personalization-release" \
@@ -215,6 +234,6 @@ jobs:
       template_mode: published
       expected_release_tag: ${{ needs.produce.outputs.release_tag }}
       expected_source_commit: ${{ needs.produce.outputs.source_commit }}
-      builder_commit: ${{ needs.produce.outputs.source_commit }}
+      builder_commit: ${{ github.workflow_sha }}
 # Qualification is downstream of verified publication, never a racing release
 # event, recursive dispatch, source fallback or dependency of signed APK shipping.

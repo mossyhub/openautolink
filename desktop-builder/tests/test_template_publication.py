@@ -159,7 +159,7 @@ def test_template_workflow_is_unsigned_same_checkout_and_preserves_apk_outputs()
     assert 'secrets.' not in text and 'assembleRelease' not in text
     assert 'ref: refs/tags/${{ steps.tag.outputs.value }}' in text
     assert text.index('Preflight clean tag and required publisher tree') < text.index(':app:bundleRelease')
-    assert 'python -I -S desktop-builder/scripts/publish_template.py' in text
+    assert 'python -I -S .publication-tooling/desktop-builder/scripts/publish_template.py' in text
     assert 'git rev-parse HEAD' in text
     assert 'git rev-parse "refs/tags/${RELEASE_TAG}^{commit}"' in text
     assert 'sha256sum --check' in text
