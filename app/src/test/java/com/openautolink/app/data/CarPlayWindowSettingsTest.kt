@@ -5,7 +5,32 @@ import org.junit.Test
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.cancelAndJoin
 
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [32, 34], application = android.app.Application::class)
+@org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
 class CarPlayWindowSettingsTest {
+    @Test fun bootstrapTimeoutPassesMissingViewportRatherThanFabricatingDisplayMetrics() {
+        val vm = java.io.File("src/main/java/com/openautolink/app/ui/projection/ProjectionViewModel.kt").readText()
+        assertFalse("Explicit Auto carries missing viewport without a synthetic Input",
+            vm.contains("0, 0, 0, 0, Double.NaN, Double.NaN, 0)"))
+    }
+
+    @Test fun finalQualifiedFallbackFreezesTheSamePhysicalScaleForWireAndDiagnostics() {
+        val selected = CarPlaySettings(autoResolution = false, resolution = "1440p", fitToWindow = true)
+            .qualifiedDisplay(viewport(2914,1134), com.shilapi.xcertplay.media.VideoDecoderProbe {
+                if (it.width == 1280 && it.height == 720 && it.fps == 30) "baseline" else null
+            })
+        val scale = selected.resolvedScale!!
+        assertSame(scale, selected.scaleReceipt)
+        assertEquals(1280, selected.width)
+        assertEquals(720, selected.height)
+        assertEquals(selected.toAirPlayDisplay().widthPhysicalMm, scale.effectiveWidthMm)
+        assertEquals(selected.toAirPlayDisplay().heightPhysicalMm, scale.effectiveHeightMm)
+        assertTrue(com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnostic(selected)
+            .contains("physical=${scale.effectiveWidthMm}x${scale.effectiveHeightMm} coded=1280x720"))
+        assertSame(scale, selected.resolvedScale)
+    }
+
     @Test fun independentCalibrationDraftCommitsToRealDataStoreWithoutChangingAaOrConcurrentFields() = kotlinx.coroutines.runBlocking {
         val file = java.io.File("build/window-calibration-${java.util.UUID.randomUUID()}.preferences_pb")
         file.parentFile.mkdirs()

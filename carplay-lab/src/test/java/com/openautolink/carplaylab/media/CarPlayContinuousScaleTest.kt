@@ -10,7 +10,7 @@ class CarPlayContinuousScaleTest {
         val method = CarPlayDisplayPolicy.javaClass.methods.firstOrNull { it.name == "scaleDiagnostic" }
         assertNotNull("Expose sanitized actual-offer scale diagnostic", method)
         val input = CarPlayAutoScalePolicy.Input(960, 540, 1920, 1080, 240.0, 240.0, 160)
-        val wide = CarPlayDisplayPreferences.custom(2400, 960, 31).copy(autoScaleInput = input)
+        val wide = CarPlayDisplayPreferences.custom(2400, 960, 31).copy(autoScaleInput = input, scaleMode = CarPlayScaleReceipt.Mode.AUTOMATIC)
         val snapshot = method!!.invoke(CarPlayDisplayPolicy, wide) as String
         assertTrue(snapshot.contains("mode=auto"))
         assertTrue(snapshot.contains("viewport=960x540"))
@@ -22,7 +22,7 @@ class CarPlayContinuousScaleTest {
         val fallback = method.invoke(CarPlayDisplayPolicy, uncertain) as String
         assertTrue(fallback.contains("basis=calibration_needed"))
         assertFalse(fallback.contains("NaN"))
-        val manual = wide.copy(widthPhysicalMm = 225, autoScaleInput = null)
+        val manual = wide.copy(widthPhysicalMm = 225, autoScaleInput = null, scaleMode = CarPlayScaleReceipt.Mode.MANUAL)
         assertTrue((method.invoke(CarPlayDisplayPolicy, manual) as String).contains("physical=225x90"))
     }
 

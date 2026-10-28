@@ -39,7 +39,9 @@ class OalUsbCarPlayRuntime(
     private val restrictionPolicy: CarPlayRestrictionPolicy = CarPlayRestrictionPolicy.from(com.openautolink.app.data.CarPlaySettings()),
     receiverAddress: String = "",
     private val attemptContext: CarPlayAttemptContext? = null,
+    private val displayOfferStore: CarPlayDisplayOfferStore = CarPlayDisplayOfferStore.PROCESS,
 ) : CarPlayRuntime {
+    private val displayOfferLease = displayOfferStore.begin()
     // Snapshot before USB side effects. Empty preserves the existing descriptor/fallback offer.
     private val manualBluetoothAddress = com.openautolink.app.data.CarPlayReceiverAddressPolicy.runtimeAddress(receiverAddress)
         .takeIf { it.isNotEmpty() }
@@ -121,6 +123,14 @@ class OalUsbCarPlayRuntime(
         receiver = projection
         presentation = initialPresentation // Constructor starts with the qualified bootstrap target.
         reconcilePresentation()
+        // Observe the actual qualified offer once, never a request or a second probe.
+        val qualified = projection.displayConfiguration
+        if (displayOfferStore.publish(displayOfferLease, qualified)) {
+            runCatching { onDisplayQualified(qualified) }
+            val legacy = com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnostic(qualified)
+            runCatching { com.openautolink.app.diagnostics.DiagnosticLog.i("carplay-scale", legacy) }
+            audioDiagnostics.record(com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnosticV2(qualified))
+        }
         projection
     }
     private fun reconcilePresentation() {
@@ -154,7 +164,7 @@ class OalUsbCarPlayRuntime(
             if(reason == "CANCELLED") throw failure
             retryFence.failed(topology, reason, permissionAwaitDenied)
             throw failureUi(reason)
-        }
+        } finally { displayOfferStore.retire(displayOfferLease) }
     }
     private fun configurationAction(configuration: UsbConfiguration?, transitions: Int): String {
         val appleEthernet=configuration?.let(IphoneCarPlayConfiguration::isCarPlayMode)==true
@@ -383,10 +393,8 @@ class OalUsbCarPlayRuntime(
             onCaptureTerminal=captureTerminalSink(context,::receiverStatus),onStatus=::receiverStatus) }
         attemptContext?.onInputAdvertised?.invoke(projection.inputAdvertised)
         attemptContext?.onCaptureRetirement?.invoke(projection::retireMicrophoneCapture)
-        active();onDisplayQualified(projection.displayConfiguration)
+        active()
         projection.setNetworkStartupDiagnosticStop(ncm::stopStartupDiagnostics)
-        val scale=com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnostic(projection.displayConfiguration)
-        com.openautolink.app.diagnostics.DiagnosticLog.i("carplay-scale",scale)
         projection.setRuntimeIdentification(identification)
         val csm=own { Iap2Session.open(carkit,onArtwork=projection::offerWiredArtwork) }
         Iap2IdentificationClient(csm,vehicleBootstrap::identification)
@@ -484,7 +492,7 @@ class OalUsbCarPlayRuntime(
             requestedPresentation.get() === requested && requested.surface != null) snapshot
         else snapshot.copy(presentationRendered = false)
     }
-    override fun cancel() { canceled.set(true);presentationWorker.shutdownNow();receiver?.revokePendingAdmission() }
+    override fun cancel() { canceled.set(true);displayOfferStore.retire(displayOfferLease);presentationWorker.shutdownNow();receiver?.revokePendingAdmission() }
     override fun close() = synchronized(closeLock) {
         cancel();val retiring=synchronized(resourcesLock) { resources.toList().asReversed() }
         val closeFailures=java.util.IdentityHashMap<AutoCloseable,Exception>()

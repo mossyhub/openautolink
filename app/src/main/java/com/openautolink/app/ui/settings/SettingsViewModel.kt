@@ -138,6 +138,8 @@ internal suspend fun applySettingsAndRestart(
 
 /** Incomplete setup is saveable; malformed entered values are not. Readiness is separate. */
 internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
+    com.openautolink.carplaylab.media.CarPlayDockPosition.entries.none { it.id == settings.dockPosition } ->
+        "Choose Automatic, Bottom or Driver side for the CarPlay status bar in Display."
     settings.networkFamily !in setOf("auto", "ipv4", "ipv6") -> "Choose Auto, IPv4 or IPv6 in Connection."
     settings.apSecurity !in setOf("wpa2", "wpa3") -> "Choose WPA2 or WPA3 in Connection."
     !(settings.apFrequencyMhz == 2484 ||
@@ -155,12 +157,19 @@ internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
     com.openautolink.app.data.CarPlayReceiverAddressPolicy.canonicalOrNull(settings.receiverAddress) == null ->
         "Enter the head unit's real Bluetooth address in CarPlay settings."
     settings.videoError() != null -> settings.videoError()
-    settings.widthPhysicalMm !in com.openautolink.carplaylab.media.CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM ->
-        "Choose a manual UI size from the slider in Display (100 to 400 mm calibration)."
+    settings.widthPhysicalMm !in com.openautolink.carplaylab.media.CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM ||
+        settings.physicalWidthDraft?.let { it != settings.widthPhysicalMm.toString() } == true ->
+        "Enter a whole number from 100 to 400 for UI calibration in Display."
     else -> null
 }
 
-class SettingsViewModel(application: Application) : AndroidViewModel(application) {
+class SettingsViewModel @JvmOverloads constructor(
+    application: Application,
+    displayOfferStore: com.openautolink.app.carplay.CarPlayDisplayOfferStore = com.openautolink.app.carplay.CarPlayDisplayOfferStore.PROCESS,
+) : AndroidViewModel(application) {
+    /** Observation only: opening Display never starts a runtime, probes or persists an offer. */
+    val carPlayDisplayOffer = displayOfferStore.state
+
 
     private val preferences = AppPreferences.getInstance(application)
     private val wppConfigServer = WppConfigBtServer(application, viewModelScope)

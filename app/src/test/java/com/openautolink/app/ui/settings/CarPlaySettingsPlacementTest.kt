@@ -82,7 +82,7 @@ class CarPlaySettingsPlacementTest {
         assertTrue(display.indexOf("if (!settings.enabled) return") in 0 until display.indexOf("SectionHeader("))
         assertTrue(display.contains("valueRange = 100f..400f"))
         assertTrue(display.contains("steps = 0"))
-        assertTrue(display.contains("viewModel.updateCarPlayDraft { it.copy(widthPhysicalMm = sliderWidthMm) }"))
+        assertTrue(display.contains("viewModel.updateCarPlayDraft { it.copy(widthPhysicalMm = sliderWidthMm).copy(physicalWidthDraft = null) }"))
         assertFalse(display.contains("copy(resolution"))
         assertFalse(display.contains("copy(fps"))
         assertTrue(display.contains("CarPlay UI scale"))

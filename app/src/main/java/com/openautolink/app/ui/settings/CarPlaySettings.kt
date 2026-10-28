@@ -322,11 +322,16 @@ fun CarPlayDisplaySettingsSection(
     onNavigateToCarPlaySafeAreaEditor: () -> Unit,
 ) {
     val settings by viewModel.carPlaySettings.collectAsStateWithLifecycle()
+    val offer by viewModel.carPlayDisplayOffer.collectAsStateWithLifecycle()
     val saving by viewModel.carPlaySettingsSaving.collectAsStateWithLifecycle()
+    val loaded by viewModel.carPlaySettingsLoaded.collectAsStateWithLifecycle()
     val status by viewModel.carPlaySettingsStatus.collectAsStateWithLifecycle()
     if (!settings.enabled) return
 
     var sliderWidthMm by remember(settings.widthPhysicalMm) { mutableStateOf(settings.widthPhysicalMm) }
+    var exactCalibrationExpanded by remember { mutableStateOf(false) }
+    val calibrationError = settings.physicalWidthDraft?.let { it != settings.widthPhysicalMm.toString() } == true
+    val showExactCalibration = exactCalibrationExpanded || calibrationError
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader("CarPlay")
         Text("CarPlay safe area", style = MaterialTheme.typography.titleMedium)
@@ -336,10 +341,34 @@ fun CarPlayDisplaySettingsSection(
             style = MaterialTheme.typography.bodySmall)
         Text("Safe edges: T ${settings.safeTop / 100.0}% · B ${settings.safeBottom / 100.0}% · L ${settings.safeLeft / 100.0}% · R ${settings.safeRight / 100.0}%",
             style = MaterialTheme.typography.bodySmall)
+        Text("CarPlay status bar", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("automatic" to "Automatic", "bottom" to "Bottom", "driver_side" to "Driver side").forEach { (id, label) ->
+                FilterChip(selected = settings.dockPosition == id, enabled = loaded && !saving,
+                    onClick = { viewModel.updateCarPlayDraft { it.copy(dockPosition = id) } },
+                    label = { Text(label) }, modifier = Modifier.testTag("carPlayDock_$id"))
+            }
+        }
+        Text("Applies on the next CarPlay connection; does not change icon or text size.",
+            style = MaterialTheme.typography.bodySmall)
         Text("CarPlay UI scale", style = MaterialTheme.typography.titleMedium)
+        Text("Last frozen offer", style = MaterialTheme.typography.labelLarge)
+        val lastOffer = offer
+        Text(if (lastOffer == null) "Connect to see applied size" else {
+            val phase = if (lastOffer.phase == com.openautolink.app.carplay.CarPlayDisplayOfferStore.Phase.ENDED) "Ended" else "Offered locally"
+            val basis = when (lastOffer.reason) {
+                com.openautolink.carplaylab.media.CarPlayScaleReceipt.Reason.MANUAL -> "Manual"
+                com.openautolink.carplaylab.media.CarPlayScaleReceipt.Reason.HARDWARE_ESTIMATE -> "Auto · hardware estimate"
+                else -> "Auto · calibration needed"
+            }
+            "$phase · $basis · reference ${lastOffer.referenceWidthMm} → offered ${lastOffer.effectiveWidthMm}×${lastOffer.effectiveHeightMm} mm"
+        }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayLastOffer"))
+        Text("Next session · ${if (settings.autoScale) "Auto" else "Manual"} · reference ${settings.widthPhysicalMm} mm (draft)",
+            style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("carPlayPendingScale"))
+        SettingsHelp("Offers describe the local runtime, not confirmed phone-visible size. Hardware estimate is not a measured panel. When Auto metrics are unavailable or untrusted, Auto uses reference calibration and viewport fit, not a real-panel measurement. Draft changes do not change the last frozen offer.")
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Auto sizing", Modifier.weight(1f))
-            Switch(checked = settings.autoScale, enabled = !saving,
+            Switch(checked = settings.autoScale, enabled = !saving && loaded,
                 onCheckedChange = { automatic ->
                     viewModel.updateCarPlayDraft { it.copy(autoScale = automatic) }
                 }, modifier = Modifier.testTag("carPlayAutoScale"))
@@ -351,11 +380,11 @@ fun CarPlayDisplaySettingsSection(
             value = (500 - sliderWidthMm).toFloat(),
             onValueChange = { sliderWidthMm = 500 - it.toInt() },
             onValueChangeFinished = {
-                viewModel.updateCarPlayDraft { it.copy(widthPhysicalMm = sliderWidthMm) }
+                viewModel.updateCarPlayDraft { it.copy(widthPhysicalMm = sliderWidthMm).copy(physicalWidthDraft = null) }
             },
             valueRange = 100f..400f,
             steps = 0,
-            enabled = !saving && !settings.autoScale,
+            enabled = !saving && !settings.autoScale && loaded,
             modifier = Modifier.fillMaxWidth(0.7f).testTag("carPlayUiScale"),
         )
         Row(Modifier.fillMaxWidth(0.7f), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -363,7 +392,32 @@ fun CarPlayDisplaySettingsSection(
             Text("Larger UI", style = MaterialTheme.typography.bodySmall)
         }
         Text("Larger UI shows less content; smaller UI shows more.", style = MaterialTheme.typography.bodySmall)
-        SettingsHelp("Calibration: physical width $sliderWidthMm mm. Smaller physical width makes the UI larger. Auto estimates width from the viewport; this is CarPlay metadata, not Android Auto DPI.")
+        TextButton(onClick = { exactCalibrationExpanded = !showExactCalibration }, enabled = !calibrationError) {
+            Text(if (showExactCalibration) "Hide exact calibration" else "Show exact calibration")
+        }
+        // Invalid text must stay visible while it blocks the existing global Save.
+        if (showExactCalibration) {
+            OutlinedTextField(
+                value = settings.physicalWidthDraft ?: settings.widthPhysicalMm.toString(),
+                onValueChange = { value -> viewModel.updateCarPlayDraft { current ->
+                    val width = value.toIntOrNull()?.takeIf {
+                        it in CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM && it.toString() == value
+                    }
+                    current.copy(widthPhysicalMm = width ?: current.widthPhysicalMm, physicalWidthDraft = value)
+                } },
+                enabled = !saving && !settings.autoScale && loaded,
+                label = { Text("UI calibration (mm)") },
+                supportingText = { Text(if (calibrationError) "Enter a whole number from 100 to 400."
+                    else "100–400 · next connection") },
+                isError = calibrationError,
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(0.7f).testTag("carPlayPhysicalWidth"),
+            )
+            Text("Calibration: physical width $sliderWidthMm mm. Smaller physical width makes the UI larger. Auto estimates width from the viewport; this is CarPlay metadata, not Android Auto DPI.",
+                style = MaterialTheme.typography.bodySmall)
+        }
         Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider()
