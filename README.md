@@ -270,10 +270,10 @@ Under **Android Auto → AA Display Density (DPI)**:
 
 Under **CarPlay → CarPlay UI scale**:
 
-- **Auto sizing** uses reliable display estimates where available. Missing or unreliable measurements retain Auto intent but fall back to your saved manual calibration; Auto is not a guarantee of correct physical sizing. If sizing is unsuitable or calibration is needed, turn Auto off, adjust manually and save. You can then re-enable Auto if desired; the saved calibration remains its fallback.
+- Leave **Auto sizing** on to estimate UI scale from the next session's projection area and available display measurements. If that estimate does not suit your screen, use manual sizing.
 - Turn **Auto sizing** off to unlock **Manual UI size**.
 - Move the slider **left toward Smaller UI** to request smaller text/icons and more content, or **right toward Larger UI** to request larger text/icons and less content. The iPhone chooses the final layout and may apply steps or limits; check actual control size while parked.
-- **Manual calibration** now spans **100–2000 mm**, preserving existing saved values. A wider advertised physical width requests smaller UI; a smaller width requests larger UI. This is CarPlay calibration metadata, **not Android Auto DPI** or video resolution. Tall layouts limit effective calibration to preserve physical aspect; the saved reference is not rewritten.
+- **Manual calibration** spans **100–400 mm**. A wider advertised physical width requests smaller UI; a smaller width requests larger UI. This is CarPlay calibration metadata, **not Android Auto DPI** or video resolution. The extended range introduced in 0.1.551 was reverted after black-screen reports; saved values outside this range return to the 200 mm baseline. Valid saved calibrations are preserved.
 
 **UI scale is not video resolution.** Use **Video** settings for image detail and **Fit to window** for CarPlay's standard-tier canvas fit. Use **Display → Calibrate safe controls** to move CarPlay controls away from curved screen edges; changing UI size does not replace safe-area calibration. Neither protocol's scaling control changes the vehicle's native apps or OAL's own settings UI.
 

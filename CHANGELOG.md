@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — CarPlay video hotfix
+
+- Restore the previous CarPlay scaling policy after black-screen reports with the extended calibration range in 0.1.551.
+- Return saved out-of-range calibrations to the 200 mm baseline without clearing app data; preserve valid 100–400 mm choices.
+- Preserve the call, audio recovery, Bluetooth warning and USB Save improvements from 0.1.551.
+
 ## Unreleased — CarPlay calls, native Audio and easier display setup
 
 Includes the 549 and 550 updates and subsequent changes since public release 0.1.548.
