@@ -80,8 +80,7 @@ jobs:
                       desktop-builder/oal_builder/releases.py \
                       desktop-builder/oal_builder/toolchain.py \
                       desktop-builder/oal_builder/resources/ProtoPersonalizer.java \
-                      .github/workflows/publish-personalization-template.yml \
-                      .github/workflows/qualify-desktop-aab.yml; do
+                      .github/workflows/publish-personalization-template.yml; do
             if [ ! -f "$FILE" ] || [ -L "$FILE" ]; then
               echo 'Required publisher tree absent from release tag; publish a new release after merge. Historical tags cannot be overlaid or relabeled.' >&2
               exit 1
@@ -225,15 +224,5 @@ jobs:
             --directory "$RUNNER_TEMP/personalization-release" \
             --release-id "$RELEASE_ID" --tag "$RELEASE_TAG" --commit "$SOURCE_COMMIT"
 
-  qualify-desktop-aab:
-    needs: [produce, upload]
-    permissions:
-      contents: read
-    uses: ./.github/workflows/qualify-desktop-aab.yml
-    with:
-      template_mode: published
-      expected_release_tag: ${{ needs.produce.outputs.release_tag }}
-      expected_source_commit: ${{ needs.produce.outputs.source_commit }}
-      builder_commit: ${{ github.workflow_sha }}
-# Qualification is downstream of verified publication, never a racing release
-# event, recursive dispatch, source fallback or dependency of signed APK shipping.
+# Verified browser-template publication ends here. Website refresh follows this
+# workflow's success; optional desktop qualification is manual-only and unrelated.

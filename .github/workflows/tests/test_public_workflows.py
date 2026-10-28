@@ -168,11 +168,9 @@ class PublicWorkflowContracts(unittest.TestCase):
         self.assertNotIn('contents: write', producer)
         self.assertIn('contents: write', uploader)
         self.assertIn('needs: produce', uploader)
-        self.assertIn('needs: [produce, upload]', uploader)
-        self.assertIn('template_mode: published', uploader)
-        self.assertIn('expected_release_tag: ${{ needs.produce.outputs.release_tag }}', uploader)
-        self.assertIn('expected_source_commit: ${{ needs.produce.outputs.source_commit }}', uploader)
-        self.assertIn('builder_commit: ${{ github.workflow_sha }}', uploader)
+        self.assertNotIn('\n  qualify-desktop-aab:', source)
+        self.assertNotIn('qualify-desktop-aab.yml', source)
+        self.assertNotIn('uses: ./.github/workflows/', source)
         self.assertIn('--release-id "$RELEASE_ID"', uploader)
         build = run_block(source, 'Build unsigned credential-free personalization AAB')
         self.assertIn('-PappId=com.openautolink.template -PoalBuilderUnsigned=true', build)
@@ -184,6 +182,34 @@ class PublicWorkflowContracts(unittest.TestCase):
         self.assertLess(source.index('Preflight clean tag and required publisher tree'), source.index('Set up Android SDK'))
         self.assertIn('python -I -S .publication-tooling/desktop-builder/scripts/publish_template.py', source)
         self.assertIn('python -I -S desktop-builder/scripts/upload_template.py', source)
+
+    def test_desktop_workflows_are_manual_only_and_never_automatically_called(self):
+        dormant = ('build-desktop-builder.yml', 'qualify-desktop-aab.yml',
+                   'qualify-windows-clean-runtime.yml')
+        for name in dormant:
+            with self.subTest(workflow=name):
+                source = (WORKFLOWS / name).read_text()
+                events = source.split('\non:\n', 1)[1].split('\npermissions:', 1)[0]
+                self.assertEqual(re.findall(r'^  ([a-z_]+):', events, re.M), ['workflow_dispatch'])
+                self.assertIn('\njobs:\n', source, 'Retain optional desktop tooling for future manual use')
+        for workflow in WORKFLOWS.glob('*.yml'):
+            source = workflow.read_text()
+            for name in dormant:
+                self.assertNotIn('uses: ./.github/workflows/' + name, source)
+        worker = (WORKFLOWS / 'qualify-windows-clean-runtime.yml').read_text()
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.authorize_disposable_test_acceptance", worker)
+        self.assertNotIn("github.event_name == 'push' ||", worker)
+
+    def test_website_refresh_keeps_its_verified_template_success_dependency(self):
+        source = (WORKFLOWS / 'refresh-website-template.yml').read_text()
+        self.assertIn('workflows: [Publish personalization template]', source)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", source)
+        self.assertIn('needs: validate', source)
+        self.assertNotIn('qualify-desktop-aab', source)
+        for command in ('prepare', 'recheck', 'readback'):
+            self.assertIn('website-release/refresh.py ' + command, source)
+        self.assertIn('sha256sum --check -', source)
+        self.assertIn('python -I -S -m unittest discover -s website-release/tests -v', source)
 
     def test_historical_tag_without_publisher_fails_explicit_preflight(self):
         path = WORKFLOWS / 'publish-personalization-template.yml'

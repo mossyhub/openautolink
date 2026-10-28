@@ -35,5 +35,25 @@ def test_app_source_and_publisher_tooling_are_independently_pinned():
     assert 'test "$(git -C .publication-tooling rev-parse HEAD)" = "$TOOLING_COMMIT"' in producer
     assert 'python -I -S .publication-tooling/desktop-builder/scripts/publish_template.py' in producer
     assert 'git diff --exit-code HEAD' in producer
-    assert 'builder_commit: ${{ github.workflow_sha }}' in text
+    assert 'TOOLING_COMMIT: ${{ github.workflow_sha }}' in producer
+    assert 'SOURCE_COMMIT: ${{ steps.bind.outputs.source_commit }}' in producer
+    assert 'test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"' in producer
+    assert '\n  qualify-desktop-aab:' not in text
+    assert 'uses: ./.github/workflows/qualify-desktop-aab.yml' not in text
     assert 'git apply' not in producer and 'cp .publication-tooling' not in producer
+
+
+def test_publication_contract_rejects_resurrected_desktop_caller(tmp_path, monkeypatch):
+    # The unmodified browser publisher must pass before testing the unsafe fixture.
+    test_app_source_and_publisher_tooling_are_independently_pinned()
+    workflow = tmp_path / '.github/workflows/publish-personalization-template.yml'
+    workflow.parent.mkdir(parents=True)
+    source = (ROOT / '.github/workflows/publish-personalization-template.yml').read_text()
+    workflow.write_text(source + '\n  resurrect-desktop:\n'
+                        '    needs: [produce, upload]\n'
+                        '    uses: ./.github/workflows/qualify-desktop-aab.yml\n'
+                        '    with:\n'
+                        '      builder_commit: ${{ github.workflow_sha }}\n')
+    monkeypatch.setitem(globals(), 'ROOT', tmp_path)
+    with pytest.raises(AssertionError):
+        test_app_source_and_publisher_tooling_are_independently_pinned()

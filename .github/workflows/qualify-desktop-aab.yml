@@ -1,6 +1,7 @@
 name: Qualify desktop builder native AABs
 
 on:
+  # Dormant optional desktop qualification; browser publication is independent.
   workflow_dispatch:
     inputs:
       template_mode:
@@ -11,30 +12,18 @@ on:
         options:
           - published
           - local
-  # Called only AFTER release-apk has uploaded and read back template assets.
-  workflow_call:
-    inputs:
-      template_mode:
-        type: string
-        default: published
       expected_release_tag:
+        description: Optional exact published release tag
         type: string
-        required: true
+        required: false
       expected_source_commit:
+        description: Optional exact published source commit (pair with release tag)
         type: string
-        required: true
+        required: false
       builder_commit:
+        description: Optional exact tooling commit (defaults to dispatched commit)
         type: string
-        required: true
-  push:
-    branches: ['feat/**']
-    paths:
-      - 'desktop-builder/**'
-      - '.github/workflows/qualify-desktop-aab.yml'
-  pull_request:
-    paths:
-      - 'desktop-builder/**'
-      - '.github/workflows/qualify-desktop-aab.yml'
+        required: false
 
 permissions:
   contents: read
