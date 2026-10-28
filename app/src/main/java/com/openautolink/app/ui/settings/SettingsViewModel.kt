@@ -138,6 +138,8 @@ internal suspend fun applySettingsAndRestart(
 
 /** Incomplete setup is saveable; malformed entered values are not. Readiness is separate. */
 internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
+    com.openautolink.carplaylab.media.CarPlayDockPosition.entries.none { it.id == settings.dockPosition } ->
+        "Choose Automatic, Bottom or Driver side for the CarPlay status bar in Display."
     settings.networkFamily !in setOf("auto", "ipv4", "ipv6") -> "Choose Auto, IPv4 or IPv6 in Connection."
     settings.apSecurity !in setOf("wpa2", "wpa3") -> "Choose WPA2 or WPA3 in Connection."
     !(settings.apFrequencyMhz == 2484 ||

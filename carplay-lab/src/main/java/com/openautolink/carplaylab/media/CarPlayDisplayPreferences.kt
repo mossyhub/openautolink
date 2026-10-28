@@ -44,6 +44,8 @@ data class CarPlayDisplayPreferences(
     val scaleMode: CarPlayScaleReceipt.Mode = if (autoScaleInput == null)
         CarPlayScaleReceipt.Mode.MANUAL else CarPlayScaleReceipt.Mode.AUTOMATIC,
     private val frozenScale: CarPlayScaleReceipt? = null,
+    /** One full-canvas next-session area only; Automatic preserves the original wire description. */
+    val dockPosition: CarPlayDockPosition = CarPlayDockPosition.AUTOMATIC,
 ) {
     init {
         require(fps in FRAME_RATES) { "Maximum FPS must be an integer from 1 to 60" }
@@ -74,7 +76,10 @@ data class CarPlayDisplayPreferences(
     val physicalSize: CarPlayAutoScalePolicy.Size get() = scaleReceipt.physicalSize
     fun toAirPlayDisplay(): AirPlayDisplayConfig = physicalSize.let { size ->
         AirPlayDisplayConfig(width, height, size.widthMm, size.heightMm, fps = fps,
-            safeArea = encodedSafeInsets, safeAreaDrawOutside = true)
+            safeArea = encodedSafeInsets, safeAreaDrawOutside = true,
+            viewAreas = dockPosition.wireEdge?.let { edge ->
+                listOf(com.shilapi.xcertplay.airplay.AirPlayViewArea(width, height, dockEdge = edge))
+            })
     }
     companion object {
         /** Product ceiling, not an Apple protocol maximum or guarantee of achieved frame rate. */

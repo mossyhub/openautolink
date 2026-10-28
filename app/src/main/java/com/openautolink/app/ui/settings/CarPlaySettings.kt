@@ -324,6 +324,7 @@ fun CarPlayDisplaySettingsSection(
     val settings by viewModel.carPlaySettings.collectAsStateWithLifecycle()
     val offer by viewModel.carPlayDisplayOffer.collectAsStateWithLifecycle()
     val saving by viewModel.carPlaySettingsSaving.collectAsStateWithLifecycle()
+    val loaded by viewModel.carPlaySettingsLoaded.collectAsStateWithLifecycle()
     val status by viewModel.carPlaySettingsStatus.collectAsStateWithLifecycle()
     if (!settings.enabled) return
 
@@ -336,6 +337,16 @@ fun CarPlayDisplaySettingsSection(
         Text("Background can extend to the edges; controls stay inside your manual safe rectangle. No automatic curve detection.",
             style = MaterialTheme.typography.bodySmall)
         Text("Safe edges: T ${settings.safeTop / 100.0}% · B ${settings.safeBottom / 100.0}% · L ${settings.safeLeft / 100.0}% · R ${settings.safeRight / 100.0}%",
+            style = MaterialTheme.typography.bodySmall)
+        Text("CarPlay status bar", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("automatic" to "Automatic", "bottom" to "Bottom", "driver_side" to "Driver side").forEach { (id, label) ->
+                FilterChip(selected = settings.dockPosition == id, enabled = loaded && !saving,
+                    onClick = { viewModel.updateCarPlayDraft { it.copy(dockPosition = id) } },
+                    label = { Text(label) }, modifier = Modifier.testTag("carPlayDock_$id"))
+            }
+        }
+        Text("Applies on the next CarPlay connection; does not change icon or text size.",
             style = MaterialTheme.typography.bodySmall)
         Text("CarPlay UI scale", style = MaterialTheme.typography.titleMedium)
         Text("Last frozen offer", style = MaterialTheme.typography.labelLarge)

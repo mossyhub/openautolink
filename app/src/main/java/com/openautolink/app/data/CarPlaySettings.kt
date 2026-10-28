@@ -6,6 +6,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+import com.openautolink.carplaylab.media.CarPlayDockPosition
 
 /** One atomic, non-secret next-session configuration. Never a connection/admission lease. */
 @Serializable
@@ -53,6 +56,8 @@ data class CarPlaySettings(
     @kotlinx.serialization.Transient val widthDraft: String? = null,
     @kotlinx.serialization.Transient val heightDraft: String? = null,
     @kotlinx.serialization.Transient val fpsDraft: String? = null,
+    /** Next-connection status-bar placement, independent of physical UI size and transport. */
+    val dockPosition: String = "automatic",
 ) {
     /** Strict path shared by UI qualification, Save and runtime; no corrupt-storage fallback. */
     fun displayRequest(): com.openautolink.carplaylab.media.CarPlayDisplayPreferences {
@@ -61,7 +66,8 @@ data class CarPlaySettings(
             resolution = resolution, fps = fps, widthPhysicalMm = widthPhysicalMm,
             customWidth = widthPixels, customHeight = heightPixels, preferHevc = videoCodec == "hevc",
             scaleMode = if (autoScale) com.openautolink.carplaylab.media.CarPlayScaleReceipt.Mode.AUTOMATIC
-                else com.openautolink.carplaylab.media.CarPlayScaleReceipt.Mode.MANUAL)
+                else com.openautolink.carplaylab.media.CarPlayScaleReceipt.Mode.MANUAL,
+            dockPosition = CarPlayDockPosition.entries.first { it.id == dockPosition })
     }
     /** Only tier-named choices are detail intent; geometry-named presets and Custom stay exact. */
     val windowDetail: Boolean get() = fitToWindow && resolution in setOf("720p", "1080p", "1440p", "4k")
@@ -131,7 +137,13 @@ data class CarPlaySettings(
                         require(value is JsonPrimitive && !value.isString && value.booleanOrNull != null)
                     }
                 }
-                json.decodeFromString<CarPlaySettings>(it)
+                // Only stored corruption falls back. Preserve the rest of the record even when this
+                // optional field has a wrong JSON type; interactive drafts never enter this path.
+                val dock = CarPlayDockPosition.fromStored((fields["dockPosition"] as? JsonPrimitive)
+                    ?.takeIf { value -> value.isString }?.content)
+                json.decodeFromJsonElement<CarPlaySettings>(JsonObject(fields.toMutableMap().apply {
+                    put("dockPosition", JsonPrimitive(dock.id))
+                }))
             }.getOrNull() }
                 ?.let { stored ->
                     // Restore through the receiver's canonical source-backed policy. A valid stored
