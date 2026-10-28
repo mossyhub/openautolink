@@ -58,6 +58,7 @@ data class CarPlaySettings(
     @kotlinx.serialization.Transient val fpsDraft: String? = null,
     /** Next-connection status-bar placement, independent of physical UI size and transport. */
     val dockPosition: String = "automatic",
+    @kotlinx.serialization.Transient val physicalWidthDraft: String? = null,
 ) {
     /** Strict path shared by UI qualification, Save and runtime; no corrupt-storage fallback. */
     fun displayRequest(): com.openautolink.carplaylab.media.CarPlayDisplayPreferences {

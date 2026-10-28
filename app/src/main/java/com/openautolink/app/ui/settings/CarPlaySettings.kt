@@ -326,9 +326,11 @@ fun CarPlayDisplaySettingsSection(
     val saving by viewModel.carPlaySettingsSaving.collectAsStateWithLifecycle()
     val loaded by viewModel.carPlaySettingsLoaded.collectAsStateWithLifecycle()
     val status by viewModel.carPlaySettingsStatus.collectAsStateWithLifecycle()
+    val loaded by viewModel.carPlaySettingsLoaded.collectAsStateWithLifecycle()
     if (!settings.enabled) return
 
     var sliderWidthMm by remember(settings.widthPhysicalMm) { mutableStateOf(settings.widthPhysicalMm) }
+    val calibrationError = settings.physicalWidthDraft?.let { it != settings.widthPhysicalMm.toString() } == true
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader("CarPlay")
         Text("CarPlay safe area", style = MaterialTheme.typography.titleMedium)
@@ -365,7 +367,7 @@ fun CarPlayDisplaySettingsSection(
         SettingsHelp("Offers describe the local runtime, not confirmed phone-visible size. Hardware estimate is not a measured panel. When Auto metrics are unavailable or untrusted, Auto uses reference calibration and viewport fit, not a real-panel measurement. Draft changes do not change the last frozen offer.")
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Auto sizing", Modifier.weight(1f))
-            Switch(checked = settings.autoScale, enabled = !saving,
+            Switch(checked = settings.autoScale, enabled = !saving && loaded,
                 onCheckedChange = { automatic ->
                     viewModel.updateCarPlayDraft { it.copy(autoScale = automatic) }
                 }, modifier = Modifier.testTag("carPlayAutoScale"))
@@ -377,11 +379,11 @@ fun CarPlayDisplaySettingsSection(
             value = (500 - sliderWidthMm).toFloat(),
             onValueChange = { sliderWidthMm = 500 - it.toInt() },
             onValueChangeFinished = {
-                viewModel.updateCarPlayDraft { it.copy(widthPhysicalMm = sliderWidthMm) }
+                viewModel.updateCarPlayDraft { it.copy(widthPhysicalMm = sliderWidthMm).copy(physicalWidthDraft = null) }
             },
             valueRange = 100f..400f,
             steps = 0,
-            enabled = !saving && !settings.autoScale,
+            enabled = !saving && !settings.autoScale && loaded,
             modifier = Modifier.fillMaxWidth(0.7f).testTag("carPlayUiScale"),
         )
         Row(Modifier.fillMaxWidth(0.7f), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -389,6 +391,24 @@ fun CarPlayDisplaySettingsSection(
             Text("Larger UI", style = MaterialTheme.typography.bodySmall)
         }
         Text("Larger UI shows less content; smaller UI shows more.", style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(
+            value = settings.physicalWidthDraft ?: settings.widthPhysicalMm.toString(),
+            onValueChange = { value -> viewModel.updateCarPlayDraft { current ->
+                val width = value.toIntOrNull()?.takeIf {
+                    it in CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM && it.toString() == value
+                }
+                current.copy(widthPhysicalMm = width ?: current.widthPhysicalMm, physicalWidthDraft = value)
+            } },
+            enabled = !saving && !settings.autoScale && loaded,
+            label = { Text("UI calibration (mm)") },
+            supportingText = { Text(if (calibrationError) "Enter a whole number from 100 to 400."
+                else "100–400 · next connection") },
+            isError = calibrationError,
+            singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(0.7f).testTag("carPlayPhysicalWidth"),
+        )
         SettingsHelp("Calibration: physical width $sliderWidthMm mm. Smaller physical width makes the UI larger. Auto estimates width from the viewport; this is CarPlay metadata, not Android Auto DPI.")
         Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
