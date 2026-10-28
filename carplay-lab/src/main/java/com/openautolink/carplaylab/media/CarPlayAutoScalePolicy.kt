@@ -16,7 +16,8 @@ object CarPlayAutoScalePolicy {
 
     fun resolve(videoWidthPx: Int, videoHeightPx: Int, referenceWidthMm: Int, input: Input?): Size {
         require(videoWidthPx > 0 && videoHeightPx > 0)
-        if (input == null) return boundedSize(referenceWidthMm.toDouble(), videoWidthPx, videoHeightPx, Basis.MANUAL)
+        if (input == null) return Size(referenceWidthMm,
+            (referenceWidthMm.toDouble() * videoHeightPx / videoWidthPx).roundToInt(), Basis.MANUAL)
         val geometryValid = input.displayWidthPx in 1..16384 && input.displayHeightPx in 1..16384 &&
             input.viewportWidthPx in 1..input.displayWidthPx && input.viewportHeightPx in 1..input.displayHeightPx
         val fittedWidth = if (geometryValid) videoWidthPx * minOf(
@@ -39,17 +40,8 @@ object CarPlayAutoScalePolicy {
             // Codec pixels are not that reference; changing 720p→1440p must not double mm.
             if (geometryValid) referenceWidthMm * fittedWidth / input.displayWidthPx else referenceWidthMm.toDouble()
         }
-        return boundedSize(widthMm, videoWidthPx, videoHeightPx,
+        return Size(widthMm.roundToInt().coerceIn(1, 2000),
+            (widthMm * videoHeightPx / videoWidthPx).roundToInt().coerceIn(1, 2000),
             if (metricsValid) Basis.HARDWARE_ESTIMATE else Basis.CALIBRATION_NEEDED)
-    }
-
-    /** Bound physical metadata together before the serializer's per-axis safety clamp. Never
-     * change the coded/HID/safe canvas or overwrite the user's saved reference calibration.
-     */
-    private fun boundedSize(widthMm: Double, videoWidthPx: Int, videoHeightPx: Int, basis: Basis): Size {
-        val maximum = com.shilapi.xcertplay.airplay.AirPlayDisplaySettings.MAX_REPORTED_PHYSICAL_MM
-        val width = minOf(widthMm, maximum.toDouble(), maximum.toDouble() * videoWidthPx / videoHeightPx)
-        return Size(width.roundToInt().coerceIn(1, maximum),
-            (width * videoHeightPx / videoWidthPx).roundToInt().coerceIn(1, maximum), basis)
     }
 }

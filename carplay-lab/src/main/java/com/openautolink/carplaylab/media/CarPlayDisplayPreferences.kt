@@ -64,9 +64,7 @@ data class CarPlayDisplayPreferences(
         val FRAME_RATES: List<Int> = (1..60).toList()
         val COMMON_FRAME_RATES: List<Int> = listOf(30, 60)
         val QUICK_FRAME_RATES: List<Int> = listOf(30, 60, 35, 40, 45, 50, 55)
-        val PHYSICAL_WIDTHS_MM: List<Int> =
-            (com.shilapi.xcertplay.airplay.AirPlayDisplaySettings.MIN_WIDTH_PHYSICAL_MM..
-                com.shilapi.xcertplay.airplay.AirPlayDisplaySettings.MAX_WIDTH_PHYSICAL_MM).toList()
+        val PHYSICAL_WIDTHS_MM: List<Int> = (100..400).toList()
         fun validDimensions(width: Int, height: Int): Boolean =
             width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0
         fun custom(width: Int, height: Int, fps: Int) = CarPlayDisplayPreferences(
