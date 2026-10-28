@@ -27,7 +27,7 @@ class CarPlayContinuousScaleTest {
     }
 
     @Test fun everyIntegerManualWidthSurvivesStorageAndActualWireWithoutSnapping() {
-        for (width in CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM) {
+        for (width in 100..400) {
             val display = CarPlayDisplayPreferences.fromStored("720p", 31, width)
             assertEquals(width, display.widthPhysicalMm)
             assertEquals(width, AirPlayDisplaySettings.sanitizeWidthPhysicalMm(width))

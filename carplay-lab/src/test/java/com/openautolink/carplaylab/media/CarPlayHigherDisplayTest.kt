@@ -45,12 +45,8 @@ class CarPlayHigherDisplayTest {
                 val main = (info["displays"] as List<*>).first() as Map<*, *>
                 assertEquals(resolution.width, main["widthPixels"])
                 assertEquals(resolution.height, main["heightPixels"])
-                // Keep both physical axes inside the existing reported-mm envelope using one
-                // factor; independently clamping height would distort portrait density metadata.
-                val boundedWidth = minOf(widthMm.toDouble(), 2000.0 * resolution.width / resolution.height)
-                assertEquals(Math.round(boundedWidth).toInt(), main["widthPhysical"])
-                assertEquals(Math.round(boundedWidth * resolution.height / resolution.width).toInt(), main["heightPhysical"])
-                assertEquals(widthMm, selected.display.widthPhysicalMm) // Saved intent remains exact.
+                assertEquals(widthMm, main["widthPhysical"])
+                assertEquals(Math.round(widthMm * resolution.height.toDouble() / resolution.width).toInt(), main["heightPhysical"])
                 assertFalse(main.keys.any { it.toString().contains("dpi", ignoreCase = true) })
             }
         }

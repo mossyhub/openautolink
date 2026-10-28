@@ -22,9 +22,7 @@ object AirPlayDisplaySettings {
     const val DEFAULT_FPS = 30
 
     const val MIN_WIDTH_PHYSICAL_MM = 100
-    // Manual calibration may use the existing reported-mm envelope. This is local resource
-    // policy, not an Apple maximum or a guarantee of continuous phone-side layout changes.
-    const val MAX_WIDTH_PHYSICAL_MM = 2_000
+    const val MAX_WIDTH_PHYSICAL_MM = 400
     const val WIDTH_PHYSICAL_MM_STEP = 1
     const val DEFAULT_WIDTH_PHYSICAL_MM = 200
     val DEFAULT_PHYSICAL_SIZE_BASIS = AirPlayPhysicalSizeBasis.WIDTH
