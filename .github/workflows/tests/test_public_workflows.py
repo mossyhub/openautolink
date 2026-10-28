@@ -172,7 +172,7 @@ class PublicWorkflowContracts(unittest.TestCase):
         self.assertIn('template_mode: published', uploader)
         self.assertIn('expected_release_tag: ${{ needs.produce.outputs.release_tag }}', uploader)
         self.assertIn('expected_source_commit: ${{ needs.produce.outputs.source_commit }}', uploader)
-        self.assertIn('builder_commit: ${{ needs.produce.outputs.source_commit }}', uploader)
+        self.assertIn('builder_commit: ${{ github.workflow_sha }}', uploader)
         self.assertIn('--release-id "$RELEASE_ID"', uploader)
         build = run_block(source, 'Build unsigned credential-free personalization AAB')
         self.assertIn('-PappId=com.openautolink.template -PoalBuilderUnsigned=true', build)
@@ -182,7 +182,7 @@ class PublicWorkflowContracts(unittest.TestCase):
         self.assertIn('a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29', source)
         self.assertEqual(run_block(source, 'Download native deps'), run_block(RELEASE, 'Download native deps'))
         self.assertLess(source.index('Preflight clean tag and required publisher tree'), source.index('Set up Android SDK'))
-        self.assertIn('python -I -S desktop-builder/scripts/publish_template.py', source)
+        self.assertIn('python -I -S .publication-tooling/desktop-builder/scripts/publish_template.py', source)
         self.assertIn('python -I -S desktop-builder/scripts/upload_template.py', source)
 
     def test_historical_tag_without_publisher_fails_explicit_preflight(self):
