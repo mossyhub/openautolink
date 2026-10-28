@@ -330,7 +330,9 @@ fun CarPlayDisplaySettingsSection(
     if (!settings.enabled) return
 
     var sliderWidthMm by remember(settings.widthPhysicalMm) { mutableStateOf(settings.widthPhysicalMm) }
+    var exactCalibrationExpanded by remember { mutableStateOf(false) }
     val calibrationError = settings.physicalWidthDraft?.let { it != settings.widthPhysicalMm.toString() } == true
+    val showExactCalibration = exactCalibrationExpanded || calibrationError
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader("CarPlay")
         Text("CarPlay safe area", style = MaterialTheme.typography.titleMedium)
@@ -391,25 +393,32 @@ fun CarPlayDisplaySettingsSection(
             Text("Larger UI", style = MaterialTheme.typography.bodySmall)
         }
         Text("Larger UI shows less content; smaller UI shows more.", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(
-            value = settings.physicalWidthDraft ?: settings.widthPhysicalMm.toString(),
-            onValueChange = { value -> viewModel.updateCarPlayDraft { current ->
-                val width = value.toIntOrNull()?.takeIf {
-                    it in CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM && it.toString() == value
-                }
-                current.copy(widthPhysicalMm = width ?: current.widthPhysicalMm, physicalWidthDraft = value)
-            } },
-            enabled = !saving && !settings.autoScale && loaded,
-            label = { Text("UI calibration (mm)") },
-            supportingText = { Text(if (calibrationError) "Enter a whole number from 100 to 400."
-                else "100–400 · next connection") },
-            isError = calibrationError,
-            singleLine = true,
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(0.7f).testTag("carPlayPhysicalWidth"),
-        )
-        SettingsHelp("Calibration: physical width $sliderWidthMm mm. Smaller physical width makes the UI larger. Auto estimates width from the viewport; this is CarPlay metadata, not Android Auto DPI.")
+        TextButton(onClick = { exactCalibrationExpanded = !showExactCalibration }, enabled = !calibrationError) {
+            Text(if (showExactCalibration) "Hide exact calibration" else "Show exact calibration")
+        }
+        // Invalid text must stay visible while it blocks the existing global Save.
+        if (showExactCalibration) {
+            OutlinedTextField(
+                value = settings.physicalWidthDraft ?: settings.widthPhysicalMm.toString(),
+                onValueChange = { value -> viewModel.updateCarPlayDraft { current ->
+                    val width = value.toIntOrNull()?.takeIf {
+                        it in CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM && it.toString() == value
+                    }
+                    current.copy(widthPhysicalMm = width ?: current.widthPhysicalMm, physicalWidthDraft = value)
+                } },
+                enabled = !saving && !settings.autoScale && loaded,
+                label = { Text("UI calibration (mm)") },
+                supportingText = { Text(if (calibrationError) "Enter a whole number from 100 to 400."
+                    else "100–400 · next connection") },
+                isError = calibrationError,
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(0.7f).testTag("carPlayPhysicalWidth"),
+            )
+            Text("Calibration: physical width $sliderWidthMm mm. Smaller physical width makes the UI larger. Auto estimates width from the viewport; this is CarPlay metadata, not Android Auto DPI.",
+                style = MaterialTheme.typography.bodySmall)
+        }
         Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider()

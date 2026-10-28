@@ -99,6 +99,49 @@ class CarPlayExactCalibrationComposeTest {
     }
 
     private fun stored() = runBlocking { preferences.carPlaySettings.first() }
+    private fun expandExactCalibration() = compose.onNodeWithText("Show exact calibration")
+        .performScrollTo().performClick()
+
+    @Test fun exactCalibrationInitiallyHidesTheFieldAndHelpUntilExpanded() {
+        mount()
+        compose.onNodeWithTag("carPlayPhysicalWidth").assertDoesNotExist()
+        compose.onNodeWithText("Calibration: physical width", substring = true).assertDoesNotExist()
+        expandExactCalibration()
+        compose.onNodeWithTag("carPlayPhysicalWidth").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Calibration: physical width", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        assertEquals("Disclosure must not write", 1, boundary.writes)
+    }
+
+    @Test fun collapsingAndReopeningPreservesTheExactPendingTextWithoutWriting() {
+        mount(); expandExactCalibration(); enter("225")
+        compose.onNodeWithText("Hide exact calibration").performScrollTo().performClick()
+        compose.onNodeWithTag("carPlayPhysicalWidth").assertDoesNotExist()
+        compose.onNodeWithText("Calibration: physical width", substring = true).assertDoesNotExist()
+        compose.runOnIdle { assertEquals("225", vm.carPlaySettings.value.physicalWidthDraft) }
+        expandExactCalibration()
+        compose.onNodeWithTag("carPlayPhysicalWidth").performScrollTo().assertTextContains("225")
+        assertEquals(200, stored().widthPhysicalMm)
+        assertEquals("Disclosure and text edits must not write", 1, boundary.writes)
+        save(); awaitSaved(225)
+    }
+
+    @Test fun invalidDraftCannotBeCollapsedAndStillBlocksGlobalSave() {
+        mount(); expandExactCalibration(); enter("2.")
+        compose.onNodeWithText("Hide exact calibration").performScrollTo().assertIsNotEnabled().performClick()
+        compose.onNodeWithTag("carPlayPhysicalWidth").performScrollTo().assertIsDisplayed().assertTextContains("2.")
+        compose.onNodeWithText("Enter a whole number from 100 to 400.").assertIsDisplayed()
+        assertEquals("Invalid draft and disclosure must not write", 1, boundary.writes)
+        save(); awaitError()
+        compose.onNodeWithTag("carPlayPhysicalWidth").performScrollTo().assertIsDisplayed().assertTextContains("2.")
+        assertEquals(200, stored().widthPhysicalMm)
+        compose.runOnIdle { assertEquals(0, reconnects); assertEquals(0, closes) }
+        enter("225")
+        compose.onNodeWithText("Hide exact calibration").performScrollTo().assertIsEnabled().performClick()
+        expandExactCalibration()
+        compose.onNodeWithTag("carPlayPhysicalWidth").performScrollTo().assertTextContains("225")
+        save(); awaitSaved(225)
+    }
     private fun enter(raw: String) = compose.onNodeWithTag("carPlayPhysicalWidth")
         .performScrollTo().performTextReplacement(raw)
     private fun save() = compose.onNodeWithTag("saveAndConnectButton").performClick()
@@ -117,6 +160,7 @@ class CarPlayExactCalibrationComposeTest {
 
     @Test fun exactEntryUpdatesOnlyPendingUntilTheGlobalSaveTransaction() {
         mount()
+        expandExactCalibration()
         assertEquals(200, stored().widthPhysicalMm)
         compose.onNodeWithText("UI calibration (mm)").performScrollTo().assertExists()
         enter("225")
@@ -133,6 +177,7 @@ class CarPlayExactCalibrationComposeTest {
 
     @Test fun invalidPartialAndNoncanonicalInputStaysVisibleAndBlocksGlobalSave() {
         mount()
+        expandExactCalibration()
         for (raw in listOf("", "2", "2.", ".", "401", "0", "-1", "225.0", "+225", "0225", " 225", "2147483648")) {
             enter(raw)
             compose.onNodeWithTag("carPlayPhysicalWidth").assert(
@@ -151,7 +196,7 @@ class CarPlayExactCalibrationComposeTest {
     }
 
     @Test fun autoPreservesTypedCalibrationAndDisablesBothManualControls() {
-        mount(); enter("225")
+        mount(); expandExactCalibration(); enter("225")
         compose.onNodeWithTag("carPlayAutoScale").performScrollTo().performClick()
         compose.onNodeWithTag("carPlayUiScale").assertIsNotEnabled()
         compose.onNodeWithTag("carPlayPhysicalWidth").performScrollTo().assertIsNotEnabled().assertTextContains("225")
@@ -164,7 +209,7 @@ class CarPlayExactCalibrationComposeTest {
     }
 
     @Test fun sliderCompletionClearsPartialTextAndExactEntrySynchronizesSameSlider() {
-        mount(); enter("225")
+        mount(); expandExactCalibration(); enter("225")
         compose.onNodeWithTag("carPlayUiScale").assertRangeInfoEquals(
             androidx.compose.ui.semantics.ProgressBarRangeInfo(275f, 100f..400f, 0))
         enter("2.")
@@ -198,7 +243,7 @@ class CarPlayExactCalibrationComposeTest {
     }
 
     @Test fun persistenceFailureKeepsTextAndPartialCorrectionIsNotSilentlySaved() {
-        mount(); enter("225")
+        mount(); expandExactCalibration(); enter("225")
         boundary.failNextWrite = true
         save(); awaitError()
         compose.onNodeWithTag("carPlayPhysicalWidth").performScrollTo().assertTextContains("225")
@@ -215,6 +260,7 @@ class CarPlayExactCalibrationComposeTest {
 
     @Test fun loadingAndSavingDisableControlsWithoutHidingTheCalibration() {
         mount(loaded = false)
+        expandExactCalibration()
         compose.onNodeWithTag("carPlayAutoScale").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithTag("carPlayUiScale").assertIsNotEnabled()
         compose.onNodeWithTag("carPlayPhysicalWidth").performScrollTo().assertIsNotEnabled()
