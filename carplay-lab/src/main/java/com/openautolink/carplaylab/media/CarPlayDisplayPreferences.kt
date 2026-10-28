@@ -61,7 +61,8 @@ data class CarPlayDisplayPreferences(
     val codec: String get() = "H264"
     /** A derived frozen receipt must not change preference/request equality or hash semantics. */
     private fun requestIdentity(): List<Any?> = listOf(resolution, fps, widthPhysicalMm, rightHandDrive,
-        autoScaleInput, customWidth, customHeight, preferHevc, qualifiedVideoSelection, encodedSafeInsets, scaleMode)
+        autoScaleInput, customWidth, customHeight, preferHevc, qualifiedVideoSelection, encodedSafeInsets, scaleMode,
+        dockPosition)
     override fun equals(other: Any?): Boolean = this === other ||
         other is CarPlayDisplayPreferences && requestIdentity() == other.requestIdentity()
     override fun hashCode(): Int = requestIdentity().hashCode()

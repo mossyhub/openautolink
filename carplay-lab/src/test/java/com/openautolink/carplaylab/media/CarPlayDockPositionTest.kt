@@ -14,10 +14,7 @@ class CarPlayDockPositionTest {
     private fun positioned(base: CarPlayDisplayPreferences, id: String): CarPlayDisplayPreferences {
         val type = dockClass()
         val value = type.enumConstants.single { type.getMethod("getId").invoke(it) == id }
-        val copy = base.javaClass.methods.single { it.name == "copy" }
-        val args = copy.parameterTypes.indices.map { base.javaClass.getMethod("component${it + 1}").invoke(base) }.toTypedArray()
-        args[copy.parameterTypes.indexOf(type)] = value
-        return copy.invoke(base, *args) as CarPlayDisplayPreferences
+        return base.copy(dockPosition = value as CarPlayDockPosition)
     }
     private fun info(display: CarPlayDisplayPreferences): Map<*, *> {
         val config = benchReceiverConfig("00:11:22:33:44:55", 41234, display = display)
@@ -25,6 +22,24 @@ class CarPlayDockPositionTest {
         return AirPlayInfoPlist.build(config, emptySet())
     }
     private fun bytes(value: Map<*, *>) = BplistCodec.encode(value)
+
+    @Test fun dockRequestIdentitySurvivesFreezingWithoutCollapsingDistinctPositions() {
+        val requested = CarPlayDisplayPreferences(autoScaleInput = CarPlayAutoScalePolicy.Input(
+            960, 540, 1920, 1080, 240.0, 240.0, 160))
+        val frozen = requested.freezeScale()
+        assertEquals(requested, frozen)
+        assertEquals(requested.hashCode(), frozen.hashCode())
+        val positions = CarPlayDockPosition.entries.map { frozen.copy(dockPosition = it) }
+        assertEquals("Every dock is a distinct immutable request", 3, positions.toSet().size)
+        assertEquals("Dock participates in request hash", 3, positions.map { it.hashCode() }.toSet().size)
+        for (position in positions) {
+            assertSame("Dock does not invalidate the scale context", frozen.resolvedScale, position.resolvedScale)
+            assertEquals(position, position.freezeScale())
+            assertEquals(position.hashCode(), position.freezeScale().hashCode())
+            assertNull(position.copy(widthPhysicalMm = 225).resolvedScale)
+            assertNotEquals(position, position.copy(widthPhysicalMm = 225))
+        }
+    }
 
     @Test fun boundedIdsAndUnknownStoredValuesUseAutomaticOnly() {
         val type = dockClass()

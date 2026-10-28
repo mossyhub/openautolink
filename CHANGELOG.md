@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — CarPlay calibration and status-bar setup
+
+- Explain when Auto sizing uses a hardware estimate or fallback calibration. Show Last frozen offer separately from the next-session draft; Offered locally and Ended describe the receiver, not confirmed phone rendering.
+- Add initially collapsed exact manual calibration entry using the existing 100–400 mm range and saved valid choices.
+- Add next-connection Automatic, Bottom and Driver side CarPlay status-bar placement, independent of UI density.
+- Keep physical-size experiments separate from normal builds; retain the compatibility policy and existing baseline.
+
 ## Unreleased — CarPlay video hotfix
 
 - Restore the previous CarPlay scaling policy after black-screen reports with the extended calibration range in 0.1.551.

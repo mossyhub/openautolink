@@ -326,7 +326,6 @@ fun CarPlayDisplaySettingsSection(
     val saving by viewModel.carPlaySettingsSaving.collectAsStateWithLifecycle()
     val loaded by viewModel.carPlaySettingsLoaded.collectAsStateWithLifecycle()
     val status by viewModel.carPlaySettingsStatus.collectAsStateWithLifecycle()
-    val loaded by viewModel.carPlaySettingsLoaded.collectAsStateWithLifecycle()
     if (!settings.enabled) return
 
     var sliderWidthMm by remember(settings.widthPhysicalMm) { mutableStateOf(settings.widthPhysicalMm) }

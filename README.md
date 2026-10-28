@@ -270,10 +270,16 @@ Under **Android Auto → AA Display Density (DPI)**:
 
 Under **CarPlay → CarPlay UI scale**:
 
-- Leave **Auto sizing** on to estimate UI scale from the next session's projection area and available display measurements. If that estimate does not suit your screen, use manual sizing.
-- Turn **Auto sizing** off to unlock **Manual UI size**.
+- Leave **Auto sizing** on to estimate physical size from the next session's projection area and available display measurements. When measurements are unavailable or unreliable, Auto uses the saved reference calibration and viewport fit instead; this fallback is not a measured panel size.
+- Turn **Auto sizing** off to unlock **Manual UI size**. Select **Show exact calibration** to enter an integer in **UI calibration (mm)**; exact entry starts collapsed and shares the same pending setting as the slider.
 - Move the slider **left toward Smaller UI** to request smaller text/icons and more content, or **right toward Larger UI** to request larger text/icons and less content. The iPhone chooses the final layout and may apply steps or limits; check actual control size while parked.
 - **Manual calibration** spans **100–400 mm**. A wider advertised physical width requests smaller UI; a smaller width requests larger UI. This is CarPlay calibration metadata, **not Android Auto DPI** or video resolution. The extended range introduced in 0.1.551 was reverted after black-screen reports; saved values outside this range return to the 200 mm baseline. Valid saved calibrations are preserved.
+
+- **Last frozen offer** shows **Offered locally** or **Ended**, its basis and offered millimeters, separately from the **Next session** draft. This is local receiver evidence, not proof of phone-visible size or usable video.
+- Under **CarPlay status bar**, choose **Automatic**, **Bottom** or **Driver side** for the next connection. Placement does not change text/icon density.
+- Use **Save changes**. Wireless reconnects automatically when safe; USB requires unplugging and reconnecting.
+
+The retained 100–400 mm range is product compatibility policy, not an Apple protocol maximum. No expanded range or new numeric default is introduced.
 
 **UI scale is not video resolution.** Use **Video** settings for image detail and **Fit to window** for CarPlay's standard-tier canvas fit. Use **Display → Calibrate safe controls** to move CarPlay controls away from curved screen edges; changing UI size does not replace safe-area calibration. Neither protocol's scaling control changes the vehicle's native apps or OAL's own settings UI.
 

@@ -79,6 +79,7 @@ class CarPlayDockComposeTest {
         every { vm.carPlaySettingsSaving } returns saving
         every { vm.carPlaySettingsLoaded } returns loaded
         every { vm.carPlaySettingsStatus } returns MutableStateFlow("")
+        every { vm.carPlayDisplayOffer } returns MutableStateFlow<com.openautolink.app.carplay.CarPlayDisplayOfferStore.Offer?>(null)
         compose.setContent { MaterialTheme {
             Column(Modifier.verticalScroll(rememberScrollState())) { CarPlayDisplaySettingsSection(vm, {}) }
         } }
