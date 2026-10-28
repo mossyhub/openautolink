@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 
 @org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE, application = Application::class, shadows=[AcknowledgedForegroundShadow::class])
+@Config(sdk = [32,34], manifest = Config.NONE, application = Application::class, shadows=[AcknowledgedForegroundShadow::class])
 class CarPlaySessionServiceTest {
     private fun nextStart(app: Application): android.content.Intent? {
         shadowOf(android.os.Looper.getMainLooper()).idle()

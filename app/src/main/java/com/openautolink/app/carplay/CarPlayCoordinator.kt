@@ -162,18 +162,34 @@ class CarPlayCoordinator(
     /** One retryable finalizer, including failed factory/null-runtime and partial-apply debt. */
     private fun finishAttempt(attempt: Attempt) {
         if (attempt.mediaBegun) attempt.context.hostMedia.record("pending", "unknown", "pending")
-        if (!attempt.runtimeClosed) {
+        if (!attempt.runtimeClosed) retirementStage(CarPlayForegroundStage.RUNTIME_CLOSE) {
             attempt.runtime?.cancel()
             attempt.runtime?.close()
             attempt.runtimeClosed = true
             attempt.runtime = null
         }
-        if (!attempt.protectionReleased) {
+        if (!attempt.protectionReleased) retirementStage(CarPlayForegroundStage.PROTECTION_RELEASE) {
             attempt.sessionLease.releaseAndAwait()
             attempt.protectionReleased = true
         }
-        if (attempt.mediaBegun) mediaLeases.finish(attempt.context.hostMedia)
-        ownership.acknowledgeCarPlayRetired(attempt.token)
+        if (attempt.mediaBegun) retirementStage(CarPlayForegroundStage.MEDIA_FINISH) {
+            mediaLeases.finish(attempt.context.hostMedia)
+        }
+        retirementStage(CarPlayForegroundStage.OWNERSHIP_RELEASE) {
+            ownership.acknowledgeCarPlayRetired(attempt.token)
+        }
+    }
+
+    /** Stage failure, not arbitrary exception text, survives in the existing diagnostic export. */
+    private inline fun retirementStage(stage: CarPlayForegroundStage, action: () -> Unit) {
+        CarPlayForegroundReceipts.emit(stage,CarPlayForegroundStatus.REQUESTED)
+        try {
+            action()
+            CarPlayForegroundReceipts.emit(stage,CarPlayForegroundStatus.ACKNOWLEDGED)
+        } catch (failure: Exception) {
+            CarPlayForegroundReceipts.emit(stage,CarPlayForegroundStatus.FAILED)
+            throw failure
+        }
     }
 
     private fun record(attempt: Attempt, message: String) = synchronized(lock) {

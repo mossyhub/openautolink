@@ -6,7 +6,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** Finite OS outcomes only; no source strings, identifiers, exceptions or historical mask union. */
-enum class CarPlayForegroundStage { START, BASE, MICROPHONE, RETIREMENT, SERVICE, NOTIFICATION }
+enum class CarPlayForegroundStage {
+    START, BASE, MICROPHONE, RETIREMENT, SERVICE, NOTIFICATION,
+    RUNTIME_CLOSE, PROTECTION_RELEASE, MEDIA_FINISH, OWNERSHIP_RELEASE,
+    PROTECTION_STOP, PROTECTION_READBACK, SERVICE_STOP,
+}
 enum class CarPlayForegroundStatus { REQUESTED, ACKNOWLEDGED, DENIED, LOST, PENDING, FAILED }
 enum class CarPlayForegroundMask { UNKNOWN, NONE, BASE, BASE_MICROPHONE }
 data class CarPlayForegroundReceipt(val stage: CarPlayForegroundStage, val status: CarPlayForegroundStatus, val mask: CarPlayForegroundMask)
@@ -26,6 +30,10 @@ object CarPlayForegroundReceipts {
             else -> CarPlayForegroundMask.UNKNOWN
         }
         val receipt = CarPlayForegroundReceipt(stage,status,finite)
+        // Existing structured log/export and logcat sinks receive only finite vocabulary.
+        val line = "retirement stage=${stage.name} status=${status.name} mask=${finite.name}"
+        runCatching { com.openautolink.app.diagnostics.DiagnosticLog.i("carplay-retirement",line) }
+        runCatching { android.util.Log.i("OalCarPlayRetirement",line) }
         listeners.forEach { runCatching { it(receipt) } }
     }
 }

@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 
 @org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE, application = Application::class, shadows=[AcknowledgedForegroundShadow::class])
+@Config(sdk = [32,34], manifest = Config.NONE, application = Application::class, shadows=[AcknowledgedForegroundShadow::class])
 class CarPlaySessionLeaseCoordinatorTest {
     private fun nextStart(app: Application): android.content.Intent? {
         shadowOf(android.os.Looper.getMainLooper()).idle()
@@ -116,8 +116,10 @@ class CarPlaySessionLeaseCoordinatorTest {
             assertEquals("Canceled late runtime must never run", 1L, runtime.started.count)
             assertFalse(shadowOf(service).isStoppedBySelf)
             runtime.allowClose.countDown()
-            eventually { retired.count == 0L }
             eventually { shadowOf(service).isStoppedBySelf }
+            assertEquals("Accepted stop must still retain exact finalizer debt",1L,retired.count)
+            controller.destroy()
+            eventually { retired.count == 0L }
         } finally { allowFactory.countDown(); runtime.allowClose.countDown(); owner.close(); controller.destroy() }
     }
 
@@ -148,8 +150,11 @@ class CarPlaySessionLeaseCoordinatorTest {
             assertNotNull(shadowOf(service).lastForegroundNotification)
             assertFalse(owner.connect(true) { error("Unretired predecessor") })
             allowClose.set(true)
-            owner.stop(); eventually { retired.count == 0L }
+            owner.stop()
             eventually { shadowOf(service).isStoppedBySelf }
+            assertEquals(1L,retired.count)
+            controller.destroy()
+            eventually { retired.count == 0L }
         } finally { allowClose.set(true); owner.close(); controller.destroy() }
     }
 
@@ -173,6 +178,8 @@ class CarPlaySessionLeaseCoordinatorTest {
         try {
             owner.connect(true) { bootstraps.incrementAndGet(); error("Unprotected transport") }
             service.onStartCommand(nextStart(app), 0, 1)
+            eventually { shadowOf(service).isStoppedBySelf }
+            controller.destroy()
             eventually { retired.count == 0L }
             assertEquals("startForeground failure must revoke bootstrap", 0, bootstraps.get())
             assertNull(shadowOf(service).lastForegroundNotification)
@@ -237,8 +244,10 @@ class CarPlaySessionLeaseCoordinatorTest {
             shadowOf(Looper.getMainLooper()).idle()
             assertFalse("Close in progress must retain foreground priority", shadowOf(service).isStoppedBySelf)
             runtime.allowClose.countDown()
-            eventually { retired.count == 0L }
             eventually { shadowOf(service).isStoppedBySelf }
+            assertEquals("Accepted stop must still retain exact finalizer debt",1L,retired.count)
+            controller.destroy()
+            eventually { retired.count == 0L }
         } finally { runtime.allowClose.countDown(); owner.close(); controller.destroy() }
     }
 }

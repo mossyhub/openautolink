@@ -55,6 +55,7 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
             val lost = AtomicBoolean()
             val lossCallback = AtomicReference<(() -> Unit)?>(null)
             @Volatile var epoch: CarPlaySessionService? = null
+            @Volatile var epochDestroyed = false
             @Volatile var base = false
             @Volatile var mic = false
             @Volatile var delivered = false
@@ -140,7 +141,7 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
         fun created(owner: CarPlaySessionService) {
             val previous = service
             service = owner; startId = 0
-            if (previous != null && previous !== owner) loseEpoch(previous)
+            if (previous != null && previous !== owner) loseEpoch(previous, acknowledgeRetirement = false)
             requests.values.filter { it.epoch == null }.forEach { it.epoch=owner }
             publishSnapshot()
         }
@@ -148,7 +149,11 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
             if (service !== owner) return
             startId = id
             val request = requests[requestId]?.takeIf { it.lease.id == attempt }
-            if (request != null) requests.remove(requestId,request)
+            if (request != null) {
+                requests.remove(requestId,request)
+                // A canceled but delivered OS start still owns this exact lifecycle epoch.
+                request.lease.epoch = owner
+            }
             val lease = request?.lease?.takeIf { leases[it.id] === it && !it.retired.get() && !it.lost.get() }
             try {
                 // Every accepted canceled OS start still meets its foreground obligation promptly.
@@ -176,7 +181,7 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
                 reconcileRemoval(owner)
             } catch (failure: Exception) {
                 leases.values.filter { it.epoch === owner || it === lease }.forEach { it.loss(failure) }
-                runCatching { owner.stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE) }
+                runCatching { owner.removeProtection() }
                 owner.stopSelfResult(id)
             }
         }
@@ -250,9 +255,9 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
             if (lease.removal.isCompletedExceptionally) lease.removal = CompletableFuture()
             try { onMain {
                 val owner = service
-                if (owner == null || lease.epoch != null && lease.epoch !== owner) {
+                if (lease.epochDestroyed || (owner == null && lease.epoch == null)) {
                     if (requests.values.none { it.lease === lease }) finishRemoval(lease)
-                } else reconcileRemoval(owner)
+                } else if (lease.epoch == null || lease.epoch === owner) owner?.let(::reconcileRemoval)
             } } catch (failure: Exception) { lease.removal.completeExceptionally(failure) }
         }
         private fun finishRemoval(lease: Lease) {
@@ -261,33 +266,43 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
         }
         private fun reconcileRemoval(owner: CarPlaySessionService) {
             if (service !== owner) return
-            val retiring = leases.values.filter { it.retired.get() && requests.values.none { request -> request.lease === it } }
+            val retiring = leases.values.filter { it.retired.get() && it.epoch === owner && requests.values.none { request -> request.lease === it } }
             val live = leases.values.filter { !it.retired.get() && !it.lost.get() && it.delivered && it.epoch === owner }
             try {
                 if (live.isNotEmpty()) {
                     val mask = CarPlayForegroundPolicy.BASE or if (live.any { it.mic }) CarPlayForegroundPolicy.MIC else 0
                     if (owner.foregroundServiceType != mask) owner.promote(mask)
+                    retiring.forEach(::finishRemoval)
                 } else if (requests.isEmpty() && startId != 0) {
-                    owner.stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE)
-                    check(owner.foregroundServiceType == 0) { "CarPlay foreground removal not acknowledged" }
-                    CarPlayForegroundReceipts.emit(CarPlayForegroundStage.RETIREMENT,CarPlayForegroundStatus.ACKNOWLEDGED,0)
-                    owner.stopSelfResult(startId) // false means a newer start; never unconditional stop.
+                    CarPlayForegroundReceipts.emit(CarPlayForegroundStage.PROTECTION_STOP,CarPlayForegroundStatus.REQUESTED,
+                        runCatching { owner.foregroundServiceType }.getOrNull())
+                    owner.removeProtection()
+                    CarPlayForegroundReceipts.emit(CarPlayForegroundStage.PROTECTION_READBACK,CarPlayForegroundStatus.PENDING,
+                        runCatching { owner.foregroundServiceType }.getOrNull())
+                    // Android 12L can retain its stored type after this call. Only the exact
+                    // onDestroy acknowledges removal; false means an unseen newer OS start.
+                    val accepted = owner.stopSelfResult(startId)
+                    CarPlayForegroundReceipts.emit(CarPlayForegroundStage.SERVICE_STOP,
+                        if (accepted) CarPlayForegroundStatus.REQUESTED else CarPlayForegroundStatus.PENDING)
                 }
-                retiring.forEach(::finishRemoval)
             } catch (failure: Exception) { retiring.forEach { it.removal.completeExceptionally(failure) } }
         }
         fun destroyed(owner: CarPlaySessionService) {
-            if (service !== owner) return
-            service = null
-            loseEpoch(owner)
+            if (service === owner) service = null
+            loseEpoch(owner, acknowledgeRetirement = true)
         }
-        private fun loseEpoch(owner: CarPlaySessionService) {
+        private fun loseEpoch(owner: CarPlaySessionService, acknowledgeRetirement: Boolean) {
             val pending=requests.entries.filter { it.value.epoch === owner }
             pending.forEach { requests.remove(it.key,it.value) }
             val affected=leases.values.filter { it.epoch === owner || pending.any { request -> request.value.lease === it } }
             affected.forEach {
+                it.epoch = owner
+                if (acknowledgeRetirement) it.epochDestroyed = true
                 it.loss(IllegalStateException("CarPlay foreground service lost"))
-                if (it.retired.get()) finishRemoval(it)
+                if (it.retired.get() && acknowledgeRetirement) {
+                    CarPlayForegroundReceipts.emit(CarPlayForegroundStage.RETIREMENT,CarPlayForegroundStatus.ACKNOWLEDGED)
+                    finishRemoval(it)
+                }
             }
             CarPlayForegroundReceipts.emit(CarPlayForegroundStage.SERVICE,CarPlayForegroundStatus.LOST)
             publishSnapshot()

@@ -15,10 +15,11 @@ class CarPlaySessionService : Service() {
     private val tokenHandler=android.os.Handler(android.os.Looper.getMainLooper())
     private var observedToken: android.media.session.MediaSession.Token? = null
     private var tokenWatchScheduled=false
+    private var protectionActive=false
     private val tokenWatch=object : Runnable {
         override fun run() {
             tokenWatchScheduled=false
-            if (foregroundServiceType and CarPlayForegroundPolicy.BASE != CarPlayForegroundPolicy.BASE) return
+            if (!protectionActive) return
             val token=currentToken()
             if (token != null && token != observedToken) refreshNotification()
             // Process token is stable once published; never initialize its manager to observe it.
@@ -50,6 +51,7 @@ class CarPlaySessionService : Service() {
         try {
             startForeground(NOTIFICATION, notification(mask), mask)
             check(foregroundServiceType == mask) { "CarPlay foreground type not acknowledged" }
+            protectionActive=true
             CarPlayForegroundReceipts.emit(stage,CarPlayForegroundStatus.ACKNOWLEDGED,foregroundServiceType)
             if (observedToken == null) scheduleTokenWatch()
         } catch (failure: Exception) {
@@ -77,15 +79,22 @@ class CarPlaySessionService : Service() {
         return builder.build()
     }
     internal fun refreshNotification() {
-        if (foregroundServiceType and CarPlayForegroundPolicy.BASE != CarPlayForegroundPolicy.BASE) return
+        if (!protectionActive) return
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(foregroundServiceType))
         CarPlayForegroundReceipts.emit(CarPlayForegroundStage.NOTIFICATION,CarPlayForegroundStatus.ACKNOWLEDGED,foregroundServiceType)
     }
-    override fun onDestroy() {
+    internal fun removeProtection() {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        protectionActive=false
         tokenHandler.removeCallbacks(tokenWatch)
         tokenWatchScheduled=false
-        CarPlaySessionLeases.Registry.destroyed(this)
+    }
+    override fun onDestroy() {
+        protectionActive=false
+        tokenHandler.removeCallbacks(tokenWatch)
+        tokenWatchScheduled=false
         super.onDestroy()
+        CarPlaySessionLeases.Registry.destroyed(this)
     }
     companion object {
         private const val CHANNEL = "oal_carplay_session"

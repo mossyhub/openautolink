@@ -6,7 +6,7 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowService
 
-/** Robolectric 4.14 caches getForegroundServiceType across stopForeground; model OS replacement/removal. */
+/** Android 12L retains the last foreground type after stopForeground; it is not lifecycle proof. */
 @Implements(Service::class)
 open class AcknowledgedForegroundShadow : ShadowService() {
     private var mask = 0
@@ -16,7 +16,7 @@ open class AcknowledgedForegroundShadow : ShadowService() {
         mask=foregroundServiceType
     }
     @Implementation(minSdk=24)
-    override fun stopForeground(flags: Int) { super.stopForeground(flags); mask=0 }
+    override fun stopForeground(flags: Int) { super.stopForeground(flags) }
     @Implementation(minSdk=29)
     override fun getForegroundServiceType(): Int = mask
 }
