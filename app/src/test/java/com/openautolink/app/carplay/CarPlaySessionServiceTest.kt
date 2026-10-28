@@ -14,12 +14,16 @@ import org.robolectric.annotation.Config
 
 @org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE, application = Application::class)
+@Config(sdk = [32,34], manifest = Config.NONE, application = Application::class, shadows=[AcknowledgedForegroundShadow::class])
 class CarPlaySessionServiceTest {
+    private fun nextStart(app: Application): android.content.Intent? {
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        return shadowOf(app).nextStartedService
+    }
     @Test fun delayedServiceCallbackCannotAcknowledgeAnAttemptBeforeItsOsAdmission() {
         val app = RuntimeEnvironment.getApplication()
         val first = CarPlaySessionLeases.forContext(app).acquire()
-        val start = shadowOf(app).nextStartedService
+        val start = nextStart(app)
         val controller = Robolectric.buildService(CarPlaySessionService::class.java).create()
         val service = controller.get()
         service.onStartCommand(start, 0, 1)
@@ -62,27 +66,27 @@ class CarPlaySessionServiceTest {
         assertFalse(thread.isAlive)
         acquired.get().release()
         shadowOf(android.os.Looper.getMainLooper()).idle()
-        assertNull("Retired token must fence queued start dispatch", shadowOf(app).nextStartedService)
+        assertNull("Retired token must fence queued start dispatch", nextStart(app))
     }
 
     @Test fun queuedRetirementAndDelayedPredecessorStartCannotStopSuccessorLease() {
         val app = RuntimeEnvironment.getApplication()
         val first = CarPlaySessionLeases.forContext(app).acquire()
-        val oldStart = shadowOf(app).nextStartedService
+        val oldStart = nextStart(app)
         val releaseThread = Thread { first.release() }
         releaseThread.start(); releaseThread.join(2000)
         assertFalse(releaseThread.isAlive)
         val second = CarPlaySessionLeases.forContext(app).acquire()
-        val newStart = shadowOf(app).nextStartedService
+        val newStart = nextStart(app)
         val controller = Robolectric.buildService(CarPlaySessionService::class.java).create()
         val service = controller.get()
         try {
             service.onStartCommand(oldStart, 0, 1)
-            second.awaitReady()
             shadowOf(android.os.Looper.getMainLooper()).idle()
             first.release()
             assertFalse("Stale exact release must not stop successor", shadowOf(service).isStoppedBySelf)
             service.onStartCommand(newStart, 0, 2)
+            second.awaitReady()
             assertNotNull(shadowOf(service).lastForegroundNotification)
             second.release()
             assertTrue(shadowOf(service).isStoppedBySelf)
@@ -94,12 +98,12 @@ class CarPlaySessionServiceTest {
     @Test fun staleServiceInstanceCallbacksCannotRetireSuccessorService() {
         val app = RuntimeEnvironment.getApplication()
         val first = CarPlaySessionLeases.forContext(app).acquire()
-        val oldStart = shadowOf(app).nextStartedService
+        val oldStart = nextStart(app)
         val old = Robolectric.buildService(CarPlaySessionService::class.java).create()
         old.get().onStartCommand(oldStart, 0, 1)
         first.awaitReady(); first.release()
         val successor = CarPlaySessionLeases.forContext(app).acquire()
-        val nextStart = shadowOf(app).nextStartedService
+        val nextStart = nextStart(app)
         val next = Robolectric.buildService(CarPlaySessionService::class.java).create()
         val service = next.get()
         try {
@@ -115,18 +119,36 @@ class CarPlaySessionServiceTest {
         } finally { successor.release(); next.destroy() }
     }
 
+    @Test fun tokenCreatedAfterForegroundPromotionRefreshesTheExistingNotification() {
+        val app=RuntimeEnvironment.getApplication()
+        val lease=CarPlaySessionLeases.forContext(app).acquire()
+        val start=nextStart(app)
+        val controller=Robolectric.buildService(CarPlaySessionService::class.java).create()
+        try {
+            controller.get().onStartCommand(start,0,1)
+            lease.awaitReady()
+            val manager=com.openautolink.app.media.OalMediaSessionManager.getInstance(app)
+            manager.initialize()
+            val token=manager.getSessionToken()!!.token
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(2))
+            val notification=shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).getNotification(160)
+            assertNotNull("Actual late token creation must refresh without another host-media begin",notification)
+            assertEquals(token,notification!!.extras.getParcelable<android.media.session.MediaSession.Token>(android.app.Notification.EXTRA_MEDIA_SESSION))
+        } finally { lease.release(); controller.destroy() }
+    }
+
     @Test fun exactLeaseStartsConnectedDeviceForegroundServiceBeforeReady() {
         val app = RuntimeEnvironment.getApplication()
         val lease = CarPlaySessionLeases.forContext(app).acquire()
         val controller = Robolectric.buildService(CarPlaySessionService::class.java).create()
         val service = controller.get()
         try {
-            val intent = shadowOf(app).nextStartedService
+            val intent = nextStart(app)
             assertNotNull("Acquisition must request a foreground service", intent)
-            assertEquals(CarPlaySessionService::class.java.name, intent.component!!.className)
+            assertEquals(CarPlaySessionService::class.java.name, intent!!.component!!.className)
             assertEquals(android.app.Service.START_NOT_STICKY, service.onStartCommand(intent, 0, 1))
             assertNotNull("Service must promote before acknowledging lease", shadowOf(service).lastForegroundNotification)
-            assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE, service.foregroundServiceType)
+            assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK, service.foregroundServiceType)
             lease.awaitReady()
         } finally { lease.release(); controller.destroy() }
     }

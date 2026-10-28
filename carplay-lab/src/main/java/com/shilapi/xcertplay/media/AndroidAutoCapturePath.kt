@@ -12,9 +12,11 @@ import android.media.audiofx.AcousticEchoCanceler
 /** The AA acquisition configuration, not its protocol/frame sender. No routing or mode writes. */
 internal object AndroidAutoCapturePath {
     @androidx.annotation.RequiresPermission(android.Manifest.permission.RECORD_AUDIO)
-    fun recorder():AudioRecord {
+    fun recorder(admission: () -> Boolean = { true }):AudioRecord {
+        check(admission()) { "Capture admission revoked" }
         val minimum=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT)
         require(minimum>0)
+        check(admission()) { "Capture admission revoked" }
         return AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,
             AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,maxOf(minimum*2,1024))
     }

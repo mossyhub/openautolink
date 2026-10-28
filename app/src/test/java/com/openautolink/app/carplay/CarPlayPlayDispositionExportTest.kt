@@ -75,7 +75,7 @@ class CarPlayPlayDispositionExportTest {
         val session=mockk<AirPlaySession>(relaxed=true)
         every { session.controlAuthenticated } returns true
         every { session.encryptedEventReady } returns true
-        every { session.sendMedia(1) } returns true
+        every { session.sendMedia(1,any()) } returns true
         (field(receiver,"sessions").get(receiver) as MutableSet<AirPlaySession>).add(session)
         field(receiver,"active").set(receiver,session);field(receiver,"runtimeOwner").set(receiver,session);field(receiver,"runtimeReady").set(receiver,true)
         val sink=field(receiver,"sink").get(receiver) as AndroidMediaSink
@@ -88,7 +88,7 @@ class CarPlayPlayDispositionExportTest {
             sink.onAudioStarted(AudioStreamId(100,"speechrecognition"),requireNotNull(AudioOutputSupport.negotiate(0x4000L,100,"speechrecognition")),0)
             val assistant=shadowOf(manager).lastAudioFocusRequest
             assertTrue(receiver.mediaCommand(session,1));input.submit {}.get(3,TimeUnit.SECONDS)
-            verify(exactly=1) { session.sendMedia(1) }
+            verify(exactly=1) { session.sendMedia(1,any()) }
             assertSame(assistant,shadowOf(manager).lastAudioFocusRequest)
             sink.onAudioStarted(AudioStreamId(100,"media"),requireNotNull(AudioOutputSupport.negotiate(0x4000L,100,"media")),0)
             statuses.submit {}.get(3,TimeUnit.SECONDS)

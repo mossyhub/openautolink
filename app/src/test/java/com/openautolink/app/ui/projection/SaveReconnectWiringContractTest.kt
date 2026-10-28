@@ -61,7 +61,9 @@ class SaveReconnectWiringContractTest {
 
     @Test fun globalSaveDoesNotReuseSelectedOnlyOverlayReconnect() {
         val nav = source("ui/navigation/AppNavHost.kt")
-        val save = nav.substringAfter("onSaveAndConnect = {").substringBefore("onBack = onBack")
+        val save = nav.substringAfter("internal fun rememberProductionSettingsSaveAction(").substringBefore("@Composable\nfun AppNavHost")
+        assertEquals("Both real Settings destinations must share the tested production callback", 2,
+            Regex("onSaveAndConnect = rememberProductionSettingsSaveAction").findAll(nav).count())
         assertTrue("Successful committed save must dispatch from saved preferences, including enabled but unselected CarPlay",
             save.contains("projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect)"))
         assertFalse("Save cannot depend on the captured UI selection", save.contains("carPlayState"))

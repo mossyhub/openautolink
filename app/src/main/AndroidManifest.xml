@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <queries>
+        <intent><action android:name="android.car.intent.action.MEDIA_TEMPLATE" /></intent>
         <package android:name="com.android.car.settings" />
         <package android:name="com.android.server.telecom" />
         <intent>
@@ -24,6 +25,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -76,6 +79,7 @@
     <application
         android:name=".OalApplication"
         android:allowBackup="false"
+        android:appCategory="audio"
         android:networkSecurityConfig="@xml/network_security_config"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
@@ -187,7 +191,7 @@
         <service
             android:name=".carplay.CarPlaySessionService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:foregroundServiceType="connectedDevice|mediaPlayback|microphone" />
 
         <service
             android:name="com.openautolink.carplaylab.usb.OalUsbCarPlayVpnService"
@@ -201,7 +205,10 @@
         <!-- Media source for AAOS system UI, cluster, and steering wheel controls -->
         <service
             android:name=".media.OalMediaBrowserService"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher"
             android:exported="true">
+            <meta-data android:name="androidx.car.app.launchable" android:value="true" />
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>

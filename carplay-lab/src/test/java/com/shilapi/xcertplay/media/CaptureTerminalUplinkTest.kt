@@ -33,7 +33,7 @@ class CaptureTerminalUplinkTest {
         val cap=MicrophoneCapability.of(mapOf("telephony" to setOf(0x40L)))
         DatagramSocket(0,InetAddress.getLoopbackAddress()).use { peer ->
             val config=MicrophoneSupport.negotiate(cap,100,"telephony",0x40L,peer.localPort,480,peer.localAddress,ByteArray(32){1})!!
-            val uplink=MicrophoneUplink(config,{},null,cap,ledger)
+            val uplink=MicrophoneUplink(config,{},null,cap,ledger,captureAdmission=MicrophoneCaptureAdmission {true})
             try {
                 uplink.start(); assertTrue(reading.await(3,TimeUnit.SECONDS))
                 assertFalse(uplink.isRetired); assertNull(MicrophoneCaptureFence.tryDiagnostic())

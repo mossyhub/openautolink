@@ -24,12 +24,12 @@ class CarPlayPhysicalDisplaySettingsTest {
     }
 
     @Test fun atomicWidthRestorationAcceptsEveryIntegerInProductRange() {
-        for (width in 100..400) {
+        for (width in com.openautolink.carplaylab.media.CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM) {
             val restored = CarPlaySettings.decode("""{"widthPhysicalMm":$width,"ssid":" LAN "}""")
             assertEquals(width, restored.widthPhysicalMm)
             assertEquals(" LAN ", restored.ssid)
         }
-        for (width in listOf(-1, 0, 99, 401, Int.MAX_VALUE)) {
+        for (width in listOf(-1, 0, 99, 2001, Int.MAX_VALUE)) {
             assertEquals(200, CarPlaySettings.decode("""{"widthPhysicalMm":$width}""").widthPhysicalMm)
         }
     }

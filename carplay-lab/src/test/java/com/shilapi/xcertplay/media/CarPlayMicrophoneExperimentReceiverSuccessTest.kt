@@ -60,7 +60,7 @@ class CarPlayMicrophoneExperimentReceiverSuccessTest {
         val surface=mock(Surface::class.java);`when`(surface.isValid).thenReturn(true)
         val ledgerLines=java.util.concurrent.CopyOnWriteArrayList<String>()
         val receiver=ProjectionReceiver(app,"00:11:22:33:44:55",surface,mock(MfiAuthenticator::class.java),
-            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),onStatus=ledgerLines::add)
+            display=CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"avc.exact")),captureAdmission={true},onStatus=ledgerLines::add)
         fun field(owner: Any, name: String): Any? = owner.javaClass.getDeclaredField(name).apply { isAccessible=true }.get(owner)
         try {
             assertEquals(actualOutputs,field(receiver,"outputAudioFormats"))

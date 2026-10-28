@@ -96,7 +96,8 @@ class MicrophonePolicyDiagnosticsTest {
             DatagramSocket(0,InetAddress.getLoopbackAddress()).use { peer ->
                 peer.soTimeout=3000
                 val config=MicrophoneSupport.negotiate(cap,100,"speechRecognition",0x40L,peer.localPort,480,peer.localAddress,ByteArray(32))!!
-                uplink=MicrophoneUplink(config) { lines.add(it);if(it.contains("microphone-policy")) receipt.countDown() }
+                uplink=MicrophoneUplink(config,report={ lines.add(it);if(it.contains("microphone-policy")) receipt.countDown() },
+                    captureAdmission=MicrophoneCaptureAdmission {true})
                 uplink!!.start()
                 peer.receive(DatagramPacket(ByteArray(4096),4096))
                 assertTrue(queryEntered.await(3,TimeUnit.SECONDS))

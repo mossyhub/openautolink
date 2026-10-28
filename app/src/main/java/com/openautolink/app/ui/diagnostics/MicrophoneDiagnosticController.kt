@@ -52,7 +52,7 @@ class MicrophoneDiagnosticController(
     fun updateIndependentSelection(value: CarPlayMicrophoneIndependentSelection) { if (!busy) independentSelection = value }
     fun armIndependentLive() {
         refresh()
-        if (!canArmIndependent || liveStatus.profile?.aaStyle == true) return
+        if (!canArmIndependent) return
         CarPlayMicrophoneExperiments.arm(CarPlayMicrophoneExperimentProfile(independent = independentSelection))
         refresh()
     }
@@ -88,17 +88,9 @@ class MicrophoneDiagnosticController(
 
     fun updateCustom(value: MicrophoneDiagnosticCustom) { if (!busy) custom = value }
     fun updateLiveProfile(value: CarPlayMicrophoneExperimentProfile) { if (!busy) liveProfile = value }
-    fun armAaStyle() {
-        refresh()
-        if (!canArmLive || liveStatus.armed) return
-        CarPlayMicrophoneExperiments.arm(CarPlayMicrophoneExperimentProfile(
-            source = com.shilapi.xcertplay.media.MicrophoneSource.VOICE_RECOGNITION,
-            rate = com.shilapi.xcertplay.media.CarPlayMicrophoneCaptureRate.HZ_16000, aaStyle = true))
-        refresh()
-    }
     fun armLive() {
         refresh()
-        if (!canArmLive || liveStatus.profile?.aaStyle == true) return
+        if (!canArmLive) return
         CarPlayMicrophoneExperiments.arm(liveProfile)
         refresh()
     }

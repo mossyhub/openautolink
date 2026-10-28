@@ -94,7 +94,12 @@ class OalUsbCarPlayRuntime(
     }
     private fun status(line:String) { if(!canceled.get()) { audioDiagnostics.record(line);report(line) } }
     // Exact historical receiver evidence remains exportable after cancellation; live UI does not.
-    private fun receiverStatus(line:String) { audioDiagnostics.record(line);if(!canceled.get()) report(line) }
+    private fun receiverStatus(line:String) {
+        if (!canceled.get()) attemptContext?.hostMedia?.let {
+            com.openautolink.app.diagnostics.MediaDiagnosticHooks.recordReceiverReceipt(it, line)
+        }
+        audioDiagnostics.record(line);if(!canceled.get()) report(line)
+    }
     private fun <T:AutoCloseable> own(create:()->T):T = synchronized(resourcesLock) {
         // Serialize creation and installation against close's canceled retirement snapshot.
         check(!canceled.get()) { "USB CarPlay attempt revoked" }
@@ -354,7 +359,18 @@ class OalUsbCarPlayRuntime(
                 val metadata = OalCarPlayMetadataLink(SystemClock::elapsedRealtime, receipt,
                     OalCarPlayMetadataHost(context.applicationContext, receipt = receipt, attemptContext = attemptContext) { index ->
                         receiver?.mediaCommand(session, index) == true
-                    })
+                    }).apply {
+                        capturePlaybackObservation = capture@ {
+                            val selection=PhonePlaybackResumeRecovery.snapshot()
+                            val lease=attemptContext?.hostMedia ?: return@capture null
+                            val currentReceiver=receiver ?: return@capture null
+                            fun selected()=PhonePlaybackResumeRecovery.isCurrent(selection) &&
+                                lease.mode==CarPlayHostMediaMode.NORMAL &&
+                                com.openautolink.app.media.OalMediaSessionManager.getInstance(context).acceptsCarPlayHost(lease)
+                            val stamp=currentReceiver.captureMediaRecoveryStamp(session,selection.epoch,::selected) ?: return@capture null
+                            { playing:Boolean? -> currentReceiver.offerPhonePlaybackObservation(session,playing,stamp); Unit }
+                        }
+                    }
                 CarPlayBluetoothDiagnosticLink(metadata, { listener ->
                     runCatching {
                         (context.applicationContext as? com.openautolink.app.OalApplication)
@@ -362,8 +378,11 @@ class OalUsbCarPlayRuntime(
                     }.getOrNull()
                 }, receipt)
             } },wired=true,drivingRestrictions = restrictionPolicy.enabled,
+            captureAdmission = { !canceled.get() && attemptContext?.captureAdmission?.invoke() == true },
             advertisedBluetoothAddress = manualBluetoothAddress,
             onCaptureTerminal=captureTerminalSink(context,::receiverStatus),onStatus=::receiverStatus) }
+        attemptContext?.onInputAdvertised?.invoke(projection.inputAdvertised)
+        attemptContext?.onCaptureRetirement?.invoke(projection::retireMicrophoneCapture)
         active();onDisplayQualified(projection.displayConfiguration)
         projection.setNetworkStartupDiagnosticStop(ncm::stopStartupDiagnostics)
         val scale=com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnostic(projection.displayConfiguration)

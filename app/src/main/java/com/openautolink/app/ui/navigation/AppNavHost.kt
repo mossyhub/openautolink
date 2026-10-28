@@ -33,6 +33,26 @@ object AppDestinations {
     const val SAFE_AREA_EDITOR = "safe_area_editor"
 }
 
+/** The exact callback shared by overlay and destination; persistence precedes every runtime action. */
+@Composable
+internal fun rememberProductionSettingsSaveAction(
+    settingsViewModel: SettingsViewModel,
+    projectionViewModel: ProjectionViewModel,
+    onBack: () -> Unit,
+): () -> Unit {
+    val scope = rememberCoroutineScope()
+    return {
+        scope.launch {
+            projectionViewModel.clearSettingsSaveMessage()
+            applySettingsAndRestart(
+                settingsViewModel::commitCarPlaySettings,
+                { projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect) },
+                onBack,
+            )
+        }
+    }
+}
+
 @Composable
 fun AppNavHost(
     navController: NavHostController = rememberNavController(),
@@ -40,8 +60,12 @@ fun AppNavHost(
     // Share ViewModels across screens
     val settingsViewModel: SettingsViewModel = viewModel()
     val projectionViewModel: ProjectionViewModel = viewModel()
-    val settingsScope = rememberCoroutineScope()
+    val audioBindings = com.openautolink.app.ui.settings.rememberProductionAudioBindings(projectionViewModel::reconnectCarPlay)
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val mediaActivity = androidx.compose.ui.platform.LocalContext.current as androidx.activity.ComponentActivity
+    val mediaDiagnosticsViewModel = remember(mediaActivity) {
+        androidx.lifecycle.ViewModelProvider(mediaActivity)[com.openautolink.app.ui.diagnostics.MediaDiagnosticsViewModel::class.java]
+    }
     val microphoneBinding = remember(projectionViewModel, appContext) {
         com.openautolink.app.ui.diagnostics.MicrophoneDiagnosticBinding(
             appContext, projectionViewModel::microphoneDiagnosticEligible,
@@ -77,21 +101,14 @@ fun AppNavHost(
                 settingsOverlay = { onBack, onShowDiagnostics, onCarPlaySafeEditor ->
                     SettingsScreen(
                         viewModel = settingsViewModel,
+                        audioBindings = audioBindings,
                         sessionState = projectionUiState.sessionState,
                         activeProtocolStatus = if (carPlayState.selected) when {
                             carPlayState.evidence.videoRendered && carPlayState.evidence.runtimeAuthenticated -> "CarPlay · video active"
                             carPlayState.busy -> "CarPlay · connecting"
                             else -> "CarPlay · stopped"
                         } else null,
-                        onSaveAndConnect = {
-                            settingsScope.launch {
-                                applySettingsAndRestart(
-                                    settingsViewModel::commitCarPlaySettings,
-                                    { projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect) },
-                                    onBack,
-                                )
-                            }
-                        },
+                        onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel, onBack),
                         onBack = onBack,
                         onNavigateToDiagnostics = onShowDiagnostics,
                         onNavigateToCarPlaySafeAreaEditor = onCarPlaySafeEditor,
@@ -101,7 +118,7 @@ fun AppNavHost(
                     )
                 },
                 diagnosticsOverlay = { onBack ->
-                    DiagnosticsScreen(onBack = onBack, microphoneController = microphoneBinding.controller)
+                    DiagnosticsScreen(onBack = onBack, microphoneController = microphoneBinding.controller, mediaViewModel = mediaDiagnosticsViewModel)
                 },
                 carPlaySafeEditorOverlay = { onBack ->
                     CarPlaySafeEditor(settingsViewModel, onBack)
@@ -116,15 +133,10 @@ fun AppNavHost(
             Box(Modifier.fillMaxSize()) {
                 SettingsScreen(
                     viewModel = settingsViewModel,
+                    audioBindings = audioBindings,
                     onBack = { navController.popBackStack() },
-                    onSaveAndConnect = {
-                        settingsScope.launch {
-                            applySettingsAndRestart(
-                                settingsViewModel::commitCarPlaySettings,
-                                { projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect) },
-                                { navController.popBackStack() },
-                            )
-                        }
+                    onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel) {
+                        navController.popBackStack()
                     },
                     onNavigateToDiagnostics = { navController.navigate(AppDestinations.DIAGNOSTICS) },
                     onNavigateToSafeAreaEditor = { navController.navigate(AppDestinations.SAFE_AREA_EDITOR) },
@@ -136,7 +148,7 @@ fun AppNavHost(
             }
         }
         composable(AppDestinations.DIAGNOSTICS) {
-            DiagnosticsScreen(onBack = { navController.popBackStack() }, microphoneController = microphoneBinding.controller)
+            DiagnosticsScreen(onBack = { navController.popBackStack() }, microphoneController = microphoneBinding.controller, mediaViewModel = mediaDiagnosticsViewModel)
         }
         composable(AppDestinations.SAFE_AREA_EDITOR) {
             val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()

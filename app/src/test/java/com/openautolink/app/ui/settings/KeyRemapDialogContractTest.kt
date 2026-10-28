@@ -69,7 +69,7 @@ class KeyRemapDialogContractTest {
             .substringBefore("private fun AudioTab")
 
         assertTrue(inputTab.contains("Key assignments apply immediately"))
-        assertFalse(inputTab.contains("Requires Save & Reconnect"))
+        assertFalse(inputTab.contains("Save changes, then reconnect your phone"))
     }
 
     @Test

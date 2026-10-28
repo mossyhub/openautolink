@@ -77,7 +77,7 @@ class CarPlayCustomVideoSettingsTest {
         val display = File(root, "app/src/main/java/com/openautolink/app/ui/settings/CarPlaySettings.kt").readText()
             .substringAfter("fun CarPlayDisplaySettingsSection(").substringBefore("fun CarPlayVideoSettingsSection(")
         assertTrue(display.contains("Slider("))
-        assertTrue(display.contains("value = (500 - sliderWidthMm).toFloat()"))
+        assertTrue(display.contains("value = (sliderSum - sliderWidthMm).toFloat()"))
         assertTrue(display.contains("steps = 0"))
         assertTrue(display.contains("enabled = !saving && !settings.autoScale"))
         assertTrue(display.contains("onValueChangeFinished"))
@@ -85,7 +85,7 @@ class CarPlayCustomVideoSettingsTest {
         assertTrue(display.contains("Text(\"Smaller UI\""))
         assertTrue(display.contains("Text(\"Larger UI\""))
         assertFalse(display.contains("DropdownMenu"))
-        for (width in 100..400) {
+        for (width in CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM) {
             val settings = CarPlaySettings(widthPhysicalMm = width)
             assertNull(carPlayEditError(settings))
             assertEquals(width, CarPlaySettings.decode(CarPlaySettings.encode(settings)).widthPhysicalMm)

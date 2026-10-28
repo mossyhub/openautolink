@@ -30,6 +30,12 @@ class CarPlayPcmSchemaExportTest {
         ledger.bind(Executor { it.run() },markers::add)
         val receiver=Regex("receiver=([0-9]+)").find(markers.last())!!.groupValues[1]
         markers.add("media stage=microphone-owned receiver=$receiver event=3 owner=1 elapsedUs=1 media stage=microphone-policy scope=own source=VOICE_RECOGNITION rate=48000 permission=granted mute=false route=builtin silenced=false result=ok")
+        // Accepted capture is 16k mono; retain the existing advanced stereo coverage too.
+        val accepted=CaptureAcquisitionLedger(false)
+        val mono=accepted.owner(CaptureAcquisitionLedger.Kind.LIVE,MicrophoneSource.VOICE_RECOGNITION,16000,1)
+        val monoStats=Pcm16Window(1);monoStats.observe(byteArrayOf(0,128.toByte()))
+        mono.pcm(CaptureAcquisitionLedger.Boundary.RAW,CaptureAcquisitionLedger.Phase.RELEASED,16000,monoStats.snapshot())
+        accepted.bind(Executor { it.run() },markers::add)
         val lines=mutableListOf<String>();val reporter=CarPlayAudioDiagnosticReporter(2,{0},lines::add)
         markers.forEach { marker ->
             assertNotNull("Finite numeric marker must pass: $marker",CarPlayAudioDiagnostics.sanitize(2,marker))

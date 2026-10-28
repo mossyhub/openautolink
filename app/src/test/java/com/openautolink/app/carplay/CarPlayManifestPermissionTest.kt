@@ -17,11 +17,12 @@ class CarPlayManifestPermissionTest {
     @Test fun carRetainsOnlyUsedForegroundPermissionsAndDrivingDeclarations() {
         val file = "src/main/AndroidManifest.xml"
         val permissions = elements(file, "uses-permission").map { it.attr("name") }
-        assertFalse(permissions.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"))
+        assertTrue(permissions.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"))
+        assertTrue(permissions.contains("android.permission.FOREGROUND_SERVICE_MICROPHONE"))
         assertTrue(permissions.contains("android.permission.FOREGROUND_SERVICE"))
         assertTrue(permissions.contains("android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"))
         val service = elements(file, "service").single { it.attr("name") == ".carplay.CarPlaySessionService" }
-        assertEquals("connectedDevice", service.attr("foregroundServiceType"))
+        assertEquals(setOf("connectedDevice","mediaPlayback","microphone"),service.attr("foregroundServiceType").split('|').toSet())
         assertEquals("false", service.attr("exported"))
         for (name in listOf(".MainActivity", "androidx.car.app.activity.CarAppActivity")) {
             val activity = elements(file, "activity").single { it.attr("name") == name }

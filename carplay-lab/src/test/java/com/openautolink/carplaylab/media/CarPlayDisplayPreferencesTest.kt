@@ -42,7 +42,7 @@ class CarPlayDisplayPreferencesTest {
         assertThrows(IllegalArgumentException::class.java) { CarPlayDisplayPreferences(fps = 61) }
         assertThrows(IllegalArgumentException::class.java) { CarPlayDisplayPreferences(widthPhysicalMm = -1) }
         assertEquals(225, CarPlayDisplayPreferences(widthPhysicalMm = 225).widthPhysicalMm)
-        assertThrows(IllegalArgumentException::class.java) { CarPlayDisplayPreferences(widthPhysicalMm = 401) }
+        assertThrows(IllegalArgumentException::class.java) { CarPlayDisplayPreferences(widthPhysicalMm = 2001) }
         assertEquals(CarPlayDisplayPreferences(), CarPlayDisplayPreferences.fromStored("unknown", -1, Int.MAX_VALUE, false))
         val selected = CarPlayDisplayPreferences(CarPlayResolution.FULL_HD1080, 60, 300, true)
         assertEquals(selected, CarPlayDisplayPreferences.fromStored(selected.resolution.id, selected.fps, selected.widthPhysicalMm, selected.rightHandDrive))

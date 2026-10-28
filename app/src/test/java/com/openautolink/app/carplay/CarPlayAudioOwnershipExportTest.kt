@@ -94,7 +94,18 @@ class CarPlayAudioOwnershipExportTest {
             change(current,AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
             assertTrue(lines.any { it.contains("audio-mute reason=focus-change") && it.contains("mute=transient") })
             change(current,AudioManager.AUDIOFOCUS_GAIN)
+            // Explicit PLAY without a live primary interaction deliberately renews MEDIA.
+            // Alternate navigation (101/default) is not an interaction focus owner.
+            val grantedBefore=lines.count { it.contains("audio-focus-request reason=user-play result=granted") }
             assertTrue(sink.requestFocusForUserPlay())
+            assertEquals(grantedBefore+1,lines.count { it.contains("audio-focus-request reason=user-play result=granted") })
+            val assistant=AudioStreamId(100,"speechrecognition")
+            sink.onAudioStarted(assistant,AudioOutputSupport.negotiate(0x4000L,100,"speechrecognition")!!,0)
+            val interactionRequest=shadowOf(manager).lastAudioFocusRequest
+            val interactionFocus=field(sink,"focus").get(sink)
+            assertTrue(sink.requestFocusForUserPlay())
+            assertSame("PLAY during the live interaction must not request focus again",interactionRequest,shadowOf(manager).lastAudioFocusRequest)
+            assertSame("the exact interaction request remains retained",interactionFocus,field(sink,"focus").get(sink))
             assertTrue(lines.any { it.contains("audio-focus-request reason=user-play result=retained") })
             val generated=raw.filter { it.contains("audio-focus-request") || it.contains("audio-mute") || it.contains("audio-volume") }
             assertTrue(generated.isNotEmpty())

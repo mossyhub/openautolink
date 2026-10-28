@@ -98,8 +98,8 @@ class WiredPcmCaptureTest {
         val captured = CountDownLatch(1)
         val pcm = ByteArray(960) { if (it % 2 == 0) 0x34 else 0x12 }
         ShadowAudioRecord.setSourceProvider { recorder ->
-            assertEquals(48000, recorder.sampleRate)
-            assertEquals(2,recorder.channelCount)
+            assertEquals(16000, recorder.sampleRate)
+            assertEquals(1,recorder.channelCount)
             assertEquals(MediaRecorder.AudioSource.VOICE_RECOGNITION,recorder.audioSource)
             object : ShadowAudioRecord.AudioRecordSource {
                 override fun readInByteArray(bytes: ByteArray, offset: Int, size: Int, blocking: Boolean): Int {
@@ -116,7 +116,7 @@ class WiredPcmCaptureTest {
             val mic = MicrophoneSupport.negotiate(cap,100,"telephony",0x40L,receive.localPort,480,
                 receive.localAddress,key)!!
             val reports = java.util.concurrent.CopyOnWriteArrayList<String>()
-            val uplink = MicrophoneUplink(mic,reports::add)
+            val uplink = MicrophoneUplink(mic,reports::add,captureAdmission=MicrophoneCaptureAdmission {true})
             try {
                 uplink.start()
                 assertTrue("capture never reached",captured.await(2,TimeUnit.SECONDS))

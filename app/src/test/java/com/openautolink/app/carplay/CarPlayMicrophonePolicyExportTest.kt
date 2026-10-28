@@ -9,7 +9,7 @@ import java.util.zip.ZipFile
 
 class CarPlayMicrophonePolicyExportTest {
     @Test fun exactRecorderPolicySurvivesSanitizerAndActualArchiveWithoutIdentities() {
-        val receipt = "media stage=microphone-policy scope=own source=VOICE_RECOGNITION rate=24000 permission=granted mute=false route=builtin silenced=true result=ok"
+        val receipt = "media stage=microphone-policy scope=own source=VOICE_RECOGNITION rate=16000 permission=granted mute=false route=builtin silenced=true result=ok"
         val lines = mutableListOf<String>()
         CarPlayAudioDiagnosticReporter(1, System::nanoTime, lines::add).record(receipt)
         assertEquals(listOf("CARPLAY_AUDIO session=1 $receipt"), lines)

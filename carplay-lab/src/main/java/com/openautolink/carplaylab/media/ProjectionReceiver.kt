@@ -41,6 +41,7 @@ class ProjectionReceiver(
     private val onCaptureTerminal: ((com.shilapi.xcertplay.media.CaptureTerminalSummary) -> Boolean)? = null,
     /** Optional wired Bluetooth association only; never the Ethernet or AirPlay device identity. */
     private val advertisedBluetoothAddress: String? = null,
+    private val captureAdmission: () -> Boolean = { false },
     private val onStatus: (String) -> Unit,
 ) : Closeable {
     init {
@@ -64,12 +65,13 @@ class ProjectionReceiver(
             fps = videoSelection.fps), videoSelection.avcDecoderName, videoSelection.usedFallback)
     /** Actual advertised/sink/input configuration, including a capability-qualified fallback. */
     val displayConfiguration: CarPlayDisplayPreferences get() = displaySelection.display
-    private val microphoneRequest = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
+    private val microphoneOverride = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
+    private val microphoneRequest = microphoneOverride ?: com.shilapi.xcertplay.media.CarPlayMicrophoneCapturePolicy.production
     private val microphoneIndependent = microphoneRequest?.independent
     private val microphoneExperiment = microphoneRequest?.takeIf { it.independent == null }
     private val microphoneQualification = microphoneIndependent?.qualificationProfile() ?: microphoneExperiment
     private val speechRecognitionProfile = microphoneIndependent?.captureProfile()
-    private val captureLedger = com.shilapi.xcertplay.media.CaptureAcquisitionLedger(microphoneQualification != null)
+    private val captureLedger = com.shilapi.xcertplay.media.CaptureAcquisitionLedger(microphoneOverride != null && microphoneQualification != null)
     // Manual experiments retain their receiver-wide exact output inventory.
     // Normal calls qualify against actual output rows without changing noncall offers.
     private val outputAudioFormats = microphoneQualification?.let {
@@ -78,6 +80,8 @@ class ProjectionReceiver(
         }
     }
     private val microphoneCapability = com.shilapi.xcertplay.media.CaptureAcquisitionLedger.observe(captureLedger) {
+        if (!captureAdmission() || context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            return@observe com.shilapi.xcertplay.media.MicrophoneCapability.NONE
         val profile = microphoneQualification
         if (microphoneIndependent != null) require(!(
             microphoneIndependent.history == com.shilapi.xcertplay.media.CarPlayMicrophoneQualificationHistory.MANUAL_VR48_TWO &&
@@ -86,13 +90,15 @@ class ProjectionReceiver(
         }
         // Keep shape evidence and its capability frozen together; no additional probes.
         val baseline = synchronized(com.shilapi.xcertplay.media.AndroidMicrophoneSupport) {
-            val qualified = if (profile == null) com.shilapi.xcertplay.media.AndroidMicrophoneSupport.probe(context)
-            else com.shilapi.xcertplay.media.AndroidMicrophoneSupport.experimentCapability(context, profile)
+            val qualified = if (profile == null) com.shilapi.xcertplay.media.AndroidMicrophoneSupport.probe(context, captureAdmission)
+            else com.shilapi.xcertplay.media.AndroidMicrophoneSupport.experimentCapability(context, profile, captureAdmission)
             require(microphoneIndependent == null || com.shilapi.xcertplay.media.AndroidMicrophoneSupport.supportsSpeechCapture(microphoneIndependent)) {
                 "Independent capture not qualified by selected history"
             }
             qualified
         }
+        if (!captureAdmission() || context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            return@observe com.shilapi.xcertplay.media.MicrophoneCapability.NONE
         try {
             val rows = com.shilapi.xcertplay.media.AudioOutputSupport.wirelessRows(
                 outputAudioFormats ?: com.shilapi.xcertplay.media.AudioOutputSupport.implementedBits)
@@ -122,7 +128,7 @@ class ProjectionReceiver(
             }
             val result = com.shilapi.xcertplay.media.CarPlayMicrophoneExperimentPolicy.resolveCapability(
                 profile, wired, admitted, rows)
-            require(profile == null || result.available)
+            require(microphoneOverride == null || result.available)
             require(microphoneIndependent == null || result.bits("speechrecognition").isNotEmpty()) {
                 "Independent capture has no admitted speech input"
             }
@@ -234,8 +240,16 @@ class ProjectionReceiver(
     fun telemetrySnapshot(): ReceiverTelemetrySnapshot = telemetry.snapshot(System.nanoTime())
     private val sink = AndroidMediaSink(context, surface, display = displaySelection, onStatus = ::status, telemetry = telemetry, videoSelection = videoSelection,
         microphoneExperiment = microphoneExperiment, microphoneCapability = microphoneCapability,
+        manualMicrophoneExperiment = microphoneOverride != null,
         captureLedger = captureLedger, audioDiagnostic = { line, current -> enqueueStatus(line, current) },
-        speechRecognitionProfile = speechRecognitionProfile)
+        speechRecognitionProfile = speechRecognitionProfile,
+        captureAdmission = { !closed.get() && !admissionRevoked.get() && captureAdmission() }).also { media ->
+        media.setMediaOutputObserver { blocked, current ->
+            val owner=active
+            if (owner != null && currentMediaOwner(owner))
+                runtimeMetadata[owner]?.mediaOutput(blocked) { currentMediaOwner(owner) && current() }
+        }
+    }
     /** Presentation receipts do not take the session/control lifecycle lock or retire transport. */
     fun attachSurface(surface: Surface) { if (!closed.get() && !admissionRevoked.get()) sink.attachSurface(surface) }
     fun detachSurface(surface: Surface) { sink.detachSurface(surface) }
@@ -264,7 +278,7 @@ class ProjectionReceiver(
         }
         override fun onSessionActive(session: AirPlaySession) {
             if (closed.get() || session !in sessions || (active != null && active !== session)) return
-            active = session; status("media stage=record-active; rendering unverified")
+            active = session; runtimeMetadata[session]?.mediaAvailability(currentMediaOwner(session)); status("media stage=record-active; rendering unverified")
         }
         override fun onSessionEnded(session: AirPlaySession) {
             peerAdmission?.release(session)
@@ -505,6 +519,7 @@ class ProjectionReceiver(
                     carData?.authenticate()
                     metadata?.authenticate()
                     runtimeReady = true
+                    metadata?.mediaAvailability(currentMediaOwner(session))
                     incoming = telecomExperiment.authenticatedLink(
                         controlSender = { command, fence -> queuePhoneControl(session, command, fence) },
                         rejectSender = { fence -> queueReject(session, channel, fence) },
@@ -517,15 +532,31 @@ class ProjectionReceiver(
                     failureStage = RuntimeControlFailureStage.TRANSPORT
                     status("media stage=runtime-authentication-accepted")
                     Iap2ControlMessages.subscriptions().forEach { channel.send(it) }
-                    if (incoming != null) channel.send(com.openautolink.carplaylab.telecom.CallObservationSubscriptions.nonlegacyCalls())
-                    status("media stage=runtime-subscriptions-sent count=${if (incoming == null) 5 else 6}")
+                    // Always request real authenticated call observations. Setup may finish after
+                    // authentication; subscription is not Telecom admission and never seeds a call.
+                    channel.send(com.openautolink.carplaylab.telecom.CallObservationSubscriptions.nonlegacyCalls())
+                    status("media stage=runtime-subscriptions-sent count=6")
                     var received = 0L
                     val replyPolicy = com.openautolink.carplaylab.WirelessReplyPolicy()
                     while (!closed.get() && !channel.isClosed && !session.isClosed) {
                         carData?.tick(session.encryptedEventReady)
+                        metadata?.mediaAvailability(currentMediaOwner(session))
                         metadata?.tick()
                         val frame = channel.recv(carData?.pollTimeout(1000) ?: 1000)
                         if (frame != null) {
+                            // Install against the live runtime owner at the next actual observation,
+                            // never against a one-time authentication snapshot or fake replay.
+                            if (incoming == null && (frame.messageId == 0x4155 || frame.messageId == 0x4158)) {
+                                incoming = telecomExperiment.authenticatedLink(
+                                    controlSender = { command, fence -> queuePhoneControl(session, command, fence) },
+                                    rejectSender = { fence -> queueReject(session, channel, fence) },
+                                    diagnostic = { line -> audioDiagnostic(session, line) },
+                                ) {
+                                    !closed.get() && !admissionRevoked.get() && runtimeReady && runtimeOwner === session &&
+                                        session in sessions && session.controlAuthenticated && !session.isClosed
+                                }
+                                incoming?.let { runtimeIncoming[session] = it }
+                            }
                             if (incoming?.handle(frame) != true && metadata?.handle(frame) != true && carData?.handle(frame) != true && replyPolicy.allow(frame.messageId)) {
                                 val reply = runtimeReply?.invoke(frame)
                                 if (reply != null) { channel.send(reply) }
@@ -549,6 +580,7 @@ class ProjectionReceiver(
                 }
                 finally {
                     if (runtimeOwner === session) runtimeReady = false
+                    metadata?.mediaAvailability(false)
                     incoming?.close()
                     if (incoming?.awaitClosed(0) == true) runtimeIncoming.remove(session, incoming)
                     metadata?.close()
@@ -584,6 +616,72 @@ class ProjectionReceiver(
         } catch (_: RejectedExecutionException) { false }
     }
     private val mediaPlayEpoch = java.util.concurrent.atomic.AtomicLong()
+    class MediaRecoveryStamp internal constructor(
+        internal val session:AirPlaySession, internal val commandEpoch:Long, internal val experimentEpoch:Long,
+        internal val ingressMs:Long, internal val sinkEpoch:Long, internal val observationEpoch:Long, internal val selected:()->Boolean)
+    private val recoveryLock=Any()
+    private var recoveryOwner:AirPlaySession?=null
+    private var recoveryExperiment=Long.MIN_VALUE
+    private var recoveryCommand=Long.MIN_VALUE
+    private var recoverySink=Long.MIN_VALUE
+    private var lastExplicitPlayback:Boolean?=null
+    private val playbackRevision=java.util.concurrent.atomic.AtomicLong()
+    private data class ResumeCandidate(val stamp:MediaRecoveryStamp,val revision:Long)
+    private val resumeCandidate=java.util.concurrent.atomic.AtomicReference<ResumeCandidate?>()
+    private val resumeDrain=java.util.concurrent.atomic.AtomicBoolean()
+    /** Nonblocking authority capture BEFORE parse. No platform work or metadata inference. */
+    fun captureMediaRecoveryStamp(session:AirPlaySession, experimentEpoch:Long, selected:()->Boolean):MediaRecoveryStamp? {
+        val commandEpoch=mediaPlayEpoch.get()
+        val sinkEpoch=sink.phoneResumeGeneration()
+        val observationEpoch=sink.phoneObservationGeneration()
+        val ingressMs=android.os.SystemClock.elapsedRealtime()
+        if (!currentMediaOwner(session) || !sink.phoneResumeEligible() || !selected() ||
+            commandEpoch!=mediaPlayEpoch.get() || sinkEpoch!=sink.phoneResumeGeneration() ||
+            observationEpoch!=sink.phoneObservationGeneration()) return null
+        return MediaRecoveryStamp(session,commandEpoch,experimentEpoch,ingressMs,sinkEpoch,observationEpoch,selected)
+    }
+    private fun recoveryCurrent(stamp:MediaRecoveryStamp):Boolean = currentMediaOwner(stamp.session) &&
+        stamp.commandEpoch==mediaPlayEpoch.get() && stamp.sinkEpoch==sink.phoneResumeGeneration() &&
+        stamp.observationEpoch==sink.phoneObservationGeneration() &&
+        android.os.SystemClock.elapsedRealtime()-stamp.ingressMs in 0..5000 && stamp.selected()
+    /** Constant space event channel, deliberately independent of display coalescing. */
+    fun offerPhonePlaybackObservation(session:AirPlaySession, playing:Boolean?, stamp:MediaRecoveryStamp):Boolean {
+        if (stamp.session !== session || !recoveryCurrent(stamp)) return false
+        synchronized(recoveryLock) {
+            if (stamp.commandEpoch!=mediaPlayEpoch.get()) return false
+            if (recoveryOwner !== session || recoveryExperiment!=stamp.experimentEpoch || recoveryCommand!=stamp.commandEpoch || recoverySink!=stamp.observationEpoch) {
+                recoveryOwner=session;recoveryExperiment=stamp.experimentEpoch;recoveryCommand=stamp.commandEpoch;recoverySink=stamp.observationEpoch
+                lastExplicitPlayback=null;resumeCandidate.set(null)
+            }
+            val previous=lastExplicitPlayback
+            lastExplicitPlayback=playing
+            if (playing != true) {
+                playbackRevision.incrementAndGet();resumeCandidate.set(null)
+            } else if (previous == false) {
+                resumeCandidate.set(ResumeCandidate(stamp,playbackRevision.incrementAndGet()))
+            }
+        }
+        if (resumeCandidate.get()!=null) scheduleResumeDrain()
+        return true
+    }
+    private fun scheduleResumeDrain() {
+        if (!resumeDrain.compareAndSet(false,true)) return
+        try { input.execute {
+            try {
+                while (true) {
+                    val candidate=resumeCandidate.getAndSet(null) ?: break
+                    fun current()=candidate.revision==playbackRevision.get() && recoveryCurrent(candidate.stamp)
+                    if (current()) sink.preparePhoneResume(::current)
+                }
+            } finally {
+                resumeDrain.set(false)
+                if (resumeCandidate.get()!=null) scheduleResumeDrain()
+            }
+        } } catch (_:RejectedExecutionException) {
+            resumeCandidate.set(null);playbackRevision.incrementAndGet();resumeDrain.set(false);sink.cancelPhoneResume()
+        }
+    }
+
     /** Source-qualified communications EndCall(action0). Separate from active-call HID Drop. */
     private fun queueReject(session: AirPlaySession, channel: Iap2Session, commandCurrent: () -> Boolean): Boolean {
         fun current() = currentMediaOwner(session) && tunnels[session] === channel && commandCurrent()
@@ -604,13 +702,15 @@ class ProjectionReceiver(
     }
     /** Queue only for the exact authenticated metadata owner; queue admission is not phone receipt. */
     fun mediaCommand(session: AirPlaySession, index: Int): Boolean {
-        val playEpoch = mediaPlayEpoch.get()
-        fun current() = currentMediaOwner(session) && (index != 1 || playEpoch == mediaPlayEpoch.get())
         if (index !in 1..5) { commandQueue(0, "declined", "invalid-index"); return false }
-        if (!current()) { commandQueue(index, "declined", "stale-owner"); return false }
+        if (!currentMediaOwner(session)) { commandQueue(index, "declined", "stale-owner"); return false }
+        val playEpoch = if (index==1 || index==2) mediaPlayEpoch.incrementAndGet() else mediaPlayEpoch.get()
+        fun current() = currentMediaOwner(session) && (index != 1 || playEpoch == mediaPlayEpoch.get())
+        if (index == 1 || index == 2) {
+            playbackRevision.incrementAndGet();resumeCandidate.set(null);sink.cancelPhoneResume()
+        }
         if (index == 2) {
             // Cancel intent at ingress even if the bounded HID worker is blocked/full.
-            mediaPlayEpoch.incrementAndGet()
             sink.cancelPendingMediaPlay()
         }
         return try {
@@ -628,7 +728,7 @@ class ProjectionReceiver(
                     if (!live || disposition.outputPermitted || !disposition.transportPermitted)
                         status("media stage=media-focus-recovery reason=user-play result=${if (!live) "stale-owner" else if (disposition.outputPermitted) "permitted" else "denied"}")
                 }
-                val sent = (disposition?.transportPermitted != false) && current() && session.sendMedia(index)
+                val sent = (disposition?.transportPermitted != false) && current() && session.sendMedia(index,::current)
                 status("media stage=media-control index=$index outcome=${if (sent) "sent" else "failed"}")
             }
             commandQueue(index, "accepted", "admitted")
@@ -699,6 +799,11 @@ class ProjectionReceiver(
             runCatching { onStatus(message) }
         }; true }.getOrDefault(false)
     }
+    /** Receiver-frozen input advertisement, not current permission or FGS state. */
+    val inputAdvertised: Boolean get() = microphoneCapability.available
+    /** Exact capture-only retirement; normal playback/transport remain active. Worker-only. */
+    fun retireMicrophoneCapture() = sink.retireMicrophoneCapture()
+
     /** Cancel fences late authentication without releasing storage or waiting for control workers. */
     fun revokePendingAdmission() {
         admissionRevoked.set(true)
@@ -832,6 +937,8 @@ class ProjectionReceiver(
     private companion object {
         private const val btState = "(disconnected|connecting|connected|disconnecting|stopped|started|off|turning_off|on|turning_on|unknown)"
         val audioDiagnosticSchemas = listOf(
+            "media stage=playing-publication previous=(none|paused|playing) new=(none|paused|playing) active=true mode=(normal|suppress) owner=current",
+            "media stage=audio-focus-request reason=phone-resume result=(granted|denied|closed) revision=[0-9]{1,19} volumePercent=(0|20|100) mute=(permanent-loss|transient|denied|duck|unmuted)",
             "media stage=media-command-ingress command=(PLAY|PAUSE|STOP|NEXT|PREVIOUS) controller=(bluetooth|car-service|system-ui|oem|other|unknown) sequence=[0-9]{1,19} elapsedMs=[0-9]{1,19}",
             "carplay-bt event=(hfp-client|a2dp-sink) state=(disconnected|connecting|connected|disconnecting|unknown) previous=(disconnected|connecting|connected|disconnecting|unknown) scope=device owner=unknown",
             "carplay-bt event=hfp-audio state=(disconnected|connecting|connected|unknown) previous=(disconnected|connecting|connected|unknown) scope=device owner=unknown",

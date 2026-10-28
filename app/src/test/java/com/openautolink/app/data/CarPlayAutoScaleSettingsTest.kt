@@ -13,7 +13,7 @@ class CarPlayAutoScaleSettingsTest {
         assertEquals(manual, CarPlaySettings.decode(CarPlaySettings.encode(manual)))
         val legacy = CarPlaySettings.decode("""{"widthPhysicalMm":350}""")
         assertTrue(CarPlaySettings.encode(legacy).contains("\"autoScale\":true"))
-        val invalid = CarPlaySettings.decode("""{"autoScale":false,"widthPhysicalMm":999,"resolution":"8k","fps":120}""")
+        val invalid = CarPlaySettings.decode("""{"autoScale":false,"widthPhysicalMm":2001,"resolution":"8k","fps":120}""")
         assertEquals(200, invalid.widthPhysicalMm)
         assertEquals("720p", invalid.resolution)
         assertEquals(30, invalid.fps)

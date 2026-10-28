@@ -49,7 +49,29 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
     }
     private var cover: ByteArray? = null
     val artwork: ByteArray? @Synchronized get() = cover?.copyOf()
+    private var artworkReceipts = 0
     @Synchronized fun offerArtwork(id: Int, bytes: ByteArray) {
+        val reason = when {
+            retired -> "retired"
+            !authenticated -> "unauthenticated"
+            id !in 0..255 || media?.artworkTransferId != id -> "reference"
+            bytes.isEmpty() || bytes.size > 2 * 1024 * 1024 -> "size"
+            else -> "accepted"
+        }
+        if (artworkReceipts < 32) {
+            artworkReceipts++
+            val size = when {
+                bytes.isEmpty() -> "empty"
+                bytes.size <= 64 * 1024 -> "small"
+                bytes.size <= 512 * 1024 -> "medium"
+                bytes.size <= 2 * 1024 * 1024 -> "large"
+                else -> "oversized"
+            }
+            runCatching { onDiagnostic("carplay-artwork result=$reason size=$size") }
+        } else if (artworkReceipts == 32) {
+            artworkReceipts++
+            runCatching { onDiagnostic("carplay-artwork result=limit size=empty") }
+        }
         if (!authenticated || retired || id !in 0..255 || media?.artworkTransferId != id) return
         cover = bytes.takeIf { it.isNotEmpty() && it.size <= 2 * 1024 * 1024 }?.copyOf()
     }
@@ -196,12 +218,17 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
         }
         publishRoute()
     }
+    data class ExplicitPlayback(val playing:Boolean?)
+    /** Presence from the last fully validated frame only, never inherited metadata. */
+    var explicitPlayback: ExplicitPlayback? = null
+        private set
     var media: CarPlayMediaMetadata? = null
         private set
     private var authenticated = false
     private var retired = false
     @Synchronized fun authenticate() { if (!retired) authenticated = true }
     @Synchronized fun handle(frame: Iap2Frame): Boolean {
+        explicitPlayback = null
         if (frame.messageId !in setOf(0x5001,0x5201,0x5202)) return false
         if (frame.messageId != 0x5001) {
             val before = navigation
@@ -227,6 +254,7 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
             return true
         }
         if (!authenticated || retired || frame.payload.size > 16384) return true
+        var observation: ExplicitPlayback? = null
         val next = runCatching {
             val b = Iap2BodyReader.of(frame)
             unique(b)
@@ -242,13 +270,14 @@ class CarPlayMetadataIntake(private val elapsedMs: () -> Long) {
                     0, 2 -> false // stopped / paused, not a Boolean wire field
                     1 -> true
                     else -> null // seeking or unknown cannot be represented by this Boolean DTO
-                } else old.playing)
+                } else old.playing).also { if (p?.has(0) == true) observation=ExplicitPlayback(it.playing) }
         }.getOrNull() ?: return true
         val trackChanged = media != null && (media?.title != next.title || media?.artist != next.artist || media?.album != next.album)
         val hasArtReference = runCatching { Iap2BodyReader.of(frame).optionalGroup(0)?.has(26) == true }.getOrDefault(false)
         val retained = if (trackChanged && !hasArtReference) next.copy(artworkTransferId = null) else next
         if (trackChanged || media?.artworkTransferId != retained.artworkTransferId) cover = null
         media = retained
+        explicitPlayback = observation
         return true
     }
     @Synchronized fun revoke() {

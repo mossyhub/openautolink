@@ -172,6 +172,9 @@ class OalCarPlayRuntime(
     // Historical exact-receiver diagnostics survive runtime cancellation; only live UI is gated.
     // Called by that receiver's passive worker, never resolved through the mutable receiver field.
     private fun receiverStatus(message: String) {
+        if (!canceled.get()) attemptContext?.hostMedia?.let {
+            com.openautolink.app.diagnostics.MediaDiagnosticHooks.recordReceiverReceipt(it, message)
+        }
         audioDiagnostics.record(message)
         if (!canceled.get()) onStatus(message)
     }
@@ -305,6 +308,7 @@ class OalCarPlayRuntime(
         active()
         status("CarPlay receiver MFi authentication accepted · phone AirPlay trust pending")
         val projection = ownReceiver { ProjectionReceiver(context, config.receiverAddress, surface, auth, config.display,
+            captureAdmission = { !canceled.get() && attemptContext?.captureAdmission?.invoke() == true },
             trustedOnly = true, runtimeCarDataFactory = { session, send, receipt ->
                 // Freeze truthful implemented capability flags per actual Wi-Fi link, not Bluetooth.
                 val qualifiedGps = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
@@ -321,7 +325,18 @@ class OalCarPlayRuntime(
                 val metadata = OalCarPlayMetadataLink(SystemClock::elapsedRealtime, receipt,
                     OalCarPlayMetadataHost(context.applicationContext, receipt = receipt, attemptContext = attemptContext) { index ->
                         receiver?.mediaCommand(session, index) == true
-                    })
+                    }).apply {
+                        capturePlaybackObservation = capture@ {
+                            val selection=PhonePlaybackResumeRecovery.snapshot()
+                            val lease=attemptContext?.hostMedia ?: return@capture null
+                            val currentReceiver=receiver ?: return@capture null
+                            fun selected()=PhonePlaybackResumeRecovery.isCurrent(selection) &&
+                                lease.mode==CarPlayHostMediaMode.NORMAL &&
+                                com.openautolink.app.media.OalMediaSessionManager.getInstance(context).acceptsCarPlayHost(lease)
+                            val stamp=currentReceiver.captureMediaRecoveryStamp(session,selection.epoch,::selected) ?: return@capture null
+                            { playing:Boolean? -> currentReceiver.offerPhonePlaybackObservation(session,playing,stamp); Unit }
+                        }
+                    }
                 CarPlayBluetoothDiagnosticLink(metadata, { listener ->
                     runCatching {
                         (context.applicationContext as? com.openautolink.app.OalApplication)
@@ -330,6 +345,8 @@ class OalCarPlayRuntime(
                 }, receipt)
             } }, drivingRestrictions = config.restrictionPolicy.enabled,
             onCaptureTerminal = captureTerminalSink(context, ::receiverStatus), onStatus = ::receiverStatus) }
+        attemptContext?.onInputAdvertised?.invoke(projection.inputAdvertised)
+        attemptContext?.onCaptureRetirement?.invoke(projection::retireMicrophoneCapture)
         // Log the actual decoder-qualified offer, not an earlier requested preset or coded viewport.
         active()
         onDisplayQualified(projection.displayConfiguration)

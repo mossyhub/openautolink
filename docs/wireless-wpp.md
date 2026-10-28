@@ -46,7 +46,7 @@ In OpenAutoLink, open **Settings → Connection**:
    - **Access point BSSID**.
 3. Leave **Hotspot frequency in MHz** blank unless logs show `WiFi channels not supported`.
 4. Under **WPP network interface**, select the interface serving the vehicle access point. The GM default is preselected, but verify it against the active IPv4 interfaces if projection cannot connect.
-5. Tap **Save & Reconnect**.
+5. Tap **Save changes**. Wireless: reconnects automatically. USB: unplug and reconnect.
 
 OpenAutoLink restricts WPP advertisement, companion discovery, and session traffic to this one interface. It does not fall back across other Wi-Fi or Ethernet interfaces.
 
@@ -61,7 +61,7 @@ Do this while parked, near the car, with current car and companion releases inst
 3. **Phone:** on the companion's main screen, scroll below **Auto-Start** to **Send WPP WiFi to Car**. Tap **Scan & Send to Car**.
 4. In **Select visible WiFi**, tap the **car hotspot's network name**. Each row also shows its BSSID, channel, band and signal strength. Choose the car's hotspot—not home Wi-Fi or the phone's own hotspot. If the car advertises both bands under the same name, use its 5 GHz entry where available; the list puts 5 GHz entries first. **Tapping the row sends it immediately**; there is no separate Send button in the picker.
 5. Wait for the phone to show **Sent … to … selected car Bluetooth device(s).** Then check that **Network name (SSID)** and **Access point BSSID** in the car settings match the selected row. The listener stops after applying the transfer; this does not mean projection has started.
-6. **Car:** enter or verify **Password** separately, and verify **WPP network interface**. On GM EVs the normal AP interface is `ap_br_swlan0`; use the interface actually serving your car hotspot. Leave **Hotspot frequency in MHz** blank unless the channel troubleshooting above applies. Tap **Save & Reconnect** to apply the completed WPP settings, then continue with companion setup below.
+6. **Car:** enter or verify **Password** separately, and verify **WPP network interface**. On GM EVs the normal AP interface is `ap_br_swlan0`; use the interface actually serving your car hotspot. Leave **Hotspot frequency in MHz** blank unless the channel troubleshooting above applies. Tap **Save changes** to store the completed WPP settings; wireless reconnects automatically. Continue with companion setup below.
 
 **What this does not change:** the Wi-Fi password, WPP network interface and optional frequency are not transferred. It does not configure the companion's legacy **Car WiFi** auto-join list; leave that list empty on Android Auto 17.4+ so Android Auto owns Wi-Fi association. You do not need to repeat the transfer on every drive—use it for initial setup or if the hotspot's SSID/BSSID changes.
 
@@ -118,7 +118,7 @@ vehicle Bluetooth connects
 4. Remove legacy **Car WiFi** entries from the companion.
 5. Re-pair the phone and vehicle over Bluetooth.
 6. Keep **Phone calls** enabled.
-7. Save and reconnect.
+7. Tap **Save changes**; wireless reconnects automatically.
 
 The older **Wi-Fi / Car Hotspot** mode cannot cold-start current Android Auto releases because its phone-side startup entry point is disabled.
 

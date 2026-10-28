@@ -59,7 +59,8 @@ class CarPlayCoordinator(
 
     private class Attempt(val token: CarPlayOwnership.Token, val initialSurface: Surface?, val sessionLease: CarPlaySessionLease) {
         val context = CarPlayAttemptContext(CarPlayHostMediaLease(
-            CarPlayPlayingPublicationExperiment.snapshotMode()))
+            CarPlayPlayingPublicationExperiment.snapshotMode()), captureAdmission = { !canceled.get() && sessionLease.captureAllowed() },
+            onCaptureRetirement = sessionLease::onCaptureRetirement, onInputAdvertised = sessionLease::inputAdvertised)
         var mediaBegun = false
         var runtimeClosed = false
         var protectionReleased = false
@@ -96,6 +97,12 @@ class CarPlayCoordinator(
     private fun run(attempt: Attempt, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime) {
         var failedStatus: String? = null
         try {
+            attempt.sessionLease.onProtectionLost {
+                attempt.canceled.set(true)
+                attempt.sessionLease.revokeCapture()
+                attempt.runtime?.cancel()
+                interrupter.execute { runCatching { attempt.runtime?.close() } }
+            }
             // OS acceptance is not promotion. Never retire AA/bootstrap transport unprotected.
             attempt.sessionLease.awaitReady()
             // Return means real stop completion, never an IDLE snapshot.
@@ -104,6 +111,7 @@ class CarPlayCoordinator(
             if (attempt.canceled.get() || !ownership.canBootstrap(attempt.token)) return
             attempt.mediaBegun = true // even partial apply owns retryable cleanup debt.
             mediaLeases.begin(attempt.context.hostMedia)
+            CarPlaySessionLeases.refreshNotification()
             if (attempt.canceled.get() || !ownership.canBootstrap(attempt.token)) return
             val runtime = factory(attempt.context) { message -> record(attempt, message) }
             synchronized(lock) {
@@ -154,18 +162,34 @@ class CarPlayCoordinator(
     /** One retryable finalizer, including failed factory/null-runtime and partial-apply debt. */
     private fun finishAttempt(attempt: Attempt) {
         if (attempt.mediaBegun) attempt.context.hostMedia.record("pending", "unknown", "pending")
-        if (!attempt.runtimeClosed) {
+        if (!attempt.runtimeClosed) retirementStage(CarPlayForegroundStage.RUNTIME_CLOSE) {
             attempt.runtime?.cancel()
             attempt.runtime?.close()
             attempt.runtimeClosed = true
             attempt.runtime = null
         }
-        if (!attempt.protectionReleased) {
-            attempt.sessionLease.release()
+        if (!attempt.protectionReleased) retirementStage(CarPlayForegroundStage.PROTECTION_RELEASE) {
+            attempt.sessionLease.releaseAndAwait()
             attempt.protectionReleased = true
         }
-        if (attempt.mediaBegun) mediaLeases.finish(attempt.context.hostMedia)
-        ownership.acknowledgeCarPlayRetired(attempt.token)
+        if (attempt.mediaBegun) retirementStage(CarPlayForegroundStage.MEDIA_FINISH) {
+            mediaLeases.finish(attempt.context.hostMedia)
+        }
+        retirementStage(CarPlayForegroundStage.OWNERSHIP_RELEASE) {
+            ownership.acknowledgeCarPlayRetired(attempt.token)
+        }
+    }
+
+    /** Stage failure, not arbitrary exception text, survives in the existing diagnostic export. */
+    private inline fun retirementStage(stage: CarPlayForegroundStage, action: () -> Unit) {
+        CarPlayForegroundReceipts.emit(stage,CarPlayForegroundStatus.REQUESTED)
+        try {
+            action()
+            CarPlayForegroundReceipts.emit(stage,CarPlayForegroundStatus.ACKNOWLEDGED)
+        } catch (failure: Exception) {
+            CarPlayForegroundReceipts.emit(stage,CarPlayForegroundStatus.FAILED)
+            throw failure
+        }
     }
 
     private fun record(attempt: Attempt, message: String) = synchronized(lock) {
@@ -212,6 +236,7 @@ class CarPlayCoordinator(
         commandEpoch++ // revoke already-queued reconnects even if no runtime exists yet.
         val attempt = current ?: return@synchronized
         attempt.canceled.set(true)
+        attempt.sessionLease.revokeCapture()
         attempt.runtime?.cancel()
         publish(state.copy(videoWaitActive = false, status = "Stopping CarPlay; waiting for exact receiver/control retirement"))
         // Socket closure breaks blocking connect/recv. Never close/join MediaCodec on UI thread.

@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased — CarPlay calls, native Audio and easier display setup
+
+Includes the 549 and 550 updates and subsequent changes since public release 0.1.548.
+
+### Calls and microphones
+- Use the owner-tested CarPlay car-microphone capture package for normal calls and button-initiated Siri, without diagnostic arming. Improve foreground protection and cleanup when projection ends or reconnects.
+- Add autosaved, protocol-specific Audio settings and persistent CarPlay call setup. Keep existing Android account approval, explain the remaining permission/account steps, and recover safely from interrupted permission prompts.
+- Support native incoming-call presentation and steering-wheel Answer/Reject/End on compatible vehicles. Keep Extra car ringtone Off by default to avoid requesting an additional vehicle ring. CarPlay's main UI can show the contact while the cluster still shows Unknown; caller identity is not fixed.
+- Recommend CarPlay calls with the iPhone unpaired from vehicle Bluetooth. Add a red warning that Bluetooth can cause repeated media pauses, including with Media audio off. Car Bluetooth remains an explicit alternative, not a pause-loop repair. Android Auto still requires Bluetooth Phone calls for cellular audio.
+
+### Native Audio and background operation
+- Add OpenAutoLink discovery in vehicle Audio, a Connected phone playback entry, shared native-Audio launcher and clearer disconnected/connecting states. Browse/start the current phone and use available Play/Pause/track controls; choose apps and tracks in projection.
+- Add guarded recovery through ordinary native Play when returning from another source, without a separate Resume audio button. Keep phone playback metadata separate from local output state so a compatible host can request playback again. Automatic music-and-navigation recovery still needs vehicle confirmation; phone-only Play is not a guaranteed substitute.
+- Improve background media/connected-device foreground protection, microphone eligibility and service-loss cleanup. Keep call/Siri ownership separate and prevent replaced sessions from controlling the current connection.
+
+### Saving and display setup
+- Rename the settings action to Save changes. On actual USB connections, persist settings without restarting projection and show the physical unplug/reconnect instruction. Wireless reconnects automatically when safe; calls defer the reconnect.
+- Expand CarPlay manual calibration to 100–2000 mm without changing saved values. Auto uses reliable display estimates or the saved calibration fallback when measurements are missing/unreliable. Left requests smaller UI/more content; right requests larger UI/less content. The iPhone chooses final layout and may apply steps or limits.
+- Refresh the Audio/call walkthroughs and retain clearly labeled prior app illustrations. The new red Bluetooth warning is not shown in those retained renders.
+
+### Diagnostics and limits
+- Add bounded media/readiness comparisons and background numeric capture/playback history to authorized manual diagnostic ZIPs, including retained media evidence with File Logging Off. No raw microphone/call audio recordings or automatic uploads.
+- Add an explicit local media-host APK ZIP save, separate from log upload. It saves public APK files only, not private app data; vendor rights and document-provider availability still apply.
+- Call setup and native controls depend on the vehicle. Microphone pickup, echo/double-talk, Siri recognition, source return, reconnect and ignition behavior still need testing on each affected setup. Bluetooth pause loops, cluster Unknown callers and broad vehicle compatibility are not claimed fixed.
+
+Thanks to Adam Harlow for native GM Audio discovery/browsing and background-media work that informed this integration.
+
 ## 0.1.545 — Android Auto touch alignment, CarPlay setup and experimental diagnostics
 
 Includes all changes since public GitHub release 0.1.541, including the earlier Play-only 542–544 updates.

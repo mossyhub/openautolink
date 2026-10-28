@@ -3,4 +3,5 @@
     <uses name="projection" />
     <uses name="template" />
     <uses name="navigation" />
+    <uses name="media" />
 </automotiveApp>

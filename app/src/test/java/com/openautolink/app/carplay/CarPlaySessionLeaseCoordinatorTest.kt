@@ -17,8 +17,12 @@ import org.robolectric.annotation.Config
 
 @org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE, application = Application::class)
+@Config(sdk = [32,34], manifest = Config.NONE, application = Application::class, shadows=[AcknowledgedForegroundShadow::class])
 class CarPlaySessionLeaseCoordinatorTest {
+    private fun nextStart(app: Application): android.content.Intent? {
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        return shadowOf(app).nextStartedService
+    }
     private fun coordinator(source: CarPlaySessionLeaseSource, onState: (CarPlayUiState) -> Unit = {}) =
         CarPlayCoordinator(CarPlayOwnership(), {}, source, onState)
     private fun CountDownLatch.waitFor() = assertTrue("Latch timed out", await(5, TimeUnit.SECONDS))
@@ -39,6 +43,57 @@ class CarPlaySessionLeaseCoordinatorTest {
         override fun cancel() { finish.countDown() }
         override fun close() { closing.countDown(); allowClose.waitFor() }
     }
+    @Test fun hostMediaRestorationWaitsForForegroundRemovalAcknowledgement() {
+        val releasing=CountDownLatch(1)
+        val allowRemoval=CountDownLatch(1)
+        val restored=CountDownLatch(1)
+        val lease=object : CarPlaySessionLease {
+            override fun release() { releasing.countDown() }
+            override fun releaseAndAwait() { release(); allowRemoval.waitFor() }
+        }
+        val owner=CarPlayCoordinator(CarPlayOwnership(),{},CarPlaySessionLeaseSource { lease },
+            object : CarPlayHostMediaLeaseSource {
+                override fun begin(lease: CarPlayHostMediaLease) {}
+                override fun finish(lease: CarPlayHostMediaLease) { restored.countDown() }
+            }) {}
+        try {
+            owner.connect(true) { object : CarPlayRuntime {
+                override fun run() {}
+                override fun cancel() {}
+                override fun close() {}
+            } }
+            releasing.waitFor()
+            assertFalse("Host restore cannot outrun main type-removal acknowledgement",restored.await(100,TimeUnit.MILLISECONDS))
+            allowRemoval.countDown(); restored.waitFor()
+        } finally { allowRemoval.countDown(); owner.close() }
+    }
+
+    @Test @Config(sdk=[32,34]) fun serviceLossAfterReadyCancelsExactRuntime() {
+        val app=RuntimeEnvironment.getApplication()
+        val runtime=Runtime()
+        val owner=coordinator(CarPlaySessionLeases.forContext(app))
+        val service=Robolectric.buildService(CarPlaySessionService::class.java).create()
+        try {
+            owner.connect(true) { runtime }
+            service.get().onStartCommand(nextStart(app),0,1)
+            runtime.started.waitFor()
+            service.destroy()
+            assertTrue("Loss must cancel an already-running runtime",runtime.finish.await(250,TimeUnit.MILLISECONDS))
+        } finally {
+            runtime.allowClose.countDown()
+            val returned = CountDownLatch(1)
+            owner.returnToAndroidAuto { returned.countDown() }
+            // Runtime.close entry is not retirement: releaseAndAwait still dispatches
+            // exact foreground removal to Main. Finish it before Robolectric resets Main.
+            eventually { returned.count == 0L }
+            owner.close()
+        }
+        val diagnostic = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
+        try {
+            assertNotNull("Service-loss fixture must acknowledge its exact capture claim retirement", diagnostic)
+        } finally { diagnostic?.release() }
+    }
+
     @Test fun canceledLateFactoryRetainsExactLeaseUntilItsRuntimeCloses() {
         val app = RuntimeEnvironment.getApplication()
         val runtime = Runtime()
@@ -50,7 +105,7 @@ class CarPlaySessionLeaseCoordinatorTest {
         val service = controller.get()
         try {
             owner.connect(true) { creating.countDown(); allowFactory.waitFor(); runtime }
-            service.onStartCommand(shadowOf(app).nextStartedService, 0, 1)
+            service.onStartCommand(nextStart(app), 0, 1)
             creating.waitFor()
             owner.stop()
             shadowOf(Looper.getMainLooper()).idle()
@@ -61,8 +116,10 @@ class CarPlaySessionLeaseCoordinatorTest {
             assertEquals("Canceled late runtime must never run", 1L, runtime.started.count)
             assertFalse(shadowOf(service).isStoppedBySelf)
             runtime.allowClose.countDown()
-            retired.waitFor()
             eventually { shadowOf(service).isStoppedBySelf }
+            assertEquals("Accepted stop must still retain exact finalizer debt",1L,retired.count)
+            controller.destroy()
+            eventually { retired.count == 0L }
         } finally { allowFactory.countDown(); runtime.allowClose.countDown(); owner.close(); controller.destroy() }
     }
 
@@ -85,7 +142,7 @@ class CarPlaySessionLeaseCoordinatorTest {
                 override fun cancel() { finish.countDown() }
                 override fun close() { check(allowClose.get()) { "Close not acknowledged" } }
             } }
-            service.onStartCommand(shadowOf(app).nextStartedService, 0, 1)
+            service.onStartCommand(nextStart(app), 0, 1)
             started.waitFor()
             owner.stop(); failed.waitFor()
             shadowOf(Looper.getMainLooper()).idle()
@@ -93,13 +150,16 @@ class CarPlaySessionLeaseCoordinatorTest {
             assertNotNull(shadowOf(service).lastForegroundNotification)
             assertFalse(owner.connect(true) { error("Unretired predecessor") })
             allowClose.set(true)
-            owner.stop(); retired.waitFor()
+            owner.stop()
             eventually { shadowOf(service).isStoppedBySelf }
+            assertEquals(1L,retired.count)
+            controller.destroy()
+            eventually { retired.count == 0L }
         } finally { allowClose.set(true); owner.close(); controller.destroy() }
     }
 
     @org.robolectric.annotation.Implements(android.app.Service::class)
-    class RejectForegroundShadow : org.robolectric.shadows.ShadowService() {
+    class RejectForegroundShadow : AcknowledgedForegroundShadow() {
         @org.robolectric.annotation.Implementation(minSdk = 29)
         override fun startForeground(id: Int, notification: android.app.Notification, foregroundServiceType: Int) {
             throw SecurityException("Platform promotion rejected")
@@ -117,8 +177,10 @@ class CarPlaySessionLeaseCoordinatorTest {
         val service = controller.get()
         try {
             owner.connect(true) { bootstraps.incrementAndGet(); error("Unprotected transport") }
-            service.onStartCommand(shadowOf(app).nextStartedService, 0, 1)
-            retired.waitFor()
+            service.onStartCommand(nextStart(app), 0, 1)
+            eventually { shadowOf(service).isStoppedBySelf }
+            controller.destroy()
+            eventually { retired.count == 0L }
             assertEquals("startForeground failure must revoke bootstrap", 0, bootstraps.get())
             assertNull(shadowOf(service).lastForegroundNotification)
         } finally { owner.close(); controller.destroy() }
@@ -136,9 +198,9 @@ class CarPlaySessionLeaseCoordinatorTest {
         val owner = coordinator(CarPlaySessionLeases(deniedContext)) { if (it.selected && !it.busy) retired.countDown() }
         try {
             owner.connect(true) { bootstraps.incrementAndGet(); error("Unprotected transport") }
-            retired.waitFor()
+            eventually { retired.count == 0L }
             assertEquals("OS start failure must revoke bootstrap", 0, bootstraps.get())
-            assertNull(shadowOf(app).nextStartedService)
+            assertNull(nextStart(app))
         } finally { owner.close() }
     }
 
@@ -164,14 +226,15 @@ class CarPlaySessionLeaseCoordinatorTest {
         val owner = coordinator(CarPlaySessionLeases.forContext(app)) { if (it.selected && !it.busy) retired.countDown() }
         val controller = Robolectric.buildService(CarPlaySessionService::class.java).create()
         val service = controller.get()
+        // Initialize the mock framework before starting this fixture's bounded runtime wait.
+        val surface = io.mockk.mockk<android.view.Surface>()
         try {
             assertTrue(owner.connect(true) { factory.countDown(); runtime })
-            val start = shadowOf(app).nextStartedService
+            val start = nextStart(app)
             assertNotNull("Exact attempt must acquire protection during admission", start)
             assertFalse("Bootstrap must await actual foreground promotion", factory.await(100, TimeUnit.MILLISECONDS))
             service.onStartCommand(start, 0, 1)
             runtime.started.waitFor()
-            val surface = io.mockk.mockk<android.view.Surface>()
             owner.attachSurface(surface)
             owner.detachSurface(surface)
             assertEquals("Presentation detach cannot retire transport", 1L, runtime.finish.count)
@@ -181,8 +244,10 @@ class CarPlaySessionLeaseCoordinatorTest {
             shadowOf(Looper.getMainLooper()).idle()
             assertFalse("Close in progress must retain foreground priority", shadowOf(service).isStoppedBySelf)
             runtime.allowClose.countDown()
-            retired.waitFor()
             eventually { shadowOf(service).isStoppedBySelf }
+            assertEquals("Accepted stop must still retain exact finalizer debt",1L,retired.count)
+            controller.destroy()
+            eventually { retired.count == 0L }
         } finally { runtime.allowClose.countDown(); owner.close(); controller.destroy() }
     }
 }

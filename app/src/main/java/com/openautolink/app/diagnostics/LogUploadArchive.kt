@@ -8,7 +8,8 @@ import java.util.zip.ZipOutputStream
 /** Metadata contains only log basenames and filesystem times, never endpoint credentials. */
 internal data class UploadSelection(val source: File, val name: String, val bytes: Long, val modified: Long, val ev: Boolean)
 internal data class UploadSkipped(val name: String, val ev: Boolean, val reason: String)
-internal data class UploadPlan(val selected: List<UploadSelection>, val skipped: List<UploadSkipped>, val now: Long)
+internal data class UploadPlan(val selected: List<UploadSelection>, val skipped: List<UploadSkipped>, val now: Long,
+    val mediaPreparation: MediaStoreStatus = MediaStoreStatus.UNAVAILABLE)
 internal class LogUploadArchive(
     val file: File, val plan: UploadPlan,
     val regularTruncated: Int, val evTruncated: Int,
@@ -31,7 +32,7 @@ internal class LogUploadArchive(
         const val MAX_RAW_BYTES = 25L * 1024 * 1024
         const val MAX_MEMBER_BYTES = 16L * 1024 * 1024 - 1
 
-        fun select(files: List<File>, now: Long): UploadPlan {
+        fun select(files: List<File>, now: Long, mediaPreparation: MediaStoreStatus = MediaStoreStatus.UNAVAILABLE): UploadPlan {
             val selected = mutableListOf<UploadSelection>()
             val skipped = mutableListOf<UploadSkipped>()
             val used = mutableSetOf("upload_manifest.log")
@@ -56,8 +57,21 @@ internal class LogUploadArchive(
                 .sortedByDescending { it.name }.take(12).toSet()
             val localAlias = unique.filter { it.name == "microphone_diagnostic.log" && it.length() <= 32768 }
                 .filter { alias -> localRuns.any { run -> run.length()==alias.length() && run.readBytes().contentEquals(alias.readBytes()) } }.toSet()
-            unique.sortedWith(compareByDescending<File> { it in captureRuns || it in localRuns || it in bluetoothRuns || it in telecomReceipts }
-                    .thenByDescending { it.name.startsWith("ev_", true) }.thenByDescending { it.lastModified() })
+            fun media(file: File) = MediaDiagnosticStore.runName.matches(file.name)
+            val validMedia = unique.filter { media(it) && it.length() <= MediaDiagnosticStore.MAX_BYTES &&
+                it.lastModified() >= now - MediaDiagnosticStore.TTL_MS && MediaDiagnosticStore.valid(it) }.toSet()
+            val mediaRuns = validMedia.sortedWith(compareByDescending<File> { it.name }.thenBy { it.absolutePath })
+                .distinctBy { it.name }.take(MediaDiagnosticStore.MAX_RUNS).toSet()
+            fun tier(file: File) = when {
+                file in captureRuns || file in localRuns || file in bluetoothRuns || file in telecomReceipts -> 0
+                media(file) -> 1
+                file.name.startsWith("ev_", true) -> 2
+                else -> 3
+            }
+            unique.sortedWith(compareBy<File> { tier(it) }
+                    .thenByDescending { if (media(it)) MediaDiagnosticStore.sequence(it.name) ?: 0L else 0L }
+                    .thenByDescending { if (tier(it) == 0) it.name.startsWith("ev_", true) else false }
+                    .thenByDescending { it.lastModified() }.thenBy { it.absolutePath })
                 .forEachIndexed { index, file ->
                     val ev = file.name.startsWith("ev_", true)
                     val safe = file.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(160)
@@ -72,6 +86,10 @@ internal class LogUploadArchive(
                     val retainedCapture = file in captureRuns || file in localRuns || file in bluetoothRuns || file in telecomReceipts
                     val reason = when {
                         !file.isFile || !file.name.endsWith(".log", true) -> "not_log_file"
+                        media(file) && bytes > MediaDiagnosticStore.MAX_BYTES -> "media_member_bytes_limit"
+                        media(file) && modified < now - MediaDiagnosticStore.TTL_MS -> "outside_media_retention"
+                        media(file) && file !in validMedia -> "media_invalid_schema"
+                        media(file) && file !in mediaRuns -> if (mediaRuns.any { it.name == file.name }) "media_duplicate_run" else "outside_latest_three_media"
                         file in localAlias -> "duplicate_latest_alias"
                         telecom(file) && bytes > telecomLimit(file) -> "telecom_receipt_bytes_limit"
                         telecom(file) && file !in telecomReceipts -> "outside_latest_telecom_receipt"
@@ -81,7 +99,7 @@ internal class LogUploadArchive(
                         capture(file) && bytes > CaptureTerminalLogStore.MAX_BYTES -> "capture_member_bytes_limit"
                         local(file) && bytes > 32768 -> "diagnostic_member_bytes_limit"
                         (capture(file) || local(file)) && !retainedCapture -> "outside_latest_twelve"
-                        !retainedCapture && modified < now - window -> if (ev) "outside_ev_retention" else "outside_recent_window"
+                        !retainedCapture && !media(file) && modified < now - window -> if (ev) "outside_ev_retention" else "outside_recent_window"
                         bytes > MAX_MEMBER_BYTES -> "member_bytes_limit"
                         selected.size >= 63 -> "member_count_limit"
                         bytes > remaining -> "total_bytes_limit"
@@ -93,7 +111,7 @@ internal class LogUploadArchive(
                         remaining -= bytes
                     }
                 }
-            return UploadPlan(selected, skipped, now)
+            return UploadPlan(selected, skipped, now, mediaPreparation)
         }
 
         fun create(plan: UploadPlan, directory: File, flushConfirmed: Boolean = true, bluetoothFlushConfirmed: Boolean = true): LogUploadArchive {
@@ -106,6 +124,8 @@ internal class LogUploadArchive(
                     val buffer = ByteArray(32 * 1024)
                     plan.selected.forEachIndexed { index, selection ->
                         java.io.RandomAccessFile(selection.source, "r").use { source ->
+                            if (MediaDiagnosticStore.runName.matches(selection.source.name) && !MediaDiagnosticStore.valid(selection.source))
+                                throw java.io.IOException("media summary changed")
                             if (source.length() < selection.bytes) throw java.io.EOFException("log shortened during snapshot")
                             if (source.length() == selection.bytes && selection.source.lastModified() != selection.modified) {
                                 throw java.io.IOException("log changed during snapshot")
@@ -158,6 +178,8 @@ internal class LogUploadArchive(
                         appendLine("ev_window_ms=${7 * 86_400_000L} regular_window_ms=${6 * 3_600_000L}")
                         appendLine("ev_flush_confirmed=$flushConfirmed")
                         appendLine("bluetooth_flush_confirmed=$bluetoothFlushConfirmed bluetooth_window_ms=${BluetoothReconnectRecorder.TTL_MS}")
+                        appendLine("media_summary_preparation=${plan.mediaPreparation} media_summary_unavailable=${plan.mediaPreparation == MediaStoreStatus.UNAVAILABLE}")
+                        appendLine("media_selected=${plan.selected.count { MediaDiagnosticStore.runName.matches(it.source.name) }} media_omitted=${plan.skipped.count { MediaDiagnosticStore.runName.matches(it.name) }} media_window_ms=${MediaDiagnosticStore.TTL_MS}")
                         appendLine("ev_files=${plan.selected.count { it.ev }} regular_files=${plan.selected.count { !it.ev }}")
                         appendLine("regular_truncated=$regularTruncated ev_truncated=$evTruncated skipped_count=${plan.skipped.size}")
                         appendLine("selected_mtime_min_ms=${plan.selected.minOfOrNull { it.modified }} selected_mtime_max_ms=${plan.selected.maxOfOrNull { it.modified }}")

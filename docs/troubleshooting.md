@@ -88,9 +88,17 @@ For the reported setup, call USB confirmed only after a current build produces a
 
 - Disable native copies of Spotify, YouTube Music, or similar apps on the head unit if both the native and projected sessions react to controls.
 - Disable the phone pairing's Bluetooth **Media audio** when Android Auto should own media.
-- Keep Bluetooth **Phone calls** enabled for WPP and native hands-free call audio.
+- **Android Auto:** keep Bluetooth **Phone calls** enabled for WPP and native hands-free call audio. This is not the USB CarPlay recommendation: unpair the iPhone from the car and leave Bluetooth disconnected for CarPlay calls. Bluetooth can cause repeated CarPlay media pauses even with Media audio off; see [phone calls](phone-calls.md).
 - Confirm media metadata and audible audio refer to the same current track.
 - If audio continues after Stop or falls seconds behind the UI, capture logs showing the native audio event and the Kotlin `Audio stop applied`/pending-audio evidence.
+
+## CarPlay is silent after returning from FM or another source
+
+Select OpenAutoLink in native vehicle Audio and use the normal **Play** control if needed. There is no separate Resume audio button. The current guarded recovery candidate depends on the vehicle delivering ordinary Play and granting media focus; automatic return still needs physical confirmation for both music and navigation. Phone PLAYING metadata, a track title or an accepted command is not audible-output proof. Do not enable phone-resume diagnostics as a routine setup step. See [source-return recovery](carplay-source-return-recovery.md).
+
+## USB settings saved but the display did not change
+
+**Save changes** persists the next-session settings without interrupting an actual USB projection. The visible notice is **Saved. Unplug and reconnect USB to apply.** Physically unplug/reconnect, approve the system prompts and check the new session. Saving alone does not renegotiate the running display. Audio/call choices save independently; see [saving and reconnecting](../README.md#what-save-changes-does).
 
 ## The native Phone app replaces Android Auto during calls
 

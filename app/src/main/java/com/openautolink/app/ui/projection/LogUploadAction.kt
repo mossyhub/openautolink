@@ -72,7 +72,7 @@ internal class LogUploadAction {
             UploadFailureCode.DISABLED -> "Enable Upload Logs in Settings."
             UploadFailureCode.NOT_CONFIGURED -> "Set the upload URL and token in Settings."
             UploadFailureCode.HTTPS_REQUIRED -> "Set a valid HTTPS upload URL in Settings."
-            UploadFailureCode.NO_LOGS -> "No eligible log files; enable File Logging and retry."
+            UploadFailureCode.NO_LOGS -> "No eligible evidence; collect diagnostics and retry (File Logging is optional)."
             UploadFailureCode.SNAPSHOT -> "Source logs retained; retry the log snapshot."
             UploadFailureCode.HTTP -> "Source logs retained; check upload settings or retry later."
             UploadFailureCode.NETWORK -> "Source logs retained; check internet and retry."

@@ -89,7 +89,7 @@ class VehicleEnergyReconnectContractTest {
         )
 
         val handlerStart = source.indexOf(
-            "private fun handleControlMessage(sourceSession: AasdkSession, message: ControlMessage)",
+            "private suspend fun handleControlMessage(sourceSession: AasdkSession, message: ControlMessage)",
         )
         val handlerEnd = source.indexOf("// ── EV energy-model tuning", handlerStart)
         assertTrue(handlerStart >= 0 && handlerEnd > handlerStart)

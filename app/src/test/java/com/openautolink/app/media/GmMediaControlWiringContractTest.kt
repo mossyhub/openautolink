@@ -56,7 +56,8 @@ class GmMediaControlWiringContractTest {
             .substringBefore("internal fun controllerClass(")
         assertTrue(dispatch.contains("MetadataHostOwnership.process.legacy"))
         assertTrue(dispatch.contains("mediaControlCallback.takeIf { hostMediaLease == null }"))
-        assertTrue(dispatch.contains("callback?.onCommand(command)"))
+        assertTrue(dispatch.contains("if (callback != null)"))
+        assertTrue(dispatch.contains("callback.onCommand(command)"))
 
         assertTrue(manager.contains("installGmMediaControls()"))
         assertTrue(manager.contains("registerMuteStateReceiver()"))

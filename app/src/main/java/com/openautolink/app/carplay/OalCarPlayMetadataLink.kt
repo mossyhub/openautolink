@@ -14,7 +14,16 @@ internal class OalCarPlayMetadataLink(
     private val receipt: (String) -> Unit,
     private val host: CarPlayMetadataHost? = null,
 ) : RuntimeMetadataLink {
+    @Volatile var capturePlaybackObservation: () -> ((Boolean?) -> Unit)? = { null }
     private val intake = CarPlayMetadataIntake(elapsedMs).apply { onDiagnostic = receipt }
+    override fun mediaAvailability(ready:Boolean) { if (!retired.get()) host?.mediaAvailability(ready) }
+    private data class Output(val blocked:Boolean,val current:()->Boolean)
+    private val pendingOutput=java.util.concurrent.atomic.AtomicReference<Output?>()
+    override fun mediaOutput(blocked:Boolean,current:()->Boolean) {
+        if (retired.get() || !current()) return
+        pendingOutput.set(Output(blocked,current))
+        synchronized(this) { schedule() }
+    }
     private val retired = AtomicBoolean()
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "oal-carplay-metadata").apply { isDaemon = true } }
     private var scheduled = false
@@ -31,7 +40,9 @@ internal class OalCarPlayMetadataLink(
     }
     @Synchronized override fun handle(frame: Iap2Frame): Boolean {
         if (retired.get()) return frame.messageId in setOf(0x5001,0x5201,0x5202)
+        val observation=if(authenticated) capturePlaybackObservation() else null
         val handled = intake.handle(frame)
+        intake.explicitPlayback?.let { observation?.invoke(it.playing) }
         if (handled && authenticated) {
             accepted++
             if (accepted == 1L || accepted % 100 == 0L) receipt("carplay-metadata received=$accepted media=${intake.media != null} guidance=${intake.navigation != null} hostPublication=$published")
@@ -58,24 +69,26 @@ internal class OalCarPlayMetadataLink(
                     val snapshot = synchronized(this) {
                         if (!dirty) return@execute
                         dirty = false
-                        Triple(intake.media, intake.routeMetadata, intake.artwork)
+                        Triple(intake.media, intake.routeMetadata, intake.artwork) to pendingOutput.getAndSet(null)
                     }
                     if (!retired.get()) {
-                        host.publishRoute(snapshot.first, snapshot.second, snapshot.third)
-                        val instruction = snapshot.second?.instruction
-                        if (snapshot.second != publishedRoute) {
+                        snapshot.second?.let { if (it.current()) host.mediaOutput(it.blocked,it.current) }
+                        val content=snapshot.first
+                        host.publishRoute(content.first, content.second, content.third)
+                        val instruction = content.second?.instruction
+                        if (content.second != publishedRoute) {
                             val transition = when {
-                                snapshot.second == null -> "end"
+                                content.second == null -> "end"
                                 publishedRoute == null -> "start"
                                 else -> "change"
                             }
                             val availability = when {
-                                snapshot.second == null -> "none"
+                                content.second == null -> "none"
                                 instruction == null -> "loading"
                                 else -> "ready"
                             }
-                            publishedRoute = snapshot.second
-                            runCatching { receipt("carplay-route publication=returned active=${snapshot.second != null} instruction=$availability transition=$transition") }
+                            publishedRoute = content.second
+                            runCatching { receipt("carplay-route publication=returned active=${content.second != null} instruction=$availability transition=$transition") }
                         }
                         if (instruction != publishedNavigation) {
                             val transition = when {
@@ -86,9 +99,9 @@ internal class OalCarPlayMetadataLink(
                             publishedNavigation = instruction
                             runCatching { receipt("carplay-nav publication=returned guidance=${instruction != null} transition=$transition") }
                         }
-                        if (!published && (snapshot.first != null || snapshot.second != null)) {
+                        if (!published && (content.first != null || content.second != null)) {
                             published = true
-                            receipt("carplay-metadata hostPublication=true media=${snapshot.first != null} guidance=${instruction != null}")
+                            receipt("carplay-metadata hostPublication=true media=${content.first != null} guidance=${instruction != null}")
                         }
                     }
                 }
@@ -103,7 +116,7 @@ internal class OalCarPlayMetadataLink(
             }
         }
     }
-    override fun revoke() { retired.set(true); synchronized(this) { intake.revoke(); dirty = false } }
+    override fun revoke() { retired.set(true); host?.mediaAvailability(false); synchronized(this) { intake.revoke(); dirty = false } }
     override fun close() {
         revoke()
         worker.shutdown()

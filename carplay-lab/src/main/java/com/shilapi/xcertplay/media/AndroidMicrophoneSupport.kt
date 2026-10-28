@@ -39,12 +39,15 @@ object AndroidMicrophoneSupport {
     }
     fun permissionGranted(): Boolean = context?.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-    @Synchronized fun probe(context: Context): MicrophoneCapability {
+    fun probe(context: Context): MicrophoneCapability = probe(context) { true }
+    @Synchronized fun probe(context: Context, admission: () -> Boolean): MicrophoneCapability {
         initialize(context)
         releasedShapes.clear()
         configured = null
         qualified = MicrophoneCapability.NONE
-        return capability
+        if (!admission() || !permissionGranted()) return MicrophoneCapability.NONE
+        runCatching { names(admission) }.getOrElse { return MicrophoneCapability.NONE }
+        return if (admission() && permissionGranted()) qualified else MicrophoneCapability.NONE
     }
 
     val capability: MicrophoneCapability
@@ -78,7 +81,7 @@ object AndroidMicrophoneSupport {
         return if (permissionGranted()) result else emptyMap()
     }
 
-    @Synchronized private fun names(): Map<Long, String> {
+    @Synchronized private fun names(admission: () -> Boolean = { true }): Map<Long, String> {
         if (!permissionGranted()) return emptyMap()
         val manager = context?.getSystemService(AudioManager::class.java) ?: return emptyMap()
         val microphoneTypes = setOf(AudioDeviceInfo.TYPE_BUILTIN_MIC, AudioDeviceInfo.TYPE_WIRED_HEADSET,
@@ -93,11 +96,13 @@ object AndroidMicrophoneSupport {
         // A recorder/encoder qualified for 48k MIC says nothing about 24k VOICE_RECOGNITION.
         val rates = listOf(MicrophoneSource.MIC, MicrophoneSource.VOICE_RECOGNITION).associateWith { source ->
             // A diagnostic reservation is temporary, not a negative capability to cache.
-            setOf(24000, 48000).filter { rate -> qualifies(source, rate) ?: return emptyMap() }.toSet()
+            setOf(24000, 48000).filter { rate -> qualifies(source, rate, admission = admission) ?: return emptyMap() }.toSet()
         }
-        val call = checkNotNull(CarPlayMicrophoneCapturePolicy.profile("telephony", null))
+        // Explicit legacy qualification history remains available to advanced independent overrides.
+        val call = CarPlayMicrophoneExperimentProfile(source=MicrophoneSource.VOICE_RECOGNITION,
+            rate=CarPlayMicrophoneCaptureRate.HZ_48000, channels=CarPlayMicrophoneChannels.TWO)
         val converter = CarPlayMicrophonePcmConverter(call, 24000)
-        val callQualified = qualifies(checkNotNull(call.source), converter.captureRate, converter.captureChannels)
+        val callQualified = qualifies(checkNotNull(call.source), converter.captureRate, converter.captureChannels, admission = admission)
             ?: return emptyMap()
         val result = if (callQualified || rates.values.any { 48000 in it }) encoderNames() else emptyMap()
         qualified = MicrophoneCapability.of(listOf("default", "telephony", "speechrecognition").associateWith { kind ->
@@ -111,14 +116,15 @@ object AndroidMicrophoneSupport {
         return if (permissionGranted()) result else emptyMap()
     }
 
-    private fun qualifies(source: MicrophoneSource, rate: Int, channels: Int = 1, aaStyle: Boolean = false): Boolean? {
+    private fun qualifies(source: MicrophoneSource, rate: Int, channels: Int = 1, aaStyle: Boolean = false, admission: () -> Boolean = { true }): Boolean? {
+        if (!admission() || !permissionGranted()) return false
         val observation = CaptureAcquisitionLedger.current.get()?.owner(CaptureAcquisitionLedger.Kind.PROBE, source, rate, channels)
         val lease = MicrophoneCaptureFence.tryNormal() ?: return null.also { observation?.event(Action.CREATE, Result.BLOCKED) }
         var record: AudioRecord? = null
         var valid = false
         try {
             observation?.event(Action.CREATE)
-            record = recorder(source, rate, channels, observation, aaStyle)
+            record = recorder(source, rate, channels, observation, aaStyle, admission)
             valid = record.state == AudioRecord.STATE_INITIALIZED && record.sampleRate == rate &&
                 record.channelCount == channels && record.audioFormat == AudioFormat.ENCODING_PCM_16BIT
             observation?.event(Action.VALIDATE, if (valid) Result.OK else Result.FAILED)
@@ -131,22 +137,25 @@ object AndroidMicrophoneSupport {
             }
             catch (_: Exception) { valid = false; observation?.event(Action.RELEASE_FAILED, Result.FAILED) } // retain fence
         }
-        return (valid && permissionGranted()).also {
+        return (valid && admission() && permissionGranted()).also {
             if (it) releasedShapes.add(CaptureShape(source, rate, channels))
         }
     }
 
-    @Synchronized fun experimentCapability(context: Context, profile: CarPlayMicrophoneExperimentProfile): MicrophoneCapability {
+    fun experimentCapability(context: Context, profile: CarPlayMicrophoneExperimentProfile): MicrophoneCapability =
+        experimentCapability(context, profile) { true }
+    @Synchronized fun experimentCapability(context: Context, profile: CarPlayMicrophoneExperimentProfile, admission: () -> Boolean): MicrophoneCapability {
         initialize(context)
         releasedShapes.clear()
         if (!permissionGranted()) return MicrophoneCapability.NONE
+        if (!admission() || !permissionGranted()) return MicrophoneCapability.NONE
         val encoders = encoderNames()
         return MicrophoneCapability.of(listOf("default", "telephony", "speechrecognition").associateWith { kind ->
             val source = profile.source ?: checkNotNull(MicrophoneSupport.source(kind))
             MicrophoneSupport.implementedBits.filter { bit ->
                 val wireRate = if (bit in MicrophoneSupport.pcmBits) 24000 else 48000
                 val converter = CarPlayMicrophonePcmConverter(profile, wireRate)
-                val valid = qualifies(source, converter.captureRate, converter.captureChannels, profile.aaStyle)
+                val valid = qualifies(source, converter.captureRate, converter.captureChannels, profile.aaStyle, admission)
                     ?: return MicrophoneCapability.NONE
                 valid && (bit in MicrophoneSupport.pcmBits || encoders.containsKey(bit))
             }.toSet()
@@ -158,23 +167,27 @@ object AndroidMicrophoneSupport {
         MicrophonePolicyDiagnostics.forRecorder(checkNotNull(context), record, source, rate, report)
 
     internal fun recorder(source: MicrophoneSource, sampleRate: Int = 48000, channels: Int = 1,
-        observation: CaptureAcquisitionLedger.Owner? = null, aaStyle: Boolean = false): AudioRecord {
+        observation: CaptureAcquisitionLedger.Owner? = null, aaStyle: Boolean = false,
+        admission: () -> Boolean = { true }): AudioRecord {
+        check(admission()) { "Capture admission revoked" }
         require(if (aaStyle) source == MicrophoneSource.VOICE_RECOGNITION && sampleRate == 16000 && channels == 1
             else sampleRate in setOf(24000,48000) && channels in 1..2)
         val app = checkNotNull(context)
         if (app.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             throw SecurityException("Microphone consent unavailable")
-        if (aaStyle) return AndroidAutoCapturePath.recorder()
+        if (aaStyle) return AndroidAutoCapturePath.recorder(admission)
         val mask = if (channels == 2) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
         val minimum = AudioRecord.getMinBufferSize(sampleRate, mask, AudioFormat.ENCODING_PCM_16BIT)
         require(minimum > 0)
         observation?.event(Action.BUFFER, Result.OK, maxOf(minimum * 2, sampleRate / 50 * channels * 2 * 4))
+        check(admission()) { "Capture admission revoked" }
         return AudioRecord.Builder().setAudioSource(when (source) {
             MicrophoneSource.MIC -> MediaRecorder.AudioSource.MIC
             MicrophoneSource.VOICE_COMMUNICATION -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
             MicrophoneSource.VOICE_RECOGNITION -> MediaRecorder.AudioSource.VOICE_RECOGNITION
         }).setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate)
             .setChannelMask(mask).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-            .setBufferSizeInBytes(maxOf(minimum * 2, sampleRate / 50 * channels * 2 * 4)).build()
+            .setBufferSizeInBytes(maxOf(minimum * 2, sampleRate / 50 * channels * 2 * 4))
+            .also { check(admission()) { "Capture admission revoked" } }.build()
     }
 }

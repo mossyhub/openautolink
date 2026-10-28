@@ -1,6 +1,6 @@
 # GAL/PDK compatibility versions
 
-OpenAutoLink exposes a **GAL / PDK protocol version** selector in **Settings → Video**. The selected raw head-unit-requested version applies on the next Android Auto session; use **Save & Reconnect** after changing it.
+OpenAutoLink exposes a **GAL / PDK protocol version** selector in **Settings → Video**. The selected raw head-unit-requested version applies on the next Android Auto session; tap **Save changes**, then reconnect your phone after changing it. Wireless reconnects automatically; for USB, unplug and reconnect.
 
 The default is **6.0**, verified in vehicle over USB and wireless. **1.7** remains
 available as the manual compatibility fallback. Version 0.1.456 rotates the
@@ -93,7 +93,7 @@ The positive success signal is not merely a 6.x response. It is a stable end-to-
 
 ## Risk and fallback
 
-If projection, audio, touch, or navigation regresses, select **1.7** and use **Save & Reconnect**. Do not use video-focus bouncing as a keyframe workaround; it caused a verified encoder-throttle regression.
+If projection, audio, touch, or navigation regresses, select **1.7**, tap **Save changes**, then reconnect your phone. Wireless reconnects automatically; for USB, unplug and reconnect. Do not use video-focus bouncing as a keyframe workaround; it caused a verified encoder-throttle regression.
 
 GAL 6 H.265 startup is verified in vehicle. Select 1.7 only when testing legacy
 phone compatibility or isolating behavior outside the verified GAL 6 path.

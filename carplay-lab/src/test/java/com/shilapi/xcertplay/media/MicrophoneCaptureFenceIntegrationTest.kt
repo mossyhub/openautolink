@@ -42,7 +42,7 @@ class MicrophoneCaptureFenceIntegrationTest {
     @Test fun normalUplinkIsRejectedBeforeWorkerStartWhenDiagnosticOwnsCapture() {
         val cap=prepare();val lines=mutableListOf<String>()
         val lease=MicrophoneCaptureFence.tryDiagnostic()!!
-        val owner=MicrophoneUplink(config(cap),lines::add)
+        val owner=MicrophoneUplink(config(cap),lines::add,captureAdmission=MicrophoneCaptureAdmission {true})
         try {
             owner.start()
             assertTrue("diagnostic fence rejects normal start synchronously",owner.isRetired)
@@ -58,7 +58,7 @@ class MicrophoneCaptureFenceIntegrationTest {
                 return -1
             }
         })
-        val owner=MicrophoneUplink(config(cap))
+        val owner=MicrophoneUplink(config(cap),captureAdmission=MicrophoneCaptureAdmission {true})
         try {
             owner.start();assertTrue(entered.await(3,TimeUnit.SECONDS));owner.close()
             assertFalse(owner.isRetired)

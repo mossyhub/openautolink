@@ -25,6 +25,46 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
         private set
     /** Process choice; snapshot only at each exact admitted incoming announcement. */
     fun setCarPlayRingtoneOnly(value: Boolean) { carPlayRingtoneOnly = value }
+    @Volatile private var productionManaged = false
+    @Volatile private var productionCarPlay = false
+    @Volatile private var productionAdmission: () -> Boolean = { false }
+    /** Production intent is separate from local repair and the legacy diagnostic enable epoch. */
+    fun applyProductionPolicy(carPlay: Boolean, extraRingtone: Boolean, canAdmit: () -> Boolean) {
+        productionAdmission = canAdmit
+        productionCarPlay = carPlay
+        carPlayRingtoneOnly = !extraRingtone
+        productionManaged = true
+        // Deliberately do NOT change controlsEpoch or close the admitted owner on a preference write.
+        controls = true
+    }
+    val hasAdmittedCall: Boolean get() = link?.hasAdmittedCall == true
+    private fun admitsNewCall() = !productionManaged || (productionCarPlay && productionAdmission())
+    private fun admitsCommand() = !productionManaged || productionAdmission()
+    fun repairLocalPresentation(): java.util.concurrent.CompletableFuture<Boolean> =
+        link?.retireLocalCalls() ?: java.util.concurrent.CompletableFuture.completedFuture(true)
+    /** Startup/resume operation, no prompts, no account removal, no diagnostic enable/close ritual. */
+    fun prepareProduction(): Result = accountOperation {
+        val generation = epoch
+        if (!hasReadPermission) return@accountOperation Result.READ_PERMISSION_REQUIRED
+        val manager = telecom ?: return@accountOperation Result.DENIED_OR_UNAVAILABLE
+        try {
+            val existing = manager.getPhoneAccount(handle)
+            if (existing == null || existing.label.toString() != "OpenAutoLink") {
+                manager.registerPhoneAccount(PhoneAccount.builder(handle, "OpenAutoLink")
+                    .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
+                    .setSupportedUriSchemes(listOf(PhoneAccount.SCHEME_TEL)).build())
+            }
+        } catch (_: RuntimeException) { return@accountOperation Result.DENIED_OR_UNAVAILABLE }
+        val snapshot = readAuthority(generation)
+        if (epoch != generation || !hasReadPermission) return@accountOperation Result.READ_PERMISSION_REQUIRED
+        synchronized(lifecycle) { if (epoch == generation) enabledRequested = true }
+        when (snapshot.value) {
+            AccountAuthority.ENABLED -> Result.ENABLED_FOR_THIS_PROCESS
+            AccountAuthority.DISABLED -> Result.REGISTERED_USER_ENABLE_REQUIRED
+            AccountAuthority.ABSENT -> Result.REGISTER_RETURNED_ACCOUNT_ABSENT
+            AccountAuthority.UNKNOWN -> Result.REGISTER_RETURNED_READ_UNAVAILABLE
+        }
+    }
     enum class ControlResult { ACCOUNT_REQUIRED, CONTROLS_ENABLED }
     /** Explicit native-controls enable; exact link and enable generations still fence every queued command. */
     fun enableNativeControls(): ControlResult {
@@ -160,7 +200,7 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
             receipt(Stage.MANAGER_LOOKUP, if (manager == null) Outcome.NO_MANAGER else Outcome.RETURNED, generation)
             if (manager == null) return@accountOperation Result.DENIED_OR_UNAVAILABLE
             try {
-                manager.registerPhoneAccount(PhoneAccount.builder(handle, "OAL CarPlay incoming experiment")
+                manager.registerPhoneAccount(PhoneAccount.builder(handle, "OpenAutoLink")
                     .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
                     .setSupportedUriSchemes(listOf(PhoneAccount.SCHEME_TEL)).build())
                 receipt(Stage.REGISTER, Outcome.RETURNED, generation)
@@ -240,7 +280,7 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
         fun installed() = enabledRequested && epoch == generation && link === bridge
         fun current() = installed() && isCurrent() && installed()
         bridge = ManagedIncomingBridge({ armed }, { token ->
-            check(current() && armed && current())
+            check(current() && armed && admitsNewCall() && current())
             val extras = Bundle().apply {
                 putString(REQUEST_TOKEN, token)
                 // Non-public AOSP compatibility experiment, NOT a supported provider API.
@@ -253,6 +293,7 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
                     key?.let { putBoolean(it, true) }
                 }
             }
+            check(current() && armed && admitsNewCall() && current())
             telecom?.addNewIncomingCall(handle, extras)
                 ?: throw IllegalStateException("Telecom unavailable")
             val policy = if (extras.getBoolean("android.telecom.extra.CALL_EXTERNAL_RINGER")) "EXTERNAL_COMPAT"
@@ -266,7 +307,7 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
             else { pending.decrementAndGet(); false }
         }, ::current, { action -> main.post { action() } }, controlSender?.let { sender ->
             { command, commandCurrent ->
-                fun allowed() = controls && controlsEpoch == controlGeneration && armed && current() && commandCurrent()
+                fun allowed() = controls && controlsEpoch == controlGeneration && armed && admitsCommand() && current() && commandCurrent()
                 if (!allowed()) false else {
                     accounts.execute {
                         if (allowed()) {
@@ -284,7 +325,7 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
         }
         bridge.rejectIntent = rejectSender?.let { sender ->
             { commandCurrent ->
-                fun allowed() = controls && controlsEpoch == controlGeneration && armed && current() && commandCurrent()
+                fun allowed() = controls && controlsEpoch == controlGeneration && armed && admitsCommand() && current() && commandCurrent()
                 if (!allowed()) false else {
                     accounts.execute {
                         if (allowed()) {

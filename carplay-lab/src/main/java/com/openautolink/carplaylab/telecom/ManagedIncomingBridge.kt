@@ -19,6 +19,36 @@ class ManagedIncomingBridge(
     private val retireDispatch: (() -> Unit) -> Boolean = dispatch,
     private val controlIntent: ((com.shilapi.xcertplay.airplay.PhoneControl, () -> Boolean) -> Boolean)? = null,
 ) : AutoCloseable {
+    private val localRepairBlocked = AtomicBoolean()
+    @Volatile var hasAdmittedCall: Boolean = false
+        private set
+    /** Local repair/conflict only. Retain tombstones so a restored guard cannot reannounce a call. */
+    fun retireLocalCalls(): java.util.concurrent.CompletableFuture<Boolean> {
+        localRepairBlocked.set(true)
+        val completion = java.util.concurrent.CompletableFuture<Boolean>()
+        controlRevision.incrementAndGet()
+        val action = {
+            try {
+                records.values.filter { it.admitted }.forEach { record ->
+                    latch(record, Failure.STATE)
+                    record.consumed = true
+                    record.connection?.let {
+                        if (it.state != Connection.STATE_DISCONNECTED)
+                            it.setDisconnected(DisconnectCause(DisconnectCause.LOCAL, "Local presentation retired"))
+                        it.destroy()
+                    }
+                    record.connection = null
+                }
+                hasAdmittedCall = false
+                localRepairBlocked.set(false)
+                completion.complete(true)
+            } catch (_: RuntimeException) { completion.complete(false) }
+            Unit
+        }
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) action()
+        else if (!runCatching { retireDispatch(action) }.getOrDefault(false)) completion.complete(false)
+        return completion
+    }
     private val revoked = AtomicBoolean()
     private val cleanupQueued = AtomicBoolean()
     private val closed = java.util.concurrent.CountDownLatch(1)
@@ -212,8 +242,12 @@ class ManagedIncomingBridge(
         // Optional timestamp is not published; private identity goes only to the exact Connection.
         if (!record.admitted && record.status == 2 && record.direction == 1) {
             record.admitted = true // before OS call, so denied/replayed events cannot ring again
-            try { announce(record.token) } catch (_: RuntimeException) { record.consumed = true }
+            try {
+                check(!localRepairBlocked.get())
+                announce(record.token); hasAdmittedCall = true
+            } catch (_: RuntimeException) { record.consumed = true }
         }
+        if (record.status == 0) hasAdmittedCall = records.values.any { it.admitted && it.status != 0 && (it.connection != null || !it.consumed) }
         receipt("OBSERVATION", "OBSERVED", record)
         record.connection?.let { update(record, it) }
     }
@@ -271,7 +305,7 @@ class ManagedIncomingBridge(
         val withheld = when {
             sender == null -> "DISPLAY_ONLY"
             !controlsLive(record) -> "FAILED"
-            !live() -> "OWNER"
+            !live() || localRepairBlocked.get() -> "OWNER"
             multiHint.get() -> "MULTI_HINT"
             appliedRevision != controlRevision.get() -> "OBSERVATIONS_QUEUED"
             capacityDrops != 0 -> "CAPACITY"
@@ -290,7 +324,7 @@ class ManagedIncomingBridge(
         record.confirmationDeadline = android.os.SystemClock.elapsedRealtime() + 5000
         controlStatus = "QUEUED_${action}_UNCONFIRMED"
         receipt(action, "QUEUED", record)
-        if (!sender!!(control) { controlsLive(record) && !revoked.get() && current() && controlRevision.get() == revision }) {
+        if (!sender!!(control) { controlsLive(record) && !localRepairBlocked.get() && !revoked.get() && current() && controlRevision.get() == revision }) {
             latch(record, Failure.SENDER_WITHHELD); controlStatus = "COMMAND_WITHHELD"
             receipt(action, "SENDER_WITHHELD", record)
         }

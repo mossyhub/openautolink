@@ -61,7 +61,7 @@ class CarPlayPcmMicrophoneExportTest {
             }
         })
         val texture=SurfaceTexture(0); val surface=Surface(texture)
-        val sink=AndroidMediaSink(app,surface,display=CarPlayDisplaySelection(CarPlayDisplayPreferences(),"avc.exact",false),onStatus=reporter::record)
+        val sink=AndroidMediaSink(app,surface,display=CarPlayDisplaySelection(CarPlayDisplayPreferences(),"avc.exact",false),captureAdmission={true},onStatus=reporter::record)
         val session=AirPlaySession(Socket(),AirPlayConfig("test","id","mac","950.7.1",AirPlayDisplayConfig(800,480)),
             AirPlayIdentity.generate(),PairingStore(),null,object : AirPlaySessionListener {},object : AirPlayMediaHandler {})
         val folder=java.nio.file.Files.createTempDirectory(java.nio.file.Path.of(System.getProperty("java.io.tmpdir")),"pcm-export").toFile()
@@ -74,14 +74,15 @@ class CarPlayPcmMicrophoneExportTest {
                 assertTrue("actual exact-recorder policy omitted by sanitizer",policy.await(3,TimeUnit.SECONDS))
                 assertTrue("actual exact-recorder configuration omitted by sanitizer",configuration.await(3,TimeUnit.SECONDS))
                 assertTrue("actual exact-recorder effects omitted by sanitizer",effects.await(3,TimeUnit.SECONDS))
-                // Normal telephony owns VR48 stereo/AVERAGE capture, independently of
+                // Normal telephony owns accepted VR16 mono capture, independently of
                 // the negotiated LPCM24 mono wire format. No manual experiment is armed.
-                assertTrue(lines.any { it.contains("microphone-config scope=own requested=VOICE_RECOGNITION rate=48000 recorder=VOICE_RECOGNITION") })
+                assertTrue(lines.any { it.contains("microphone-config scope=own requested=VOICE_RECOGNITION rate=16000 recorder=VOICE_RECOGNITION") })
                 assertEquals(2,lines.count { it.contains("microphone-effects ") })
                 listOf("client","capture").forEach { chain ->
-                    assertTrue(lines.any { it.contains("microphone-effects scope=own source=VOICE_RECOGNITION rate=48000 chain=$chain ") })
+                    assertTrue(lines.any { it.contains("microphone-effects scope=own source=VOICE_RECOGNITION rate=16000 chain=$chain ") })
                 }
-                assertTrue(lines.any { it.contains("microphone-policy scope=own source=VOICE_RECOGNITION rate=48000 permission=granted") })
+                assertTrue(lines.any { it.contains("microphone-policy scope=own source=VOICE_RECOGNITION rate=16000 permission=granted") })
+                assertTrue(lines.any { it.contains("microphone-acquisition path=aa-style source=VOICE_RECOGNITION captureRate=16000 captureChannels=1 wireRate=24000") })
                 assertTrue(lines.any { it.endsWith("media stage=microphone-format type=100 audioType=telephony codec=LPCM rate=24000 channels=1 spf=480 source=VOICE_RECOGNITION") })
                 assertFalse(lines.any { it.contains("media stage=microphone-experiment ") })
                 assertTrue("actual capture aggregate omitted by sanitizer",lines.any {
@@ -139,7 +140,7 @@ class CarPlayPcmMicrophoneExportTest {
             }
         })
         val texture=SurfaceTexture(0); val surface=Surface(texture)
-        val sink=AndroidMediaSink(app,surface,display=CarPlayDisplaySelection(CarPlayDisplayPreferences(),"avc.exact",false))
+        val sink=AndroidMediaSink(app,surface,display=CarPlayDisplaySelection(CarPlayDisplayPreferences(),"avc.exact",false),captureAdmission={true})
         val session=AirPlaySession(Socket(),AirPlayConfig("test","id","mac","950.7.1",AirPlayDisplayConfig(800,480)),
             AirPlayIdentity.generate(),PairingStore(),null,object : AirPlaySessionListener {},object : AirPlayMediaHandler {})
         try {

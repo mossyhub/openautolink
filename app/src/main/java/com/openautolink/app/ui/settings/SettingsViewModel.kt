@@ -156,7 +156,7 @@ internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
         "Enter the head unit's real Bluetooth address in CarPlay settings."
     settings.videoError() != null -> settings.videoError()
     settings.widthPhysicalMm !in com.openautolink.carplaylab.media.CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM ->
-        "Choose a manual UI size from the slider in Display (100 to 400 mm calibration)."
+        "Choose a manual UI size from the slider in Display."
     else -> null
 }
 
@@ -211,7 +211,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 } == true
                 _carPlayCredentialImportStatus.value = if (imported) {
                     _carPlayIdentityReady.value = true
-                    "Identity imported and locally validated. Use Save & Reconnect for the next connection. Phone acceptance is not verified."
+                    "Identity imported and locally validated. Save changes, then reconnect your phone. Phone acceptance is not verified."
                 } else "Import failed. Choose a matching P-256 PKCS#8 key and single certificate (each at most 16 KiB). Existing identity is unchanged."
             } catch (_: Exception) {
                 _carPlayCredentialImportStatus.value = "Could not read or import the selected files. Existing identity is unchanged."
@@ -643,8 +643,28 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { preferences.setDisplayMode(mode) }
     }
 
+    private val audioMutation = Mutex()
+    private val _audioSaveError = MutableStateFlow("")
+    val audioSaveError: StateFlow<String> = _audioSaveError
+
+    /** Ordinary audio writes never validate or commit the connection/video/display draft. */
+    private fun saveAudio(write: suspend () -> Unit) {
+        viewModelScope.launch {
+            audioMutation.withLock {
+                try {
+                    write()
+                    _audioSaveError.value = ""
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    _audioSaveError.value = "Audio settings could not be saved. Try again."
+                }
+            }
+        }
+    }
+
     fun updateMicSource(source: String) {
-        viewModelScope.launch { preferences.setMicSource(source) }
+        saveAudio { preferences.setMicSource(source) }
     }
 
     fun updateBtMacOverride(mac: String) {
@@ -834,15 +854,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateVolumeOffsetMedia(offset: Int) {
-        viewModelScope.launch { preferences.setVolumeOffsetMedia(offset) }
+        saveAudio { preferences.setVolumeOffsetMedia(offset) }
     }
 
     fun updateVolumeOffsetNavigation(offset: Int) {
-        viewModelScope.launch { preferences.setVolumeOffsetNavigation(offset) }
+        saveAudio { preferences.setVolumeOffsetNavigation(offset) }
     }
 
     fun updateVolumeOffsetAssistant(offset: Int) {
-        viewModelScope.launch { preferences.setVolumeOffsetAssistant(offset) }
+        saveAudio { preferences.setVolumeOffsetAssistant(offset) }
     }
 
     fun updateManualIpEnabled(enabled: Boolean) {
@@ -858,7 +878,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         super.onCleared()
     }
 
-    /** Reconnect the AA session with current settings. Called from Settings "Save & Reconnect". */
+    /** Reconnect the AA session with current settings. Called from Settings "Save changes". */
     fun saveAndReconnect() {
         viewModelScope.launch {
             val sm = com.openautolink.app.session.SessionManager.instanceOrNull() ?: return@launch

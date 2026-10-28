@@ -40,7 +40,7 @@ class ManagedTelecomPanelTest {
     }
     @Test @Config(shadows = [RefusingRegistration::class])
     fun registrationFailureDoesNotHideAccountSettingsOrInspect() {
-        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { LegacyManagedTelecomPanel() } } }
         click("telecomEnabled")
         compose.onNodeWithTag("telecomEnabled").assertIsOff()
         compose.onNodeWithTag("telecomStatus").assertTextContains("DENIED_OR_UNAVAILABLE", substring = true)
@@ -63,7 +63,7 @@ class ManagedTelecomPanelTest {
     fun settingsDuringFailedEnableRetiresPendingGenerationWithoutReplacingLatestStatus() {
         HeldRefusingRegistration.entered = java.util.concurrent.CountDownLatch(1)
         HeldRefusingRegistration.release = java.util.concurrent.CountDownLatch(1)
-        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { LegacyManagedTelecomPanel() } } }
         compose.waitForIdle()
         while (shadowOf(app).nextStartedActivity != null) { }
         compose.onNodeWithTag("telecomEnabled").assertIsOff().performScrollTo().performClick()
@@ -91,7 +91,7 @@ class ManagedTelecomPanelTest {
         shadowOf(app.packageManager).addActivityIfNotPresent(exact).apply {
             exported = true; enabled = true; applicationInfo.enabled = true
         }
-        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { LegacyManagedTelecomPanel() } } }
         compose.waitForIdle()
         while (shadowOf(app).nextStartedActivity != null) { }
         val controllerContext = experiment.javaClass.getDeclaredField("context").apply { isAccessible = true }.get(experiment)
@@ -103,12 +103,12 @@ class ManagedTelecomPanelTest {
         assertNull(app.getSystemService(TelecomManager::class.java).getPhoneAccount(experiment.handle))
     }
     @Test fun settingsAndInspectRemainReachableWhileOff() {
-        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { LegacyManagedTelecomPanel() } } }
         compose.onNodeWithTag("telecomEnableSettings").assertIsEnabled()
         compose.onNodeWithTag("telecomInspect").assertExists()
     }
     @Test fun ringtoneExperimentIsSimpleDefaultOffProcessChoiceAndSoundSettingsDoesNotEnableAccount() {
-        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { LegacyManagedTelecomPanel() } } }
         compose.waitForIdle()
         while (shadowOf(app).nextStartedActivity != null) { }
         compose.onNodeWithTag("telecomRingtoneOnly").assertIsOff().performScrollTo().performClick()
@@ -128,7 +128,7 @@ class ManagedTelecomPanelTest {
     }
     @Test fun nativeReceiptExportsAfterDiagnosticsRouteIsGoneWithoutOptionalFileLogging() {
         val visible = androidx.compose.runtime.mutableStateOf(true)
-        compose.setContent { MaterialTheme { if (visible.value) Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.setContent { MaterialTheme { if (visible.value) Column(Modifier.verticalScroll(rememberScrollState())) { LegacyManagedTelecomPanel() } } }
         compose.waitForIdle()
         visible.value = false; compose.waitForIdle()
         compose.onNodeWithTag("telecomEnabled").assertDoesNotExist()
@@ -155,7 +155,7 @@ class ManagedTelecomPanelTest {
         }
     }
     @Test fun simpleTogglesRegisterOnlyOnEnableAndKeepSystemAccountEnableSeparate() {
-        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { LegacyManagedTelecomPanel() } } }
         compose.waitForIdle()
         val manager = app.getSystemService(TelecomManager::class.java)
         assertNull(manager.getPhoneAccount(experiment.handle))
@@ -182,7 +182,7 @@ class ManagedTelecomPanelTest {
         compose.onNodeWithTag("telecomEnabled").assertIsOff()
     }
     @Test fun unavailableSettingsNeverLaunchFromCompositionOrInventFallback() {
-        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { ManagedTelecomPanel() } } }
+        compose.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) { LegacyManagedTelecomPanel() } } }
         compose.waitForIdle()
         // Compose itself launches its test Activity; drain that known host before this assertion.
         while (shadowOf(app).nextStartedActivity != null) { }

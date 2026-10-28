@@ -20,6 +20,15 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
  * App preferences backed by DataStore.
  */
 class AppPreferences private constructor(private val dataStore: DataStore<Preferences>) {
+    val carPlayCallPreferences: Flow<CarPlayCallPreferences> = dataStore.data.map {
+        CarPlayCallPreferences.decode(it[CARPLAY_CALL_PREFERENCES])
+    }
+    suspend fun updateCarPlayCallPreferences(transform: (CarPlayCallPreferences) -> CarPlayCallPreferences) {
+        dataStore.edit { values ->
+            values[CARPLAY_CALL_PREFERENCES] = transform(CarPlayCallPreferences.decode(values[CARPLAY_CALL_PREFERENCES])).encode()
+        }
+    }
+
 
     companion object {
         @Volatile
@@ -35,6 +44,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
         /** Atomic CarPlay-only record; no Wi-Fi password or authentication material. */
         val CARPLAY_SETTINGS = stringPreferencesKey("carplay_settings_v1")
+        val CARPLAY_CALL_PREFERENCES = stringPreferencesKey("carplay_call_preferences_v1")
 
         val VIDEO_AUTO_NEGOTIATE = booleanPreferencesKey("video_auto_negotiate")
         val VIDEO_CODEC = stringPreferencesKey("video_codec")
