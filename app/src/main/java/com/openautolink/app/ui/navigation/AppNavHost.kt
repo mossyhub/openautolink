@@ -33,6 +33,26 @@ object AppDestinations {
     const val SAFE_AREA_EDITOR = "safe_area_editor"
 }
 
+/** The exact callback shared by overlay and destination; persistence precedes every runtime action. */
+@Composable
+internal fun rememberProductionSettingsSaveAction(
+    settingsViewModel: SettingsViewModel,
+    projectionViewModel: ProjectionViewModel,
+    onBack: () -> Unit,
+): () -> Unit {
+    val scope = rememberCoroutineScope()
+    return {
+        scope.launch {
+            projectionViewModel.clearSettingsSaveMessage()
+            applySettingsAndRestart(
+                settingsViewModel::commitCarPlaySettings,
+                { projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect) },
+                onBack,
+            )
+        }
+    }
+}
+
 @Composable
 fun AppNavHost(
     navController: NavHostController = rememberNavController(),
@@ -40,7 +60,6 @@ fun AppNavHost(
     // Share ViewModels across screens
     val settingsViewModel: SettingsViewModel = viewModel()
     val projectionViewModel: ProjectionViewModel = viewModel()
-    val settingsScope = rememberCoroutineScope()
     val audioBindings = com.openautolink.app.ui.settings.rememberProductionAudioBindings(projectionViewModel::reconnectCarPlay)
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val mediaActivity = androidx.compose.ui.platform.LocalContext.current as androidx.activity.ComponentActivity
@@ -89,15 +108,7 @@ fun AppNavHost(
                             carPlayState.busy -> "CarPlay · connecting"
                             else -> "CarPlay · stopped"
                         } else null,
-                        onSaveAndConnect = {
-                            settingsScope.launch {
-                                applySettingsAndRestart(
-                                    settingsViewModel::commitCarPlaySettings,
-                                    { projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect) },
-                                    onBack,
-                                )
-                            }
-                        },
+                        onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel, onBack),
                         onBack = onBack,
                         onNavigateToDiagnostics = onShowDiagnostics,
                         onNavigateToCarPlaySafeAreaEditor = onCarPlaySafeEditor,
@@ -124,14 +135,8 @@ fun AppNavHost(
                     viewModel = settingsViewModel,
                     audioBindings = audioBindings,
                     onBack = { navController.popBackStack() },
-                    onSaveAndConnect = {
-                        settingsScope.launch {
-                            applySettingsAndRestart(
-                                settingsViewModel::commitCarPlaySettings,
-                                { projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect) },
-                                { navController.popBackStack() },
-                            )
-                        }
+                    onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel) {
+                        navController.popBackStack()
                     },
                     onNavigateToDiagnostics = { navController.navigate(AppDestinations.DIAGNOSTICS) },
                     onNavigateToSafeAreaEditor = { navController.navigate(AppDestinations.SAFE_AREA_EDITOR) },

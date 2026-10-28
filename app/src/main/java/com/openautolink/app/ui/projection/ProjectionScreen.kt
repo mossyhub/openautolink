@@ -119,6 +119,14 @@ private fun CarPlayVideoWaitIndicator(modifier: Modifier = Modifier) {
     }
 }
 
+/** Persisted next-session intent, not a spinner or a claim that the phone renegotiated. */
+@Composable
+private fun SettingsSaveNotice(message: String, modifier: Modifier = Modifier) {
+    Text(message, modifier.padding(16.dp).clip(RoundedCornerShape(12.dp))
+        .background(Color(0xE6000000)).padding(horizontal = 20.dp, vertical = 12.dp)
+        .testTag("settingsSaveNotice"), color = Color.White, style = MaterialTheme.typography.bodyMedium)
+}
+
 /** Confirmation only: the ViewModel owns routing, permissions and exact-generation retirement. */
 @Composable
 private fun UsbHotPlugSwitchDialog(
@@ -159,6 +167,7 @@ fun ProjectionScreen(
     val usbSwitchFailure by viewModel.usbSwitchFailure.collectAsStateWithLifecycle()
     val carPlayEnabled by viewModel.carPlayEnabled.collectAsStateWithLifecycle()
     val carPlayStartupGuidance by viewModel.carPlayStartupGuidance.collectAsStateWithLifecycle()
+    val settingsSaveMessage by viewModel.settingsSaveMessage.collectAsStateWithLifecycle()
     val carPlayPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
@@ -285,9 +294,12 @@ fun ProjectionScreen(
                 showSettings = showSettings, showDiagnostics = showDiagnostics,
                 onSettings = { showSettings = true },
             )
+            if (!showSettings && !showDiagnostics && !showCarPlaySafeEditor) settingsSaveMessage?.let {
+                SettingsSaveNotice(it, Modifier.align(Alignment.TopCenter))
+            }
             if (CarPlayVideoWaitPolicy.shouldShow(
                     carPlayState, carPlayEnabled,
-                    showSettings || showDiagnostics || showCarPlaySafeEditor || showUsbPicker || usbHotPlugPrompt != null || usbSwitchFailure != null,
+                    settingsSaveMessage != null || showSettings || showDiagnostics || showCarPlaySafeEditor || showUsbPicker || usbHotPlugPrompt != null || usbSwitchFailure != null,
                 )) {
                 CarPlayVideoWaitIndicator(Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp))
             }
@@ -298,7 +310,7 @@ fun ProjectionScreen(
             // Same exact parent and constraints as CarPlayProjectionLayer, above settings chrome.
             if (showCarPlaySafeEditor) carPlaySafeEditorOverlay { showCarPlaySafeEditor = false }
         }
-        if (!showSettings && !showDiagnostics && !showUsbPicker && !carPlayState.busy &&
+        if (settingsSaveMessage == null && !showSettings && !showDiagnostics && !showUsbPicker && !carPlayState.busy &&
             !carPlayState.evidence.videoRendered && carPlayState.failure == null) {
             Box(Modifier.fillMaxSize()) {
                 CarPlayRecoveryPanel(
@@ -601,8 +613,11 @@ fun ProjectionScreen(
             }
         }
 
+        if (!showSettings && !showDiagnostics && !showCarPlaySafeEditor) settingsSaveMessage?.let {
+            SettingsSaveNotice(it, Modifier.align(Alignment.TopCenter))
+        }
         // Setup/retry is secondary recovery UI, not the normal startup mechanism.
-        if (carPlayEnabled && carPlayStartupGuidance != null && !showSettings && !showDiagnostics) {
+        if (settingsSaveMessage == null && carPlayEnabled && carPlayStartupGuidance != null && !showSettings && !showDiagnostics) {
             CarPlayRecoveryPanel(
                 guidance = carPlayStartupGuidance!!,
                 enabled = true,
@@ -610,7 +625,7 @@ fun ProjectionScreen(
                 onSettings = { showSettings = true },
                 modifier = Modifier.align(Alignment.Center),
             )
-        } else if (uiState.sessionState != SessionState.STREAMING) {
+        } else if (settingsSaveMessage == null && uiState.sessionState != SessionState.STREAMING) {
             ConnectionHud(
                 uiState = uiState,
                 modifier = Modifier.align(Alignment.Center)
@@ -644,7 +659,7 @@ fun ProjectionScreen(
         // session healthy but no frames rendering yet, and gating on STREAMING
         // alone meant the one indicator that explains the wait stayed hidden for
         // the whole of it.
-        if ((uiState.sessionState == SessionState.STREAMING ||
+        if (settingsSaveMessage == null && (uiState.sessionState == SessionState.STREAMING ||
                 uiState.sessionState == SessionState.CONNECTED) &&
             uiState.videoStats.waitingForKeyframe
         ) {

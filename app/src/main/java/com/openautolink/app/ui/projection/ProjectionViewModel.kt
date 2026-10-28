@@ -393,6 +393,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                                 saved.enabled && saved.videoError() == null)
                     },
                     claimed = {
+                        _settingsSaveMessage.value = null // New attachment/selection consumes the next-session intent.
                         // Revoke queued wireless starts BEFORE awaited teardown; never write a preference.
                         usbHandoff.claim(generation)
                         carPlayCoordinator.dismissFailure()
@@ -619,12 +620,37 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         return issue == null && !off
     }
 
+    private val _settingsSaveMessage = MutableStateFlow<String?>(null)
+    val settingsSaveMessage = _settingsSaveMessage.asStateFlow()
+    fun clearSettingsSaveMessage() { _settingsSaveMessage.value = null }
+
     /** Called only AFTER awaited commit success. Read DataStore, never a captured selected/enabled UI seed. */
     fun reconnectAfterSettingsSave(reconnectAndroidAuto: () -> Unit) {
         projectionLaunchPolicy.suppress()
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             usbDispatchMutex.lock()
             try {
+                val saved = preferences.carPlaySettings.first()
+                // The cable can temporarily own either protocol while normal modes remain wireless.
+                // Conversely, a newly saved USB preference does not turn an active wireless session wired.
+                val aaActive = !_carPlayState.value.selected && sessionManager.sessionState.value.let {
+                    it == SessionState.CONNECTING || it == SessionState.CONNECTED || it == SessionState.STREAMING
+                }
+                val actualUsb = usbOverrideGeneration != null || sessionManager.externalUsbTransport || usbCarPlayRuntime != null ||
+                    if (_carPlayState.value.selected) false
+                    else if (aaActive) sessionManager.transportMode.value == AppPreferences.DIRECT_TRANSPORT_USB
+                    else if (saved.enabled) saved.connectionMode == "usb"
+                    else preferences.directTransport.first() == AppPreferences.DIRECT_TRANSPORT_USB
+                if (actualUsb) {
+                    _settingsSaveMessage.value = "Saved. Unplug and reconnect USB to apply."
+                    return@launch // Persisted intent is consumed at the next physical connection.
+                }
+                if (sessionManager.callState?.value?.let { it != com.openautolink.app.audio.CallState.IDLE } == true ||
+                    com.openautolink.carplaylab.telecom.ManagedTelecomExperiment.get(getApplication()).hasAdmittedCall) {
+                    _settingsSaveMessage.value = "Saved. Reconnect after the call to apply."
+                    return@launch
+                }
+                _settingsSaveMessage.value = null
                 usbPolicyEpoch.incrementAndGet()
                 retireUsbProjection()
                 unifiedUsbManager?.failedAdmission()
@@ -633,12 +659,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 releaseUsbCaptureClaims()
                 sessionManager.externalUsbTransport = false
                 synchronized(connectLock) { hasConnected = false; connectInFlight = false }
-                val saved = preferences.carPlaySettings.first()
                 if (usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
                     if (prepareCarPlayStart(saved)) carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
                 } else {
                     _carPlayStartupGuidance.value = null
-                    if (preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) reconnectAndroidAuto()
+                    if (aaActive || preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) reconnectAndroidAuto()
                 }
                 unifiedUsbManager?.retryCandidates()
             } finally { usbDispatchMutex.unlock() }
@@ -921,7 +946,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         }
         viewModelScope.launch {
             preferences.carPlaySettings.map { it.enabled }.distinctUntilChanged().collect { enabled ->
-                if (!enabled && _carPlayState.value.selected) {
+                if (!enabled && _carPlayState.value.selected && usbOverrideGeneration == null && usbCarPlayRuntime == null &&
+                    sessionManager.callState?.value?.let { it != com.openautolink.app.audio.CallState.IDLE } != true &&
+                    !com.openautolink.carplaylab.telecom.ManagedTelecomExperiment.get(getApplication()).hasAdmittedCall) {
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         usbDispatchMutex.lock()
                         try {
