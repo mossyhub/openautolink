@@ -156,7 +156,7 @@ internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
         "Enter the head unit's real Bluetooth address in CarPlay settings."
     settings.videoError() != null -> settings.videoError()
     settings.widthPhysicalMm !in com.openautolink.carplaylab.media.CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM ->
-        "Choose a manual UI size from the slider in Display (100 to 400 mm calibration)."
+        "Choose a manual UI size from the slider in Display."
     else -> null
 }
 

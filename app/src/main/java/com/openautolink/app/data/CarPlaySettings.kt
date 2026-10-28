@@ -68,7 +68,10 @@ data class CarPlaySettings(
     fun qualifiedDisplay(viewport: com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Input?,
         probe: com.shilapi.xcertplay.media.VideoDecoderProbe = com.shilapi.xcertplay.media.CarPlayVideoQualification.androidProbe()
     ): com.openautolink.carplaylab.media.CarPlayDisplayPreferences {
-        val requested = displayRequest().copy(autoScaleInput = if (autoScale) viewport else null)
+        // A missing measurement is still Auto with an explicit calibration fallback, not Manual.
+        val requested = displayRequest().copy(autoScaleInput = if (autoScale) viewport
+            ?: com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Input(
+                0, 0, 0, 0, Double.NaN, Double.NaN, 0) else null)
         val video = if (usesWindowGeometry) {
             com.shilapi.xcertplay.media.CarPlayVideoQualification.selectAutomatic(
                 viewport?.viewportWidthPx ?: 0, viewport?.viewportHeightPx ?: 0,

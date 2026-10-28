@@ -327,6 +327,8 @@ fun CarPlayDisplaySettingsSection(
     if (!settings.enabled) return
 
     var sliderWidthMm by remember(settings.widthPhysicalMm) { mutableStateOf(settings.widthPhysicalMm) }
+    val calibrationWidths = CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM
+    val sliderSum = calibrationWidths.first() + calibrationWidths.last()
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader("CarPlay")
         Text("CarPlay safe area", style = MaterialTheme.typography.titleMedium)
@@ -344,16 +346,16 @@ fun CarPlayDisplaySettingsSection(
                     viewModel.updateCarPlayDraft { it.copy(autoScale = automatic) }
                 }, modifier = Modifier.testTag("carPlayAutoScale"))
         }
-        Text("Auto uses the next session's viewport. Turn off for manual UI size.", style = MaterialTheme.typography.bodySmall)
+        Text("Auto uses display estimates when reliable; otherwise it uses your saved manual calibration.", style = MaterialTheme.typography.bodySmall)
         Text("Manual UI size", style = MaterialTheme.typography.titleMedium)
         // Follow AA DPI's local drag + finished draft update; larger UI is to the right.
         Slider(
-            value = (500 - sliderWidthMm).toFloat(),
-            onValueChange = { sliderWidthMm = 500 - it.toInt() },
+            value = (sliderSum - sliderWidthMm).toFloat(),
+            onValueChange = { sliderWidthMm = sliderSum - it.toInt() },
             onValueChangeFinished = {
                 viewModel.updateCarPlayDraft { it.copy(widthPhysicalMm = sliderWidthMm) }
             },
-            valueRange = 100f..400f,
+            valueRange = calibrationWidths.first().toFloat()..calibrationWidths.last().toFloat(),
             steps = 0,
             enabled = !saving && !settings.autoScale,
             modifier = Modifier.fillMaxWidth(0.7f).testTag("carPlayUiScale"),
@@ -362,8 +364,9 @@ fun CarPlayDisplaySettingsSection(
             Text("Smaller UI", style = MaterialTheme.typography.bodySmall)
             Text("Larger UI", style = MaterialTheme.typography.bodySmall)
         }
-        Text("Larger UI shows less content; smaller UI shows more.", style = MaterialTheme.typography.bodySmall)
-        SettingsHelp("Calibration: physical width $sliderWidthMm mm. Smaller physical width makes the UI larger. Auto estimates width from the viewport; this is CarPlay metadata, not Android Auto DPI.")
+        Text("Manual calibration: $sliderWidthMm mm", style = MaterialTheme.typography.bodyMedium)
+        Text("Smaller UI requests more content. iPhone chooses the final layout; check control size while parked.", style = MaterialTheme.typography.bodySmall)
+        SettingsHelp("Wider advertised physical width requests smaller UI. Range 100–2000 mm; existing saved values stay unchanged. Tall layouts limit effective calibration to preserve physical aspect. Auto falls back to this calibration when display measurements are unavailable or unreliable. This changes CarPlay size metadata, not video resolution or Android Auto DPI. iPhone may apply layout steps or limits.")
         Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider()

@@ -33,7 +33,7 @@ class CarPlaySettingsTransactionTest {
             assertNull(carPlayEditError(settings))
             assertEquals(settings, CarPlaySettings.decode(CarPlaySettings.encode(settings)))
         }
-        for (width in listOf(99, 401)) {
+        for (width in listOf(99, 2001)) {
             assertNotNull("Noncanonical width $width would reset on read", carPlayEditError(CarPlaySettings(widthPhysicalMm = width)))
         }
     }
