@@ -3,6 +3,7 @@ package com.openautolink.app.ui.settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -51,13 +52,22 @@ internal fun CarPlayCallSettings(bindings: AudioSettingsBindings?) {
     val editable = bindings != null && state.preferencesLoaded && !state.busy
     AudioChoice("CarPlay", state.handler == CarPlayCallHandler.CARPLAY,
         "callHandler_CARPLAY", editable) { bindings?.onCallHandlerChange?.invoke(CarPlayCallHandler.CARPLAY) }
-    AudioChoice("Car Bluetooth", state.handler == CarPlayCallHandler.CAR_BLUETOOTH,
-        "callHandler_CAR_BLUETOOTH", editable) { bindings?.onCallHandlerChange?.invoke(CarPlayCallHandler.CAR_BLUETOOTH) }
+    Text("Recommended", style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant)
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.error) {
+        AudioChoice("Car Bluetooth", state.handler == CarPlayCallHandler.CAR_BLUETOOTH,
+            "callHandler_CAR_BLUETOOTH", editable) { bindings?.onCallHandlerChange?.invoke(CarPlayCallHandler.CAR_BLUETOOTH) }
+    }
+    Text("Warning: Bluetooth can cause repeated media pauses. Recommended: CarPlay. Unpair the iPhone from the car and leave Bluetooth disconnected.",
+        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.testTag("carPlayBluetoothWarning"))
     if (state.appliesToNextCall) Text("Applies to the next call", style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.testTag("callNextCall"))
     if (state.handler == CarPlayCallHandler.CARPLAY) {
         Text("Keep the iPhone disconnected from car Bluetooth for CarPlay calls.",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayBluetoothPrerequisite"))
+        Text("CarPlay calls still support the car microphone, steering-wheel controls and driver display/cluster. Complete call setup below.",
+            style = MaterialTheme.typography.bodyMedium)
         when (state.setup) {
             CarPlayCallSetup.READY -> AudioReadOnlyRow("Setup", "Ready")
             CarPlayCallSetup.LOADING -> Text("Checking call setup…", modifier = Modifier.testTag("callSetupChecking"))
