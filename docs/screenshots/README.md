@@ -2,7 +2,9 @@
 
 ## Current Audio settings and actual GM approval page
 
-- [Audio settings, landscape](Audio-Settings-Landscape.png): actual production Compose UI rendered with Robolectric NativeGraphics, API 34, 1000×700 dp, OAL dark theme, 100% font scale. Shows **Set up calls** and the persistent iPhone/car Bluetooth prerequisite.
+**Illustration freshness:** the four retained Audio renders below show the prior UI. They have not been regenerated for the current CarPlay Recommended label and red Bluetooth-pause warning. Current setup guidance is in [calls and microphones](../phone-calls.md); do not infer current warning styling from these images. The original renders and their provenance remain unchanged.
+
+- [Audio settings, landscape](Audio-Settings-Landscape.png): actual then-current production Compose UI rendered with Robolectric NativeGraphics, API 34, 1000×700 dp, OAL dark theme, 100% font scale. Shows **Set up calls** and the persistent iPhone/car Bluetooth prerequisite.
 - [CarPlay call controls](Audio-Settings-CarPlay-Calls.png): same landscape screen scrolled to show the Bluetooth prerequisite, **Set up calls**, **Extra car ringtone → Off**, and its visible helper: “Adds a vehicle ringtone alongside CarPlay.”
 - [Android Auto volume offsets, narrow / large text](Audio-Settings-Narrow-Volume.png): 320×640 dp, 150% font scale; percentage values remain visible alongside wrapped labels.
 - [Audio settings, narrow / large text](Audio-Settings-Narrow-Large-Text.png): same implemented UI at 320×640 dp with 150% font scale, scrolled to show the complete Bluetooth prerequisite, **Set up calls**, and ringtone helper. Content above this scroll position is cropped normally; the Compose test exercises scroll and Back.
