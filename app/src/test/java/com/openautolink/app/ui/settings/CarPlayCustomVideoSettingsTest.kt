@@ -28,8 +28,9 @@ class CarPlayCustomVideoSettingsTest {
         assertTrue(bootstrap.contains("saved.qualifiedDisplay(viewport)"))
         assertFalse(bootstrap.contains("CarPlayDisplayPreferences.fromStored"))
         val runtime = File(root, "app/src/main/java/com/openautolink/app/carplay/OalCarPlayRuntime.kt").readText()
-        assertTrue(runtime.contains("CarPlayDisplayPolicy.scaleDiagnostic(projection.displayConfiguration)"))
-        assertTrue(runtime.contains("DiagnosticLog.i(\"carplay-scale\", scaleSnapshot)"))
+        assertTrue(runtime.contains("val qualified = projection.displayConfiguration"))
+        assertTrue(runtime.contains("CarPlayDisplayPolicy.scaleDiagnostic(qualified)"))
+        assertTrue(runtime.contains("DiagnosticLog.i(\"carplay-scale\", legacy)"))
     }
 
     @Test fun partialTextDraftFailsSaveAndRetainsAllEnteredTextUntilCorrection() = kotlinx.coroutines.runBlocking {

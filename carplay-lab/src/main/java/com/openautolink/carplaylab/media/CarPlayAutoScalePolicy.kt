@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.openautolink.carplaylab.media
 
+import com.openautolink.carplaylab.media.CarPlayScaleReceipt.Mode
+import com.openautolink.carplaylab.media.CarPlayScaleReceipt.Reason
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** CarPlay advertises millimeters, never Android densityDpi or AA layout breakpoints. */
@@ -14,34 +17,49 @@ object CarPlayAutoScalePolicy {
     enum class Basis { MANUAL, HARDWARE_ESTIMATE, CALIBRATION_NEEDED }
     data class Size(val widthMm: Int, val heightMm: Int, val basis: Basis)
 
-    fun resolve(videoWidthPx: Int, videoHeightPx: Int, referenceWidthMm: Int, input: Input?): Size {
+    /** Classify the first rejection, retaining the existing acceptance predicate and arithmetic. */
+    fun resolveReceipt(videoWidthPx: Int, videoHeightPx: Int, referenceWidthMm: Int,
+        mode: Mode, input: Input?): CarPlayScaleReceipt {
         require(videoWidthPx > 0 && videoHeightPx > 0)
-        if (input == null) return Size(referenceWidthMm,
-            (referenceWidthMm.toDouble() * videoHeightPx / videoWidthPx).roundToInt(), Basis.MANUAL)
-        val geometryValid = input.displayWidthPx in 1..16384 && input.displayHeightPx in 1..16384 &&
+        val geometryValid = input != null && input.displayWidthPx in 1..16384 && input.displayHeightPx in 1..16384 &&
             input.viewportWidthPx in 1..input.displayWidthPx && input.viewportHeightPx in 1..input.displayHeightPx
-        val fittedWidth = if (geometryValid) videoWidthPx * minOf(
-            input.viewportWidthPx.toDouble() / videoWidthPx,
+        val fit = if (geometryValid) minOf(input!!.viewportWidthPx.toDouble() / videoWidthPx,
             input.viewportHeightPx.toDouble() / videoHeightPx) else 0.0
-        // Android/vendor values can be absent, defaulted, or logical-density aliases.
-        // Bounds are conservative metric sanity checks, NOT CarPlay layout rules.
-        val metricsValid = geometryValid && input.xdpi.isFinite() && input.ydpi.isFinite() &&
-            input.xdpi in 40.0..1000.0 && input.ydpi in 40.0..1000.0 &&
-            kotlin.math.abs(input.xdpi / input.ydpi - 1.0) <= 0.10 &&
-            // Conservatively reject the common baseline-density pair even after logical overrides.
-            !(kotlin.math.abs(input.xdpi - 160.0) <= 1.0 && kotlin.math.abs(input.ydpi - 160.0) <= 1.0) &&
-            !(kotlin.math.abs(input.xdpi - input.densityDpi) <= 1.0 &&
-                kotlin.math.abs(input.ydpi - input.densityDpi) <= 1.0) &&
-            input.displayWidthPx * 25.4 / input.xdpi in 50.0..2000.0 &&
-            input.displayHeightPx * 25.4 / input.ydpi in 30.0..2000.0
-        val widthMm = if (metricsValid) fittedWidth * 25.4 / input.xdpi else {
-            // DiPlay AirPlayDisplaySettings.resolvePhysicalSizeMm WIDTH basis:
-            // current ACTIVITY/viewport pixels / maximum DETECTED display pixels.
-            // Codec pixels are not that reference; changing 720p→1440p must not double mm.
-            if (geometryValid) referenceWidthMm * fittedWidth / input.displayWidthPx else referenceWidthMm.toDouble()
+        val fittedWidth = videoWidthPx * fit
+        val reason = when {
+            mode == Mode.MANUAL -> Reason.MANUAL
+            input == null -> Reason.MISSING_VIEWPORT
+            !geometryValid -> Reason.INVALID_GEOMETRY
+            !input.xdpi.isFinite() || !input.ydpi.isFinite() -> Reason.NONFINITE_METRICS
+            input.xdpi !in 40.0..1000.0 || input.ydpi !in 40.0..1000.0 -> Reason.METRIC_RANGE
+            abs(input.xdpi - 160.0) <= 1.0 && abs(input.ydpi - 160.0) <= 1.0 -> Reason.BASELINE_ALIAS
+            abs(input.xdpi - input.densityDpi) <= 1.0 && abs(input.ydpi - input.densityDpi) <= 1.0 -> Reason.LOGICAL_ALIAS
+            abs(input.xdpi / input.ydpi - 1.0) > 0.10 -> Reason.AXIS_DISAGREEMENT
+            input.displayWidthPx * 25.4 / input.xdpi !in 50.0..2000.0 ||
+                input.displayHeightPx * 25.4 / input.ydpi !in 30.0..2000.0 -> Reason.PHYSICAL_BOUNDS
+            else -> Reason.HARDWARE_ESTIMATE
         }
-        return Size(widthMm.roundToInt().coerceIn(1, 2000),
-            (widthMm * videoHeightPx / videoWidthPx).roundToInt().coerceIn(1, 2000),
-            if (metricsValid) Basis.HARDWARE_ESTIMATE else Basis.CALIBRATION_NEEDED)
+        val widthMm = when {
+            reason == Reason.MANUAL -> referenceWidthMm.toDouble()
+            reason == Reason.HARDWARE_ESTIMATE -> fittedWidth * 25.4 / input!!.xdpi
+            // DiPlay WIDTH basis: current fitted viewport / maximum detected display.
+            // Codec tiers must not change the millimeters for an unchanged physical viewport.
+            geometryValid -> referenceWidthMm * fittedWidth / input!!.displayWidthPx
+            else -> referenceWidthMm.toDouble()
+        }
+        // Preserve the legacy manual wrapper exactly, including its unclamped integer width.
+        fun effective(value: Double) = if (mode == Mode.MANUAL) value.roundToInt()
+            else value.roundToInt().coerceIn(1, 2000)
+        return CarPlayScaleReceipt(mode, reason, referenceWidthMm, effective(widthMm),
+            effective(widthMm * videoHeightPx / videoWidthPx),
+            input?.viewportWidthPx ?: 0, input?.viewportHeightPx ?: 0,
+            input?.displayWidthPx ?: 0, input?.displayHeightPx ?: 0,
+            fittedWidth, videoHeightPx * fit, input?.densityDpi, input?.xdpi, input?.ydpi,
+            videoWidthPx, videoHeightPx, input)
     }
+
+    /** Compatibility entry point: null historically meant Manual, not an unmeasured Auto request. */
+    fun resolve(videoWidthPx: Int, videoHeightPx: Int, referenceWidthMm: Int, input: Input?): Size =
+        resolveReceipt(videoWidthPx, videoHeightPx, referenceWidthMm,
+            if (input == null) Mode.MANUAL else Mode.AUTOMATIC, input).physicalSize
 }

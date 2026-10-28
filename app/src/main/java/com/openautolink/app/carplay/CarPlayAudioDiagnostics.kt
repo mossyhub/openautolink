@@ -30,7 +30,10 @@ object CarPlayAudioDiagnostics {
     private val accepted = Regex("BENCH_DIAG streamReply type=([0-9]{1,3}) port=$optional streamId=$optional")
     // Full-string matches: unknown fields, suffixes, control characters and upstream free text fail closed.
     private const val usbByte = "(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])"
+    private const val scaleDecimal = "[0-9]{1,5}(\\.[0-9]{1,20})?"
+    private const val scaleReason = "(manual|hardware_estimate|missing_viewport|invalid_geometry|nonfinite_metrics|metric_range|baseline_alias|logical_alias|axis_disagreement|physical_bounds)"
     private val schemas = listOf(
+        "BENCH_DIAG displayScaleV2 mode=(manual|auto) reason=$scaleReason reference=[0-9]{1,4} physical=[0-9]{1,4}x[0-9]{1,4} viewport=[0-9]{1,5}x[0-9]{1,5} display=[0-9]{1,5}x[0-9]{1,5} fitted=${scaleDecimal}x$scaleDecimal coded=[0-9]{1,5}x[0-9]{1,5} fps=[0-9]{1,3} xdpi=$scaleDecimal ydpi=$scaleDecimal logical=[0-9]{1,4}",
         "carplay-artwork result=(accepted|reference|unauthenticated|retired|size|limit) size=(empty|small|medium|large|oversized)",
         "media stage=host-media event=apply active=false mode=inactive result=ok lost=$number",
         "media stage=host-media event=apply active=true mode=(normal|suppress) result=ok lost=$number",
@@ -216,6 +219,7 @@ class CarPlayAudioDiagnosticReporter(
     private var networkCompletions = 0
     private var neighborReceipts = 0
     private var networkFirstFull = false
+    private var displayScaleOffered = false
     // Constant-space allowance independent of ordinary per-second details. Each exact runtime
     // can retain four receiver ledgers; unknown extra receivers fail closed, not grow a map.
     private val ledgerReceivers = linkedMapOf<Long, LongArray>()
@@ -229,6 +233,14 @@ class CarPlayAudioDiagnosticReporter(
 
     fun record(message: String) {
         val line = CarPlayAudioDiagnostics.sanitize(session, message) ?: return
+        // One exact qualified offer per local runtime, independent of status-flood budget.
+        if (message.startsWith("BENCH_DIAG displayScaleV2 ")) {
+            val admitted = synchronized(this) {
+                if (displayScaleOffered) false else { displayScaleOffered = true; true }
+            }
+            if (admitted) runCatching { sink(line) }
+            return
+        }
         val retention = retentionReceipt.matchEntire(message)
         if (retention != null) {
             val receiver = retention.groupValues[1].toLongOrNull()?.takeIf { it > 0 } ?: return

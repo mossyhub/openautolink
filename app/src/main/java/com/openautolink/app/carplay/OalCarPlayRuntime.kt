@@ -71,7 +71,9 @@ class OalCarPlayRuntime(
     private val onStatus: (String) -> Unit,
     private val onDisplayQualified: (CarPlayDisplayPreferences) -> Unit = {},
     private val attemptContext: CarPlayAttemptContext? = null,
+    private val displayOfferStore: CarPlayDisplayOfferStore = CarPlayDisplayOfferStore.PROCESS,
 ) : CarPlayRuntime {
+    private val displayOfferLease = displayOfferStore.begin()
     private val canceled = AtomicBoolean()
     private val resourcesLock = Any()
     private val closeLock = Any()
@@ -140,6 +142,15 @@ class OalCarPlayRuntime(
         receiver = projection
         presentation = initialPresentation // Constructor starts with the qualified bootstrap target.
         reconcilePresentation()
+        // Observe the actual qualified offer once, never a request or a second probe.
+        val qualified = projection.displayConfiguration
+        if (displayOfferStore.publish(displayOfferLease, qualified)) {
+            runCatching { onDisplayQualified(qualified) }
+            val legacy = com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnostic(qualified)
+            runCatching { com.openautolink.app.diagnostics.DiagnosticLog.i("carplay-scale", legacy) }
+            runCatching { Log.i("OalCarPlayScale", legacy) }
+            audioDiagnostics.record(com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnosticV2(qualified))
+        }
         projection
     }
     private fun reconcilePresentation() {
@@ -198,7 +209,7 @@ class OalCarPlayRuntime(
             }
             status("CarPlay connection stage=$lastConnectionStage result=failed type=$type reason=$reason")
             throw failure
-        }
+        } finally { displayOfferStore.retire(displayOfferLease) }
     }
     @Suppress("MissingPermission", "DEPRECATION")
     private fun runConnection() {
@@ -349,10 +360,7 @@ class OalCarPlayRuntime(
         attemptContext?.onCaptureRetirement?.invoke(projection::retireMicrophoneCapture)
         // Log the actual decoder-qualified offer, not an earlier requested preset or coded viewport.
         active()
-        onDisplayQualified(projection.displayConfiguration)
-        val scaleSnapshot = com.openautolink.carplaylab.media.CarPlayDisplayPolicy.scaleDiagnostic(projection.displayConfiguration)
-        DiagnosticLog.i("carplay-scale", scaleSnapshot)
-        Log.i("OalCarPlayScale", scaleSnapshot)
+
         projection.setRuntimeIdentification(identification)
         active()
         com.openautolink.carplaylab.metadata.CarPlayMetadataIdentification.bootstrapSubscriptions(Iap2ControlMessages.subscriptions())
@@ -478,7 +486,7 @@ class OalCarPlayRuntime(
             requestedPresentation.get() === requested && requested.surface != null) snapshot
         else snapshot.copy(presentationRendered = false)
     }
-    override fun cancel() { canceled.set(true); presentationWorker.shutdownNow(); receiver?.revokePendingAdmission() }
+    override fun cancel() { canceled.set(true); displayOfferStore.retire(displayOfferLease); presentationWorker.shutdownNow(); receiver?.revokePendingAdmission() }
     override fun close() = synchronized(closeLock) {
         cancel()
         val retiring = synchronized(resourcesLock) { resources.toList().asReversed() }

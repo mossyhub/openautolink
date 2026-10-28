@@ -549,8 +549,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 // Do not use a fullscreen receipt for a system-UI-visible receiver (or vice versa).
                 kotlinx.coroutines.withTimeoutOrNull(1_500) {
                     carPlayViewport.first { it?.displayMode == savedDisplayMode }?.input
-                } ?: com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Input(
-                    0, 0, 0, 0, Double.NaN, Double.NaN, 0)
+                }
             } else null
             val display = saved.qualifiedDisplay(viewport)
             val video = checkNotNull(display.qualifiedVideoSelection)
