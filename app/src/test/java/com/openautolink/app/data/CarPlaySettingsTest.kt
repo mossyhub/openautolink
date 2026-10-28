@@ -11,6 +11,9 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [32, 34], application = android.app.Application::class)
+@org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
 class CarPlaySettingsTest {
     @Test fun sharedModeRetainsUsbAndMigratesRetiredWirelessModes() = runBlocking {
         val store = MemoryStore()
@@ -97,7 +100,8 @@ class CarPlaySettingsTest {
             assertEquals(2400, main["widthPixels"]); assertEquals(960, main["heightPixels"])
             assertEquals(31, main["maxFPS"])
             val auto = canonical.copy(autoScaleInput = com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Input(
-                960, 540, 1920, 1080, 240.0, 240.0, 160))
+                960, 540, 1920, 1080, 240.0, 240.0, 160),
+                scaleMode = com.openautolink.carplaylab.media.CarPlayScaleReceipt.Mode.AUTOMATIC)
             assertEquals(com.openautolink.carplaylab.media.CarPlayAutoScalePolicy.Basis.HARDWARE_ESTIMATE, auto.physicalSize.basis)
             assertEquals(Math.round(960 * 25.4 / 240).toInt(), auto.physicalSize.widthMm)
         }

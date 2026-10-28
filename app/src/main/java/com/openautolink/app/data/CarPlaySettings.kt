@@ -59,7 +59,9 @@ data class CarPlaySettings(
         val resolution = com.openautolink.carplaylab.media.CarPlayResolution.entries.first { it.id == resolution }
         return com.openautolink.carplaylab.media.CarPlayDisplayPreferences(
             resolution = resolution, fps = fps, widthPhysicalMm = widthPhysicalMm,
-            customWidth = widthPixels, customHeight = heightPixels, preferHevc = videoCodec == "hevc")
+            customWidth = widthPixels, customHeight = heightPixels, preferHevc = videoCodec == "hevc",
+            scaleMode = if (autoScale) com.openautolink.carplaylab.media.CarPlayScaleReceipt.Mode.AUTOMATIC
+                else com.openautolink.carplaylab.media.CarPlayScaleReceipt.Mode.MANUAL)
     }
     /** Only tier-named choices are detail intent; geometry-named presets and Custom stay exact. */
     val windowDetail: Boolean get() = fitToWindow && resolution in setOf("720p", "1080p", "1440p", "4k")
@@ -101,7 +103,7 @@ data class CarPlaySettings(
         }
         return requested.copy(resolution = com.openautolink.carplaylab.media.CarPlayResolution.CUSTOM,
             customWidth = video.width, customHeight = video.height, fps = video.fps,
-            qualifiedVideoSelection = video, encodedSafeInsets = safe)
+            qualifiedVideoSelection = video, encodedSafeInsets = safe).freezeScale()
     }
     fun videoError(): String? = when {
         listOf(safeTop, safeBottom, safeLeft, safeRight).any { it !in 0..4999 } ->

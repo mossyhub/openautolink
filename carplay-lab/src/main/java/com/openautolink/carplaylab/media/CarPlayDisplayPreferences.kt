@@ -40,6 +40,10 @@ data class CarPlayDisplayPreferences(
     val qualifiedVideoSelection: com.shilapi.xcertplay.media.CarPlayVideoSelection? = null,
     /** Already transformed once into this exact qualified canvas; never Surface padding. */
     val encodedSafeInsets: com.shilapi.xcertplay.airplay.AirPlayInsets? = null,
+    /** Explicit intent: a missing Auto viewport is not a Manual request. */
+    val scaleMode: CarPlayScaleReceipt.Mode = if (autoScaleInput == null)
+        CarPlayScaleReceipt.Mode.MANUAL else CarPlayScaleReceipt.Mode.AUTOMATIC,
+    private val frozenScale: CarPlayScaleReceipt? = null,
 ) {
     init {
         require(fps in FRAME_RATES) { "Maximum FPS must be an integer from 1 to 60" }
@@ -53,8 +57,21 @@ data class CarPlayDisplayPreferences(
     val width: Int get() = if (resolution == CarPlayResolution.CUSTOM) customWidth else resolution.width
     val height: Int get() = if (resolution == CarPlayResolution.CUSTOM) customHeight else resolution.height
     val codec: String get() = "H264"
-    val physicalSize: CarPlayAutoScalePolicy.Size get() =
-        CarPlayAutoScalePolicy.resolve(width, height, widthPhysicalMm, autoScaleInput)
+    /** A derived frozen receipt must not change preference/request equality or hash semantics. */
+    private fun requestIdentity(): List<Any?> = listOf(resolution, fps, widthPhysicalMm, rightHandDrive,
+        autoScaleInput, customWidth, customHeight, preferHevc, qualifiedVideoSelection, encodedSafeInsets, scaleMode)
+    override fun equals(other: Any?): Boolean = this === other ||
+        other is CarPlayDisplayPreferences && requestIdentity() == other.requestIdentity()
+    override fun hashCode(): Int = requestIdentity().hashCode()
+
+    /** Data-class copy may carry the old backing value; never expose it for a different context. */
+    val resolvedScale: CarPlayScaleReceipt? get() = frozenScale?.takeIf {
+        it.matches(width, height, widthPhysicalMm, scaleMode, autoScaleInput)
+    }
+    val scaleReceipt: CarPlayScaleReceipt get() = resolvedScale ?: CarPlayAutoScalePolicy.resolveReceipt(
+        width, height, widthPhysicalMm, scaleMode, autoScaleInput)
+    fun freezeScale(): CarPlayDisplayPreferences = copy(frozenScale = scaleReceipt)
+    val physicalSize: CarPlayAutoScalePolicy.Size get() = scaleReceipt.physicalSize
     fun toAirPlayDisplay(): AirPlayDisplayConfig = physicalSize.let { size ->
         AirPlayDisplayConfig(width, height, size.widthMm, size.heightMm, fps = fps,
             safeArea = encodedSafeInsets, safeAreaDrawOutside = true)

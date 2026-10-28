@@ -31,8 +31,8 @@ object CarPlayDisplayPolicy {
 
     /** Numeric allowlist from the ACTUAL qualified offer; coded dimensions are not viewport pixels. */
     fun scaleDiagnostic(display: CarPlayDisplayPreferences): String {
-        val input = display.autoScaleInput
-        val size = display.physicalSize
+        val receipt = display.scaleReceipt
+        val size = receipt.physicalSize
         fun pixels(value: Int?) = value?.takeIf { it in 1..16384 } ?: 0
         fun dpi(value: Double?) = value?.takeIf { it.isFinite() && it in 40.0..1000.0 } ?: 0.0
         val basis = when (size.basis) {
@@ -40,10 +40,10 @@ object CarPlayDisplayPolicy {
             CarPlayAutoScalePolicy.Basis.HARDWARE_ESTIMATE -> "hardware_estimate"
             CarPlayAutoScalePolicy.Basis.CALIBRATION_NEEDED -> "calibration_needed"
         }
-        return "BENCH_DIAG displayScale mode=${if (input == null) "manual" else "auto"} " +
-            "basis=$basis viewport=${pixels(input?.viewportWidthPx)}x${pixels(input?.viewportHeightPx)} " +
-            "display=${pixels(input?.displayWidthPx)}x${pixels(input?.displayHeightPx)} " +
-            "xdpi=${dpi(input?.xdpi)} ydpi=${dpi(input?.ydpi)} " +
+        return "BENCH_DIAG displayScale mode=${if (receipt.mode == CarPlayScaleReceipt.Mode.MANUAL) "manual" else "auto"} " +
+            "basis=$basis viewport=${pixels(receipt.viewportWidthPx)}x${pixels(receipt.viewportHeightPx)} " +
+            "display=${pixels(receipt.displayWidthPx)}x${pixels(receipt.displayHeightPx)} " +
+            "xdpi=${dpi(receipt.xdpi)} ydpi=${dpi(receipt.ydpi)} " +
             "physical=${size.widthMm}x${size.heightMm} coded=${display.width}x${display.height} maxFPS=${display.fps}"
     }
 
@@ -82,13 +82,13 @@ object CarPlayDisplayPolicy {
         requested: CarPlayDisplayPreferences,
         probe: AvcDecoderProbe = androidProbe(),
     ): CarPlayDisplaySelection {
-        decoder(probe, requested)?.let { return CarPlayDisplaySelection(requested, it, false) }
+        decoder(probe, requested)?.let { return CarPlayDisplaySelection(requested.freezeScale(), it, false) }
         // Only the exact baseline is a safe fallback; never silently upgrade size or rate.
         // Retain this qualification's decoder receipt rather than probing a second time.
         val fallback = requested.copy(resolution = CarPlayResolution.HD720, fps = 30)
         val decoderName = decoder(probe, fallback)
             ?: throw IllegalStateException("No supported baseline AVC display")
-        return CarPlayDisplaySelection(fallback, decoderName, true)
+        return CarPlayDisplaySelection(fallback.freezeScale(), decoderName, true)
     }
 
     private fun decoder(probe: AvcDecoderProbe, display: CarPlayDisplayPreferences): String? {

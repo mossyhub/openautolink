@@ -43,7 +43,7 @@ class CarPlayAutoScalePolicyTest {
         assertEquals(1280, display.widthPixels)
         assertEquals(203, display.widthPhysicalMm)
         assertEquals(114, display.heightPhysicalMm)
-        val manual = requested.copy(autoScaleInput = null).toAirPlayDisplay()
+        val manual = requested.copy(autoScaleInput = null, scaleMode = CarPlayScaleReceipt.Mode.MANUAL).toAirPlayDisplay()
         assertEquals(350, manual.widthPhysicalMm)
         assertEquals(197, manual.heightPhysicalMm)
     }
@@ -53,8 +53,8 @@ class CarPlayAutoScalePolicyTest {
         val full = visible.copy(viewportWidthPx = 1920, viewportHeightPx = 1080)
         for ((width, height) in listOf(2400 to 960, 1080 to 1920, 1000 to 1000)) {
             val coded = CarPlayDisplayPreferences.custom(width, height, 59)
-            val halfSize = coded.copy(autoScaleInput = visible).physicalSize
-            val fullSize = coded.copy(autoScaleInput = full).physicalSize
+            val halfSize = coded.copy(autoScaleInput = visible, scaleMode = CarPlayScaleReceipt.Mode.AUTOMATIC).physicalSize
+            val fullSize = coded.copy(autoScaleInput = full, scaleMode = CarPlayScaleReceipt.Mode.AUTOMATIC).physicalSize
             val fittedWidth = minOf(960.0, 540.0 * width / height)
             assertEquals(Math.round(fittedWidth * 25.4 / 240).toInt(), halfSize.widthMm)
             assertEquals(Math.round(fittedWidth * 25.4 / 240 * height / width).toInt(), halfSize.heightMm)
@@ -62,14 +62,14 @@ class CarPlayAutoScalePolicyTest {
             assertTrue(kotlin.math.abs(fullSize.heightMm - 2 * halfSize.heightMm) <= 1)
             // A change only in coded resolution must not change the physical metadata.
             assertEquals(halfSize, CarPlayDisplayPreferences.custom(width * 2, height * 2, 31)
-                .copy(autoScaleInput = visible).physicalSize)
-            val manual = coded.copy(widthPhysicalMm = 225, autoScaleInput = null).physicalSize
+                .copy(autoScaleInput = visible, scaleMode = CarPlayScaleReceipt.Mode.AUTOMATIC).physicalSize)
+            val manual = coded.copy(widthPhysicalMm = 225, autoScaleInput = null, scaleMode = CarPlayScaleReceipt.Mode.MANUAL).physicalSize
             assertEquals(225, manual.widthMm)
             assertEquals(Math.round(225.0 * height / width).toInt(), manual.heightMm)
             assertEquals(CarPlayAutoScalePolicy.Basis.MANUAL, manual.basis)
         }
         val portraitViewport = CarPlayAutoScalePolicy.Input(540, 960, 1080, 1920, 240.0, 240.0, 160)
-        val portrait = CarPlayDisplayPreferences.custom(1080, 1920, 31).copy(autoScaleInput = portraitViewport).physicalSize
+        val portrait = CarPlayDisplayPreferences.custom(1080, 1920, 31).copy(autoScaleInput = portraitViewport, scaleMode = CarPlayScaleReceipt.Mode.AUTOMATIC).physicalSize
         assertEquals(Math.round(540 * 25.4 / 240).toInt(), portrait.widthMm)
         assertEquals(Math.round(960 * 25.4 / 240).toInt(), portrait.heightMm)
     }
