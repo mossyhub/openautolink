@@ -65,6 +65,61 @@ class CarPlayMetadataRecoveryTest {
         fun drain() { input.submit {}.get(3,TimeUnit.SECONDS) }
         override fun close() { receiver.close();assertTrue(receiver.awaitClosed(3000)) }
     }
+    private fun lose(f:Fixture) {
+        val request=f.focus.lastAudioFocusRequest.audioFocusRequest
+        (android.media.AudioFocusRequest::class.java.getDeclaredMethod("getOnAudioFocusChangeListener").invoke(request) as AudioManager.OnAudioFocusChangeListener).onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS)
+    }
+    private fun volume(f:Fixture,id:AudioStreamId):Float {
+        val track=(field(f.sink,"tracks").get(f.sink) as Map<*,*>)[id]!!
+        return field(track,"requestedVolume").getFloat(track)
+    }
+    @Test fun pausedBaselineSurvivesMediaAndAlternateRetirementButNotInteraction()=Fixture().use { f ->
+        val music=f.start();lose(f);val original=f.focus.lastAudioFocusRequest
+        f.receiver.mediaCommand(f.session,2);f.drain()
+        f.offer(false)
+        f.sink.onAudioStopped(music)
+        val nav=AudioStreamId(101,"default")
+        f.sink.onAudioStarted(nav,requireNotNull(AudioOutputSupport.negotiate(0x4000L,101,"default")),0)
+        f.sink.onAudioStopped(nav)
+        val replacement=f.start()
+        f.offer(true);f.drain()
+        assertNotSame("a paused observation is not a stale permission",original,f.focus.lastAudioFocusRequest)
+        assertEquals(1f,volume(f,replacement),0f)
+        lose(f);val refreshed=f.focus.lastAudioFocusRequest
+        f.offer(false);val call=f.start("telephony");f.sink.onAudioStopped(call)
+        val callRequest=f.focus.lastAudioFocusRequest
+        f.offer(true);f.drain();assertSame(callRequest,f.focus.lastAudioFocusRequest)
+        assertNotSame(refreshed,callRequest)
+    }
+    @Test fun freshEngineSetupPreservesPostStopPhonePermitUntilAuthenticatedMediaStart()=Fixture().use { f ->
+        val shared=ByteArray(32) {7};val peer=java.net.InetAddress.getLoopbackAddress()
+        `when`(f.session.sharedSecret).thenReturn(shared);`when`(f.session.remoteAddress).thenReturn(peer)
+        val received=LinkedBlockingQueue<AudioStreamId>()
+        val engine=com.shilapi.xcertplay.airplay.CarPlayMediaEngine(object:com.shilapi.xcertplay.airplay.MediaSink by f.sink {
+            override fun onAudioRtp(id:AudioStreamId,format:com.shilapi.xcertplay.airplay.AudioFormat,rtp:ByteArray,sample:Int) {
+                f.sink.onAudioRtp(id,format,rtp,sample);received.add(id)
+            }
+        })
+        fun start(connection:Long):AudioStreamId {
+            val accepted=requireNotNull(engine.onAudio(f.session,100,mapOf("audioType" to "media","audioFormat" to 0x4000L,"streamConnectionID" to connection)))
+            val key=com.shilapi.xcertplay.airplay.AirPlayCrypto.hkdfSha512(shared,"DataStream-Salt$connection".toByteArray(),"DataStream-Output-Encryption-Key".toByteArray(),32)
+            val wire=com.shilapi.xcertplay.airplay.MicrophonePacketizer.sealPacket(key,com.shilapi.xcertplay.airplay.MicrophoneCounters(),ByteArray(960),480)
+            java.net.DatagramSocket().use {it.send(java.net.DatagramPacket(wire,wire.size,peer,(accepted["dataPort"] as Number).toInt()))}
+            return requireNotNull(received.poll(3,TimeUnit.SECONDS))
+        }
+        try {
+            start(10);lose(f);val original=f.focus.lastAudioFocusRequest
+            f.receiver.mediaCommand(f.session,2);f.drain()
+            engine.onSessionClosed(f.session)
+            f.offer(false);f.offer(true);f.drain()
+            val music=start(11)
+            assertNotSame("empty-slot SETUP must not cancel the next-stream permit",original,f.focus.lastAudioFocusRequest)
+            val nav=AudioStreamId(101,"default");f.sink.onAudioStarted(nav,requireNotNull(AudioOutputSupport.negotiate(0x4000L,101,"default")),0)
+            assertEquals(1f,volume(f,music),0f);assertEquals(1f,volume(f,nav),0f)
+            verify(f.session,never()).sendMedia(org.mockito.ArgumentMatchers.eq(1),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: {true}))
+        } finally {engine.onSessionClosed(f.session)}
+        Unit
+    }
     @Test fun queuedSourceEdgeCannotRefreshAfterNewerPauseButPauseStillDispatches()=Fixture().use { f ->
         f.start();val original=f.focus.lastAudioFocusRequest
         val entered=CountDownLatch(1);val release=CountDownLatch(1)

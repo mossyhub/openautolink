@@ -243,7 +243,13 @@ class ProjectionReceiver(
         manualMicrophoneExperiment = microphoneOverride != null,
         captureLedger = captureLedger, audioDiagnostic = { line, current -> enqueueStatus(line, current) },
         speechRecognitionProfile = speechRecognitionProfile,
-        captureAdmission = { !closed.get() && !admissionRevoked.get() && captureAdmission() })
+        captureAdmission = { !closed.get() && !admissionRevoked.get() && captureAdmission() }).also { media ->
+        media.setMediaOutputObserver { blocked, current ->
+            val owner=active
+            if (owner != null && currentMediaOwner(owner))
+                runtimeMetadata[owner]?.mediaOutput(blocked) { currentMediaOwner(owner) && current() }
+        }
+    }
     /** Presentation receipts do not take the session/control lifecycle lock or retire transport. */
     fun attachSurface(surface: Surface) { if (!closed.get() && !admissionRevoked.get()) sink.attachSurface(surface) }
     fun detachSurface(surface: Surface) { sink.detachSurface(surface) }
@@ -612,7 +618,7 @@ class ProjectionReceiver(
     private val mediaPlayEpoch = java.util.concurrent.atomic.AtomicLong()
     class MediaRecoveryStamp internal constructor(
         internal val session:AirPlaySession, internal val commandEpoch:Long, internal val experimentEpoch:Long,
-        internal val ingressMs:Long, internal val sinkEpoch:Long, internal val selected:()->Boolean)
+        internal val ingressMs:Long, internal val sinkEpoch:Long, internal val observationEpoch:Long, internal val selected:()->Boolean)
     private val recoveryLock=Any()
     private var recoveryOwner:AirPlaySession?=null
     private var recoveryExperiment=Long.MIN_VALUE
@@ -627,21 +633,24 @@ class ProjectionReceiver(
     fun captureMediaRecoveryStamp(session:AirPlaySession, experimentEpoch:Long, selected:()->Boolean):MediaRecoveryStamp? {
         val commandEpoch=mediaPlayEpoch.get()
         val sinkEpoch=sink.phoneResumeGeneration()
+        val observationEpoch=sink.phoneObservationGeneration()
         val ingressMs=android.os.SystemClock.elapsedRealtime()
         if (!currentMediaOwner(session) || !sink.phoneResumeEligible() || !selected() ||
-            commandEpoch!=mediaPlayEpoch.get() || sinkEpoch!=sink.phoneResumeGeneration()) return null
-        return MediaRecoveryStamp(session,commandEpoch,experimentEpoch,ingressMs,sinkEpoch,selected)
+            commandEpoch!=mediaPlayEpoch.get() || sinkEpoch!=sink.phoneResumeGeneration() ||
+            observationEpoch!=sink.phoneObservationGeneration()) return null
+        return MediaRecoveryStamp(session,commandEpoch,experimentEpoch,ingressMs,sinkEpoch,observationEpoch,selected)
     }
     private fun recoveryCurrent(stamp:MediaRecoveryStamp):Boolean = currentMediaOwner(stamp.session) &&
         stamp.commandEpoch==mediaPlayEpoch.get() && stamp.sinkEpoch==sink.phoneResumeGeneration() &&
+        stamp.observationEpoch==sink.phoneObservationGeneration() &&
         android.os.SystemClock.elapsedRealtime()-stamp.ingressMs in 0..5000 && stamp.selected()
     /** Constant space event channel, deliberately independent of display coalescing. */
     fun offerPhonePlaybackObservation(session:AirPlaySession, playing:Boolean?, stamp:MediaRecoveryStamp):Boolean {
         if (stamp.session !== session || !recoveryCurrent(stamp)) return false
         synchronized(recoveryLock) {
             if (stamp.commandEpoch!=mediaPlayEpoch.get()) return false
-            if (recoveryOwner !== session || recoveryExperiment!=stamp.experimentEpoch || recoveryCommand!=stamp.commandEpoch || recoverySink!=stamp.sinkEpoch) {
-                recoveryOwner=session;recoveryExperiment=stamp.experimentEpoch;recoveryCommand=stamp.commandEpoch;recoverySink=stamp.sinkEpoch
+            if (recoveryOwner !== session || recoveryExperiment!=stamp.experimentEpoch || recoveryCommand!=stamp.commandEpoch || recoverySink!=stamp.observationEpoch) {
+                recoveryOwner=session;recoveryExperiment=stamp.experimentEpoch;recoveryCommand=stamp.commandEpoch;recoverySink=stamp.observationEpoch
                 lastExplicitPlayback=null;resumeCandidate.set(null)
             }
             val previous=lastExplicitPlayback

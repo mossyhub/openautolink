@@ -2269,7 +2269,6 @@ internal fun AudioTab(viewModel: SettingsViewModel, uiState: SettingsUiState, bi
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        CarPlayResumeAudio()
         AudioMicrophoneSettings(uiState.micSource, viewModel::updateMicSource, bindings)
         CarPlayCallSettings(bindings)
         AudioSectionTitle("Both")

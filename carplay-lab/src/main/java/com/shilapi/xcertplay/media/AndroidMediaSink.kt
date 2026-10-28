@@ -83,10 +83,30 @@ class AndroidMediaSink(
     private class MediaPlayAuthorization(val generation: Long, val current: () -> Boolean)
     private val mediaPlayGeneration = AtomicLong()
     private val phoneResumeEpoch=AtomicLong()
+    private val phoneObservationEpoch=AtomicLong()
     private class PhoneResumePermit(val epoch:Long,val current:()->Boolean)
     private val pendingPhoneResume=java.util.concurrent.atomic.AtomicReference<PhoneResumePermit?>()
     fun phoneResumeGeneration():Long=phoneResumeEpoch.get()
-    fun cancelPhoneResume() { phoneResumeEpoch.incrementAndGet(); pendingPhoneResume.set(null) }
+    fun phoneObservationGeneration():Long=phoneObservationEpoch.get()
+    fun cancelPhoneResume(clearObservation:Boolean=true) {
+        phoneResumeEpoch.incrementAndGet(); pendingPhoneResume.set(null)
+        if (clearObservation) phoneObservationEpoch.incrementAndGet()
+    }
+    private class MediaOutputState
+    private val mediaOutputState=java.util.concurrent.atomic.AtomicReference<MediaOutputState?>()
+    @Volatile private var mediaOutputObserver:((Boolean,()->Boolean)->Unit)?=null
+    /** Observer only enqueues bounded metadata work; never performs platform calls here. */
+    fun setMediaOutputObserver(observer:(Boolean,()->Boolean)->Unit) { mediaOutputObserver=observer }
+    private fun publishBlockedMediaOutput() {
+        val state=MediaOutputState();mediaOutputState.set(state)
+        mediaOutputObserver?.invoke(true) { !closed.get() && mediaOutputState.get()===state }
+    }
+    private fun publishGrantedMediaOutput(expected:MediaOutputState?,current:()->Boolean) {
+        val state=MediaOutputState()
+        // A STOP/loss delivered during Binder wins over this older positive completion.
+        if (current() && mediaOutputState.compareAndSet(expected,state))
+            mediaOutputObserver?.invoke(false) { !closed.get() && mediaOutputState.get()===state && current() }
+    }
     @Volatile private var communicationMode:Int?=runCatching { manager?.mode }.getOrNull()
     @Volatile private var phoneInteractionBusy=false
     private val communicationListener=AudioManager.OnModeChangedListener { mode ->
@@ -121,10 +141,11 @@ class AndroidMediaSink(
         mediaPlayGeneration.get() == play.generation && play.current()
 
     /** PAUSE/STOP and owner retirement cancel intent without waiting for a platform call. */
-    fun cancelPendingMediaPlay() {
-        cancelPhoneResume()
+    fun cancelPendingMediaPlay(clearObservation:Boolean=true) {
+        cancelPhoneResume(clearObservation)
         mediaPlayGeneration.incrementAndGet()
         pendingMediaPlay.set(null)
+        publishBlockedMediaOutput()
     }
     // Test boundary after a caller selects pending PLAY, before its atomic consumption.
     @Volatile internal var beforeMediaPlayConsumption: (() -> Unit)? = null
@@ -190,6 +211,8 @@ class AndroidMediaSink(
     private fun requestFocus(owner: FocusOwner, reason: String, current: () -> Boolean = { true }): Boolean {
         if (!current()) return false
         if (owner.retiring != null) return false // Never overlap an unacknowledged predecessor.
+        val outputBefore=mediaOutputState.get()
+        val playGeneration=mediaPlayGeneration.get()
         val revision = ++focusRevision
         owner.revision = revision
         // Listener ingress is lock-free: a loss may arrive while Binder holds this monitor.
@@ -208,6 +231,8 @@ class AndroidMediaSink(
                             AudioManager.AUDIOFOCUS_GAIN -> { owner.volume = 1f; owner.mute = "unmuted" }
                         }
                         applyFocus(owner)
+                        if (owner.purpose == CarPlayFocusPurpose.MEDIA && change == AudioManager.AUDIOFOCUS_LOSS)
+                            publishBlockedMediaOutput()
                         report("media stage=audio-focus-change change=$change volumePercent=${(owner.volume * 100).toInt()}")
                         reportMute(owner,"focus-change")
                     }
@@ -227,6 +252,7 @@ class AndroidMediaSink(
             abandonFocus(owner)
             applyFocus(owner)
             reportFocus(owner,reason,"closed")
+            if (owner.purpose == CarPlayFocusPurpose.MEDIA) publishBlockedMediaOutput()
             return false
         }
         val restricted=restrictiveEvent.get()
@@ -237,6 +263,12 @@ class AndroidMediaSink(
         applyFocus(owner)
         report(if (granted) "media stage=audio-focus-granted" else "media stage=audio-focus-denied")
         reportFocus(owner,reason,if (granted) "granted" else "denied")
+        if (owner.purpose == CarPlayFocusPurpose.MEDIA) {
+            if (owner.blocked) publishBlockedMediaOutput()
+            else if (granted && restricted >= 0) publishGrantedMediaOutput(outputBefore) {
+                current() && mediaPlayGeneration.get()==playGeneration
+            }
+        }
         return granted && restricted >= 0
     }
     private fun reportMute(owner: FocusOwner, reason: String) {
@@ -474,7 +506,7 @@ class AndroidMediaSink(
 
     override fun onAudioStopped(id: AudioStreamId) {
         // Stream retirement invalidates metadata permission before waiting for a stalled focus call.
-        cancelPhoneResume()
+        cancelPhoneResume(clearObservation=false)
         synchronized(this) { try { stopAudioLocked(id) } finally { phoneInteractionBusy=hasLiveInteraction() } }
     }
     private fun stopAudioLocked(id: AudioStreamId) {
@@ -488,7 +520,7 @@ class AndroidMediaSink(
     private fun retireFocusMembership(owner: FocusOwner) {
         // Explicit stop and independently retired output pruning share the same contract.
         if (owner.purpose == CarPlayFocusPurpose.MEDIA) {
-            cancelPendingMediaPlay()
+            cancelPendingMediaPlay(clearObservation=false)
             deferredMediaStartGeneration = null
         }
         abandonFocus(owner)

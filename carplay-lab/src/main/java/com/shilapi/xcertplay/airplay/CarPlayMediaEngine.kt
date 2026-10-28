@@ -118,7 +118,9 @@ class CarPlayMediaEngine(
         val replacing = streams.remove(id)
         replacing?.close()
         audio.remove(id)?.let { sink.onMicrophoneStopped(it.microphoneId) }
-        if (replacing != null) sink.onAudioReplacing(streamId) else sink.onAudioStopped(streamId)
+        // An empty SETUP slot is not a retirement. In particular it must not revoke a
+        // current post-STOP phone-resume permit intended for the next primary stream.
+        if (replacing != null) sink.onAudioReplacing(streamId)
         val microphoneId = MicrophoneStreamId(session,type,audioType,microphoneGeneration.incrementAndGet())
         if (streams.keys.count { it.session === session && it.type in setOf(100, 101, 102) } >= 8) return null
         val meta = AudioMeta(format, stream["streamConnectionID"],

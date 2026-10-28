@@ -13,6 +13,7 @@ import kotlinx.coroutines.runBlocking
 
 internal interface CarPlayMetadataHost : AutoCloseable {
     fun mediaAvailability(ready:Boolean) {}
+    fun mediaOutput(blocked:Boolean,current:()->Boolean) {}
     fun start(): Boolean
     fun publish(media: CarPlayMediaMetadata?, navigation: CarPlayNavigationMetadata?, artwork: ByteArray?)
     /** Compatibility bridge for hosts that consume only instruction metadata. */
@@ -31,6 +32,9 @@ internal class OalCarPlayMetadataHost(private val context: Context,
         this(context, receipt, null, mediaCommand)
     private val owner = Any()
     @Volatile private var controlsReady=false
+    override fun mediaOutput(blocked:Boolean,current:()->Boolean) {
+        mediaManager?.setCarPlayMediaOutput(owner,blocked,current)
+    }
     override fun mediaAvailability(ready:Boolean) {
         controlsReady=ready
         mediaManager?.setCarPlayMediaReady(owner,ready)
