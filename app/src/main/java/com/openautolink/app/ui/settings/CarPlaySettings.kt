@@ -322,6 +322,7 @@ fun CarPlayDisplaySettingsSection(
     onNavigateToCarPlaySafeAreaEditor: () -> Unit,
 ) {
     val settings by viewModel.carPlaySettings.collectAsStateWithLifecycle()
+    val offer by viewModel.carPlayDisplayOffer.collectAsStateWithLifecycle()
     val saving by viewModel.carPlaySettingsSaving.collectAsStateWithLifecycle()
     val status by viewModel.carPlaySettingsStatus.collectAsStateWithLifecycle()
     if (!settings.enabled) return
@@ -337,6 +338,20 @@ fun CarPlayDisplaySettingsSection(
         Text("Safe edges: T ${settings.safeTop / 100.0}% · B ${settings.safeBottom / 100.0}% · L ${settings.safeLeft / 100.0}% · R ${settings.safeRight / 100.0}%",
             style = MaterialTheme.typography.bodySmall)
         Text("CarPlay UI scale", style = MaterialTheme.typography.titleMedium)
+        Text("Last frozen offer", style = MaterialTheme.typography.labelLarge)
+        val lastOffer = offer
+        Text(if (lastOffer == null) "Connect to see applied size" else {
+            val phase = if (lastOffer.phase == com.openautolink.app.carplay.CarPlayDisplayOfferStore.Phase.ENDED) "Ended" else "Offered locally"
+            val basis = when (lastOffer.reason) {
+                com.openautolink.carplaylab.media.CarPlayScaleReceipt.Reason.MANUAL -> "Manual"
+                com.openautolink.carplaylab.media.CarPlayScaleReceipt.Reason.HARDWARE_ESTIMATE -> "Auto · hardware estimate"
+                else -> "Auto · calibration needed"
+            }
+            "$phase · $basis · reference ${lastOffer.referenceWidthMm} → offered ${lastOffer.effectiveWidthMm}×${lastOffer.effectiveHeightMm} mm"
+        }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayLastOffer"))
+        Text("Next session · ${if (settings.autoScale) "Auto" else "Manual"} · reference ${settings.widthPhysicalMm} mm (draft)",
+            style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("carPlayPendingScale"))
+        SettingsHelp("Offers describe the local runtime, not confirmed phone-visible size. Hardware estimate is not a measured panel. When Auto metrics are unavailable or untrusted, Auto uses reference calibration and viewport fit, not a real-panel measurement. Draft changes do not change the last frozen offer.")
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Auto sizing", Modifier.weight(1f))
             Switch(checked = settings.autoScale, enabled = !saving,

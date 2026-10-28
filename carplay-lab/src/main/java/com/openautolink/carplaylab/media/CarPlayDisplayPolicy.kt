@@ -47,6 +47,27 @@ object CarPlayDisplayPolicy {
             "physical=${size.widthMm}x${size.heightMm} coded=${display.width}x${display.height} maxFPS=${display.fps}"
     }
 
+    /** Versioned finite numeric export. Never interpolate a raw receipt/platform object. */
+    fun scaleDiagnosticV2(display: CarPlayDisplayPreferences): String {
+        val r = display.scaleReceipt
+        fun pixels(v: Int) = v.takeIf { it in 0..65535 } ?: 0
+        fun mm(v: Int) = v.takeIf { it in 1..2000 } ?: 0
+        fun finite(v: Double?, max: Double, min: Double = 0.0): String =
+            v?.takeIf { it.isFinite() && it in min..max }?.let {
+                java.math.BigDecimal.valueOf(it).setScale(6, java.math.RoundingMode.HALF_UP)
+                    .stripTrailingZeros().toPlainString()
+            } ?: "0.0"
+        return "BENCH_DIAG displayScaleV2 mode=${if (r.mode == CarPlayScaleReceipt.Mode.MANUAL) "manual" else "auto"} " +
+            "reason=${r.reason.name.lowercase(java.util.Locale.ROOT)} reference=${mm(r.referenceWidthMm)} " +
+            "physical=${mm(r.effectiveWidthMm)}x${mm(r.effectiveHeightMm)} " +
+            "viewport=${pixels(r.viewportWidthPx)}x${pixels(r.viewportHeightPx)} " +
+            "display=${pixels(r.displayWidthPx)}x${pixels(r.displayHeightPx)} " +
+            "fitted=${finite(r.fittedWidthPx, 16384.0)}x${finite(r.fittedHeightPx, 16384.0)} " +
+            "coded=${pixels(display.width)}x${pixels(display.height)} fps=${display.fps.takeIf { it in 1..240 } ?: 0} " +
+            "xdpi=${finite(r.xdpi, 1000.0, 40.0)} ydpi=${finite(r.ydpi, 1000.0, 40.0)} " +
+            "logical=${r.logicalDensityDpi?.takeIf { it in 1..1000 } ?: 0}"
+    }
+
     /** Centered aspect-fit rectangle. UI must actually lay out video here before using this mapping. */
     fun fitRect(display: CarPlayDisplayPreferences, viewportWidth: Int, viewportHeight: Int): CarPlayRenderRect? {
         if (viewportWidth <= 0 || viewportHeight <= 0) return null

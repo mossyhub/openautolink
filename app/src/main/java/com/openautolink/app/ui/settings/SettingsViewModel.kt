@@ -160,7 +160,13 @@ internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
     else -> null
 }
 
-class SettingsViewModel(application: Application) : AndroidViewModel(application) {
+class SettingsViewModel @JvmOverloads constructor(
+    application: Application,
+    displayOfferStore: com.openautolink.app.carplay.CarPlayDisplayOfferStore = com.openautolink.app.carplay.CarPlayDisplayOfferStore.PROCESS,
+) : AndroidViewModel(application) {
+    /** Observation only: opening Display never starts a runtime, probes or persists an offer. */
+    val carPlayDisplayOffer = displayOfferStore.state
+
 
     private val preferences = AppPreferences.getInstance(application)
     private val wppConfigServer = WppConfigBtServer(application, viewModelScope)
