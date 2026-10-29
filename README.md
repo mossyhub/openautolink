@@ -35,7 +35,7 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 |---|---|---|---|
 | Android Auto, wireless | Bluetooth + car Wi-Fi (WPP) | **Yes**, for GM wireless | Use WPP for Android Auto 17.4+ |
 | Android Auto, USB | USB cable | **No** | GM shows [two USB access prompts on every connection](#gm-usb-prompts--android-auto-and-carplay), even with the choice saved |
-| CarPlay, USB | USB cable; unpaired recommended | **No iPhone companion** | Car microphone for calls and button-initiated Siri; one-time Android call approval for native call presentation/controls. Car Bluetooth is a risk-bearing alternative: Bluetooth can cause repeated media pauses. Authentication identity and USB/VPN consent required; [two GM USB access prompts on every connection](#gm-usb-prompts--android-auto-and-carplay) |
+| CarPlay, USB | USB cable; leave iPhone unpaired from car Bluetooth | **No iPhone companion** | Car microphone for calls/Siri; one-time call setup. Requires your authentication files and USB/VPN approval. [GM USB prompts](#gm-usb-prompts--android-auto-and-carplay) |
 | CarPlay, wireless | Bluetooth + Wi-Fi | **No iPhone companion** | Available for development; not working in the maintainer's vehicle |
 | CarPlay, shared Wi-Fi | Existing Wi-Fi network | **No iPhone companion** | Advanced wireless network configuration; not a USB requirement |
 
@@ -47,7 +47,7 @@ Check the source revision and release notes for your installed build. USB hot-pl
 
 - One car app for Android Auto and CarPlay.
 - Draggable Settings/Stats controls. Audio/call preferences save automatically; connection, video and display changes use **Save changes**. Wireless reconnects automatically when safe. For an actual USB connection, saving persists the next-session settings without stopping projection; unplug and reconnect physically to apply.
-- **Settings → Audio → Both → Open OpenAutoLink in vehicle Audio** requests the car’s native media view for either protocol; unavailable platforms report that rather than claiming source selection.
+- Open the vehicle’s media view with **Settings → Audio → Both → Open OpenAutoLink in vehicle Audio**.
 - Configurable display layout, safe areas and video sizing for wide AAOS screens.
 - Built-in diagnostics, optional log upload and network/vehicle inspection tools.
 - Separate Android Auto and CarPlay settings; one phone projects at a time.
@@ -66,9 +66,9 @@ Check the source revision and release notes for your installed build. USB hot-pl
 
 - No iPhone companion app or additional projection hardware.
 - **USB projection**, with wireless connection retained separately for development.
-- **USB CarPlay music, navigation and touch controls**, with unpaired USB recommended. **Car Bluetooth** remains available, but Bluetooth can cause repeated media pauses even with Media audio off.
-- **Car microphone for calls and button-initiated Siri**, without diagnostic arming. Calls and Maps Siri have been tested in the maintainer’s car; restart/ignition reliability remains under validation.
-- **Call handling → CarPlay** combines supported native incoming-call presentation and Answer/Reject/End after Android approval. Unpair the iPhone from the car and leave Bluetooth disconnected in this mode. CarPlay calls still support the car microphone, steering-wheel controls and driver display/cluster on supported vehicles; the cluster may show **Unknown** even when CarPlay shows a contact. **Extra car ringtone** defaults Off. Detected Bluetooth conflicts warn and withhold new OAL native calls, but OAL cannot guarantee automatic duplicate prevention across Bluetooth reconnects. See [calls and setup](docs/phone-calls.md).
+- **USB CarPlay music, navigation and touch controls**. Leave the iPhone unpaired from car Bluetooth for the recommended setup.
+- **Car microphone for calls and button-initiated Siri**, enabled in normal operation.
+- **Native incoming-call display and steering-wheel Answer/Reject/End** on supported vehicles after one-time [call setup](docs/phone-calls.md).
 - **Multi-touch gestures**, including map pinch-to-zoom.
 - **Adjustable video quality, Fit to window and safe-control calibration** for wide or curved screens.
 - **Music information and artwork on supported vehicle displays**. Cluster route guidance is still being refined.
@@ -81,7 +81,7 @@ Check the source revision and release notes for your installed build. USB hot-pl
 1. [Create your AAB on the website](docs/build-aab.md#create-your-aab) and save the required encrypted identity backup.
 2. Follow the [Internal Test installation guide](docs/install-gm.md): register with Google, create a free app, select **dedicated Android Automotive OS → Internal testing**, upload, enroll the car's Google account, and select the **car** in Google's web install picker.
 
-Check Google's **US$25 one-time registration fee and Android-device verification requirement for new personal accounts before paying**, especially if you only own an iPhone. A completed build does not prove Play acceptance or car eligibility.
+Check Google's **US$25 one-time registration fee and Android-device verification requirement for new personal accounts before paying**, especially if you only own an iPhone. Check that your car is eligible for installation before uploading.
 
 For CarPlay, include your own [authorized authentication pair](docs/carplay-private-mfi-assets.md). For updates, restore your latest web backup, keep the **same application ID and upload key**, and upload a higher-version AAB to the same Internal Test. [Desktop builder documentation](docs/desktop-builder.md) remains available, but desktop downloads are not published yet.
 
@@ -108,7 +108,7 @@ For wireless Android Auto, install `openautolink-companion-vX.Y.Z.apk` from the 
 
 ### iPhone
 
-No OAL iPhone companion is required. Use a data-capable USB cable and your own [authorized authentication pair](docs/carplay-private-mfi-assets.md). Leave vehicle Bluetooth unpaired for recommended CarPlay calls, then complete **Settings → Audio → CarPlay calls → Set up calls** once. **Bluetooth can cause repeated media pauses**, including with Media audio off; the Car Bluetooth alternative is not the recommended setup. See the [USB steps](#usb-1) and [call guide](docs/phone-calls.md).
+No OAL iPhone companion is required. Use a data-capable USB cable and your own [authorized authentication pair](docs/carplay-private-mfi-assets.md), then follow [CarPlay USB setup](#usb-1).
 
 ### Other AAOS systems
 
@@ -133,7 +133,12 @@ Bluetooth pairing bootstraps wireless projection; Bluetooth **Phone calls** also
 
 ### USB
 
-Select **USB** under **Android Auto connection** for normal wired use, then connect a data-capable cable. No companion is needed. **Pair the Android phone with the car and keep Bluetooth Phone calls enabled for call audio**; USB projection does not replace that hands-free path. **Audio → Android Auto → Assistant microphone → Car / Phone** controls the assistant only and saves automatically for its next stream. [Accept both GM USB access prompts every time](#gm-usb-prompts--android-auto-and-carplay), even with the choice saved. You can also leave normal AA mode set to Wireless and use the temporary USB switch below.
+1. Open **Settings → Connection → Android Auto connection**, select **USB** and tap **Save changes**.
+2. Pair the Android phone with the car and keep Bluetooth **Phone calls** enabled. Calls use the car’s Bluetooth hands-free system and microphone, even with USB projection.
+3. Connect a data-capable USB cable and [accept both GM USB prompts](#gm-usb-prompts--android-auto-and-carplay). No companion is needed.
+4. In **Settings → Audio → Microphone → Android Auto**, leave **Assistant microphone → Car** to use the car microphone for the assistant. **Phone** changes the assistant only, not calls.
+
+You can also leave Android Auto set to Wireless and use the temporary USB switch below.
 
 ### GM USB prompts — Android Auto and CarPlay
 
@@ -162,40 +167,31 @@ This handoff is implemented for both phone protocols; successful end-to-end swit
 
 If text or maps look soft, try **1440p** as the recommended manual quality setting: in **OAL → Settings → Video → Android Auto**, turn **Auto (Recommended)** off so it reads **Manual**, select **Video Codec → H.265 / HEVC**, then **AA Resolution → 1440p (2560×1440)** and tap **Save changes**, then reconnect your phone (wireless reconnects automatically; for USB, unplug and reconnect). Keep **GAL / PDK protocol version → 6.0** for the verified modern HEVC path.
 
-**4K (3840×2160)** is an optional higher-detail setting if your phone and head-unit decoder support it. It costs more bandwidth and processing; return to 1440p if it stutters or fails to connect. Auto does not guarantee a particular negotiated resolution, and a blurry image alone does not prove the stream is 1080p. These codec controls apply to Android Auto, not CarPlay.
+**4K (3840×2160)** is an optional higher-detail setting if your phone and head-unit decoder support it. It costs more bandwidth and processing; return to 1440p if it stutters or fails to connect. Auto chooses a supported resolution. These codec controls apply to Android Auto, not CarPlay.
 
 ## CarPlay setup
 
 Keep the vehicle parked while configuring. Disconnect the iPhone from any other OAL receiver before connecting it to the car.
 
-### Common prerequisites
-
-1. Install a current OAL build with a valid accessory authentication identity. Public GitHub APKs and source builds require your own compatible files. See the [authentication/build policy](docs/carplay-private-mfi-assets.md).
-2. Use **USB** under **OAL → Settings → Connection → CarPlay → CarPlay connection** for wired projection. Wireless remains a development option; CarPlay and Android Auto connection modes are independent.
-3. Tap **Save changes**, then reconnect your phone. Wireless reconnects automatically; for USB, unplug and reconnect. Keep file logging enabled for testing and upload results, including failed attempts.
-
-If you previously turned off iPhone projection, OAL retains that choice. Only in that case, turn **Enable iPhone projection** back on in the same settings page and save. There is no separate enablement step for normal setup.
-
 ### USB
 
-1. Select **CarPlay connection → USB** in OAL and tap **Save changes**. If already plugged in, unplug the iPhone before the next step.
-2. Connect the iPhone to a data-capable head-unit USB port with a data-capable cable. If another projection is active, choose **Switch** to attempt temporary USB takeover.
-3. [Tap **OK** on both GM USB access prompts every time](#gm-usb-prompts--android-auto-and-carplay), even if you saved the choice. Accept OAL’s separate local VPN consent when requested. If the iPhone asks to trust the connection, unlock it and approve **Trust** on the iPhone itself.
-4. **Unpair the iPhone from the car and leave Bluetooth disconnected** for the recommended USB setup, and keep **OpenAutoLink selected in vehicle Audio**. USB does not need car Wi-Fi fields or Bluetooth pairing.
-5. In **OAL → Settings → Audio → CarPlay calls**, leave **Call handling → CarPlay** and **Extra car ringtone → Off**.
-6. Tap **Set up calls**, allow the requested phone permission, turn on **OpenAutoLink** in Android’s Calling accounts page, then return to OAL. **Ready** reflects actual approval and call availability; no Inspect, Arm, Apply or Save step is needed. Android approval does not grant cellular service or prove every vehicle supports native controls.
-7. Test a call and button-initiated Siri while parked. “Hey Siri” wake detection is a separate iPhone path. OAL needs microphone permission for cabin capture; if input was unavailable when the session was created, grant it and explicitly reconnect while not in a call.
+1. Install OAL with your own [authorized authentication files](docs/carplay-private-mfi-assets.md).
+2. **Unpair the iPhone from the car and leave car Bluetooth disconnected.** USB CarPlay does not need Bluetooth pairing or car Wi-Fi settings.
+3. In **Settings → Connection → CarPlay**, select **CarPlay connection → USB** and tap **Save changes**. Unplug first if already connected, then connect a data-capable USB cable.
+4. [Tap **OK** on both GM USB prompts](#gm-usb-prompts--android-auto-and-carplay) on every connection. Accept OAL’s local VPN consent when requested and approve **Trust** on the unlocked iPhone if asked. Another active VPN can conflict with USB CarPlay.
+5. Select **OpenAutoLink** in the vehicle’s **Audio** app for music and navigation.
+6. In **Settings → Audio → CarPlay calls**, leave **Call handling → CarPlay** (Recommended) and **Extra car ringtone → Off**.
+7. Tap **Set up calls**, allow Android’s phone permission, turn on **OpenAutoLink** in **Calling accounts**, then return to OAL. **Setup → Ready** updates automatically. This is a one-time setup; no Save or Inspect step is needed.
+8. Allow microphone access for calls and button-initiated Siri. If Audio shows **Enable microphone**, tap it. If it then asks to reconnect, reconnect USB after the call ends. Test a call and Siri while parked.
 
 > [!WARNING]
-> **Bluetooth can cause repeated media pauses, even with Media audio off.** Audio settings now mark **CarPlay** Recommended and show **Car Bluetooth** with a red warning. For normal USB CarPlay, unpair the iPhone from the car and leave Bluetooth disconnected. This warning is not a fix for the Bluetooth pause loop.
+> **Bluetooth can cause repeated media pauses, even with Media audio off.** Keep the iPhone unpaired from car Bluetooth when using the recommended CarPlay handler. Do not use OAL and Bluetooth as simultaneous native call providers.
 
-**Risk-bearing alternative — Car Bluetooth calls:** if you deliberately need native Bluetooth calls, select **Call handling → Car Bluetooth** in Audio, pair the iPhone and keep **Phone calls ON / Media audio OFF**. In **Connection → CarPlay → Android Bluetooth settings**, disconnect/reconnect after changing profiles, then return to OAL with OAL selected in vehicle Audio. Media OFF is not a reliable pause-loop workaround, and GM may restore Media after a wake. OAL changes neither Bluetooth profiles nor the iPhone audio route automatically. OAL calling-account approval is not required for this alternative.
+**Already set up?** Your call-handler choice and Android approval are retained across reconnects. A handler change during a call applies to the next call without ending the current one. There is no diagnostic Arm or Apply step for normal calls or Siri.
 
-Already approved an older OAL account? Its identity is retained; opening Audio or repeating setup is not required merely because projection reconnects. A handler change during an OAL call is saved for the next call, without hanging up the current one. Android Auto remains separate: keep its phone paired with **Phone calls** enabled.
+**Need to keep the iPhone paired?** Select **Call handling → Car Bluetooth** and follow the [Bluetooth alternative](docs/phone-calls.md#alternative--car-bluetooth-calls), including **Phone calls ON / Media audio OFF** and reconnecting the pairing. Bluetooth calls do not require OAL calling-account approval; repeated media pauses can still occur.
 
-The VPN permission is used locally for the USB connection—not an Internet VPN service. Another active VPN can conflict. USB access and permission support vary by head unit.
-
-OAL can remember more than one iPhone’s CarPlay trust. Connect the iPhone you want to use and approve its own permission/Trust prompts; you do not need to erase OAL’s settings or remove the previous iPhone. Only one phone projects at a time. WPP phone selection remains managed by the vehicle’s Bluetooth system, not an OAL preferred-phone list.
+OAL remembers trust for multiple iPhones, but only one phone projects at a time. Connect the phone you want and approve its own prompts. If you previously disabled **Enable iPhone projection**, turn it on again and save.
 
 ### Wireless CarPlay
 
@@ -218,7 +214,7 @@ No special build flag is needed. See the [policy and validation limits](docs/car
 ### Video and display controls
 
 - New CarPlay settings default to **Automatic** resolution targeting a decoder-qualified **1440p-class** image and **Codec → Automatic (H.264 + qualified HEVC)**, with qualified lower-detail fallbacks. Saved video choices are retained. If you choose manual settings, open **OAL → Settings → Video → CarPlay**, select **Manual** under **Resolution / detail**, then choose **1440p** (recommended) or try **4K** if supported. **Fit to window (standard detail tiers)** keeps the selected detail tier at the available window aspect without stretching; custom resolutions retain their chosen aspect ratio. Tap **Save changes**, then reconnect your phone. Wireless reconnects automatically; for USB, unplug and reconnect.
-- **Codec → Automatic (H.264 + qualified HEVC)** is the default for new CarPlay settings. If you choose manual video settings, we recommend this codec setting with **1440p** for the best balance of detail and performance. It offers HEVC only when the exact size/rate qualifies and retains H.264; it does **not** force the iPhone to use HEVC or change your resolution. Existing saved H.264 choices are preserved, so users with saved H.264 settings should select Automatic explicitly. If connection fails, select **H.264**, tap **Save changes**, then reconnect your phone (for USB, unplug and reconnect; wireless reconnects automatically). 4K adds bandwidth and processing demand; return to 1440p if it stutters. Blurry video alone does not establish the negotiated resolution.
+- **Codec → Automatic (H.264 + qualified HEVC)** is the default for new CarPlay settings. If you choose manual video settings, we recommend this codec setting with **1440p** for the best balance of detail and performance. It offers HEVC only when the exact size/rate qualifies and retains H.264; it does **not** force the iPhone to use HEVC or change your resolution. Existing saved H.264 choices are preserved, so users with saved H.264 settings should select Automatic explicitly. If connection fails, select **H.264**, tap **Save changes**, then reconnect your phone (for USB, unplug and reconnect; wireless reconnects automatically). 4K adds bandwidth and processing demand; return to 1440p if it stutters.
 - **For CarPlay on curved screens, we recommend Display → System UI Visible.** OAL starts in fullscreen mode by default, but CarPlay controls can be clipped by the physical screen curves in fullscreen.
 - In **Display → Calibrate safe controls**, adjust the safe rectangle to inset CarPlay controls as far from the edges as you prefer. This is manual adjustment, not automatic curve detection; without suitable insets, fullscreen can cut off parts of the UI. Confirm the calibration, tap **Save changes**, then reconnect your phone (for USB, unplug and reconnect; wireless reconnects automatically).
 - If you prefer fullscreen, **swipe down from the top edge of the screen to reveal the GM navigation bar** when you need the vehicle's system controls. This does not replace safe-control calibration.
@@ -230,28 +226,36 @@ Public GitHub APKs and ordinary source builds omit the CarPlay authentication fi
 
 ## Audio and call settings
 
-**Settings → Audio** keeps Android Auto, CarPlay and shared actions visibly separate, whether connected or not. Ordinary audio/call choices save automatically; this page has no global **Save changes** button. Android Auto assistant source applies to its next microphone stream; its volume offsets apply at the next Android Auto connection. Connection/video/display drafts stay separate. See the [complete call guide and app/GM illustrations](docs/phone-calls.md).
+Open **Settings → Audio**. Audio/call choices save automatically, separately from Connection, Video and Display changes.
 
-<img src="docs/screenshots/Audio-Settings-Landscape.png" alt="Actual OAL Compose Audio settings render, not a vehicle photograph, with explicit Android Auto and CarPlay scope" width="720">
+| Setting | What it changes |
+|---|---|
+| **Microphone → Android Auto → Assistant microphone → Car / Phone** | Assistant input only. Car is the default; saved Phone choices are kept. Applies to the next microphone stream. Calls use Car Bluetooth. |
+| **Microphone → CarPlay → Calls and Siri → Car microphone** | Normal CarPlay microphone input. Allow microphone access if prompted. |
+| **CarPlay calls → Call handling → CarPlay / Car Bluetooth** | Saved native-call handler. CarPlay is recommended with the iPhone unpaired from car Bluetooth. |
+| **CarPlay calls → Extra car ringtone** | Adds a vehicle ringtone alongside CarPlay. Off by default. |
+| **Android Auto · Volume offsets** (**Media**, **Navigation**, **Assistant / Speech**) | Separate Android Auto volume adjustments; 0 is the default. Applies at the next Android Auto connection, not to CarPlay. |
 
-*Prior app illustration rendered by Compose/NativeGraphics; setup state is a test fixture, not an actual Android approval. These images predate the new red Bluetooth-pause warning and Recommended label and have not been refreshed for this change. Follow the current text above. The call guide separately includes a sanitized real GM Calling accounts photograph.*
+**Android call settings** and **Android sound settings** are optional system shortcuts, not extra setup steps. See [calls and microphones](docs/phone-calls.md) for call setup and help.
+
+<img src="docs/screenshots/Audio-Settings-Landscape.png" alt="Audio settings showing Android Auto and CarPlay microphone sections" width="720">
 
 ### Play phone media from vehicle Audio
 
-1. Connect Android Auto or CarPlay using the setup above. OpenAutoLink is the vehicle Audio source for either protocol; it is not a separate Bluetooth media connection.
-2. Open the vehicle’s native **Audio** app and select **OpenAutoLink**. Or use **OAL → Settings → Audio → Both → Open OpenAutoLink in vehicle Audio**. That shortcut requests the native view; if unavailable or denied, open Audio manually. Confirm the selected source in the vehicle UI—the shortcut does not prove selection.
-3. Where the vehicle shows a browse view, open **Phone audio → Connected phone** to request playback from the current phone. The subtitle identifies **Android Auto** or **CarPlay**. This is a playback entry, not a catalog of phone apps, playlists or tracks; choose those in Android Auto or CarPlay.
-4. Use the vehicle’s available Play/Pause and track controls, or the projected music app. Controls and title/artwork depend on the phone app and vehicle. Some GM hosts request Play as soon as the source is selected, so selection may resume audio without a separate Play tap.
+1. Connect Android Auto or CarPlay.
+2. In the vehicle’s **Audio** app, select **OpenAutoLink**. The shortcut **Settings → Audio → Both → Open OpenAutoLink in vehicle Audio** opens that view on supported cars; otherwise open Audio manually.
+3. If a browse view appears, choose **Phone audio → Connected phone**. Choose music apps, playlists and tracks in Android Auto or CarPlay.
+4. Use the vehicle’s Play/Pause and track controls or the projected music app. Selecting the source may start playback automatically.
 
-**No phone connected?** The source can still appear with **Phone audio — Connect a phone**, but there is no playable **Connected phone** entry. Opening Audio does not connect a phone or start projection. Connect normally, then reopen the source if the vehicle has not refreshed it. During connection or shutdown, the subtitle may read **Connecting** or **Unavailable**.
+**No phone connected?** Connect a phone normally, then reopen the source if needed. Opening Audio does not start projection. Selecting a media source does not change call handling.
 
-**Returning from FM or another source?** Select OpenAutoLink again and use the normal vehicle **Play** control if needed. The current CarPlay candidate keeps the native playback state paused after native Pause/Stop or permanent media-focus loss, allowing a compatible vehicle host to send ordinary Play on source return instead of mistaking phone PLAYING metadata for audible OAL output. There is **no separate Resume audio button**. Automatic source-return recovery still needs vehicle confirmation for both music and navigation; it depends on the host sending Play and granting audio focus. Phone-only Play is not a guaranteed substitute. See [source-return recovery and its limits](docs/carplay-source-return-recovery.md).
+**Returning from FM or another source?** Select OpenAutoLink and press the vehicle’s normal **Play** control if needed. There is no separate Resume audio button; automatic resume varies by vehicle. See [audio troubleshooting](docs/troubleshooting.md#carplay-is-silent-after-returning-from-fm-or-another-source).
 
-**No sound?** Confirm OpenAutoLink is selected, check the vehicle’s media volume and try native **Play** once. A visible source, title or accepted Play request alone does not prove audible playback. For USB CarPlay, unpair vehicle Bluetooth if repeated pauses occur; **Media audio OFF does not eliminate that risk**. See the [call guide](docs/phone-calls.md#alternative--car-bluetooth-calls). Do not enable diagnostic recovery or microphone overrides as a normal setup step.
+**No sound?** Check that OpenAutoLink is selected and raise the vehicle’s media volume. For repeated USB CarPlay pauses, disconnect car Bluetooth. Leave diagnostic recovery and microphone overrides off for normal use.
 
 ### What Save changes does
 
-Connection, Video and Display changes are saved together before any reconnect action. On an **actual USB connection**, saving leaves the current projection running and shows **Saved. Unplug and reconnect USB to apply.** Physically unplug/reconnect to negotiate the saved changes; saving alone does not restart or prove a replacement session. Temporary USB connections follow the same rule even if the saved normal mode is Wireless. Wireless reconnects automatically when safe; during a call, OAL instead shows **Saved. Reconnect after the call to apply.** Audio/call choices remain independently autosaved.
+Connection, Video and Display changes are saved together before any reconnect action. On an **actual USB connection**, saving leaves the current projection running and shows **Saved. Unplug and reconnect USB to apply.** Physically unplug/reconnect to negotiate the saved changes; saving alone does not restart the session. Temporary USB connections follow the same rule even if the saved normal mode is Wireless. Wireless reconnects automatically when safe; during a call, OAL instead shows **Saved. Reconnect after the call to apply.** Audio/call choices remain independently autosaved.
 
 ## Adjust text, icons and UI size
 
@@ -275,28 +279,25 @@ Under **CarPlay → CarPlay UI scale**:
 - Move the slider **left toward Smaller UI** to request smaller text/icons and more content, or **right toward Larger UI** to request larger text/icons and less content. The iPhone chooses the final layout and may apply steps or limits; check actual control size while parked.
 - **Manual calibration** spans **100–400 mm**. A wider advertised physical width requests smaller UI; a smaller width requests larger UI. This is CarPlay calibration metadata, **not Android Auto DPI** or video resolution. The extended range introduced in 0.1.551 was reverted after black-screen reports; saved values outside this range return to the 200 mm baseline. Valid saved calibrations are preserved.
 
-- **Last frozen offer** shows **Offered locally** or **Ended**, its basis and offered millimeters, separately from the **Next session** draft. This is local receiver evidence, not proof of phone-visible size or usable video.
+- **Last frozen offer** shows **Offered locally** or **Ended**, its basis and offered millimeters, separately from the **Next session** draft. Check the resulting layout on the iPhone’s next connection.
 - Under **CarPlay status bar**, choose **Automatic**, **Bottom** or **Driver side** for the next connection. Placement does not change text/icon density.
 - Use **Save changes**. Wireless reconnects automatically when safe; USB requires unplugging and reconnecting.
-
-The retained 100–400 mm range is product compatibility policy, not an Apple protocol maximum. No expanded range or new numeric default is introduced.
 
 **UI scale is not video resolution.** Use **Video** settings for image detail and **Fit to window** for CarPlay's standard-tier canvas fit. Use **Display → Calibrate safe controls** to move CarPlay controls away from curved screen edges; changing UI size does not replace safe-area calibration. Neither protocol's scaling control changes the vehicle's native apps or OAL's own settings UI.
 
 ## Keep incoming and active calls in Android Auto or CarPlay on GM
 
-For recommended **unpaired USB CarPlay**, select **Audio → CarPlay calls → Call handling → CarPlay** and complete **Set up calls** once. Normal cabin-microphone calls and button-initiated Siri require no diagnostic arming. CarPlay mode retains supported native call/cluster controls, although the cluster may display **Unknown** while the main CarPlay UI shows the contact. **Car Bluetooth** is a risk-bearing alternative: repeated media pauses can occur even with **Media audio OFF**; the selector does not itself reroute iPhone audio. See the [complete call guide](docs/phone-calls.md).
+To keep GM’s native Phone app from covering projection, open **Phone → Settings** in the vehicle:
 
-For **Android Auto**, or when managing native GM call-screen behavior, use these vehicle settings to stop GM's native Phone app from covering the projected incoming-call and in-call controls on the center display:
+1. Turn **Active Call OFF** (“Show active call view when answering call”).
+2. Turn **Privacy ON** (“Only show call alerts in cluster”).
 
-1. Open the vehicle's native **Phone** app.
-2. Tap the **Settings** gear.
-3. Turn **Active Call** **OFF** (“Show active call view when answering call”).
-4. Turn **Privacy** **ON** (“Only show call alerts in cluster”).
+These change the call display, not the audio route. Android Auto still needs Bluetooth **Phone calls** enabled. Recommended USB CarPlay uses **Call handling → CarPlay** with the iPhone unpaired from car Bluetooth and one-time OAL call approval.
 
-On the tested GM setup, these preferences kept alerts in the cluster without the native active-call screen covering projection; verify the result on your vehicle.
+- The cluster may show **Unknown** or a phone number even when CarPlay shows the contact’s name.
+- Native controls vary by vehicle; outgoing, held and conference-call integration is not supported by OAL’s native CarPlay call integration.
 
-These are **Phone-app display settings**, not Bluetooth profile settings. For **Android Auto**, leave the paired phone's Bluetooth **Phone calls** profile **enabled**: the vehicle's hands-free system carries microphone and speaker audio, and disabling it can also break wireless WPP startup. See [Phone calls](docs/phone-calls.md) for Android Auto audio routing, verification and troubleshooting.
+See the [call guide](docs/phone-calls.md) for setup and help.
 
 ## Vehicle compatibility
 
@@ -356,7 +357,7 @@ Optional diagnostic-log uploads and EV-profile downloads are separate; see the [
 
 ## Diagnostics and useful test reports
 
-CarPlay sessions now use foreground protection for connected-device/media work, with microphone eligibility when Android permits it; this helps protect background operation but does not guarantee ignition/restart recovery. Normal CarPlay projection also supplies bounded passive numeric capture/playback measurements for manual log upload, without saving audio or automatically uploading. These are observations, not a microphone repair. For silent car microphone reports, the opt-in **Diagnostics → Microphone** tool compares local capture channels, sample rates and an available named input while parked. It retains up to 12 bounded numeric comparisons for manual log upload—never microphone audio. It is a diagnostic, not a call-audio fix or phone-microphone selector. See [parked microphone test instructions](docs/microphone-diagnostic.md).
+For a silent car microphone, first check [call setup and microphone permission](docs/phone-calls.md). If the problem continues, **Diagnostics → Microphone** offers parked local capture tests and retains up to 12 numeric comparisons for manual log upload. It never saves microphone audio. These advanced tests are optional, not part of normal setup. See the [microphone diagnostic guide](docs/microphone-diagnostic.md).
 
 **Diagnostics → Media integration** offers read-only media comparisons and an explicitly chosen local **Save media-host APK ZIP** export. The latter saves only the fixed media host’s public APK files, not private app data; it is unencrypted and may contain vendor IP, grants no redistribution rights, and is never included in log uploads. Bounded media-history receipts can remain available for authorized manual log ZIPs even with File Logging Off.
 

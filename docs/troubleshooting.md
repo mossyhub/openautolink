@@ -1,6 +1,6 @@
 # Troubleshooting OpenAutoLink
 
-Start with the outcome, not the status label. `CONNECTED`, `READY`, a successful build, or the absence of an error does not prove projection works. The positive signal is a rendered frame followed by continued video, input, and the feature being tested.
+Find the symptom below. After changing a setting, check the screen, touch controls and the feature you were trying to use.
 
 ## Record the exact environment
 
@@ -94,15 +94,32 @@ For the reported setup, call USB confirmed only after a current build produces a
 
 ## CarPlay is silent after returning from FM or another source
 
-Select OpenAutoLink in native vehicle Audio and use the normal **Play** control if needed. There is no separate Resume audio button. The current guarded recovery candidate depends on the vehicle delivering ordinary Play and granting media focus; automatic return still needs physical confirmation for both music and navigation. Phone PLAYING metadata, a track title or an accepted command is not audible-output proof. Do not enable phone-resume diagnostics as a routine setup step. See [source-return recovery](carplay-source-return-recovery.md).
+1. Select **OpenAutoLink** in the vehicle’s **Audio** app.
+2. Press the vehicle’s normal **Play** control and check media volume. There is no separate Resume audio button.
+3. If USB CarPlay keeps pausing, disconnect the iPhone from car Bluetooth. Media audio OFF alone may not prevent pauses.
+
+Automatic resume varies by vehicle. Leave phone-resume diagnostics off for normal use. If the problem continues, enable file logging, repeat the source change, and upload logs with the approximate time and what you heard. [Developer source-return details](carplay-source-return-recovery.md).
 
 ## USB settings saved but the display did not change
 
 **Save changes** persists the next-session settings without interrupting an actual USB projection. The visible notice is **Saved. Unplug and reconnect USB to apply.** Physically unplug/reconnect, approve the system prompts and check the new session. Saving alone does not renegotiate the running display. Audio/call choices save independently; see [saving and reconnecting](../README.md#what-save-changes-does).
 
-## The native Phone app replaces Android Auto during calls
+## Calls or Siri are silent, or call setup is unavailable
 
-Follow [Phone calls](phone-calls.md). Turn the native Phone app's **Active Call** display off and **Privacy** on, while leaving the Bluetooth **Phone calls** profile enabled.
+1. **Android Auto:** pair the phone with the car and keep Bluetooth **Phone calls ON**. **Assistant microphone → Car / Phone** changes assistant input only.
+2. **Recommended USB CarPlay:** unpair the iPhone from car Bluetooth, select **Audio → CarPlay calls → Call handling → CarPlay**, and complete **Set up calls**. Allow the phone permission, enable **OpenAutoLink** in Calling accounts, and return. **Ready** updates automatically.
+3. In **Audio → Microphone → CarPlay**, follow **Enable microphone** or **Reconnect CarPlay** if shown. Reconnect USB after the call ends.
+4. If using the **Car Bluetooth** alternative, check **Phone calls ON / Media audio OFF**, reconnect the pairing after profile changes, and check the iPhone’s call-audio destination.
+
+Do not enable microphone overrides or call experiments for normal setup. For persistent microphone trouble, see the optional [parked diagnostic](microphone-diagnostic.md).
+
+## The native Phone app replaces Android Auto or CarPlay during calls
+
+In the vehicle’s **Phone → Settings**, turn **Active Call OFF** and **Privacy ON**. These change the display only; Android Auto still needs Bluetooth Phone calls enabled. See [phone calls](phone-calls.md).
+
+## The cluster shows Unknown instead of the caller’s name
+
+Some GM cluster displays use a phone number or their own contact lookup even when CarPlay shows the name. This is a known display limitation; repeating OAL account approval will not fix it.
 
 ## Steering-wheel controls affect the wrong player
 
@@ -144,4 +161,4 @@ Never include:
 - invitation tokens;
 - unrelated personal data.
 
-When reporting a fix, identify the positive signal—for example, `First frame rendered` followed by sustained frames and working touch—not merely that an old error disappeared.
+When reporting a fix, describe what now works—for example, stable video and working touch after reconnecting.

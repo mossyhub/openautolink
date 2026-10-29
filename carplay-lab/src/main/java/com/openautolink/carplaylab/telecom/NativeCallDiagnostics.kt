@@ -18,7 +18,9 @@ object NativeCallDiagnostics {
     private val transport = Regex("media stage=phone-control command=(ANSWER|END|REJECT) outcome=($outcomes)")
     private val ringtone = Regex("media stage=native-ring policy=(NORMAL|EXTERNAL_COMPAT|IN_BAND_COMPAT) sdk=([0-9]{2,4})")
     private val identity = Regex("media stage=native-identity boundary=(DECODE|MERGE|CREATE|UPDATE) seq=([0-9]{1,2}) call=([0-9]{1,2}) status=(-1|[0-9]{1,3}) native=(NONE|NEW|RINGING|ACTIVE|HELD|ENDED|OTHER) remote=(ABSENT|EMPTY|VALID|INVALID|UNKNOWN) name=(ABSENT|EMPTY|VALID|INVALID|UNKNOWN) result=(OBSERVED|REJECTED|MATCH|MISMATCH)")
+    private val policy = Regex("media stage=native-policy actor=(HFP|ADMISSION|REPAIR|AUTHORITY|PROJECTION) state=(UNKNOWN|KNOWN_DISCONNECTED|HFP_OWNED|ENABLED|DISABLED|ABSENT|CLOSED) admitted=(true|false) action=(OBSERVED|PRESERVED|BLOCKED|RETIRED|REQUESTED|FAILED) cause=(PROFILE_CENSUS|NEW_CALL|MANUAL|CONTROLLER_CLOSE|ACCOUNT|OWNER_CLOSED|CLEANUP)")
     fun sanitize(line: String): String? {
+        if (policy.matches(line)) return line
         if (line.length > 256) return null
         val facts = identity.matchEntire(line)
         if (facts != null) return line.takeIf {

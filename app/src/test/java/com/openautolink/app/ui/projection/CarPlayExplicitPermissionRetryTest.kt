@@ -85,7 +85,19 @@ class CarPlayExplicitPermissionRetryTest {
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             Thread.sleep(5)
         }
-        assertTrue(message + " state=" + vm.carPlayState.value, condition())
+        val complete = condition()
+        if (!complete) {
+            val fence = com.shilapi.xcertplay.media.MicrophoneCaptureFence
+            val snapshot = fence.javaClass.declaredFields.associate { f ->
+                f.isAccessible = true
+                f.name to runCatching { f.get(fence).toString() }.getOrDefault("unavailable")
+            }
+            System.err.println("USB_FIXTURE_TIMEOUT message=$message fence=$snapshot vmClaims=${field("usbCaptureClaims")} ownership=${CarPlayOwnership.process.blocksAndroidAuto} generation=${(field("usbSwitchPolicy") as UsbHotPlugSwitchPolicy).generation}")
+            Thread.getAllStackTraces().filter { (t, _) -> t.name.contains("carplay") || t.name.contains("DefaultDispatcher") }.forEach { (t, stack) ->
+                System.err.println("USB_FIXTURE_THREAD ${t.name} ${t.state}\n" + stack.joinToString("\n"))
+            }
+        }
+        assertTrue(message + " state=" + vm.carPlayState.value, complete)
     }
     private fun setup(explicitFirst: Boolean = false, timeout: Boolean = false) = runBlocking {
         nextGrant = timeout
@@ -179,11 +191,44 @@ class CarPlayExplicitPermissionRetryTest {
         await("Automatic blocked attempt must fully retire", ::settled)
         assertEquals("No automatic permission prompt storm", expectedRequests, requests)
     }
+    private fun retireFixtureUsb() = runBlocking {
+        kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
+            vm.javaClass.getDeclaredMethod("stopUnifiedUsb", kotlin.coroutines.Continuation::class.java)
+                .apply { isAccessible = true }.invoke(vm, continuation)
+        }
+    }
+    @Test fun fixtureCancellationIsNotExactUsbClaimRetirement() {
+        setup()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val session = field("sessionManager") as SessionManager
+        coEvery { session.stop() } coAnswers { entered.complete(Unit); release.await() }
+        select()
+        await("Fixture must hold a real pending USB claim during AA retirement") { entered.isCompleted }
+        val job = vm.viewModelScope.coroutineContext[Job]!!
+        job.cancel()
+        await("Cancelled fixture ViewModel must finish before the retirement discriminator") { job.isCompleted }
+        @Suppress("UNCHECKED_CAST")
+        val claims = field("usbCaptureClaims") as List<com.shilapi.xcertplay.media.MicrophoneCaptureFence.Lease>
+        assertFalse("Cancelling fixture jobs is not acknowledgement of pending USB capture retirement", claims.isEmpty())
+        assertNull("Cancelled pending owner must remain fenced", com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic())
+        release.complete(Unit)
+        retireFixtureUsb()
+        assertTrue("Actual exact USB retirement releases this fixture's claims", claims.isEmpty())
+        val diagnostic = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
+        try { assertNotNull("Actual retirement, not cancellation, restores diagnostic admission", diagnostic) }
+        finally { diagnostic?.release() }
+    }
     @After fun cleanup() {
         if (::vm.isInitialized) {
             val job = vm.viewModelScope.coroutineContext[Job]!!
             job.cancel()
             await("ViewModel coroutines must retire before removing mocks") { job.isCompleted }
+            // Cancellation can leave a fail-closed USB claim. Await the real lifecycle boundary
+            // on this fixture, with platform mocks still installed, before the next test starts.
+            retireFixtureUsb()
+            assertTrue("Fixture exact USB retirement must release every owned capture claim",
+                (field("usbCaptureClaims") as Collection<*>).isEmpty())
             (field("unifiedUsbManager") as? UsbConnectionManager)?.stop()
             val coordinator = field("carPlayCoordinator") as CarPlayCoordinator
             if (vm.carPlayState.value.selected) {
@@ -214,8 +259,16 @@ class CarPlayExplicitPermissionRetryTest {
         setup()
         assertTrue(boundary.get()>0)
         duringAaRetire={}
-        val lease=com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
-        try { assertNotNull("real exact failure clearing retires USB+CP claims",lease) } finally {lease?.release()}
+        var lease: com.shilapi.xcertplay.media.MicrophoneCaptureFence.Lease? = null
+        try {
+            // generation=null is published before cleared() releases the real capture claims.
+            // Await acquisition itself, not that earlier publication; retain the exact lease.
+            await("real exact failure clearing retires USB+CP claims") {
+                if (lease == null) lease = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
+                lease != null
+            }
+            assertNotNull("real exact failure clearing retires USB+CP claims", lease)
+        } finally { lease?.release() }
     }
     @Test fun microphoneDiagnosticRejectsClaimedUsbWhileAaStillIdleAndUntilRetirement() = runBlocking {
         setup()

@@ -4,9 +4,9 @@ The local opt-in tool measures the head unit’s microphone without transmitting
 
 ## Normal CarPlay calls
 
-Normal call and speech capture uses the owner-accepted build 548 acquisition package: classic recognition-source AudioRecord, 16 kHz mono PCM16, urgent audio priority and best-effort effects attached after recording starts, converted to the genuinely negotiated wire format. The full qualification/acquisition package is promoted, not one ingredient claimed as the cause. The owner accepted calls and Maps-button Siri; five released capture owners had 3095/3095 nonzero raw blocks. This is a bounded vehicle interval, not universal GM or echo/noise/restart acceptance. Default-purpose MIC is qualified separately.
+Calls and button-initiated Siri use the car microphone in normal operation. Allow microphone access and follow [call setup](phone-calls.md); no diagnostic profile or arming is needed.
 
-An explicitly armed receiver-frozen advanced override takes precedence for future owners only. **Off** returns future sessions to production policy, not an earlier silent/default or manual 48 kHz profile. An active recorder is not mutated. Host tests prove qualification/conversion/transport/retirement boundaries, not acoustic quality.
+The advanced override below is optional. Leave it **Off** for production capture. Turning it Off restores normal policy for future sessions; it does not change a recorder already running.
 
 ## Run a parked test
 

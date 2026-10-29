@@ -29,7 +29,12 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
     @Volatile private var productionCarPlay = false
     @Volatile private var productionAdmission: () -> Boolean = { false }
     /** Production intent is separate from local repair and the legacy diagnostic enable epoch. */
-    fun applyProductionPolicy(carPlay: Boolean, extraRingtone: Boolean, canAdmit: () -> Boolean) {
+    @Volatile private var productionCommands: () -> Boolean = { false }
+    fun applyProductionPolicy(carPlay: Boolean, extraRingtone: Boolean, canAdmit: () -> Boolean) =
+        applyProductionPolicy(carPlay, extraRingtone, canAdmit, canAdmit)
+    /** New admission and exact admitted-owner controls have independent authority. */
+    fun applyProductionPolicy(carPlay: Boolean, extraRingtone: Boolean, canAdmit: () -> Boolean, canControl: () -> Boolean) {
+        productionCommands = canControl
         productionAdmission = canAdmit
         productionCarPlay = carPlay
         carPlayRingtoneOnly = !extraRingtone
@@ -39,7 +44,7 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
     }
     val hasAdmittedCall: Boolean get() = link?.hasAdmittedCall == true
     private fun admitsNewCall() = !productionManaged || (productionCarPlay && productionAdmission())
-    private fun admitsCommand() = !productionManaged || productionAdmission()
+    private fun admitsCommand() = !productionManaged || productionCommands()
     fun repairLocalPresentation(): java.util.concurrent.CompletableFuture<Boolean> =
         link?.retireLocalCalls() ?: java.util.concurrent.CompletableFuture.completedFuture(true)
     /** Startup/resume operation, no prompts, no account removal, no diagnostic enable/close ritual. */
@@ -118,7 +123,11 @@ class ManagedTelecomExperiment internal constructor(private val context: Context
         val read = OwnPhoneAccountAccess.read(context, handle)
         val value = AccountAuthority.valueOf(read.account.name)
         val snapshot = Authority(generation, value, android.os.SystemClock.elapsedRealtime())
+        val previous = authority
         synchronized(lifecycle) { if (epoch == generation) authority = snapshot }
+        if (previous.value != value && value != AccountAuthority.ENABLED) {
+            NativeCallDiagnostics.record(context, "media stage=native-policy actor=AUTHORITY state=${value.name} admitted=$hasAdmittedCall action=REQUESTED cause=ACCOUNT")
+        }
         // Diagnostic fsync must never reset the age of an already completed authority read.
         receipt(stage, read.outcome, generation)
         return snapshot

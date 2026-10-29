@@ -30,10 +30,12 @@ class CarPlayCallController internal constructor(
     private val backend = ManagedTelecomExperiment.get(context)
     private val guard = HfpCallGuard(context) { status ->
         mutableState.update { it.copy(hfp = status) }
-        // Positive HFP conflict: withdraw own local presentation only, NEVER send END/Reject.
-        if (status == HfpCallGuard.Status.HFP_OWNED) requestLocalRepair()
+        // ANY-device profile census is prospective conflict, not same-call handover proof.
+        // Keep the exact admitted owner until remote end, authority loss or explicit repair.
+        NativeCallDiagnostics.record(context, "media stage=native-policy actor=HFP state=${status.name} admitted=${backend.hasAdmittedCall} action=${if (backend.hasAdmittedCall) "PRESERVED" else if (status == HfpCallGuard.Status.HFP_OWNED) "BLOCKED" else "OBSERVED"} cause=PROFILE_CENSUS")
     }
-    private fun requestLocalRepair(): java.util.concurrent.CompletableFuture<Boolean> {
+    private fun requestLocalRepair(cause: String = "MANUAL"): java.util.concurrent.CompletableFuture<Boolean> {
+        NativeCallDiagnostics.record(context, "media stage=native-policy actor=REPAIR state=CLOSED admitted=${backend.hasAdmittedCall} action=REQUESTED cause=$cause")
         val completion = java.util.concurrent.CompletableFuture<Boolean>()
         synchronized(cleanupLock) {
             cleanupInFlight++
@@ -52,6 +54,7 @@ class CarPlayCallController internal constructor(
                 }
                 !state.localCleanupPending && !state.localCleanupFailed
             }
+            NativeCallDiagnostics.record(context, "media stage=native-policy actor=REPAIR state=CLOSED admitted=${backend.hasAdmittedCall} action=${if (success) "RETIRED" else "FAILED"} cause=CLEANUP")
             completion.complete(repaired)
         }
         try {
@@ -98,19 +101,19 @@ class CarPlayCallController internal constructor(
             }
         }
     }
-    /** Command/admission safety, NOT proof that another provider is absent.
-     * The backend separately checks the selected handler for NEW admission only, so an
-     * ordinary next-call switch preserves the exact admitted owner's working controls.
-     * Explicit CarPlay requires the user to disconnect the iPhone from car Bluetooth.
-     * UNKNOWN stays unknown; detected ANY-HFP conflict blocks all native call effects. */
+    /** Commands retain exact backend owner/epoch/account fences, not prospective HFP policy. */
     private fun permitsNativeCallEffects(): Boolean {
         val state = mutableState.value
-        return !closed && !state.localCleanupPending && !state.localCleanupFailed &&
-            guard.status != HfpCallGuard.Status.HFP_OWNED
+        return !closed && !state.localCleanupPending && !state.localCleanupFailed
+    }
+    private fun permitsNewCall(): Boolean {
+        val allowed = permitsNativeCallEffects() && guard.status != HfpCallGuard.Status.HFP_OWNED
+        if (!allowed) NativeCallDiagnostics.record(context, "media stage=native-policy actor=ADMISSION state=${guard.status.name} admitted=${backend.hasAdmittedCall} action=BLOCKED cause=NEW_CALL")
+        return allowed
     }
     private fun apply(value: CarPlayCallPreferences) {
         backend.applyProductionPolicy(value.handler == CarPlayCallPreferences.Handler.CARPLAY,
-            value.extraRingtone, ::permitsNativeCallEffects)
+            value.extraRingtone, ::permitsNewCall, ::permitsNativeCallEffects)
     }
     private suspend fun prepareBackend(value: CarPlayCallPreferences): State {
         val result = withContext(Dispatchers.IO) { backend.prepareProduction() }
@@ -159,7 +162,7 @@ class CarPlayCallController internal constructor(
         scope.cancel()
         guard.close()
         (context.applicationContext as? Application)?.unregisterActivityLifecycleCallbacks(lifecycle)
-        requestLocalRepair()
+        requestLocalRepair("CONTROLLER_CLOSE")
     }
     companion object {
         @Volatile private var instance: CarPlayCallController? = null
