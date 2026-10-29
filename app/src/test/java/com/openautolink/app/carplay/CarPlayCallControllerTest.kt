@@ -35,9 +35,70 @@ class CarPlayCallControllerTest {
         @Volatile var state = android.bluetooth.BluetoothProfile.STATE_DISCONNECTED
         lateinit var device: android.bluetooth.BluetoothDevice
         override fun getConnectedDevices() = getDevicesMatchingConnectionStates(intArrayOf(2))
-        override fun getDevicesMatchingConnectionStates(states: IntArray) =
-            if (state in states) listOf(device) else emptyList()
+        override fun getDevicesMatchingConnectionStates(states: IntArray): List<android.bluetooth.BluetoothDevice> {
+            val result = if (state in states) listOf(device) else emptyList()
+            afterRead.getAndSet(null)?.invoke()
+            return result
+        }
+        val afterRead = java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>()
         override fun getConnectionState(device: android.bluetooth.BluetoothDevice) = state
+    }
+    private fun guardWorker(guard: com.openautolink.carplaylab.telecom.HfpCallGuard) =
+        guard.javaClass.getDeclaredField("worker").apply { isAccessible = true }.get(guard) as java.util.concurrent.ScheduledExecutorService
+    private fun refreshFixtureGuard(guard: com.openautolink.carplaylab.telecom.HfpCallGuard) {
+        // A direct refresh may lose its revision to the scheduled census and return
+        // without publishing. Use that same worker as the fixture's completion barrier.
+        guardWorker(guard).submit { guard.refresh() }.get(5, java.util.concurrent.TimeUnit.SECONDS)
+    }
+    @Test @Config(sdk = [32,34])
+    fun fixtureCensusRunsOnGuardWorker() {
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(android.Manifest.permission.BLUETOOTH_CONNECT)
+        val adapter = app.getSystemService(android.bluetooth.BluetoothManager::class.java).adapter
+        shadowOf(adapter).setState(android.bluetooth.BluetoothAdapter.STATE_ON)
+        val profile = Profile().apply { device = adapter.getRemoteDevice("02:00:00:00:00:01"); state = android.bluetooth.BluetoothProfile.STATE_CONNECTED }
+        val guard = com.openautolink.carplaylab.telecom.HfpCallGuard(app)
+        val listener = guard.javaClass.getDeclaredField("listener").apply { isAccessible = true }.get(guard) as android.bluetooth.BluetoothProfile.ServiceListener
+        try {
+            listener.onServiceConnected(16, profile)
+            val expected = guardWorker(guard).submit<Thread> { Thread.currentThread() }.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            var actual: Thread? = null
+            profile.afterRead.set { actual = Thread.currentThread() }
+            refreshFixtureGuard(guard)
+            assertSame("fixture refresh must serialize with the actual scheduled census worker", expected, actual)
+            assertEquals(com.openautolink.carplaylab.telecom.HfpCallGuard.Status.HFP_OWNED, guard.status)
+        } finally { guard.close() }
+    }
+    @Test @Config(sdk = [32,34])
+    fun overlappingManualCensusCanReturnBeforeNewerReadPublishes() {
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(android.Manifest.permission.BLUETOOTH_CONNECT)
+        val adapter = app.getSystemService(android.bluetooth.BluetoothManager::class.java).adapter
+        shadowOf(adapter).setState(android.bluetooth.BluetoothAdapter.STATE_ON)
+        val profile = Profile().apply { device = adapter.getRemoteDevice("02:00:00:00:00:01"); state = android.bluetooth.BluetoothProfile.STATE_CONNECTED }
+        val guard = com.openautolink.carplaylab.telecom.HfpCallGuard(app)
+        val listener = guard.javaClass.getDeclaredField("listener").apply { isAccessible = true }.get(guard) as android.bluetooth.BluetoothProfile.ServiceListener
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val worker = guardWorker(guard)
+        try {
+            listener.onServiceConnected(16, profile)
+            profile.afterRead.set {
+                worker.submit {
+                    profile.afterRead.set {
+                        entered.countDown()
+                        check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    }
+                    guard.refresh()
+                }
+                assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            }
+            guard.refresh()
+            assertEquals("a losing manual refresh returned before the newer worker publication", com.openautolink.carplaylab.telecom.HfpCallGuard.Status.UNKNOWN, guard.status)
+            release.countDown()
+            worker.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals("the actual newer census publishes the connected conflict", com.openautolink.carplaylab.telecom.HfpCallGuard.Status.HFP_OWNED, guard.status)
+        } finally { release.countDown(); guard.close() }
     }
     @Test @Config(sdk = [32,34])
     fun failedHfpAttemptPreservesExactActiveOwnerAndEndWhileBlockingNewAdmission() = runBlocking {
@@ -56,7 +117,7 @@ class CarPlayCallControllerTest {
             controller.prepare()
             val os = shadowOf(app.getSystemService(TelecomManager::class.java))
             os.enablePhoneAccount(backend.handle, true); controller.prepare(); os.setConnectionService(service)
-            listener.onServiceConnected(16, profile); guard.refresh()
+            listener.onServiceConnected(16, profile); refreshFixtureGuard(guard)
             val reports = java.util.concurrent.CopyOnWriteArrayList<Int>()
             val key = ByteArray(32)
             val peer = com.shilapi.xcertplay.airplay.ControlCipher(key, key)
@@ -91,14 +152,14 @@ class CarPlayCallControllerTest {
             link.handle(call(3)); link.handle(call(4)); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals(android.telecom.Connection.STATE_ACTIVE, connection.state)
             profile.state = android.bluetooth.BluetoothProfile.STATE_CONNECTING
-            guard.refresh(); shadowOf(android.os.Looper.getMainLooper()).idle()
+            refreshFixtureGuard(guard); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals("profile attempt must not retire an admitted call", android.telecom.Connection.STATE_ACTIVE, connection.state)
             assertTrue(backend.hasAdmittedCall)
             profile.state = android.bluetooth.BluetoothProfile.STATE_DISCONNECTED
-            guard.refresh(); shadowOf(android.os.Looper.getMainLooper()).idle()
+            refreshFixtureGuard(guard); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals(android.telecom.Connection.STATE_ACTIVE, connection.state)
             profile.state = android.bluetooth.BluetoothProfile.STATE_CONNECTED
-            guard.refresh(); shadowOf(android.os.Looper.getMainLooper()).idle()
+            refreshFixtureGuard(guard); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals("unproven late HFP handover must preserve Active", android.telecom.Connection.STATE_ACTIVE, connection.state)
             assertEquals("HFP must not manufacture a remote command", 1, commands.size)
             connection.onDisconnect(); backend.refresh()
@@ -127,20 +188,20 @@ class CarPlayCallControllerTest {
             controller.prepare()
             val os = shadowOf(app.getSystemService(TelecomManager::class.java))
             os.enablePhoneAccount(backend.handle, true); controller.prepare(); os.setConnectionService(service)
-            listener.onServiceConnected(16, profile); guard.refresh()
+            listener.onServiceConnected(16, profile); refreshFixtureGuard(guard)
             var rejects = 0
             val link = backend.authenticatedLink(rejectSender = { current -> if (current()) { rejects++; true } else false }) { true }!!
             link.handle(call()); shadowOf(android.os.Looper.getMainLooper()).idle()
             val connection = os.allowIncomingCall(os.onlyIncomingCall)!!
             profile.state = android.bluetooth.BluetoothProfile.STATE_CONNECTED
-            guard.refresh(); shadowOf(android.os.Looper.getMainLooper()).idle()
+            refreshFixtureGuard(guard); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals(android.telecom.Connection.STATE_RINGING, connection.state)
             assertEquals(0, rejects)
             connection.onReject(); backend.refresh()
             assertEquals("unproven HFP handover must not withhold exact owner's Reject", 1, rejects)
             link.handle(call(0)); shadowOf(android.os.Looper.getMainLooper()).idle()
             for (state in listOf(android.bluetooth.BluetoothProfile.STATE_CONNECTED, android.bluetooth.BluetoothProfile.STATE_CONNECTING, android.bluetooth.BluetoothProfile.STATE_DISCONNECTING)) {
-                profile.state = state; guard.refresh()
+                profile.state = state; refreshFixtureGuard(guard)
                 link.handle(call(suffix = (state + 2).toString())); shadowOf(android.os.Looper.getMainLooper()).idle()
                 assertEquals("conflict escaped new-call gate", 1, os.allIncomingCalls.size)
                 link.handle(call(0, (state + 2).toString())); shadowOf(android.os.Looper.getMainLooper()).idle()
@@ -150,7 +211,7 @@ class CarPlayCallControllerTest {
             assertTrue("guard decision must survive manual export", receipts.any { it.contains("stage=native-policy actor=HFP") && it.contains("action=PRESERVED") })
             assertTrue(receipts.any { it.contains("stage=native-policy") && it.contains("action=BLOCKED") })
             // Genuine OS account revocation still retires this exact owner, with no remote command.
-            profile.state = android.bluetooth.BluetoothProfile.STATE_DISCONNECTED; guard.refresh()
+            profile.state = android.bluetooth.BluetoothProfile.STATE_DISCONNECTED; refreshFixtureGuard(guard)
             link.handle(call(suffix = "8")); shadowOf(android.os.Looper.getMainLooper()).idle()
             val revoked = os.allowIncomingCall(os.lastIncomingCall)!!
             os.enablePhoneAccount(backend.handle, false); backend.refresh(); shadowOf(android.os.Looper.getMainLooper()).idle()
