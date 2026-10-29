@@ -118,6 +118,11 @@ class ProductionMediaDiagnosticsIntegrationTest {
     @Test fun recoveryAndPublicationMarkersAreFiniteAtAppBoundary() {
         val markers = listOf(
             "media stage=audio-focus-request reason=phone-resume result=denied revision=1 volumePercent=0 mute=denied",
+            "media stage=media-resume-policy reason=phone-resume result=accepted",
+            "media stage=media-resume-policy reason=phone-resume result=canceled",
+            "media stage=media-resume-policy reason=phone-resume result=deferred",
+            "media stage=media-resume-policy reason=phone-resume result=denied",
+            "media stage=media-resume-policy reason=phone-resume result=granted",
             "media stage=playing-publication previous=none new=playing active=true mode=normal owner=current")
         markers.forEach { marker ->
             assertNotNull(marker, CarPlayAudioDiagnostics.sanitize(1, marker))
@@ -184,6 +189,12 @@ class ProductionMediaDiagnosticsIntegrationTest {
             (field("statuses").get(receiver) as java.util.concurrent.ExecutorService).submit {}.get(3, java.util.concurrent.TimeUnit.SECONDS)
             val recovery = receiptLines.first { "audio-focus-request reason=phone-resume result=denied" in it }
                 .substringAfter("CARPLAY_AUDIO session=700 ")
+            for(result in listOf("accepted","denied")) {
+                val policy=receiptLines.first { "stage=media-resume-policy reason=phone-resume result=$result" in it }
+                    .substringAfter("CARPLAY_AUDIO session=700 ")
+                assertTrue(receiver.audioDiagnostic(session,policy))
+                assertFalse(receiver.audioDiagnostic(session,"$policy title=canary"))
+            }
             assertTrue("actual recovery receipt passes receiver's finite admission", receiver.audioDiagnostic(session, recovery))
             assertFalse(receiver.audioDiagnostic(session, "$recovery title=canary"))
             host.publish(CarPlayMediaMetadata(playing = true, title = "private-title-canary", artist = "private-artist-canary"), null, null)
@@ -228,6 +239,9 @@ class ProductionMediaDiagnosticsIntegrationTest {
             assertTrue(MediaOutcomeSummary.process.snapshot().losses > before.losses)
             assertTrue(MediaOutcomeSummary.process.snapshot().recoveries > before.recoveries)
             assertTrue(summaries.any { "last_recovery=RECOVERY_DENIED" in it })
+            val durablePolicy=members.filterKeys { it.startsWith("oal_host_media") }.values.joinToString("\n") { it.toString(Charsets.UTF_8) }
+            assertTrue("accepted phone intent must survive logging-off actual manual ZIP", "reason=phone-resume result=accepted" in durablePolicy)
+            assertTrue("denial must survive logging-off actual manual ZIP", "reason=phone-resume result=denied" in durablePolicy)
             assertFalse(members.values.any { bytes -> listOf("private-title-canary", "private-artist-canary", "token-canary").any { it in bytes.toString(Charsets.UTF_8) } })
         } finally {
             host.close()

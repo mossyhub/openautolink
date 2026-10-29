@@ -45,10 +45,13 @@ class CarPlayForegroundLifecycleTest {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
                 service.get().foregroundServiceType)
             assertTrue(admitted(lease))
+            assertTrue(lease.playbackAllowed())
             visibility("paused",activity.get())
             assertTrue("Established session survives normal pause", admitted(lease))
+            assertTrue("Activity pause is not OEM deselection or service loss",lease.playbackAllowed())
             service.destroy()
             assertFalse("Readiness history cannot preserve capture after service death", admitted(lease))
+            assertFalse(lease.playbackAllowed())
         } finally { lease.release(); visibility("paused",activity.get()); activity.pause().stop().destroy() }
     }
 
@@ -111,6 +114,7 @@ class CarPlayForegroundLifecycleTest {
             shadowOf(app).denyPermissions(android.Manifest.permission.RECORD_AUDIO)
             CarPlaySessionLeases.reconcile(app)
             assertFalse(lease.captureAllowed())
+            assertTrue("Microphone permission does not gate MEDIA playback",lease.playbackAllowed())
             assertTrue(entered.await(2,java.util.concurrent.TimeUnit.SECONDS))
             assertEquals(CarPlayForegroundPolicy.BASE or CarPlayForegroundPolicy.MIC,service.get().foregroundServiceType)
             released.countDown()
@@ -157,6 +161,7 @@ class CarPlayForegroundLifecycleTest {
         val app = RuntimeEnvironment.getApplication()
         shadowOf(app).denyPermissions(android.Manifest.permission.RECORD_AUDIO)
         val lease = CarPlaySessionLeases.forContext(app).acquire()
+        assertFalse("No protected service admission before its real acknowledgement",lease.playbackAllowed())
         val start = nextStart(app)
         val service = Robolectric.buildService(CarPlaySessionService::class.java).create()
         try {
@@ -164,6 +169,7 @@ class CarPlayForegroundLifecycleTest {
             lease.awaitReady()
             assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,service.get().foregroundServiceType)
+            assertTrue(lease.playbackAllowed())
         } finally { lease.release(); service.destroy() }
     }
 }

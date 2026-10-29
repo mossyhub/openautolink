@@ -181,9 +181,9 @@ class CarPlayMetadataRecoveryTest {
             f.offer(false);f.offer(true);f.offer(false);f.drain()
         } finally { release.countDown() }
     }
-    @Test fun interactionDiscardsRatherThanSavingRecoveryUntilCallEnd()=Fixture().use { f ->
+    @Test fun interactionDefersOneFreshRecoveryUntilCallEnd()=Fixture().use { f ->
         f.start();val call=f.start("telephony");val original=f.focus.lastAudioFocusRequest
         f.offer(false);f.offer(true);f.drain();f.sink.onAudioStopped(call);f.drain()
-        assertSame(original,f.focus.lastAudioFocusRequest);verify(f.session,never()).sendMedia(anyInt(),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true })); Unit
+        assertNotSame(original,f.focus.lastAudioFocusRequest);verify(f.session,never()).sendMedia(anyInt(),(org.mockito.ArgumentMatchers.any<() -> Boolean>() ?: { true })); Unit
     }
 }

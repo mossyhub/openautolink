@@ -136,6 +136,7 @@ object MediaDiagnosticHooks {
     fun own(): MediaOwnSnapshot = try { snapshotProvider.read() } catch (_: Exception) { MediaOwnSnapshot() }
     /** Runtime status callback supplies its exact attempt lease, never an inferred/current owner. */
     fun recordReceiverReceipt(lease: com.openautolink.app.carplay.CarPlayHostMediaLease, message: String) {
+        lease.recordPhoneResumePolicy(message)
         com.openautolink.app.media.OalMediaSessionManager.instanceOrNull()?.recordDiagnosticReceipt(lease, message)
     }
 }

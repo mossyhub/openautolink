@@ -640,10 +640,10 @@ class ProjectionReceiver(
             observationEpoch!=sink.phoneObservationGeneration()) return null
         return MediaRecoveryStamp(session,commandEpoch,experimentEpoch,ingressMs,sinkEpoch,observationEpoch,selected)
     }
-    private fun recoveryCurrent(stamp:MediaRecoveryStamp):Boolean = currentMediaOwner(stamp.session) &&
+    private fun recoveryCurrent(stamp:MediaRecoveryStamp,checkAge:Boolean=true):Boolean = currentMediaOwner(stamp.session) &&
         stamp.commandEpoch==mediaPlayEpoch.get() && stamp.sinkEpoch==sink.phoneResumeGeneration() &&
         stamp.observationEpoch==sink.phoneObservationGeneration() &&
-        android.os.SystemClock.elapsedRealtime()-stamp.ingressMs in 0..5000 && stamp.selected()
+        (!checkAge || android.os.SystemClock.elapsedRealtime()-stamp.ingressMs in 0..5000) && stamp.selected()
     /** Constant space event channel, deliberately independent of display coalescing. */
     fun offerPhonePlaybackObservation(session:AirPlaySession, playing:Boolean?, stamp:MediaRecoveryStamp):Boolean {
         if (stamp.session !== session || !recoveryCurrent(stamp)) return false
@@ -659,6 +659,7 @@ class ProjectionReceiver(
                 playbackRevision.incrementAndGet();resumeCandidate.set(null)
             } else if (previous == false) {
                 resumeCandidate.set(ResumeCandidate(stamp,playbackRevision.incrementAndGet()))
+                status("media stage=media-resume-policy reason=phone-resume result=accepted")
             }
         }
         if (resumeCandidate.get()!=null) scheduleResumeDrain()
@@ -670,8 +671,11 @@ class ProjectionReceiver(
             try {
                 while (true) {
                     val candidate=resumeCandidate.getAndSet(null) ?: break
-                    fun current()=candidate.revision==playbackRevision.get() && recoveryCurrent(candidate.stamp)
-                    if (current()) sink.preparePhoneResume(::current)
+                    // Bound queue residence, not the duration of a legitimately admitted call.
+                    // Once retained, keep the ORIGINAL epochs; never recapture at interaction end.
+                    fun current()=candidate.revision==playbackRevision.get() && recoveryCurrent(candidate.stamp,false)
+                    if (recoveryCurrent(candidate.stamp) && current()) sink.preparePhoneResume(::current)
+                    else status("media stage=media-resume-policy reason=phone-resume result=canceled")
                 }
             } finally {
                 resumeDrain.set(false)
@@ -707,7 +711,9 @@ class ProjectionReceiver(
         val playEpoch = if (index==1 || index==2) mediaPlayEpoch.incrementAndGet() else mediaPlayEpoch.get()
         fun current() = currentMediaOwner(session) && (index != 1 || playEpoch == mediaPlayEpoch.get())
         if (index == 1 || index == 2) {
-            playbackRevision.incrementAndGet();resumeCandidate.set(null);sink.cancelPhoneResume()
+            playbackRevision.incrementAndGet()
+            if (resumeCandidate.getAndSet(null)!=null) status("media stage=media-resume-policy reason=phone-resume result=canceled")
+            sink.cancelPhoneResume()
         }
         if (index == 2) {
             // Cancel intent at ingress even if the bounded HID worker is blocked/full.
@@ -939,6 +945,7 @@ class ProjectionReceiver(
         val audioDiagnosticSchemas = listOf(
             "media stage=playing-publication previous=(none|paused|playing) new=(none|paused|playing) active=true mode=(normal|suppress) owner=current",
             "media stage=audio-focus-request reason=phone-resume result=(granted|denied|closed) revision=[0-9]{1,19} volumePercent=(0|20|100) mute=(permanent-loss|transient|denied|duck|unmuted)",
+            "media stage=media-resume-policy reason=phone-resume result=(accepted|canceled|denied|deferred|granted)",
             "media stage=media-command-ingress command=(PLAY|PAUSE|STOP|NEXT|PREVIOUS) controller=(bluetooth|car-service|system-ui|oem|other|unknown) sequence=[0-9]{1,19} elapsedMs=[0-9]{1,19}",
             "carplay-bt event=(hfp-client|a2dp-sink) state=(disconnected|connecting|connected|disconnecting|unknown) previous=(disconnected|connecting|connected|disconnecting|unknown) scope=device owner=unknown",
             "carplay-bt event=hfp-audio state=(disconnected|connecting|connected|unknown) previous=(disconnected|connecting|connected|unknown) scope=device owner=unknown",

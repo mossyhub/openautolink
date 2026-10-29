@@ -11,11 +11,11 @@ There is no separate **Resume audio** button. Use the existing vehicle/CarPlay P
 
 ## Bounded phone-transition policy
 
-The existing process-only phone paused→playing recovery experiment remains **off by default**. Playback metadata does not distinguish a person's phone Play from autoplay. This repair does not silently authorize metadata to take the vehicle source.
+The owner explicitly accepted the indistinguishable-autoplay tradeoff: recovery is enabled in the normal production path, without visiting Diagnostics or resuming an Activity. A fresh authenticated phone paused→playing edge may interrupt another selected native source. OAL has no ordinary-app OEM selected-source readback; connection/foreground-service admission is not evidence that OAL is the selected audio source.
 
-For an explicitly enabled, visible, current NORMAL owner, empty-slot fresh SETUP no longer issues a false output-retirement callback that cancels a next-stream phone permit. A paused observation can survive ordinary media/alternate-output retirement; its permission cannot. True must be newly stamped in the current output generation. STOP, owner/selection/visibility changes, communication mode and live call/Siri admission still invalidate prior authority; unknown/repeated TRUE, packets and SETUP do not create retries or HID Play.
+Each edge funds at most one MEDIA focus attempt for the exact current authenticated receiver, command, output and NORMAL host lease, while the connection's foreground-service protection remains eligible. Denial consumes the opportunity; repeated TRUE, packets and SETUP cannot replenish it. A later fresh false→true may renew it, including after an earlier STOP or LOSS. Stale observations captured before STOP/LOSS cannot mint newer authority. No HID Play is synthesized.
 
-If automatic recovery must also work from phone-only Play when no native Play is sent, the product must explicitly accept the bounded metadata-transition policy's indistinguishable-autoplay risk, or supply an independently sourced semantic Play signal. No extra button is substituted for that decision.
+STOP, new permanent LOSS, owner replacement and connection-protection loss revoke queued or pending authority before Binder completion/publication. A fresh edge admitted during live call/Siri membership defers MEDIA once until that interaction retires rather than stealing its focus. A genuine current MEDIA grant alone restores music/NAV gain and native PLAYING publication. There is no new toggle or Resume button.
 
 ## Evidence and remaining physical acceptance
 

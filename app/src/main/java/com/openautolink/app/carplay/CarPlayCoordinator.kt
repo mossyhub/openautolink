@@ -60,7 +60,8 @@ class CarPlayCoordinator(
     private class Attempt(val token: CarPlayOwnership.Token, val initialSurface: Surface?, val sessionLease: CarPlaySessionLease) {
         val context = CarPlayAttemptContext(CarPlayHostMediaLease(
             CarPlayPlayingPublicationExperiment.snapshotMode()), captureAdmission = { !canceled.get() && sessionLease.captureAllowed() },
-            onCaptureRetirement = sessionLease::onCaptureRetirement, onInputAdvertised = sessionLease::inputAdvertised)
+            onCaptureRetirement = sessionLease::onCaptureRetirement, onInputAdvertised = sessionLease::inputAdvertised,
+            playbackAdmission = { !canceled.get() && sessionLease.playbackAllowed() })
         var mediaBegun = false
         var runtimeClosed = false
         var protectionReleased = false

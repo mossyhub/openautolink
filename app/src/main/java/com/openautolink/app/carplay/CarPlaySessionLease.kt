@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicReference
 /** Readiness is historical base protection; capture and loss are ongoing exact-owner authority. */
 interface CarPlaySessionLease {
     fun awaitReady() {}
+    /** Current base foreground-service protection, independent of microphone permission/type. */
+    fun playbackAllowed(): Boolean = false
     fun captureAllowed(): Boolean = false
     /** Worker-only: return only after exact capture resources have actually retired. */
     fun onCaptureRetirement(retire: () -> Unit) {}
@@ -74,6 +76,9 @@ class CarPlaySessionLeases(private val context: Context) : CarPlaySessionLeaseSo
                 if (leases[id] === this && !retired.get() && !lost.get()) { advertised=available; publishSnapshot() }
             } }
             override fun awaitReady() { ready.get(10, TimeUnit.SECONDS) }
+            // revoked is capture-only (also set by microphone permission loss). The coordinator
+            // independently fences explicit attempt cancellation; keep ordinary playback eligible.
+            override fun playbackAllowed(): Boolean = base && !epochDestroyed && !retired.get() && !lost.get()
             override fun captureAllowed(): Boolean = base && mic && !retired.get() && !revoked.get() && !lost.get() && permission
             override fun revokeCapture() { revoked.set(true) }
             override fun onProtectionLost(callback: () -> Unit) {

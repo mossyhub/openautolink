@@ -98,7 +98,7 @@ For the reported setup, call USB confirmed only after a current build produces a
 2. Press the vehicle’s normal **Play** control and check media volume. There is no separate Resume audio button.
 3. If USB CarPlay keeps pausing, disconnect the iPhone from car Bluetooth. Media audio OFF alone may not prevent pauses.
 
-Automatic resume varies by vehicle. Leave phone-resume diagnostics off for normal use. If the problem continues, enable file logging, repeat the source change, and upload logs with the approximate time and what you heard. [Developer source-return details](carplay-source-return-recovery.md).
+Normal phone pause→play recovery makes one bounded MEDIA focus attempt per fresh authenticated edge. This also permits autoplay to interrupt another selected source; there is no separate recovery toggle or Resume button. If the problem continues, upload logs with the approximate time and what you heard. [Developer source-return details](carplay-source-return-recovery.md).
 
 ## USB settings saved but the display did not change
 

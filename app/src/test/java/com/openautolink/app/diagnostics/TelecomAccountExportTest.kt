@@ -24,6 +24,10 @@ class TelecomAccountExportTest {
     @Before fun reset() { com.openautolink.app.ui.testing.resetNativeTelecomTestProcess(app) }
     @After fun cleanup() { com.openautolink.app.ui.testing.resetNativeTelecomTestProcess(app) }
     private fun manualZipMatchesSource() {
+        // Match LogUploader's existing producer barriers before reading/selecting ANY log.
+        // enable() completes the account read, not NativeCallDiagnostics' queued atomic write.
+        assertTrue(com.openautolink.app.carplay.HostMediaDiagnosticSink.flush())
+        assertTrue(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush())
         val bytes = file.readBytes()
         val text = bytes.toString(Charsets.UTF_8)
         assertFalse(text.contains(experiment.handle.id)); assertFalse(text.contains(app.packageName))
@@ -38,6 +42,80 @@ class TelecomAccountExportTest {
             }
         }
     }
+    private fun nativeReceiptWorker(): java.util.concurrent.ThreadPoolExecutor =
+        com.openautolink.carplaylab.telecom.NativeCallDiagnostics::class.java.getDeclaredField("worker")
+            .apply { isAccessible=true }.get(null) as java.util.concurrent.ThreadPoolExecutor
+
+    @Test fun queuedRealAccountAuthorityReceiptReproducesExactAtomicSnapshotFailureWithoutPhoneResume() {
+        val native=com.openautolink.carplaylab.telecom.NativeCallDiagnostics
+        assertTrue(native.flush())
+        shadowOf(app).grantPermissions(Manifest.permission.READ_PHONE_NUMBERS)
+        experiment.enable();assertTrue(native.flush())
+        val target=File(directory,native.FILE_NAME)
+        assertTrue(target.readText().contains("actor=AUTHORITY state=DISABLED"))
+        assertTrue(target.setLastModified(1))
+        val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1)
+        nativeReceiptWorker().execute {entered.countDown();assertTrue(release.await(3,java.util.concurrent.TimeUnit.SECONDS))}
+        assertTrue(entered.await(1,java.util.concurrent.TimeUnit.SECONDS))
+        try {
+            shadowOf(app).denyPermissions(Manifest.permission.READ_PHONE_NUMBERS)
+            experiment.enable() // REAL readAuthority -> NativeCallDiagnostics.record, queued behind barrier.
+            assertTrue(nativeReceiptWorker().queue.isNotEmpty())
+            val plan=LogUploadArchive.select(listOf(target),System.currentTimeMillis())
+            val first=java.util.concurrent.atomic.AtomicBoolean(true)
+            val observed=object:File(target.path) {
+                override fun lastModified():Long {
+                    val original=target.lastModified()
+                    if(first.compareAndSet(true,false)) {
+                        // create already opened the original inode; complete the real atomic writer
+                        // after its initial metadata read, before its post-copy identity check.
+                        release.countDown();assertTrue(native.flush())
+                    }
+                    return original
+                }
+            }
+            val held=plan.copy(selected=plan.selected.map {it.copy(source=observed)})
+            val error=assertThrows(java.io.IOException::class.java) {LogUploadArchive.create(held,app.cacheDir).close()}
+            assertEquals("log changed during snapshot",error.message)
+            assertTrue(error.stackTrace.any {it.fileName=="LogUploadArchive.kt" && it.lineNumber==163})
+            assertTrue(target.readText().contains("actor=AUTHORITY state=UNKNOWN"))
+            assertFalse(target.readText().contains("phone-resume"))
+        } finally {release.countDown();assertTrue(native.flush())}
+    }
+
+    @Test fun actualUploaderFlushesQueuedAccountAuthorityBeforeSelectingSnapshot() {
+        val native=com.openautolink.carplaylab.telecom.NativeCallDiagnostics
+        assertTrue(native.flush())
+        shadowOf(app).grantPermissions(Manifest.permission.READ_PHONE_NUMBERS)
+        experiment.enable();assertTrue(native.flush())
+        val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1)
+        nativeReceiptWorker().execute {entered.countDown();assertTrue(release.await(3,java.util.concurrent.TimeUnit.SECONDS))}
+        assertTrue(entered.await(1,java.util.concurrent.TimeUnit.SECONDS))
+        val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
+        val wire=java.io.ByteArrayOutputStream();val sent=java.util.concurrent.CountDownLatch(1)
+        val http=object:java.net.HttpURLConnection(java.net.URL("https://example.invalid/upload")) {
+            override fun connect() {};override fun disconnect() {};override fun usingProxy()=false
+            override fun getOutputStream():java.io.OutputStream {sent.countDown();return wire}
+            override fun getResponseCode()=200
+        }
+        try {
+            shadowOf(app).denyPermissions(Manifest.permission.READ_PHONE_NUMBERS);experiment.enable()
+            assertEquals(1,nativeReceiptWorker().queue.size)
+            val result=worker.submit<UploadResult> {LogUploader(app,{http},{true},{true}).upload("https://example.invalid/upload","token-canary","fixture")}
+            val deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(1)
+            while(nativeReceiptWorker().queue.size<2 && System.nanoTime()<deadline) Thread.sleep(2)
+            assertEquals("actual uploader queued its flush behind the exact producer",2,nativeReceiptWorker().queue.size)
+            assertEquals("no HTTP/selection completion before writer retirement",1L,sent.count)
+            release.countDown();assertTrue(result.get(3,java.util.concurrent.TimeUnit.SECONDS) is UploadResult.Success)
+            var bytes:ByteArray?=null
+            java.util.zip.ZipInputStream(wire.toByteArray().inputStream()).use {zip ->
+                while(true) {val entry=zip.nextEntry ?: break;if(entry.name==native.FILE_NAME) bytes=zip.readBytes()}
+            }
+            assertNotNull(bytes);assertTrue(bytes!!.toString(Charsets.UTF_8).contains("actor=AUTHORITY state=UNKNOWN"))
+            assertArrayEquals(File(directory,native.FILE_NAME).readBytes(),bytes)
+        } finally {release.countDown();assertTrue(native.flush());worker.shutdown();assertTrue(worker.awaitTermination(3,java.util.concurrent.TimeUnit.SECONDS))}
+    }
+
     private fun assertSanitizedOwnRead(outcome: TelecomAccountDiagnostics.Outcome) {
         val line = file.readLines().single { it.contains("stage=FIRST_OWN_READ ") }
         val generation = line.substringAfter("generation=").toLong()

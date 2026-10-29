@@ -1,17 +1,27 @@
 package com.openautolink.app.carplay
 
-/** Process-only diagnostic choice. Phone autoplay is indistinguishable from user resume. */
+import com.openautolink.app.media.OalMediaSessionManager
+import com.openautolink.carplaylab.media.ProjectionReceiver
+import com.shilapi.xcertplay.airplay.AirPlaySession
+
+/** Normal production policy. Owner accepts that phone autoplay can interrupt another source.
+ * This is connection admission, NOT OEM selected-source readback or Activity visibility. */
 object PhonePlaybackResumeRecovery {
-    data class Selection(val enabled:Boolean=false,val resumed:Boolean=false,val epoch:Long=0)
-    private val state=java.util.concurrent.atomic.AtomicReference(Selection())
-    fun isEnabled():Boolean=state.get().enabled
-    fun snapshot():Selection=state.get()
-    fun setEnabled(enabled:Boolean) {
-        state.updateAndGet { if(it.enabled==enabled) it else it.copy(enabled=enabled,epoch=it.epoch+1) }
+    data class Selection(val enabled:Boolean=true,val epoch:Long=0)
+    private val selection=Selection()
+    fun isEnabled():Boolean=selection.enabled
+    fun snapshot():Selection=selection
+    fun isCurrent(value:Selection):Boolean=value.enabled && value===selection
+
+    /** Shared wired/wireless producer binding. Capture original authority before parse/queues. */
+    internal fun capture(receiver:ProjectionReceiver,session:AirPlaySession,
+        attempt:CarPlayAttemptContext?,manager:OalMediaSessionManager):((Boolean?)->Unit)? {
+        val selected=snapshot()
+        val currentAttempt=attempt ?: return null
+        val lease=currentAttempt.hostMedia
+        fun admitted()=isCurrent(selected) && currentAttempt.playbackAdmission() &&
+            lease.mode==CarPlayHostMediaMode.NORMAL && manager.acceptsCarPlayHost(lease)
+        val stamp=receiver.captureMediaRecoveryStamp(session,selected.epoch,::admitted) ?: return null
+        return { playing -> receiver.offerPhonePlaybackObservation(session,playing,stamp); Unit }
     }
-    /** Called by process Activity visibility owner; loss revokes before returning, not on a queue. */
-    fun setResumed(resumed:Boolean) {
-        state.updateAndGet { if(it.resumed==resumed) it else it.copy(resumed=resumed,epoch=it.epoch+1) }
-    }
-    fun isCurrent(selection:Selection):Boolean = selection.enabled && selection.resumed && state.get()===selection
 }

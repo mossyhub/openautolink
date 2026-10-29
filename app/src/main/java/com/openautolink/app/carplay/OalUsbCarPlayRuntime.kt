@@ -97,7 +97,7 @@ class OalUsbCarPlayRuntime(
     private fun status(line:String) { if(!canceled.get()) { audioDiagnostics.record(line);report(line) } }
     // Exact historical receiver evidence remains exportable after cancellation; live UI does not.
     private fun receiverStatus(line:String) {
-        if (!canceled.get()) attemptContext?.hostMedia?.let {
+        attemptContext?.hostMedia?.let {
             com.openautolink.app.diagnostics.MediaDiagnosticHooks.recordReceiverReceipt(it, line)
         }
         audioDiagnostics.record(line);if(!canceled.get()) report(line)
@@ -371,14 +371,9 @@ class OalUsbCarPlayRuntime(
                         receiver?.mediaCommand(session, index) == true
                     }).apply {
                         capturePlaybackObservation = capture@ {
-                            val selection=PhonePlaybackResumeRecovery.snapshot()
-                            val lease=attemptContext?.hostMedia ?: return@capture null
                             val currentReceiver=receiver ?: return@capture null
-                            fun selected()=PhonePlaybackResumeRecovery.isCurrent(selection) &&
-                                lease.mode==CarPlayHostMediaMode.NORMAL &&
-                                com.openautolink.app.media.OalMediaSessionManager.getInstance(context).acceptsCarPlayHost(lease)
-                            val stamp=currentReceiver.captureMediaRecoveryStamp(session,selection.epoch,::selected) ?: return@capture null
-                            { playing:Boolean? -> currentReceiver.offerPhonePlaybackObservation(session,playing,stamp); Unit }
+                            PhonePlaybackResumeRecovery.capture(currentReceiver,session,attemptContext,
+                                com.openautolink.app.media.OalMediaSessionManager.getInstance(context))
                         }
                     }
                 CarPlayBluetoothDiagnosticLink(metadata, { listener ->
