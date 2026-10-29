@@ -24,6 +24,8 @@ Audio choices save automatically. The assistant choice applies to the next micro
 5. Tap **Set up calls**, allow Android’s phone permission, enable **OpenAutoLink** in **Calling accounts**, and return to OAL. **Setup → Ready** updates automatically. If permission was already granted, the action may read **Continue to calling accounts** instead.
 6. Allow microphone access for calls and Siri. Under **Audio → Microphone → CarPlay**, use **Enable microphone** if shown. If OAL asks to reconnect afterward, reconnect USB when not in a call.
 
+**CarPlay calls:** Incoming calls support the car’s native call display and steering-wheel controls. Outgoing calls currently don’t appear there because of limitations in the Android Automotive integration available to OpenAutoLink. Use the CarPlay screen to control outgoing calls; call audio and the cabin microphone still work.
+
 Call setup is needed once, not on every reconnect. An approved older OAL account remains usable. Your handler and ringtone choices are saved automatically; there is no Save, Inspect, Arm or Apply step for normal calls/Siri. A handler change during a call applies to the next call and leaves the current call running.
 
 <img src="screenshots/GM-Calling-Accounts-Redacted.jpg" alt="GM Calling accounts with separate Bluetooth and OAL switches" width="900">
