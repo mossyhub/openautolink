@@ -427,7 +427,15 @@ class ProductionAudioTransactionsTest {
         permissionLaunchFailure(Manifest.permission.RECORD_AUDIO)
     }
 
-    private fun permissionLaunchFailure(failedPermission: String) {
+    @Test fun phoneLaunchEntryIsNotFailureCompletion() {
+        permissionLaunchFailure(Manifest.permission.READ_PHONE_NUMBERS, observeEntry = true)
+    }
+
+    private fun phoneLaunchFailurePublished(activity: PermissionLaunchFailureActivity): Boolean =
+        activity.permissionRegistry.attempts.size == 2 &&
+            !activity.binding!!.calls.busy && activity.binding!!.calls.message.contains("Try again")
+
+    private fun permissionLaunchFailure(failedPermission: String, observeEntry: Boolean = false) {
         val phoneFails = failedPermission == Manifest.permission.READ_PHONE_NUMBERS
         val otherPermission = if (phoneFails) Manifest.permission.RECORD_AUDIO else Manifest.permission.READ_PHONE_NUMBERS
         val host = Robolectric.buildActivity(PermissionLaunchFailureActivity::class.java).setup()
@@ -463,8 +471,28 @@ class ProductionAudioTransactionsTest {
             val other = first.permissionRegistry.accepted.single()
             assertEquals(otherPermission, other.permission)
             first.permissionRegistry.throwOnceFor = failedPermission
-            invoke(first, failedPermission) // The real registry removes its launched key and rethrows.
-            drain { first.permissionRegistry.attempts.size == 2 }
+            val launchEntered = CountDownLatch(1)
+            val releaseFailure = CountDownLatch(1)
+            if (observeEntry) first.permissionRegistry.beforeThrow = {
+                // Hold the real IO continuation after recording entry, before throwing.
+                launchEntered.countDown()
+                check(releaseFailure.await(10, TimeUnit.SECONDS))
+            }
+            try {
+                invoke(first, failedPermission) // The real registry removes its launched key and rethrows.
+                if (observeEntry) {
+                    drain { launchEntered.count == 0L && first.binding!!.calls.busy }
+                    assertEquals(2, first.permissionRegistry.attempts.size)
+                    assertTrue("Launch entry precedes exception handling", first.binding!!.calls.busy)
+                    assertFalse("Attempt entry must not satisfy the failure-completion predicate",
+                        phoneLaunchFailurePublished(first))
+                }
+            } finally { releaseFailure.countDown() }
+            // Launch entry is not the exception handler's published UI completion.
+            drain {
+                if (phoneFails) phoneLaunchFailurePublished(first)
+                else first.permissionRegistry.attempts.size == 2
+            }
             assertEquals(listOf(otherPermission, failedPermission), first.permissionRegistry.attempts)
             assertEquals(1, first.permissionRegistry.accepted.size)
             if (phoneFails) {
@@ -535,6 +563,7 @@ data class PermissionLaunchRequest(val code: Int, val permission: String)
 
 class ThrowOncePermissionRegistry(private val context: android.content.Context) : ActivityResultRegistry() {
     var throwOnceFor: String? = null
+    var beforeThrow: (() -> Unit)? = null
     val attempts = mutableListOf<String>()
     val accepted = mutableListOf<PermissionLaunchRequest>()
     override fun <I, O> onLaunch(code: Int, contract: ActivityResultContract<I, O>, input: I, options: ActivityOptionsCompat?) {
@@ -543,6 +572,7 @@ class ThrowOncePermissionRegistry(private val context: android.content.Context) 
         val permission = intent.getStringArrayExtra(ActivityResultContracts.RequestMultiplePermissions.EXTRA_PERMISSIONS)!!.single()
         attempts.add(permission)
         if (throwOnceFor == permission) {
+            beforeThrow?.invoke()
             throwOnceFor = null
             throw IllegalStateException("Injected permission launch failure")
         }
