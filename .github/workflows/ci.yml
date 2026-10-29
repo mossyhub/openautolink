@@ -91,7 +91,10 @@ jobs:
       - name: Run unit tests
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest :companion:testDebugUnitTest :carplay-lab:testDebugUnitTest --no-daemon
+          ./gradlew :app:testDebugUnitTest :companion:testDebugUnitTest :carplay-lab:testDebugUnitTest --no-daemon \
+            --init-script .github/workflows/ci-test-memory.gradle --max-workers=1 \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            '-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=2'
 
       - name: Upload test results
         if: always()
