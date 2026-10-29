@@ -187,6 +187,8 @@ Keep the vehicle parked while configuring. Disconnect the iPhone from any other 
 > [!WARNING]
 > **Bluetooth can cause repeated media pauses, even with Media audio off.** Keep the iPhone unpaired from car Bluetooth when using the recommended CarPlay handler. Do not use OAL and Bluetooth as simultaneous native call providers.
 
+**CarPlay calls:** Incoming calls support the car’s native call display and steering-wheel controls. Outgoing calls currently don’t appear there because of limitations in the Android Automotive integration available to OpenAutoLink. Use the CarPlay screen to control outgoing calls; call audio and the cabin microphone still work.
+
 **Already set up?** Your call-handler choice and Android approval are retained across reconnects. A handler change during a call applies to the next call without ending the current one. There is no diagnostic Arm or Apply step for normal calls or Siri.
 
 **Need to keep the iPhone paired?** Select **Call handling → Car Bluetooth** and follow the [Bluetooth alternative](docs/phone-calls.md#alternative--car-bluetooth-calls), including **Phone calls ON / Media audio OFF** and reconnecting the pairing. Bluetooth calls do not require OAL calling-account approval; repeated media pauses can still occur.
