@@ -214,8 +214,16 @@ class CarPlayExplicitPermissionRetryTest {
         setup()
         assertTrue(boundary.get()>0)
         duringAaRetire={}
-        val lease=com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
-        try { assertNotNull("real exact failure clearing retires USB+CP claims",lease) } finally {lease?.release()}
+        var lease: com.shilapi.xcertplay.media.MicrophoneCaptureFence.Lease? = null
+        try {
+            // generation=null is published before cleared() releases the real capture claims.
+            // Await acquisition itself, not that earlier publication; retain the exact lease.
+            await("real exact failure clearing retires USB+CP claims") {
+                if (lease == null) lease = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
+                lease != null
+            }
+            assertNotNull("real exact failure clearing retires USB+CP claims", lease)
+        } finally { lease?.release() }
     }
     @Test fun microphoneDiagnosticRejectsClaimedUsbWhileAaStillIdleAndUntilRetirement() = runBlocking {
         setup()

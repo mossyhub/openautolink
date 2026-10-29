@@ -3,6 +3,35 @@ import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.coroutines.*
 class UsbHotPlugSwitchPolicyTest {
+    @Test fun nullGenerationDoesNotAcknowledgeTheLaterCaptureClaimRelease() = runBlocking {
+        val policy = UsbHotPlugSwitchPolicy()
+        val claim = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryProjectionClaim()!!
+        val clearing = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        var diagnostic: com.shilapi.xcertplay.media.MicrophoneCaptureFence.Lease? = null
+        assertTrue(policy.accept(1, { UsbHotPlugSwitchPolicy.Protocol.CARPLAY }, { true }, {}, {}, { true }, {}, {}))
+        val finish = async(Dispatchers.IO) {
+            policy.finish(1, {}, {
+                clearing.countDown()
+                check(release.await(15, java.util.concurrent.TimeUnit.SECONDS))
+                claim.release()
+            }, {})
+        }
+        try {
+            assertTrue(clearing.await(15, java.util.concurrent.TimeUnit.SECONDS))
+            assertNull("Earlier volatile publication is visible before clearing completes", policy.generation)
+            assertNull("Capture must remain excluded until real clearing", com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic())
+            release.countDown()
+            assertTrue(finish.await())
+            diagnostic = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryDiagnostic()
+            assertNotNull("Completed clearing releases the exact claim", diagnostic)
+        } finally {
+            release.countDown()
+            finish.join()
+            diagnostic?.release()
+            claim.release()
+        }
+    }
     @Test fun activeOrInflightAaAndSelectedCarPlayAlwaysRequireConsent() {
         val policy = UsbHotPlugSwitchPolicy()
         assertTrue(policy.shouldPrompt(true, false, false))
