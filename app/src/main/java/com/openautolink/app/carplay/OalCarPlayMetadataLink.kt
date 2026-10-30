@@ -28,7 +28,7 @@ internal class OalCarPlayMetadataLink(
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "oal-carplay-metadata").apply { isDaemon = true } }
     private var scheduled = false
     private var dirty = false
-    private var authenticated = false
+    @Volatile private var authenticated = false
     private var started = false
     @Volatile private var published = false
     private var accepted = 0L
@@ -38,9 +38,13 @@ internal class OalCarPlayMetadataLink(
     @Synchronized override fun authenticate() {
         if (!retired.get()) { authenticated = true; intake.authenticate(); schedule() }
     }
-    @Synchronized override fun handle(frame: Iap2Frame): Boolean {
+    override fun handle(frame: Iap2Frame): Boolean {
+        // Capture at producer ingress, before waiting for intake/presentation ownership.
+        val observation=if(authenticated && !retired.get()) capturePlaybackObservation() else null
+        return handleCaptured(frame,observation)
+    }
+    @Synchronized private fun handleCaptured(frame:Iap2Frame,observation:((Boolean?)->Unit)?):Boolean {
         if (retired.get()) return frame.messageId in setOf(0x5001,0x5201,0x5202)
-        val observation=if(authenticated) capturePlaybackObservation() else null
         val handled = intake.handle(frame)
         intake.explicitPlayback?.let { observation?.invoke(it.playing) }
         if (handled && authenticated) {

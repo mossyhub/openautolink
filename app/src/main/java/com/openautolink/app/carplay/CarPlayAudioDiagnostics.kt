@@ -146,6 +146,7 @@ object CarPlayAudioDiagnostics {
         "media stage=(audio-focus-change|audio-focus-granted|audio-focus-denied|audio-owner-limit|audio-retirement-pending|audio-queue-overflow|audio-decoder-backpressure|audio-write-backpressure|microphone-owner-busy|session-ended)",
         "media stage=audio-focus-owner purpose=(media|call|ring|assistant) action=(request|abandon|pending) usage=(1|2|6|16) content=(1|2|4) gain=(1|2) revision=$number",
         "media stage=audio-focus-request reason=(stream-start|user-play|phone-resume) result=(granted|denied|retained|closed) revision=$number volumePercent=(0|20|100) mute=(permanent-loss|transient|denied|duck|unmuted)",
+        "media stage=media-resume-policy reason=phone-resume result=(accepted|canceled|denied|deferred|granted|limit)( lost=$number)?",
         "media stage=audio-mute reason=(stream-start|focus-change) revision=$number volumePercent=(0|20|100) mute=(permanent-loss|transient|denied|duck|unmuted)",
         "media stage=audio-volume stream=$number type=(100|101|102) audioType=$audioType codec=$codec scope=own requestedPercent=(0|20|100) effectivePercent=(0|20|100|null) mute=(permanent-loss|transient|denied|duck|unmuted) revision=$number",
         "media stage=audio-owners scope=own owners=[0-8] tracks=[0-8]",

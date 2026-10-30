@@ -67,10 +67,10 @@ class AndroidMediaSink(
     // Last platform request retained for existing diagnostic/test readers, never used for ownership.
     private var focus: AudioFocusRequest? = null
     private class FocusOwner(val purpose: CarPlayFocusPurpose) {
-        var request: AudioFocusRequest? = null
+        @Volatile var request: AudioFocusRequest? = null
         var retiring: AudioFocusRequest? = null
         var retirementRequired = false
-        var revision = 0L
+        @Volatile var revision = 0L
         var granted = false
         var blocked = false // Only this purpose's real grant can clear denial/permanent loss.
         // Explicit PLAY authorizes one later attempt if this blocked purpose is inactive.
@@ -82,16 +82,40 @@ class AndroidMediaSink(
     private val focusOwners = CarPlayFocusPurpose.entries.associateWith { FocusOwner(it) }
     private class MediaPlayAuthorization(val generation: Long, val current: () -> Boolean)
     private val mediaPlayGeneration = AtomicLong()
-    private val phoneResumeEpoch=AtomicLong()
-    private val phoneObservationEpoch=AtomicLong()
+    // Test boundary after listener ownership selection, before atomic revocation.
+    @Volatile internal var beforePhoneResumeLossRevocation: (() -> Unit)? = null
     private class PhoneResumePermit(val epoch:Long,val current:()->Boolean)
-    private val pendingPhoneResume=java.util.concurrent.atomic.AtomicReference<PhoneResumePermit?>()
-    fun phoneResumeGeneration():Long=phoneResumeEpoch.get()
-    fun phoneObservationGeneration():Long=phoneObservationEpoch.get()
+    // One CAS domain: listener identity, original authority epochs and retained permit.
+    // Neither ingress cancellation nor owner installation waits for focus Binder.
+    private data class PhoneResumeState(val revision:Long=0,val epoch:Long=0,
+        val observation:Long=0,val pending:PhoneResumePermit?=null)
+    private val phoneResumeState=java.util.concurrent.atomic.AtomicReference(PhoneResumeState())
+    fun phoneResumeGeneration():Long=phoneResumeState.get().epoch
+    fun phoneObservationGeneration():Long=phoneResumeState.get().observation
     fun cancelPhoneResume(clearObservation:Boolean=true) {
-        phoneResumeEpoch.incrementAndGet(); pendingPhoneResume.set(null)
-        if (clearObservation) phoneObservationEpoch.incrementAndGet()
+        val old=phoneResumeState.getAndUpdate {
+            it.copy(epoch=it.epoch+1,observation=it.observation+if(clearObservation) 1 else 0,pending=null)
+        }
+        if (old.pending!=null) phoneResumePolicy("canceled")
     }
+    private fun takePhoneResume():PhoneResumePermit? =
+        phoneResumeState.getAndUpdate { it.copy(pending=null) }.pending
+    private fun cancelPhoneResumeForLoss(revision:Long) {
+        var selected=phoneResumeState.get()
+        if (selected.revision!=revision) return
+        beforePhoneResumeLossRevocation?.invoke()
+        while (selected.revision==revision) {
+            val revoked=selected.copy(epoch=selected.epoch+1,observation=selected.observation+1,pending=null)
+            if (phoneResumeState.compareAndSet(selected,revoked)) {
+                if (selected.pending!=null) phoneResumePolicy("canceled")
+                return
+            }
+            // Retry only while the exact listener still owns this authority. Never
+            // perform a global epoch increment after a successor has been installed.
+            selected=phoneResumeState.get()
+        }
+    }
+    private fun phoneResumePolicy(result:String) = report("media stage=media-resume-policy reason=phone-resume result=$result")
     private class MediaOutputState
     private val mediaOutputState=java.util.concurrent.atomic.AtomicReference<MediaOutputState?>()
     @Volatile private var mediaOutputObserver:((Boolean,()->Boolean)->Unit)?=null
@@ -110,30 +134,38 @@ class AndroidMediaSink(
     @Volatile private var communicationMode:Int?=runCatching { manager?.mode }.getOrNull()
     @Volatile private var phoneInteractionBusy=false
     private val communicationListener=AudioManager.OnModeChangedListener { mode ->
-        communicationMode=mode;cancelPhoneResume()
+        communicationMode=mode
+        if (knownCommunicationBusy(mode)) cancelPhoneResume()
+        else synchronized(this) { resumeAuthorizedMedia() }
     }
     init { runCatching { manager?.addOnModeChangedListener(java.util.concurrent.Executor { it.run() },communicationListener) } }
-    fun phoneResumeEligible():Boolean = !closed.get() && !phoneInteractionBusy && !knownCommunicationBusy(communicationMode)
+    fun phoneResumeEligible():Boolean = !closed.get() &&
+        (phoneInteractionBusy || !knownCommunicationBusy(communicationMode))
     private fun knownCommunicationBusy(mode:Int?):Boolean = mode?.let {
         it == AudioManager.MODE_IN_CALL || it == AudioManager.MODE_IN_COMMUNICATION || it == AudioManager.MODE_RINGTONE
     } == true
     private fun communicationBusy():Boolean = runCatching { manager?.mode }.getOrNull()?.let {
         it == AudioManager.MODE_IN_CALL || it == AudioManager.MODE_IN_COMMUNICATION || it == AudioManager.MODE_RINGTONE
     } == true // absence remains UNKNOWN, never evidence of a globally call-free vehicle
-    /** MEDIA-only, no HID and no other-purpose recovery or call-end stash. */
+    /** MEDIA-only, no HID; one exact retained edge may defer behind live call/Siri membership. */
     @Synchronized fun preparePhoneResume(current:()->Boolean):Boolean {
-        if (closed.get() || !current() || hasLiveInteraction() || communicationBusy()) return false
-        val permit=PhoneResumePermit(phoneResumeEpoch.get(),current)
-        if (trackPurposes.values.none { it == CarPlayFocusPurpose.MEDIA }) { pendingPhoneResume.set(permit);return true }
+        if (closed.get() || !current()) { phoneResumePolicy("canceled");return false }
+        val permit=PhoneResumePermit(phoneResumeGeneration(),current)
+        if (hasLiveInteraction() || communicationBusy() || trackPurposes.values.none { it == CarPlayFocusPurpose.MEDIA }) {
+            phoneResumeState.getAndUpdate { if(it.epoch==permit.epoch) it.copy(pending=permit) else it }
+            phoneResumePolicy("deferred");return true
+        }
         return consumePhoneResume(permit)
     }
     private fun consumePhoneResume(permit:PhoneResumePermit):Boolean {
-        fun current()=!closed.get() && permit.epoch==phoneResumeEpoch.get() && permit.current()
-        if (!current() || hasLiveInteraction() || communicationBusy()) return false
+        fun current()=!closed.get() && permit.epoch==phoneResumeGeneration() && permit.current()
+        if (!current() || hasLiveInteraction() || communicationBusy()) { phoneResumePolicy("canceled");return false }
         val media=focusOwners.getValue(CarPlayFocusPurpose.MEDIA)
         media.blocked=true;media.volume=0f;media.mute="denied";applyFocus(media)
         abandonFocus(media)
-        return requestFocus(media,"phone-resume",::current)
+        val granted=requestFocus(media,"phone-resume",::current)
+        phoneResumePolicy(if (!current()) "canceled" else if (granted) "granted" else "denied")
+        return granted
     }
     private var deferredMediaStartGeneration: Long? = null
     private val pendingMediaPlay = java.util.concurrent.atomic.AtomicReference<MediaPlayAuthorization?>()
@@ -184,6 +216,8 @@ class AndroidMediaSink(
     private fun abandonFocus(owner: FocusOwner) {
         val old = owner.request ?: owner.retiring ?: return
         // Fence before Binder, but keep failed retirement as exact bounded debt.
+        if (owner.purpose == CarPlayFocusPurpose.MEDIA)
+            phoneResumeState.getAndUpdate { it.copy(revision=0) }
         owner.request = null
         owner.retiring = old
         owner.granted = false
@@ -215,12 +249,18 @@ class AndroidMediaSink(
         val playGeneration=mediaPlayGeneration.get()
         val revision = ++focusRevision
         owner.revision = revision
+        if (owner.purpose == CarPlayFocusPurpose.MEDIA)
+            phoneResumeState.getAndUpdate { it.copy(revision=revision) }
         // Listener ingress is lock-free: a loss may arrive while Binder holds this monitor.
         val restrictiveEvent=java.util.concurrent.atomic.AtomicInteger()
         val request = AudioFocusRequest.Builder(owner.purpose.gain)
             .setAudioAttributes(owner.purpose.attributes())
             .setOnAudioFocusChangeListener({ change ->
                 if (change < 0) restrictiveEvent.set(change)
+                // Revoke on the callback thread BEFORE a stalled Binder/monitor can complete.
+                // A retired listener cannot revoke a replacement owner's fresh edge.
+                if (change == AudioManager.AUDIOFOCUS_LOSS && owner.purpose == CarPlayFocusPurpose.MEDIA)
+                    cancelPhoneResumeForLoss(revision)
                 synchronized(this) {
                     if (!closed.get() && owner.request != null && owner.revision == revision &&
                         owner.granted && !owner.blocked) {
@@ -411,8 +451,8 @@ class AndroidMediaSink(
                     owner.volume = 0f
                     owner.mute = "deferred"
                 }
-            } else if (purpose == CarPlayFocusPurpose.MEDIA && pendingPhoneResume.get()!=null) {
-                pendingPhoneResume.getAndSet(null)?.let { consumePhoneResume(it) }
+            } else if (purpose == CarPlayFocusPurpose.MEDIA && phoneResumeState.get().pending!=null) {
+                takePhoneResume()?.let { consumePhoneResume(it) }
             } else if (purpose == CarPlayFocusPurpose.MEDIA && pendingMediaPlay.get() != null) {
                 requestAuthorizedMedia(owner)
             } else if (owner.recoveryAuthorized) {
@@ -487,6 +527,8 @@ class AndroidMediaSink(
         if (pendingMediaPlay.get() != null) {
             // Only explicit PLAY funds recovery of a blocked owner. Never a focus callback.
             requestAuthorizedMedia(media)
+        } else if (phoneResumeState.get().pending != null) {
+            if (!communicationBusy()) takePhoneResume()?.let { consumePhoneResume(it) }
         } else if (media.request == null && !media.blocked && media.retiring == null &&
             media.mute == "deferred" && deferredMediaStartGeneration == mediaPlayGeneration.get()) {
             // First admission, not recovery: SETUP arrived during an interaction, without a request.
@@ -506,7 +548,8 @@ class AndroidMediaSink(
 
     override fun onAudioStopped(id: AudioStreamId) {
         // Stream retirement invalidates metadata permission before waiting for a stalled focus call.
-        cancelPhoneResume(clearObservation=false)
+        if (id.type != 101 && id.audioType !in setOf("telephony","alert","speechrecognition"))
+            cancelPhoneResume(clearObservation=false)
         synchronized(this) { try { stopAudioLocked(id) } finally { phoneInteractionBusy=hasLiveInteraction() } }
     }
     private fun stopAudioLocked(id: AudioStreamId) {

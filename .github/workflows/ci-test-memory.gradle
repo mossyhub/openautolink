@@ -1,0 +1,12 @@
+// CI-only Robolectric budget: match the qualified one-worker host gate.
+// This init script is never passed to signed/public artifact producers.
+allprojects {
+    tasks.withType(Test).configureEach {
+        maxHeapSize = '1024m'
+        maxParallelForks = 1
+        jvmArgs '-XX:ActiveProcessorCount=2'
+        doFirst {
+            logger.lifecycle("OAL CI test budget ${path}: heap=${maxHeapSize}, forks=${maxParallelForks}, processors=2")
+        }
+    }
+}

@@ -16,7 +16,24 @@ class CarPlayHostMediaLease(val mode: CarPlayHostMediaMode) {
         HostMediaDiagnosticSink.persist(diagnosticDirectory,line)
     }
     internal var receipt: (String) -> Unit = { HostMediaDiagnosticSink.offer(reporter,it) }
-    companion object { private val diagnosticSessions = java.util.concurrent.atomic.AtomicLong() }
+    companion object {
+        private val diagnosticSessions = java.util.concurrent.atomic.AtomicLong()
+        private val phoneResumePolicy=Regex("media stage=media-resume-policy reason=phone-resume result=(accepted|canceled|denied|deferred|granted)")
+    }
+    private var phoneResumeDetails=0
+    /** Same bounded durable host-media queue/manual ZIP; never optional file logging or raw text. */
+    @Synchronized internal fun recordPhoneResumePolicy(message:String) {
+        if (!phoneResumePolicy.matches(message)) return
+        if (phoneResumeDetails >= 32) {
+            if (phoneResumeDetails == 32) {
+                phoneResumeDetails++
+                runCatching { receipt("media stage=media-resume-policy reason=phone-resume result=limit lost=0") }
+            }
+            return
+        }
+        phoneResumeDetails++
+        runCatching { receipt("$message lost=0") }
+    }
     private var details = 0
     private var lifecycle = 0
     private var limited = false
@@ -113,4 +130,5 @@ data class CarPlayAttemptContext(
     val captureAdmission: () -> Boolean = { false },
     val onCaptureRetirement: ((() -> Unit) -> Unit) = {},
     val onInputAdvertised: (Boolean) -> Unit = {},
+    val playbackAdmission: () -> Boolean = { false },
 )

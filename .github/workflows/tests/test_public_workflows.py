@@ -36,6 +36,19 @@ class PublicWorkflowContracts(unittest.TestCase):
         self.assertIn("if: always()", CI)
         self.assertIn("python3 -m unittest discover -s .github/workflows/tests -v", CI)
 
+    def test_ci_bounds_robolectric_worker_memory_without_changing_app_builds(self):
+        tasks = run_block(CI, "Run unit tests")
+        self.assertIn('--init-script .github/workflows/ci-test-memory.gradle', tasks)
+        self.assertIn('--max-workers=1', tasks)
+        self.assertIn('-Pkotlin.compiler.execution.strategy=in-process', tasks)
+        self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=2', tasks)
+        budget = (WORKFLOWS / 'ci-test-memory.gradle').read_text()
+        for setting in ("maxHeapSize = '1024m'", 'maxParallelForks = 1',
+                        "jvmArgs '-XX:ActiveProcessorCount=2'", 'tasks.withType(Test).configureEach'):
+            self.assertIn(setting, budget)
+        self.assertNotIn('--init-script .github/workflows/ci-test-memory.gradle', RELEASE)
+        self.assertNotIn('continue-on-error', CI)
+
     def test_public_builds_do_not_inject_private_assets(self):
         for source in (CI, RELEASE):
             executable = "\n".join(line for line in source.splitlines()

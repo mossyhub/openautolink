@@ -7,6 +7,20 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class PhonePlaybackIngressTest {
+    @Test fun exactLeasePolicyReceiptsAreFiniteAndRejectFreeText() {
+        val lease=CarPlayHostMediaLease(CarPlayHostMediaMode.NORMAL)
+        val lines=mutableListOf<String>();lease.receipt=lines::add
+        val method=lease.javaClass.declaredMethods.firstOrNull { it.name.startsWith("recordPhoneResumePolicy") }
+        assertNotNull("existing bounded host-media ZIP sink must retain finite policy events without optional logging",method)
+        method!!.isAccessible=true
+        method.invoke(lease,"media stage=media-resume-policy reason=phone-resume result=accepted title=private-canary")
+        assertTrue(lines.isEmpty())
+        repeat(2000) {method.invoke(lease,"media stage=media-resume-policy reason=phone-resume result=accepted")}
+        assertEquals(33,lines.size)
+        assertEquals(1,lines.count { "result=limit" in it })
+        assertTrue(lines.all {CarPlayAudioDiagnostics.sanitize(1,it)!=null})
+        assertTrue(lines.none { "private-canary" in it })
+    }
     @Test fun heldPresentationCannotCoalesceAwayExplicitPausePlayOrStampCapture() {
         val entered=CountDownLatch(1);val release=CountDownLatch(1)
         val events=mutableListOf<Boolean?>();var captures=0
@@ -28,10 +42,10 @@ class PhonePlaybackIngressTest {
             assertEquals(4,captures)
         } finally { release.countDown();link.close() }
     }
-    @Test fun processSelectionControllerIsAvailableDefaultOff() {
+    @Test fun processSelectionControllerIsAvailableDefaultOn() {
         val type=runCatching { Class.forName("com.openautolink.app.carplay.PhonePlaybackResumeRecovery") }.getOrNull()
         assertNotNull("process-only selection must be wired independently of a screen",type)
         val instance=type!!.getField("INSTANCE").get(null)
-        assertEquals(false,type.getMethod("isEnabled").invoke(instance))
+        assertEquals(true,type.getMethod("isEnabled").invoke(instance))
     }
 }

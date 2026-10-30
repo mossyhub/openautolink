@@ -14,18 +14,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun MediaIntegrationPanel(viewModel: MediaDiagnosticsViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var recoveryEnabled by remember { mutableStateOf(com.openautolink.app.carplay.PhonePlaybackResumeRecovery.isEnabled()) }
+
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Media integration", style = MaterialTheme.typography.titleLarge)
         Text("Phone playback resume recovery", style = MaterialTheme.typography.titleMedium)
-        Text("Diagnostic, off by default and process-only. While OAL is visible, a qualified phone paused→playing transition may retry MEDIA focus. Phone autoplay is indistinguishable from user resume; this may resume audio unexpectedly. It does not prove a call-free vehicle, OEM source selection or audible output.")
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(if (recoveryEnabled) "Recovery enabled for this process" else "Recovery off")
-            Switch(checked = recoveryEnabled, onCheckedChange = { enabled ->
-                com.openautolink.app.carplay.PhonePlaybackResumeRecovery.setEnabled(enabled)
-                recoveryEnabled = com.openautolink.app.carplay.PhonePlaybackResumeRecovery.isEnabled()
-            })
-        }
+        Text("Normal recovery is enabled for the current protected connection. A fresh phone paused→playing edge may request MEDIA focus once, including phone autoplay while another source is selected. Activity visibility is not OEM source authority. STOP, loss and owner revocation cancel older intent; live call/Siri playback is not interrupted.")
         Text("Read-only public registrations. Comparison names stay in memory; manual log ZIPs contain finite own-state/coverage only. This does not establish OEM receipt, selected source or audible output.")
         Button(onClick = viewModel::refresh, enabled = !state.refreshing) { Text(if (state.refreshing) "Refreshing…" else "Refresh comparison") }
         Text("Save media-host APK ZIP", style = MaterialTheme.typography.titleMedium)

@@ -183,7 +183,7 @@ class OalCarPlayRuntime(
     // Historical exact-receiver diagnostics survive runtime cancellation; only live UI is gated.
     // Called by that receiver's passive worker, never resolved through the mutable receiver field.
     private fun receiverStatus(message: String) {
-        if (!canceled.get()) attemptContext?.hostMedia?.let {
+        attemptContext?.hostMedia?.let {
             com.openautolink.app.diagnostics.MediaDiagnosticHooks.recordReceiverReceipt(it, message)
         }
         audioDiagnostics.record(message)
@@ -338,14 +338,9 @@ class OalCarPlayRuntime(
                         receiver?.mediaCommand(session, index) == true
                     }).apply {
                         capturePlaybackObservation = capture@ {
-                            val selection=PhonePlaybackResumeRecovery.snapshot()
-                            val lease=attemptContext?.hostMedia ?: return@capture null
                             val currentReceiver=receiver ?: return@capture null
-                            fun selected()=PhonePlaybackResumeRecovery.isCurrent(selection) &&
-                                lease.mode==CarPlayHostMediaMode.NORMAL &&
-                                com.openautolink.app.media.OalMediaSessionManager.getInstance(context).acceptsCarPlayHost(lease)
-                            val stamp=currentReceiver.captureMediaRecoveryStamp(session,selection.epoch,::selected) ?: return@capture null
-                            { playing:Boolean? -> currentReceiver.offerPhonePlaybackObservation(session,playing,stamp); Unit }
+                            PhonePlaybackResumeRecovery.capture(currentReceiver,session,attemptContext,
+                                com.openautolink.app.media.OalMediaSessionManager.getInstance(context))
                         }
                     }
                 CarPlayBluetoothDiagnosticLink(metadata, { listener ->

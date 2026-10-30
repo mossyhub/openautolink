@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.555 — Restore CarPlay audio when phone playback resumes
+
+- Restore music and navigation audio when phone playback resumes after switching away from OpenAutoLink, without a separate Resume button.
+- Keep calls and Siri in control until they finish, and prevent stopped playback or an old connection from restoring audio unexpectedly.
+- Each fresh phone playback transition gets one recovery attempt. Phone autoplay can also bring OpenAutoLink audio back while another car input is selected.
+- Same-session audible recovery still needs confirmation in the vehicle. This does not change call routing, microphone pickup, echo, outgoing-call presentation or artwork compatibility.
+
 ## Unreleased — CarPlay calibration and status-bar setup
 
 - Explain when Auto sizing uses a hardware estimate or fallback calibration. Show Last frozen offer separately from the next-session draft; Offered locally and Ended describe the receiver, not confirmed phone rendering.
