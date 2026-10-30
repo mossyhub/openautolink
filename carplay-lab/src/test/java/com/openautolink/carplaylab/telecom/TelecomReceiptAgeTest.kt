@@ -36,13 +36,48 @@ class TelecomReceiptAgeTest {
     class StorageShadow {
         @RealObject private lateinit var real: AtomicFile
         @Implementation fun finishWrite(stream: FileOutputStream) {
-            if (block) { entered.countDown(); check(release.await(3, TimeUnit.SECONDS)) }
+            // Only the receipt written after this own-account read may advance
+            // the age-test barrier; unrelated asynchronous native receipts may race it.
+            val selected = block && real.baseFile.name == TelecomAccountDiagnostics.FILE_NAME
+            if (selected) entered.countDown()
+            selectionObserver?.invoke(real.baseFile.name, selected)
+            if (selected) check(release.await(3, TimeUnit.SECONDS))
             Shadow.directlyOn<Any, AtomicFile>(real, AtomicFile::class.java, "finishWrite", ClassParameter.from(FileOutputStream::class.java, stream))
         }
         companion object {
             @Volatile var block = false
+            @Volatile var selectionObserver: ((String, Boolean) -> Unit)? = null
             var entered = CountDownLatch(1)
             var release = CountDownLatch(1)
+        }
+    }
+    @Test fun unrelatedAtomicFileCannotFundTheOwnReadAgeBarrier() {
+        val app = RuntimeEnvironment.getApplication()
+        StorageShadow.block = true
+        StorageShadow.entered = CountDownLatch(1); StorageShadow.release = CountDownLatch(1)
+        val observed = CountDownLatch(1)
+        val selected = java.util.concurrent.atomic.AtomicReference<Boolean?>()
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val target = java.io.File(app.cacheDir, "unrelated-receipt-probe.log")
+        StorageShadow.selectionObserver = { name, held ->
+            if (name == target.name) { selected.set(held); observed.countDown() }
+        }
+        val writer = Thread {
+            try {
+                val atomic = AtomicFile(target)
+                val stream = atomic.startWrite()
+                stream.write(byteArrayOf(1))
+                atomic.finishWrite(stream)
+            } catch (error: Throwable) { failure.set(error) }
+        }
+        try {
+            writer.start()
+            assertTrue("actual unrelated AtomicFile boundary not reached", observed.await(2, TimeUnit.SECONDS))
+            assertEquals("unrelated receipt cannot stand in for completed own-account read", false, selected.get())
+            assertEquals("wrong file released the age-test barrier", 1L, StorageShadow.entered.count)
+        } finally {
+            StorageShadow.selectionObserver = null; StorageShadow.block = false; StorageShadow.release.countDown()
+            writer.join(3000); assertFalse(writer.isAlive); assertNull(failure.get()); target.delete()
         }
     }
     @Test fun slowReceiptPersistenceMustNotMakeAnOldOwnReadFresh() {
