@@ -133,7 +133,9 @@ object CarPlayAudioDiagnostics {
         "BENCH_DIAG recordTiming synced=$bool matchedResponses=[0-9]{1,10}",
         "BENCH_DIAG startupRequestUiSent=$bool",
         "media stage=receive kind=audio type=(100|101|102) packets=$number bytes=$number missing=$number gaps=$number late=$number maxGap=$number readMs=$number arrivalMs=$number processMs=$number longReads=$number ended=$bool",
-        "media stage=receive kind=video type=110 packets=$number bytes=$number missing=$number gaps=$number late=$number maxGap=$number readMs=$number arrivalMs=$number processMs=$number longReads=$number ended=$bool",
+        "media stage=(tcp-attached|config-delivered|authenticated-frame-delivered) kind=video type=(110|111)",
+        "media stage=screen-terminal kind=video type=(110|111) generation=$number reason=(closed|eof|io|security|malformed|platform)",
+        "media stage=receive kind=video type=(110|111) packets=$number bytes=$number missing=$number gaps=$number late=$number maxGap=$number readMs=$number arrivalMs=$number processMs=$number longReads=$number ended=$bool",
         "media stage=audio-setup stream=$number type=(100|101|102) audioType=$audioType codec=$codec rate=$number clock=$number channels=(1|2) spf=$number",
         "media stage=audio-track stream=$number type=(100|101|102) audioType=$audioType codec=$codec rate=$number channels=(1|2) capacity=$number",
         "media stage=audio-stats stream=$number type=(100|101|102) audioType=$audioType codec=$codec packets=$number queue=$number queueDrops=$number decoderDrops=$number written=$number zero=$number partial=$number errors=$number droppedBytes=$number underruns=$optional route=$optional ended=$bool",
@@ -221,6 +223,8 @@ class CarPlayAudioDiagnosticReporter(
     private var neighborReceipts = 0
     private var networkFirstFull = false
     private var displayScaleOffered = false
+    private var videoStartupMask = 0
+    private val videoTerminals = linkedSetOf<Pair<Int, Long>>() // Eight immutable stream-end slots; never evict startup.
     // Constant-space allowance independent of ordinary per-second details. Each exact runtime
     // can retain four receiver ledgers; unknown extra receivers fail closed, not grow a map.
     private val ledgerReceivers = linkedMapOf<Long, LongArray>()
@@ -234,6 +238,23 @@ class CarPlayAudioDiagnosticReporter(
 
     fun record(message: String) {
         val line = CarPlayAudioDiagnostics.sanitize(session, message) ?: return
+        val startup = videoStartup.matchEntire(message)
+        val videoEnd = videoTerminal.matchEntire(message)
+        if (startup != null || videoEnd != null) {
+            val admitted = synchronized(this) {
+                if (startup != null) {
+                    val stage = when (startup.groupValues[1]) { "tcp-attached" -> 0; "config-delivered" -> 1; else -> 2 }
+                    val bit = 1 shl (stage + if (startup.groupValues[2] == "111") 3 else 0)
+                    if (videoStartupMask and bit != 0) false else { videoStartupMask = videoStartupMask or bit; true }
+                } else {
+                    val end = requireNotNull(videoEnd)
+                    val key = end.groupValues[1].toInt() to end.groupValues[2].toLong()
+                    videoTerminals.size < 8 && videoTerminals.add(key)
+                }
+            }
+            if (admitted) runCatching { sink(line) }
+            return
+        }
         // One exact qualified offer per local runtime, independent of status-flood budget.
         if (message.startsWith("BENCH_DIAG displayScaleV2 ")) {
             val admitted = synchronized(this) {
@@ -340,6 +361,8 @@ class CarPlayAudioDiagnosticReporter(
 
     companion object {
         const val MAX_EVENTS_PER_SECOND = 64
+        private val videoStartup = Regex("media stage=(tcp-attached|config-delivered|authenticated-frame-delivered) kind=video type=(110|111)")
+        private val videoTerminal = Regex("media stage=screen-terminal kind=video type=(110|111) generation=([0-9]{1,19}) reason=(?:closed|eof|io|security|malformed|platform)")
         private val retentionReceipt = Regex("media stage=microphone-retention receiver=([0-9]+) final=(true|false) pending=(?:[0-9]|1[0-2]) owners=(?:[0-9]|1[0-2]) lost=[0-9]{1,19}")
         private val ownerReceipt = Regex("^media stage=microphone-owner receiver=([0-9]+) owner=([0-9]+) state=(release-pending|release-failed)$")
         private val terminalReceipt = Regex("^media stage=microphone-terminal receiver=([0-9]+) owner=([0-9]+) part=(summary|raw|converted|acquisition) ")

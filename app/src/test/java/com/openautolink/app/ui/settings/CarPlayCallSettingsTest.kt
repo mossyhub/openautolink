@@ -143,10 +143,10 @@ class CarPlayCallSettingsTest {
         val events = mutableListOf<String>()
         compose.setContent { OpenAutoLinkTheme(oalUiScalePercent = 100) {
             captureView()
-            SettingsScreen(viewModel = vm, audioBindings = bindings(CarPlayCallUiState(
+            SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = vm, audioBindings = bindings(CarPlayCallUiState(
                 preferencesLoaded = true, setup = CarPlayCallSetup.SETUP_REQUIRED), events))
         } }
-        compose.onNodeWithTag("settingsTab_AUDIO").performClick()
+        compose.onNodeWithTag("settingsTab_AUDIO").performScrollTo().performClick()
         screenshot("audio-landscape-top")
         compose.onNodeWithTag("extraCarRingtoneHelper").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("carPlayBluetoothPrerequisite").assertIsDisplayed()
@@ -166,7 +166,7 @@ class CarPlayCallSettingsTest {
         compose.setContent { OpenAutoLinkTheme(oalUiScalePercent = 100) {
             CompositionLocalProvider(LocalDensity provides Density(1f, 1.5f)) {
                 captureView()
-                SettingsScreen(viewModel = vm, onBack = { events += "back" },
+                SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = vm, onBack = { events += "back" },
                     audioBindings = bindings(CarPlayCallUiState(preferencesLoaded = true,
                         setup = CarPlayCallSetup.SETUP_REQUIRED), events))
             }

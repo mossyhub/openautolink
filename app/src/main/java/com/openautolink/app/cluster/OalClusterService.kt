@@ -25,16 +25,27 @@ class OalClusterService : CarAppService() {
         private const val TAG = "OalClusterSvc"
     }
 
-    override fun createHostValidator(): HostValidator = HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
+    override fun createHostValidator(): HostValidator =
+        if (ClusterBindingState.frozenMapBinding() != null) HostValidator.Builder(this).build()
+        else HostValidator.ALLOW_ALL_HOSTS_VALIDATOR // Preserve the existing icon-host compatibility boundary.
+
+    private fun createFrozenSession(displayType: Int): Session {
+        val binding = ClusterBindingState.frozenMapBinding()
+        if (binding == null) return ClusterMainSession()
+        // A service/binder can outlive an icon->map transition and retain its old validator.
+        // Revalidate the actual host at this map admission boundary, never reuse allow-all.
+        val trusted = hostInfo?.let { HostValidator.Builder(this).build().isValidHost(it) } == true
+        return ClusterMapSession(binding.snapshot, binding.coordinator, if (trusted) displayType else -1)
+    }
 
     @Suppress("DEPRECATION")
     override fun onCreateSession(): Session {
         Log.i(TAG, "Creating session (no SessionInfo — fallback)")
-        return ClusterMainSession()
+        return createFrozenSession(-1) // Map requires explicit logical MAIN, never infer a role.
     }
 
     override fun onCreateSession(sessionInfo: SessionInfo): Session {
         Log.i(TAG, "Creating session: displayType=${sessionInfo.displayType}")
-        return ClusterMainSession()
+        return createFrozenSession(sessionInfo.displayType)
     }
 }

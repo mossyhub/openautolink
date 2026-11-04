@@ -53,8 +53,10 @@ fun ProjectionOverlayControls(
     onFileLogging: (() -> Unit)? = null,
     onUpload: (() -> Unit)? = null,
     onSimulateIgnition: (() -> Unit)? = null,
+    enableDriverVideoRestore: Boolean = false,
 ) = com.openautolink.app.ui.theme.OalUiScale {
     val colors = MaterialTheme.colorScheme
+    val driverVideoRestore = if(enableDriverVideoRestore) rememberProductionDriverVideoRestore() else null
     // Old show-floating-button preferences do not hide actions in this menu.
     // Callback/capability availability and the actual diagnostic enable flags do.
     val controls = buildList {
@@ -69,6 +71,10 @@ fun ProjectionOverlayControls(
             if (uiState.showStats) colors.primary else Color.Unspecified))
         if (onReconnect != null) {
             add(OverlayControl("Reconnect", Icons.Default.Refresh, onReconnect))
+        }
+        driverVideoRestore?.let { restore ->
+            add(OverlayControl(restore.label, Icons.Default.Restore, restore.action ?: {},
+                restore.message, enabled=restore.action!=null && !restore.pending, dismissOnClick=false))
         }
         if (onFileLogging != null && uiState.fileLoggingEnabled) {
             add(OverlayControl("File Logging", Icons.Default.FiberManualRecord, onFileLogging,

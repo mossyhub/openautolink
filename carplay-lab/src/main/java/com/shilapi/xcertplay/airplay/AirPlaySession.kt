@@ -100,6 +100,10 @@ class AirPlaySession @JvmOverloads constructor(
     internal var deviceBtMac = ""
     internal val activeStreams = linkedSetOf<Int>()
     @Volatile private var hevcNegotiated = false
+    /** The engine must not accept an unsolicited second display, even through direct admission. */
+    internal fun acceptsScreenStream(type: Int): Boolean = !isClosed &&
+        (type == STREAM_TYPE_MAIN_SCREEN || (type == STREAM_TYPE_ALT_SCREEN && config.cluster != null))
+
     /** Actual in-band codec may still be AVC after an optional HEVC negotiation. */
     fun acceptsVideoCodec(codec: VideoCodec): Boolean = !isClosed &&
         (codec == VideoCodec.H264 || hevcNegotiated)
@@ -345,6 +349,27 @@ class AirPlaySession @JvmOverloads constructor(
     }
 
     /**
+     * Admit an exact stream epoch only after waiting for the event writer, and keep it current
+     * through actual output. The owner must use admissionLock for every epoch invalidation.
+     * Neither current nor the write may acquire the engine monitor: retirement holds engine
+     * before admissionLock. Defer write-failure teardown until both locks have been released.
+     */
+    internal fun sendCommandIfCurrent(command: Map<String, Any?>, admissionLock: Any,
+        current: () -> Boolean): Boolean {
+        var failure: Exception? = null
+        val sent = synchronized(eventWriteLock) {
+            synchronized(admissionLock) {
+                current() && sendCommandLocked(command, onFailure = {
+                    failure = it
+                    closed.set(true) // Reject another queued writer before deferred teardown.
+                })
+            }
+        }
+        failure?.let { commandWriteFailed(it) }
+        return sent
+    }
+
+    /**
      * A message on a video in car remote control session, framed like the iPhone's own: POST /command
      * with X-Apple-StreamID and {params: {data: bplist(message)}}.
      */
@@ -362,7 +387,8 @@ class AirPlaySession @JvmOverloads constructor(
     internal fun setVideoPlaybackAllowed(allowed: Boolean): VideoPlaybackDelivery =
         videoPlaybackAvailability.setDesired(allowed)
 
-    private fun sendCommandLocked(command: Map<String, Any?>, extraHeaders: String = ""): Boolean {
+    private fun sendCommandLocked(command: Map<String, Any?>, extraHeaders: String = "",
+        onFailure: (Exception) -> Unit = { commandWriteFailed(it) }): Boolean {
         if (closed.get()) return false
         val socket = eventSocket ?: return false
         val cipher = eventCipher ?: return false
@@ -380,10 +406,14 @@ class AirPlaySession @JvmOverloads constructor(
             output.flush()
             true
         } catch (error: Exception) {
-            listener.onDebugLog("BENCH_DIAG commandWriteFailureType=${error.javaClass.simpleName}")
-            close()
+            onFailure(error)
             false
         }
+    }
+
+    private fun commandWriteFailed(error: Exception) {
+        listener.onDebugLog("BENCH_DIAG commandWriteFailureType=${error.javaClass.simpleName}")
+        close()
     }
 
     fun sendTouch(contacts: List<AirPlayContact>): Boolean {

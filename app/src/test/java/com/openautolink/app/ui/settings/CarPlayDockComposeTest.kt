@@ -43,7 +43,7 @@ class CarPlayDockComposeTest {
         try {
             compose.setContent { MaterialTheme {
                 val scope = rememberCoroutineScope()
-                SettingsScreen(viewModel = vm, onSaveAndConnect = {
+                SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = vm, onSaveAndConnect = {
                     scope.launch { if (vm.commitCarPlaySettings()) saves++ }
                 })
             } }

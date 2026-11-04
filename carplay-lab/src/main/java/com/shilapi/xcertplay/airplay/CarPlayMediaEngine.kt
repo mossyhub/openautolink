@@ -46,6 +46,9 @@ class CarPlayMediaEngine(
     fun owns(session: AirPlaySession): Boolean = owner.get() === session
     private fun claim(session: AirPlaySession): Boolean = owns(session) || owner.compareAndSet(null, session)
     private val streams = ConcurrentHashMap<Key, Closeable>()
+    // Never acquire the engine monitor from this gate. Event writes take eventWriteLock -> this
+    // gate; screen mutations take engine -> this gate, with close/callbacks outside the gate.
+    private val screenRecoveryLock = Any()
     private val audio = ConcurrentHashMap<Key, AudioMeta>()
     private val pending = ConcurrentHashMap<AirPlaySession, AirPlayIapTunnelStream>()
     @Volatile private var tunnelHandler: ((AirPlaySession, BlockingDuplexByteStream) -> Boolean)? = null
@@ -55,32 +58,49 @@ class CarPlayMediaEngine(
     }
 
     @Synchronized override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? {
-        if (type != 110 || session.isClosed || streams.keys.any { it.type == 110 && it.session !== session }) return null
+        if (!session.acceptsScreenStream(type)) return null
         val key = outputKey(session, stream) ?: return null
         if (!claim(session)) return null
         val id = Key(session, type)
         val screen = ScreenStream(key, onDiagnostic = { reportDiagnostic(session, it) },
-            expectedPeer = session.remoteAddress, socketBinding = session.socketBinding)
-        sink.setVideoDiagnosticHandler(type) { if (it == "first frame rendered") session.videoFrameRendered() }
+            expectedPeer = session.remoteAddress, socketBinding = session.socketBinding, streamType = type)
+        // ScreenStream identity is the stream-instance epoch, not just session/type.
+        fun current() = streams[id] === screen && owns(session) && !session.isClosed
+        sink.setVideoDiagnosticHandler(type) {
+            synchronized(this) {
+                if (current() && type == 110 && it == "first frame rendered") session.videoFrameRendered()
+            }
+        }
         sink.setVideoRecoveryHandler(type) {
-            if (streams[id] === screen) session.sendCommand(mapOf("type" to "forceKeyFrame"))
+            session.sendCommandIfCurrent(if (type == 111)
+                mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to AirPlayInfoPlist.ALT_UUID))
+                else mapOf("type" to "forceKeyFrame"), screenRecoveryLock, ::current)
         }
         val port = screen.listen(object : ScreenStream.Listener {
             override fun onCodec(codec: VideoCodec) {
-                require(session.acceptsVideoCodec(codec)) { "Video codec not negotiated for this session" }
-                sink.onVideoCodec(type, codec)
+                synchronized(this@CarPlayMediaEngine) {
+                    if (!current()) return
+                    require(session.acceptsVideoCodec(codec)) { "Video codec not negotiated for this session" }
+                    sink.onVideoCodec(type, codec)
+                }
             }
-            override fun onConfig(codecData: ByteArray) = sink.onVideoConfig(type, codecData)
-            override fun onFrame(naluBytes: ByteArray) = sink.onVideoFrame(type, naluBytes)
+            override fun onConfig(codecData: ByteArray) {
+                synchronized(this@CarPlayMediaEngine) { if (current()) sink.onVideoConfig(type, codecData) }
+            }
+            override fun onFrame(naluBytes: ByteArray) {
+                synchronized(this@CarPlayMediaEngine) { if (current()) sink.onVideoFrame(type, naluBytes) }
+            }
             override fun onClosed(cause: Throwable?) {
-                session.logDebug("BENCH_DIAG screenClosedType=${cause?.javaClass?.simpleName ?: "EOF"}")
-                if (streams.remove(id, screen)) {
-                    sink.onScreenStreamActive(type, false)
-                    session.close()
+                synchronized(this@CarPlayMediaEngine) {
+                    if (synchronized(screenRecoveryLock) { streams.remove(id, screen) }) {
+                        session.logDebug("BENCH_DIAG screenClosedType=${cause?.javaClass?.simpleName ?: "EOF"}")
+                        sink.onScreenStreamActive(type, false)
+                        if (type == 110) session.close()
+                    }
                 }
             }
         })
-        streams.put(id, screen)?.close()
+        synchronized(screenRecoveryLock) { streams.put(id, screen) }?.close()
         sink.onScreenStreamActive(type, true)
         return port
     }
@@ -191,13 +211,15 @@ class CarPlayMediaEngine(
     @Synchronized override fun onTeardown(session: AirPlaySession, type: Int) {
         if (type == 130) pending.remove(session)
         streams.keys.filter { it.session === session && it.type == type }.forEach { key ->
-            streams.remove(key)?.close()
+            val retiring = if (type == 110 || type == 111)
+                synchronized(screenRecoveryLock) { streams.remove(key) } else streams.remove(key)
+            retiring?.close()
             audio.remove(key)?.let { sink.onMicrophoneStopped(it.microphoneId) }
             if (type in setOf(100, 101, 102)) {
                 sink.onAudioStopped(AudioStreamId(type, key.audioType))
             }
         }
-        if (type == 110) sink.onScreenStreamActive(type, false)
+        if ((type == 110 || type == 111) && owns(session)) sink.onScreenStreamActive(type, false)
     }
     @Synchronized override fun onSessionClosed(session: AirPlaySession) {
         pending.remove(session)

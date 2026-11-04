@@ -11,6 +11,9 @@ import com.openautolink.app.audio.AudioStats
 import com.openautolink.app.audio.CallState
 import com.openautolink.app.audio.MicCaptureManager
 import com.openautolink.app.cluster.ClusterNavigationState
+import com.openautolink.app.cluster.*
+import com.openautolink.app.secondary.*
+import java.util.concurrent.CompletableFuture
 import com.openautolink.app.diagnostics.EvTelemetryRecorder
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.data.EvLearnedRateEstimator
@@ -149,7 +152,7 @@ class SessionManager(
     private val scope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
 
     // aasdk JNI session -- native C++ handles AA protocol
-    private var aasdkSession: AasdkSession? = null
+    @Volatile private var aasdkSession: AasdkSession? = null
     private var retiringAasdkSession: AasdkSession? = null
     private val wirelessAdmissionLock = Any()
     private var wirelessSessionAdmission:
@@ -245,9 +248,18 @@ class SessionManager(
         }
     }
 
+    /** A settings-snapshot owner, not a connection-state edge or USB enumeration generation. */
+    private var settingsSessionOwner = java.lang.ref.WeakReference<AasdkSession>(null)
+    private val _settingsSessionEpoch = MutableStateFlow(0L)
+    val settingsSessionEpoch: StateFlow<Long> = _settingsSessionEpoch.asStateFlow()
+
     private fun adoptSessionOwnership(session: AasdkSession) {
         synchronized(sessionStateLock) {
             aasdkSession?.takeIf { it !== session }?.let { OalMediaSessionManager.instanceOrNull()?.retireAndroidAutoMedia(it) }
+            if (settingsSessionOwner.get() !== session) {
+                settingsSessionOwner = java.lang.ref.WeakReference(session)
+                _settingsSessionEpoch.value += 1L
+            }
             aasdkSession = session
         }
     }
@@ -479,6 +491,15 @@ class SessionManager(
                             }
                         }
                     } else null
+                }
+            }
+            preparedSecondaryOutputs?.collect(this, session)
+            launch {
+                secondaryOutputStatuses.collect { outputs ->
+                    if (aasdkSession === session) {
+                        val gm = secondaryRuntime?.hostedProjectionStatus()
+                        if (gm != null) _clusterVideoStatus.value = gm
+                    }
                 }
             }
             launch(videoDispatcher) {
@@ -862,8 +883,100 @@ class SessionManager(
     @Volatile private var alwaysInParkObserverStarted = false
     @Volatile private var lastSentGearRaw: Int? = null
 
-    // Cluster manager
-    private var _clusterManager: com.openautolink.app.cluster.ClusterManager? = null
+    // ONE manager serves the GM hosted/native path. Public outputs never bind AndroidX.
+    private var _clusterManager: ClusterManager? = null
+    private val clusterEpoch = java.util.concurrent.atomic.AtomicLong()
+    private val secondaryRuntime by lazy { context?.let(SecondaryOutputRuntime::get) }
+    @Volatile private var preparedSecondaryOutputs: PreparedAaSecondaryOutputs? = null
+    private val secondaryPreparationEpoch = java.util.concurrent.atomic.AtomicLong()
+    @Volatile private var secondaryPreparing = false
+    private var secondaryRetirement: CompletableFuture<Boolean>? = null
+    private val emptySecondaryStatuses = MutableStateFlow<Map<SecondaryOutputId, SecondaryOutputStatus>>(emptyMap())
+    val secondaryOutputStatuses: StateFlow<Map<SecondaryOutputId, SecondaryOutputStatus>>
+        get() = secondaryRuntime?.statuses ?: emptySecondaryStatuses
+    private val _clusterVideoStatus = MutableStateFlow(ClusterProjectionStatus())
+    val clusterVideoStatus: StateFlow<ClusterProjectionStatus> = _clusterVideoStatus.asStateFlow()
+    private val _clusterLayoutSelectionReason = MutableStateFlow<ClusterLayoutFallbackReason?>(null)
+    val clusterLayoutSelectionReason: StateFlow<ClusterLayoutFallbackReason?> = _clusterLayoutSelectionReason.asStateFlow()
+
+    fun retireClusterVideoOutput(): CompletableFuture<Boolean> {
+        secondaryRuntime?.cancelRetainedHost()
+        return retireClusterOutput("projection source switch")
+    }
+    private fun retireClusterOutput(reason: String): CompletableFuture<Boolean> {
+        secondaryPreparationEpoch.incrementAndGet()
+        val output: PreparedAaSecondaryOutputs?
+        val preparing: Boolean
+        val icons: ClusterManager?
+        val result: CompletableFuture<Boolean>
+        synchronized(sessionStateLock) {
+            secondaryRetirement?.let { return it }
+            result = CompletableFuture<Boolean>().also { secondaryRetirement = it }
+            output = preparedSecondaryOutputs
+            preparedSecondaryOutputs = null
+            preparing = secondaryPreparing
+            secondaryPreparing = false
+            icons = _clusterManager?.takeUnless { it === output?.hostedManager }
+            _clusterManager = null
+        }
+        try {
+            icons?.release()
+            val retiring = output?.retire(reason) ?: (if (preparing) secondaryRuntime?.retire(reason) else null)
+                ?: CompletableFuture.completedFuture(true)
+            retiring.whenComplete { success, failure -> result.complete(failure == null && success == true) }
+        } catch (_: Exception) { result.complete(false) }
+        return result
+    }
+
+    /** Frozen legacy policy only. Unknown built-ins do not become guessed map destinations. */
+    private fun prepareLegacyIcons(selection: ClusterOutputSelection, hasHostedMap: Boolean) {
+        val ctx = context ?: return
+        if (hasHostedMap) return
+        if (ClusterOutputPolicy.shouldPublishNativeIcons(selection, ClusterProjectionProtocol.ANDROID_AUTO, hasSourcedManeuver = true)) {
+            _clusterManager = ClusterManager(ctx).also { it.setClusterEnabled(true); it.launchClusterBinding() }
+        } else {
+            ctx.packageManager.setComponentEnabledSetting(
+                android.content.ComponentName(ctx, "com.openautolink.app.cluster.OalClusterService"),
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                android.content.pm.PackageManager.DONT_KILL_APP)
+        }
+    }
+
+    /** Connection-owned secondary preparation; shared with its actual lifecycle regression. */
+    internal suspend fun prepareAndroidAutoSecondaryOutputs(ctx: Context): PreparedAaSecondaryOutputs {
+        // One immutable preference/inventory decision per connection. Never reactive to Save.
+        retireClusterOutput("AA preparation replaced")
+        val secondaryTicket = synchronized(sessionStateLock) {
+            secondaryRetirement = null
+            secondaryPreparing = true
+            secondaryPreparationEpoch.get()
+        }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val prefs = AppPreferences.getInstance(ctx)
+            // Freeze user intent before readiness; the runtime migrates a missing legacy row
+            // only after exact live GM qualification and never adopts a Save arriving in wait.
+            val frozen = prefs.getSecondaryDisplayPreferences()
+            val prepared = SecondaryOutputRuntime.get(ctx).prepareAndroidAuto(clusterEpoch.incrementAndGet(), frozen) {
+                secondaryPreparationEpoch.get() == secondaryTicket
+            }
+            val installed = synchronized(sessionStateLock) {
+                if (secondaryPreparationEpoch.get() != secondaryTicket) false else {
+                    preparedSecondaryOutputs = prepared
+                    secondaryPreparing = false
+                    _clusterManager = prepared.hostedManager
+                    _clusterLayoutSelectionReason.value = prepared.layoutSelectionReason
+                    prepareLegacyIcons(prepared.legacySelection, prepared.hostedManager != null)
+                    true
+                }
+            }
+            if (!installed) {
+                // Retirement callbacks/future completion must not run under sessionStateLock.
+                prepared.retire("AA preparation cancelled")
+                throw kotlinx.coroutines.CancellationException("AA optional preparation cancelled")
+            }
+            prepared
+        }
+    }
 
     @Volatile private var projectionCaptureClaim: com.shilapi.xcertplay.media.MicrophoneCaptureFence.Lease? = null
     private val startMutex = kotlinx.coroutines.sync.Mutex()
@@ -899,6 +1012,7 @@ class SessionManager(
     // (great drive → froze, phone showed disconnected while still on car WiFi,
     // caught only by the native 9s ping timeout with no recovery).
     @Volatile private var lastVideoFrameArrivedMs = 0L
+    @Volatile private var primaryStreamingSinceMs = 0L
     // Set true while the user has navigated away / screen is off, so the
     // watchdog does not false-fire on a legitimate pause (cf. #43).
     @Volatile private var isGoingIdle = false
@@ -1399,38 +1513,8 @@ class SessionManager(
         }
         installGmMediaControls()
 
-        // Cluster service is gated by user preference (default ON). When disabled,
-        // the CarAppService component is disabled so Templates Host won't bind it.
-        _clusterManager?.release()
-        _clusterManager = null
-        val clusterEnabled = context?.let { ctx ->
-            try {
-                kotlinx.coroutines.runBlocking {
-                    AppPreferences.getInstance(ctx).clusterNavigation.first()
-                }
-            } catch (e: Exception) {
-                OalLog.w(TAG, "Failed to read clusterNavigation pref: ${e.message}")
-                AppPreferences.DEFAULT_CLUSTER_NAVIGATION
-            }
-        } ?: false
-        if (clusterEnabled) {
-            _clusterManager = context?.let { com.openautolink.app.cluster.ClusterManager(it) }
-            _clusterManager?.setClusterEnabled(true)
-            // Proactively launch cluster binding — Templates Host on GM doesn't auto-discover
-            // the service via intent filter; it requires CarAppActivity to be launched first.
-            _clusterManager?.launchClusterBinding()
-            OalLog.i(TAG, "Cluster manager initialized and binding launched")
-        } else {
-            // Disable the component so Templates Host won't try to bind it on next boot.
-            context?.let { ctx ->
-                try {
-                    com.openautolink.app.cluster.ClusterManager(ctx).setClusterEnabled(false)
-                } catch (e: Exception) {
-                    OalLog.w(TAG, "Failed to disable cluster component: ${e.message}")
-                }
-            }
-            OalLog.i(TAG, "Cluster service disabled by user preference")
-        }
+        // Cluster intent is snapshotted at the exact admitted protocol-session boundary below.
+        // Never start a competing icon-only manager while a map host is retiring.
 
         // Create diagnostics (local-only)
         _telemetryCollector?.stop()
@@ -1828,6 +1912,7 @@ class SessionManager(
                 "left=$effSafeLeft right=$effSafeRight (mode=$lastDisplayMode, " +
                 "userPref=$safeAreaTop/$safeAreaBottom/$safeAreaLeft/$safeAreaRight)")
 
+        val secondaryOutputs = prepareAndroidAutoSecondaryOutputs(ctx)
         session.manualIpAddress = manualIpAddress
         session.sdrConfig = AasdkSdrConfig(
             videoWidth = resW,
@@ -1862,6 +1947,7 @@ class SessionManager(
             panelWidth = panelW,
             panelHeight = panelH,
             autoMargins = aaAutoMargins,
+            secondaryOffers = secondaryOutputs.offers.toTypedArray(),
         )
         _touchWidth.value = protocolTouchW
         _touchHeight.value = protocolTouchH
@@ -2014,6 +2100,7 @@ class SessionManager(
         ensureVideoDecoder()
         ensureAudioPlayer()
         session.beginEvTelemetryGeneration()
+        preparedSecondaryOutputs?.bind(session)
         bindSessionCollectors(session)
         OalLog.i(TAG, "Native session dependencies ready: " +
                 "decoder=${_videoDecoder != null} surface=${lastKnownSurface != null} " +
@@ -2121,21 +2208,26 @@ class SessionManager(
         session.dialCompanion(ip)
     }
 
-    suspend fun stop() {
+    suspend fun stop() = stopWithClusterHostRetention(false)
+    /** Only the explicit UI handoff may retain an exact acknowledged live cluster host. */
+    suspend fun stopForExplicitReconnect() = stopWithClusterHostRetention(true)
+    private suspend fun stopWithClusterHostRetention(preserveClusterHostForReconnect: Boolean) {
         aasdkSession?.let { EvTelemetryRecorder.instance.gap(it.evTelemetryToken, "session_stop") }
         interruptPendingTransportStart("stop")
         startMutex.lock()
         try {
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 lifecycleGeneration += 1L
-                stopWhileLifecycleLocked()
+                stopWhileLifecycleLocked(preserveClusterHostForReconnect = preserveClusterHostForReconnect)
             }
         } finally {
             startMutex.unlock()
         }
     }
 
-    private suspend fun stopWhileLifecycleLocked(cancelObserveJob: Boolean = true) {
+    private suspend fun stopWhileLifecycleLocked(cancelObserveJob: Boolean = true,
+        preserveClusterHostForReconnect: Boolean = false) {
+        if (!preserveClusterHostForReconnect) secondaryRuntime?.cancelRetainedHost()
         detachProcessVehicleSession()
         clearWirelessSessionAdmission()
         // Let another phone claim the session. Without this the first phone to
@@ -2196,8 +2288,7 @@ class SessionManager(
         _mediaSessionManager?.resetToIdle()
         lastMediaMetadata = null
         lastMediaPlaybackState = null
-        _clusterManager?.release()
-        _clusterManager = null
+        retireClusterOutput("AA stopped")
         _telemetryCollector?.stop()
         _telemetryCollector = null
         DiagnosticLog.instance = null
@@ -3176,50 +3267,102 @@ class SessionManager(
     }
 
     /**
-     * Video-stall watchdog. Fires when video frames STOP ARRIVING from the
-     * phone while we believe we're actively streaming — the freeze class that
-     * [watchKeyframeNeeds] cannot catch (that only reacts to decode FAILURES,
-     * but here the decoder is simply starved because nothing arrives).
+     * AA may stop encoding an unchanged primary screen while protocol pongs and
+     * independent secondary outputs continue. An already-presented, settled
+     * primary is healthy idle, not a missing-frame failure.
      *
-     * Two-stage recovery, both guarded against legitimate pauses:
-     *   1. after [VIDEO_STALL_KEYFRAME_MS] with no frame → requestKeyframe()
-     *      (cheap nudge; may un-wedge a video-only flow stall).
-     *   2. after [VIDEO_STALL_RECONNECT_MS] with no frame → forceReconnect()
-     *      (the half-open-TCP hammer; a keyframe can't cross a dead pipe).
-     * A [VIDEO_STALL_WARMUP_MS] grace from entering STREAMING avoids racing the
-     * first-frame warmup, and we skip entirely while going idle / not STREAMING.
+     * Retain bounded recovery for unfulfilled primary output (including a stuck
+     * managed collector/decoder), missing startup presentation and dead control.
+     * [VIDEO_STALL_KEYFRAME_MS]/[VIDEO_STALL_RECONNECT_MS] are failure ages, not
+     * frame-rate requirements. Startup retains [VIDEO_STALL_WARMUP_MS] grace.
+     * Optional rendering and arbitrary transport traffic never count as primary
+     * presentation or valid control liveness.
      */
     private suspend fun watchVideoStall() {
         var reconnectRequested = false
+        var nudgeRequested = false
+        var watchedSession: Any? = null
+        var watchedStart = 0L
+        var lastIdleLogMs = 0L
+        var pendingSinceMs = 0L
+        var pendingPresentation = 0L
         while (true) {
             delay(1000)
-            if (_sessionState.value != SessionState.STREAMING || isGoingIdle) {
+            val session = aasdkSession ?: continue
+            val started = primaryStreamingSinceMs
+            if (watchedSession !== session || watchedStart != started) {
+                watchedSession = session
+                watchedStart = started
                 reconnectRequested = false
+                nudgeRequested = false
+                pendingSinceMs = 0L
+            }
+            if (_sessionState.value != SessionState.STREAMING || isGoingIdle || started == 0L) {
+                reconnectRequested = false
+                nudgeRequested = false
                 continue
             }
-            val last = lastVideoFrameArrivedMs
-            if (last == 0L) continue  // no frame yet this session — warmup
             val now = SystemClock.elapsedRealtime()
-            val stallMs = now - last
-            // Warmup grace: don't act until at least one frame is well past the
-            // STREAMING transition (last is only set once frames actually flow).
+            val presented = (_videoDecoder as? MediaCodecDecoder)?.lastPrimaryPresentationAtMs ?: 0L
+            val incoming = session.lastPrimaryPictureAtMs
+            val pong = session.lastProtocolPongAtMs
+            // AA is change-driven: a settled primary picture may remain on screen
+            // indefinitely. A secondary frame or TCP byte is NOT a primary render.
+            // Demand recovery only for unfulfilled primary output, missing startup,
+            // or absent validated control-plane liveness.
+            val established = presented >= started
+            val outputPending = incoming > presented
+            if (!outputPending) {
+                pendingSinceMs = 0L
+            } else if (pendingSinceMs == 0L || pendingPresentation != presented) {
+                pendingSinceMs = now
+                pendingPresentation = presented
+            }
+            val stallMs: Long
+            val reason: String
+            when {
+                !established -> {
+                    stallMs = now - started - VIDEO_STALL_WARMUP_MS
+                    reason = "startup-no-primary-presentation"
+                }
+                outputPending -> {
+                    stallMs = now - pendingSinceMs
+                    reason = "primary-output-pending"
+                }
+                pong < started || now - pong >= VIDEO_STALL_KEYFRAME_MS -> {
+                    stallMs = now - maxOf(started, pong)
+                    reason = "protocol-pong-missing"
+                }
+                else -> {
+                    reconnectRequested = false
+                    nudgeRequested = false
+                    if (now - incoming >= VIDEO_STALL_RECONNECT_MS && now - lastIdleLogMs >= 10_000L) {
+                        lastIdleLogMs = now
+                        OalLog.i(TAG, "AA primary idle healthy: inputAge=${now - incoming}ms presentAge=${now - presented}ms pongAge=${now - pong}ms")
+                    }
+                    continue
+                }
+            }
             if (stallMs < VIDEO_STALL_KEYFRAME_MS) {
                 reconnectRequested = false
+                nudgeRequested = false
                 continue
             }
             if (stallMs >= VIDEO_STALL_RECONNECT_MS) {
                 if (!reconnectRequested) {
                     reconnectRequested = true
-                    OalLog.w(TAG, "Video stall ${stallMs}ms — forcing reconnect")
-                    DiagnosticLog.w("video", "Video stall ${stallMs}ms (no frames) — forceReconnect")
+                    OalLog.w(TAG, "Video stall ${stallMs}ms reason=$reason — forcing reconnect")
+                    DiagnosticLog.w("video", "Video stall ${stallMs}ms reason=$reason — forceReconnect")
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        aasdkSession?.forceReconnect("video stall ${stallMs}ms")
+                        if (aasdkSession === session && primaryStreamingSinceMs == started &&
+                            _sessionState.value == SessionState.STREAMING && !isGoingIdle) {
+                            session.forceReconnect("video stall ${stallMs}ms reason=$reason")
+                        }
                     }
                 }
-            } else {
-                // 4s..7s window: cheap keyframe nudge, once per stall episode.
-                OalLog.w(TAG, "Video stall ${stallMs}ms — requesting keyframe")
-                DiagnosticLog.w("video", "Video stall ${stallMs}ms (no frames) — requestKeyframe")
+            } else if (!nudgeRequested) {
+                nudgeRequested = true
+                OalLog.w(TAG, "Video stall ${stallMs}ms reason=$reason — requesting keyframe")
                 requestKeyframe()
             }
         }
@@ -3293,7 +3436,8 @@ class SessionManager(
                 // Reset the stall watchdog baseline: give the fresh session a
                 // full warmup window before it can fire (avoids a stale
                 // timestamp from a prior session tripping it immediately).
-                lastVideoFrameArrivedMs = SystemClock.elapsedRealtime() + VIDEO_STALL_WARMUP_MS
+                primaryStreamingSinceMs = SystemClock.elapsedRealtime()
+                lastVideoFrameArrivedMs = primaryStreamingSinceMs + VIDEO_STALL_WARMUP_MS
             }
             is ControlMessage.PhoneDisconnected -> {
                 OalMediaSessionManager.instanceOrNull()?.retireAndroidAutoMedia(sourceSession)
@@ -3321,8 +3465,7 @@ class SessionManager(
                         OalLog.w(TAG, "endActiveNavigation() failed: ${e.message}")
                     }
                     try {
-                        _clusterManager?.release()
-                        _clusterManager = null
+                        if (aasdkSession === sourceSession) retireClusterOutput("AA user exit")
                     } catch (e: Exception) {
                         OalLog.w(TAG, "clusterManager.release() failed: ${e.message}")
                     }

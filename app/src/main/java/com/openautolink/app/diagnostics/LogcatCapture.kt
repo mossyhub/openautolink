@@ -97,6 +97,9 @@ class LogcatCapture {
                                 w.write(line)
                                 w.newLine()
                                 w.flush()
+                                // Tee only the already-owned live --pid stream. Do not start a
+                                // second logcat, drain historical dumps, or acquire permissions.
+                                runCatching { com.openautolink.app.diagnostics.live.LiveLogSink.logcat(line!!) }
                                 line = r.readLine()
                             }
                         }

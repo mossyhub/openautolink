@@ -40,6 +40,8 @@ class OalUsbCarPlayRuntime(
     receiverAddress: String = "",
     private val attemptContext: CarPlayAttemptContext? = null,
     private val displayOfferStore: CarPlayDisplayOfferStore = CarPlayDisplayOfferStore.PROCESS,
+    private val clusterOutput: OalCarPlayClusterOutput? = null,
+    private val clusterSelection: com.openautolink.app.cluster.ClusterOutputSelection? = null,
 ) : CarPlayRuntime {
     private val displayOfferLease = displayOfferStore.begin()
     // Snapshot before USB side effects. Empty preserves the existing descriptor/fallback offer.
@@ -116,10 +118,16 @@ class OalUsbCarPlayRuntime(
         CarPlayHostUi.request { !canceled.get() && isCurrent() }
     }
 
+    /** Real constructor boundary: frozen config and encoded-only listener are installed together. */
+    internal fun createClusterReceiver(factory: (com.openautolink.carplaylab.media.CarPlayClusterVideoConfiguration?,
+        com.openautolink.carplaylab.media.CarPlayClusterVideoListener?) -> ProjectionReceiver): ProjectionReceiver =
+        ownReceiver { factory(clusterOutput?.configuration, clusterOutput?.takeIf { it.configuration != null }) }
+
     private fun ownReceiver(create: () -> ProjectionReceiver): ProjectionReceiver = synchronized(resourcesLock) {
         val projection = own(create)
         active()
         projection.setHostUiHandler(::requestHostUi)
+        projection.clusterVideoPilotStatus?.let(::receiverStatus)
         receiver = projection
         presentation = initialPresentation // Constructor starts with the qualified bootstrap target.
         reconcilePresentation()
@@ -357,7 +365,7 @@ class OalUsbCarPlayRuntime(
         val vehicleBootstrap=own { com.openautolink.carplaylab.intake.OalCarDataBootstrap(capabilities,SystemClock::elapsedRealtime,::status) }
         val identification=Iap2IdentificationConfig("OpenAutoLink","OAL-native-CarPlay","OpenAutoLink",
             "oal-private-receiver","0.1","Android",function.data.id,externalAccessoryProtocol="com.openautolink.carplaylab")
-        val projection=ownReceiver { ProjectionReceiver(context,identity,surface,auth,display,trustedOnly=true,
+        val projection=createClusterReceiver { clusterConfiguration, clusterListener -> ProjectionReceiver(context,identity,surface,auth,display,trustedOnly=true,
             runtimeCarDataFactory={ session,send,receipt ->
                 vehicleBootstrap.wrap(OalCarPlayIntakeLink(gps,vehicle,OalCarPlayGnssSnapshotAdapter(SystemClock::elapsedRealtime, requireSourceTime = true) {
                     sink -> GnssForwarderImpl(context.applicationContext,sink,true)
@@ -367,7 +375,8 @@ class OalUsbCarPlayRuntime(
             },runtimeMetadataFactory={ session, receipt -> own {
                 active()
                 val metadata = OalCarPlayMetadataLink(SystemClock::elapsedRealtime, receipt,
-                    OalCarPlayMetadataHost(context.applicationContext, receipt = receipt, attemptContext = attemptContext) { index ->
+                    OalCarPlayMetadataHost(context.applicationContext, receipt = receipt, attemptContext = attemptContext,
+                        clusterSelection = clusterSelection) { index ->
                         receiver?.mediaCommand(session, index) == true
                     }).apply {
                         capturePlaybackObservation = capture@ {
@@ -383,6 +392,8 @@ class OalUsbCarPlayRuntime(
                     }.getOrNull()
                 }, receipt)
             } },wired=true,drivingRestrictions = restrictionPolicy.enabled,
+            clusterVideoConfiguration = clusterConfiguration,
+            clusterVideoListener = clusterListener,
             captureAdmission = { !canceled.get() && attemptContext?.captureAdmission?.invoke() == true },
             advertisedBluetoothAddress = manualBluetoothAddress,
             onCaptureTerminal=captureTerminalSink(context,::receiverStatus),onStatus=::receiverStatus) }
@@ -487,9 +498,12 @@ class OalUsbCarPlayRuntime(
             requestedPresentation.get() === requested && requested.surface != null) snapshot
         else snapshot.copy(presentationRendered = false)
     }
-    override fun cancel() { canceled.set(true);displayOfferStore.retire(displayOfferLease);presentationWorker.shutdownNow();receiver?.revokePendingAdmission() }
+    override fun clusterTelemetrySnapshot(): CarPlayClusterStatus? = clusterOutput?.snapshot()
+    override fun cancel() { clusterOutput?.revoke(); canceled.set(true);displayOfferStore.retire(displayOfferLease);presentationWorker.shutdownNow();receiver?.revokePendingAdmission() }
     override fun close() = synchronized(closeLock) {
-        cancel();val retiring=synchronized(resourcesLock) { resources.toList().asReversed() }
+        cancel()
+        clusterOutput?.awaitRetirement()
+        val retiring=synchronized(resourcesLock) { resources.toList().asReversed() }
         val closeFailures=java.util.IdentityHashMap<AutoCloseable,Exception>()
         // Revoke all transports before awaiting workers that can depend on one another.
         retiring.forEach { owner ->

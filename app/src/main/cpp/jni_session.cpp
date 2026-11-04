@@ -17,6 +17,7 @@
 #include <android/log.h>
 #include <cmath>
 #include <utility>
+#include <sstream>
 #include <vector>
 
 // Protobuf messages for SDR building
@@ -227,11 +228,18 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
 
     // Cache callback method IDs
     jclass cbClass = env->GetObjectClass(callback);
+    cbMethods_.onProtocolPong = env->GetMethodID(cbClass, "onProtocolPong", "()V");
     cbMethods_.onSessionStarted = env->GetMethodID(cbClass, "onSessionStarted", "()V");
     cbMethods_.onSessionStopped = env->GetMethodID(cbClass, "onSessionStopped", "(Ljava/lang/String;)V");
     cbMethods_.onVideoFrame = env->GetMethodID(cbClass, "onVideoFrame", "([BJIII)V");
     cbMethods_.onVideoCodecConfigured = env->GetMethodID(cbClass, "onVideoCodecConfigured", "(I)V");
     cbMethods_.onVideoGeometrySelected = env->GetMethodID(cbClass, "onVideoGeometrySelected", "(IIJ)V");
+    cbMethods_.onSecondaryVideoState = env->GetMethodID(cbClass, "onSecondaryVideoState", "(IJIIIZ)V");
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    cbMethods_.onSecondaryVideoFrame = env->GetMethodID(cbClass, "onSecondaryVideoFrame", "(I[BJJI)V");
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    cbMethods_.onClusterVideoState = env->GetMethodID(cbClass, "onClusterVideoState", "(JIIIZ)V");
+    cbMethods_.onClusterVideoFrame = env->GetMethodID(cbClass, "onClusterVideoFrame", "([BJJI)V");
     cbMethods_.onAudioFrame = env->GetMethodID(cbClass, "onAudioFrame", "([BIII)V");
     cbMethods_.onAudioStart = env->GetMethodID(cbClass, "onAudioStart", "(III)V");
     cbMethods_.onAudioStop = env->GetMethodID(cbClass, "onAudioStop", "(I)V");
@@ -319,6 +327,57 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
     sdrConfig_.panelWidth = env->GetIntField(sdrConfig, env->GetFieldID(sdrClass, "panelWidth", "I"));
     sdrConfig_.panelHeight = env->GetIntField(sdrConfig, env->GetFieldID(sdrClass, "panelHeight", "I"));
     sdrConfig_.autoMargins = env->GetBooleanField(sdrConfig, env->GetFieldID(sdrClass, "autoMargins", "Z")) != JNI_FALSE;
+    // Copy and validate the COMPLETE optional set before constructing the pipeline.
+    sdrConfig_.clusterOffer.reset();
+    sdrConfig_.secondaryOffers.clear();
+    bool optionalOk = true;
+    auto readOffer = [&](jobject object, bool secondary) {
+        ClusterVideoOffer value;
+        if (!object) { optionalOk=false; return value; }
+        jclass cls=env->GetObjectClass(object);
+        auto read=[&](const char* name) {
+            if(!optionalOk || !cls)return 0;
+            const auto field=env->GetFieldID(cls,name,"I");
+            if(!field || env->ExceptionCheck()){env->ExceptionClear();optionalOk=false;return 0;}
+            return static_cast<int>(env->GetIntField(object,field));
+        };
+        if(secondary){value.channelId=read("channelId");value.protocolDisplayId=read("protocolDisplayId");value.displayType=read("displayType");}
+        value.density=read("density");
+        value.cropLeft=read("cropLeft");value.cropTop=read("cropTop");
+        value.cropRight=read("cropRight");value.cropBottom=read("cropBottom");
+        value.safeLeft=read("safeLeft");value.safeTop=read("safeTop");
+        value.safeRight=read("safeRight");value.safeBottom=read("safeBottom");
+        value.stableLeft=read("stableLeft");value.stableTop=read("stableTop");
+        value.stableRight=read("stableRight");value.stableBottom=read("stableBottom");
+        if(cls)env->DeleteLocalRef(cls);
+        if(env->ExceptionCheck()){env->ExceptionClear();optionalOk=false;}
+        return value;
+    };
+    const auto offersField=env->GetFieldID(sdrClass,"secondaryOffers",
+        "[Lcom/openautolink/app/transport/aasdk/AasdkSecondaryVideoOffer;");
+    if(env->ExceptionCheck()){env->ExceptionClear();optionalOk=false;}
+    auto offers=offersField?static_cast<jobjectArray>(env->GetObjectField(sdrConfig,offersField)):nullptr;
+    const auto offerCount=offers?env->GetArrayLength(offers):0;
+    if(offerCount>8)optionalOk=false;
+    if(offerCount>0){
+        if(!cbMethods_.onSecondaryVideoState || !cbMethods_.onSecondaryVideoFrame)optionalOk=false;
+        for(jsize i=0;optionalOk && i<offerCount;++i){
+            jobject object=env->GetObjectArrayElement(offers,i);
+            sdrConfig_.secondaryOffers.push_back(readOffer(object,true));
+            if(object)env->DeleteLocalRef(object);
+        }
+    }else if(optionalOk){
+        const auto field=env->GetFieldID(sdrClass,"clusterOffer","Lcom/openautolink/app/transport/aasdk/AasdkClusterVideoOffer;");
+        if(!field || env->ExceptionCheck()){env->ExceptionClear();optionalOk=false;}
+        jobject object=field?env->GetObjectField(sdrConfig,field):nullptr;
+        if(object){sdrConfig_.secondaryOffers.push_back(readOffer(object,false));env->DeleteLocalRef(object);}
+    }
+    if(offers)env->DeleteLocalRef(offers);
+    if(env->ExceptionCheck()){env->ExceptionClear();optionalOk=false;}
+    if(!optionalOk || !validSecondaryVideoOffers(sdrConfig_.secondaryOffers)){
+        sdrConfig_.secondaryOffers.clear();
+        nativeDiag(2,"secondary-video","Invalid optional offer ABI/set; retaining primary AA only");
+    }
 
     // Read int arrays: fuelTypes and evConnectorTypes
     auto readIntArray = [&](const char* field) -> std::vector<int> {
@@ -421,6 +480,23 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
         // Video uses channel ID 2 (MEDIA_SINK) matching Java implementation
         videoChannel_ = std::make_shared<aasdk::channel::mediasink::video::VideoMediaSinkService>(
             *strand_, messenger_, aasdk::messenger::ChannelId::MEDIA_SINK);
+        const auto inputIds=secondaryInputChannels(sdrConfig_.secondaryOffers);
+        size_t inputIndex=0;
+        for (const auto& offer : sdrConfig_.secondaryOffers) {
+            try {
+                optionalVideos_[offer.channelId].input=std::make_shared<SecondaryInputAssociation>(
+                    *strand_, messenger_, inputIds.at(inputIndex++), [this](const std::string& fields){
+                        const auto line="OPTIONAL_AA_V1 "+fields;
+                        LOGI("%s",line.c_str());nativeDiag(1,"secondary-input",line);
+                    });
+                optionalVideos_[offer.channelId].channel = std::make_shared<aasdk::channel::mediasink::video::VideoMediaSinkService>(
+                    *strand_, std::make_shared<ClusterLengthCheckedMessenger>(*strand_, messenger_),
+                    static_cast<aasdk::messenger::ChannelId>(offer.channelId));
+            } catch (const std::exception& e) {
+                nativeDiag(2,"secondary-video",e.what());
+                optionalVideos_.clear();sdrConfig_.secondaryOffers.clear();break;
+            }
+        }
         mediaAudioChannel_ = std::make_shared<aasdk::channel::mediasink::audio::channel::MediaAudioChannel>(
             *strand_, messenger_);
         guidanceAudioChannel_ = std::make_shared<aasdk::channel::mediasink::audio::channel::GuidanceAudioChannel>(
@@ -642,6 +718,11 @@ void JniSession::stop()
     ioService_->stop();
     if (ioThread_.joinable()) ioThread_.join();
     if (gracefulWatchdog_.joinable()) gracefulWatchdog_.join();
+    // IO has retired: revoke the optional owner before releasing Java callbacks.
+    for (auto& entry : optionalVideos_) {
+        if(entry.second.handler) entry.second.handler->stop();
+        if(entry.second.input) entry.second.input->stop();
+    }
 
     // Notify Kotlin (only if onSessionStopped hasn't already been fired by triggerAbort)
     if (callbackRef_) {
@@ -1075,15 +1156,52 @@ void JniSession::onServiceDiscoveryRequest(
     aap_protobuf::service::control::message::ServiceDiscoveryResponse response;
     buildServiceDiscoveryResponse(response);
 
+    // Whitelist the exact serialized message about to be sent; never dump identity or bytes.
+    aap_protobuf::service::control::message::ServiceDiscoveryResponse serialized;
+    if(serialized.ParseFromString(response.SerializeAsString())) {
+        for(const auto& offer:sdrConfig_.secondaryOffers)for(const auto& channel:serialized.channels()) {
+            if(channel.id()!=offer.channelId || !channel.has_media_sink_service())continue;
+            const auto& sink=channel.media_sink_service();
+            const auto prefix="OPTIONAL_AA_V1 nativeSession="+std::to_string(nativeGeneration_.load())+" channel="+std::to_string(channel.id());
+            std::ostringstream identity;
+            identity<<prefix<<" stage=optional_sdr displayPresent="<<sink.has_display_id()<<" display="<<sink.display_id()
+                <<" rolePresent="<<sink.has_display_type()<<" role="<<sink.display_type()<<" codec="<<sink.available_type();
+            LOGI("%s",identity.str().c_str());nativeDiag(1,"secondary-video",identity.str());
+            for(const auto& config:sink.video_configs()) {
+                std::ostringstream values;
+                values<<prefix<<" stage=optional_sdr_config codec="<<config.video_codec_type()<<" resolution="<<config.codec_resolution()
+                    <<" fps="<<config.frame_rate()<<" dpi="<<config.density()<<" realDpi="<<config.real_density()
+                    <<" pixelAspectPresent="<<config.has_pixel_aspect_ratio_e4()<<" pixelAspect="<<config.pixel_aspect_ratio_e4()
+                    <<" widthMargin="<<config.width_margin()<<" heightMargin="<<config.height_margin();
+                LOGI("%s",values.str().c_str());nativeDiag(1,"secondary-video",values.str());
+                const auto& ui=config.ui_config();
+                const auto edges=[&](const char* field,bool present,const auto& rect) {
+                    std::ostringstream line;line<<prefix<<" stage=optional_sdr_insets uiPresent="<<config.has_ui_config()
+                        <<" field="<<field<<" present="<<present<<" l="<<rect.left()<<" t="<<rect.top()<<" r="<<rect.right()<<" b="<<rect.bottom();
+                    LOGI("%s",line.str().c_str());nativeDiag(1,"secondary-video",line.str());
+                };
+                edges("margins",ui.has_margins(),ui.margins());
+                edges("content",ui.has_content_insets(),ui.content_insets());
+                edges("stable",ui.has_stable_content_insets(),ui.stable_content_insets());
+            }
+        }
+    }
+
     auto promise = aasdk::channel::SendPromise::defer(*strand_);
     promise->then(
         [this]() {
             LOGI("SDR sent Ã¢â‚¬â€ starting all service handlers");
+            const auto receipt="OPTIONAL_AA_V1 nativeSession="+std::to_string(nativeGeneration_.load())+" stage=sdr_send_complete optionalCount="+std::to_string(sdrConfig_.secondaryOffers.size())+" result=sent peerAcceptance=unknown";
+            LOGI("%s",receipt.c_str());nativeDiag(1,"secondary-video",receipt);
             startAllHandlers();
             streaming_ = true;
             callVoidCallback(cbMethods_.onSessionStarted);
         },
-        [this](const auto& e) { this->onChannelError(e); });
+        [this](const auto& e) {
+            const auto receipt="OPTIONAL_AA_V1 nativeSession="+std::to_string(nativeGeneration_.load())+" stage=sdr_send_failed code="+std::to_string(static_cast<int>(e.getCode()))+" peerReason=unknown";
+            LOGW("%s",receipt.c_str());nativeDiag(2,"secondary-video",receipt);
+            this->onChannelError(e);
+        });
 
     controlChannel_->sendServiceDiscoveryResponse(response, std::move(promise));
     controlChannel_->receive(shared_from_this());
@@ -1320,9 +1438,18 @@ void JniSession::onPingRequest(
 }
 
 void JniSession::onPingResponse(
-    const aap_protobuf::service::control::message::PingResponse& /*response*/)
+    const aap_protobuf::service::control::message::PingResponse& response)
 {
-    pingOutstanding_ = false;
+    if (pingOutstanding_ && response.timestamp() == pingTimestampUs_) {
+        pingOutstanding_ = false;
+        bool attached;
+        JNIEnv* env = getEnv(attached);
+        if (env && callbackRef_ && cbMethods_.onProtocolPong) {
+            env->CallVoidMethod(callbackRef_, cbMethods_.onProtocolPong);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+        }
+        releaseEnv(attached);
+    }
     controlChannel_->receive(shared_from_this());
 }
 
@@ -1332,8 +1459,9 @@ void JniSession::sendPing()
     pingOutstanding_ = true;
     pingSentAtMs_ = nowMs();
     aap_protobuf::service::control::message::PingRequest request;
-    request.set_timestamp(std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count());
+    pingTimestampUs_ = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    request.set_timestamp(pingTimestampUs_);
     auto promise = aasdk::channel::SendPromise::defer(*strand_);
     promise->then([]() {}, [this](const auto& e) { this->onChannelError(e); });
     controlChannel_->sendPingRequest(request, std::move(promise));
@@ -1350,6 +1478,8 @@ void JniSession::schedulePing()
         if (pingOutstanding_) {
             int64_t ageMs = nowMs() - pingSentAtMs_.load();
             if (ageMs > 8000) {
+                const auto line="OPTIONAL_AA_V1 nativeSession="+std::to_string(nativeGeneration_.load())+" stage=local_timeout boundary=pong ageMs="+std::to_string(ageMs)+" peerReason=unknown";
+                LOGW("%s",line.c_str());nativeDiag(2,"secondary-video",line);
                 triggerAbort("ping timeout (" + std::to_string(ageMs) + "ms)");
                 return;
             }
@@ -1729,12 +1859,82 @@ void JniSession::onVideoFocusRequest(
 // startAllHandlers() Ã¢â‚¬â€ begin receiving on all service channels
 // ============================================================================
 
+void JniSession::retireSecondaryVideo(int channelId, int64_t expectedGeneration, std::function<bool()> currentRegistry)
+{
+    if(expectedGeneration<=0 || nativeGeneration_.load()!=expectedGeneration || stopped_.load())return;
+    // A stopped executor may retain this task indefinitely; it must not own the session.
+    strand_->post([weakSelf=weak_from_this(),channelId,expectedGeneration,currentRegistry=std::move(currentRegistry)]{
+        const auto self=weakSelf.lock();
+        if(!self || self->stopped_.load() || self->nativeGeneration_.load()!=expectedGeneration || !currentRegistry())return;
+        const auto found=self->optionalVideos_.find(channelId);
+        if(found!=self->optionalVideos_.end() && found->second.handler)found->second.handler->retire();
+    });
+}
+
 void JniSession::startAllHandlers()
 {
     LOGI("Starting all service handlers");
 
     // Video channel — must start receiving before phone sends channel open request
     videoChannel_->receive(shared_from_this());
+
+    for (auto& [channelId, output] : optionalVideos_) {
+      if(output.input)output.input->start();
+      try {
+        output.handler = std::make_shared<ClusterVideoHandler>(
+            *strand_, output.channel, sdrConfig_.useActiveMediaSessionIds, 2,
+            [this,channelId](uint64_t epoch, int codec, int index, int session, bool active) {
+                bool attached = false;
+                auto* env = getEnv(attached);
+                bool ok = false;
+                if (env && callbackRef_ && !stopped_.load()) {
+                    if(cbMethods_.onSecondaryVideoState)
+                        env->CallVoidMethod(callbackRef_, cbMethods_.onSecondaryVideoState, static_cast<jint>(channelId),
+                            static_cast<jlong>(epoch), static_cast<jint>(codec),
+                            static_cast<jint>(index), static_cast<jint>(session), static_cast<jboolean>(active));
+                    else if(channelId==3 && cbMethods_.onClusterVideoState)
+                        env->CallVoidMethod(callbackRef_, cbMethods_.onClusterVideoState,
+                            static_cast<jlong>(epoch), static_cast<jint>(codec),
+                            static_cast<jint>(index), static_cast<jint>(session), static_cast<jboolean>(active));
+                    ok = !env->ExceptionCheck();
+                    if (!ok) env->ExceptionClear(); // optional callback cannot poison main/audio JNI
+                }
+                releaseEnv(attached);
+                return ok;
+            },
+            [this,channelId](const uint8_t* bytes, size_t size, uint64_t timestamp, uint64_t epoch, int flags) {
+                bool attached = false;
+                auto* env = getEnv(attached);
+                bool ok = false;
+                if (env && callbackRef_ && !stopped_.load()) {
+                    jbyteArray data = env->NewByteArray(static_cast<jsize>(size));
+                    if (data) {
+                        env->SetByteArrayRegion(data, 0, static_cast<jsize>(size), reinterpret_cast<const jbyte*>(bytes));
+                        if (!env->ExceptionCheck() && !stopped_.load()) {
+                            if(cbMethods_.onSecondaryVideoFrame)
+                                env->CallVoidMethod(callbackRef_, cbMethods_.onSecondaryVideoFrame, static_cast<jint>(channelId),data,
+                                    static_cast<jlong>(timestamp), static_cast<jlong>(epoch), static_cast<jint>(flags));
+                            else if(channelId==3 && cbMethods_.onClusterVideoFrame)
+                                env->CallVoidMethod(callbackRef_, cbMethods_.onClusterVideoFrame,data,
+                                    static_cast<jlong>(timestamp), static_cast<jlong>(epoch), static_cast<jint>(flags));
+                            ok = !env->ExceptionCheck();
+                        }
+                        env->DeleteLocalRef(data);
+                    }
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                }
+                releaseEnv(attached);
+                return ok;
+            }, [this](const std::string& fields) {
+                const auto line="OPTIONAL_AA_V1 nativeSession="+std::to_string(nativeGeneration_.load())+" "+fields;
+                LOGI("%s",line.c_str());nativeDiag(1,"secondary-video",line);
+            });
+        output.handler->start();
+      } catch(const std::exception& e) {
+        nativeDiag(2,"secondary-video","OPTIONAL_AA_V1 stage=handler_start_failed reason=native_exception");
+        if(output.handler)output.handler->retire();
+      }
+    }
 
     // Audio handlers (3 instances Ã¢â‚¬â€ same class, different channel types)
     mediaAudioHandler_ = std::make_shared<JniAudioSinkHandler>(
@@ -1786,7 +1986,7 @@ void JniSession::startAllHandlers()
         bluetoothHandler_->start();
     }
 
-    LOGI("All %d handlers started", 9);
+    LOGI("OPTIONAL_AA_V1 nativeSession=%lld stage=handlers_started optionalCount=%zu; exact channel tokens logged by each optional handler", static_cast<long long>(nativeGeneration_.load()), optionalVideos_.size());
 
     // Send initial ping (bridge does this — phone expects HU to initiate pings)
     sendPing();
@@ -2066,6 +2266,8 @@ void JniSession::buildServiceDiscoveryResponse(
     }
 
     // ---- Media audio (48kHz stereo) ----
+
+
     { auto* svc = response.add_channels();
       svc->set_id(static_cast<int32_t>(aasdk::messenger::ChannelId::MEDIA_SINK_MEDIA_AUDIO));
       auto* ms = svc->mutable_media_sink_service();
@@ -2206,6 +2408,9 @@ void JniSession::buildServiceDiscoveryResponse(
       svc->mutable_phone_status_service();
     }
 
+    // The full fixed catalog exists before optional collision checks/appends.
+    if (!sdrConfig_.secondaryOffers.empty()) appendSecondaryVideoServices(response, sdrConfig_.secondaryOffers);
+    else appendClusterVideoService(response, sdrConfig_.clusterOffer); // source/test compatibility only
     LOGI("SDR built: %d channels, %d bytes", response.channels_size(),
          static_cast<int>(response.ByteSizeLong()));
 

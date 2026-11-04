@@ -56,7 +56,8 @@ class CarPlaySafeEditorHostTest {
             "navController", "WindowCompat", "Dialog(").forEach { assertFalse(it, editor.contains(it)) }
         val nav = source("ui/navigation/AppNavHost.kt")
         assertTrue(nav.contains("applySettingsAndRestart("))
-        assertTrue(nav.contains("settingsViewModel::commitCarPlaySettings"))
+        assertTrue(nav.contains("rememberProductionSettingsSaveAction("))
+        SettingsSaveSourceContract.assertContract(nav, source("ui/settings/SettingsViewModel.kt"))
         assertTrue(nav.contains("projectionViewModel.reconnectAfterSettingsSave"))
         val aaEditor = source("ui/settings/SafeAreaEditorScreen.kt")
         assertTrue(aaEditor.contains("coordinateWidth: Int = VIDEO_W"))

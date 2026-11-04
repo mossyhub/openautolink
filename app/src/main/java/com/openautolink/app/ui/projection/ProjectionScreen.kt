@@ -62,6 +62,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -121,10 +123,28 @@ private fun CarPlayVideoWaitIndicator(modifier: Modifier = Modifier) {
 
 /** Persisted next-session intent, not a spinner or a claim that the phone renegotiated. */
 @Composable
-private fun SettingsSaveNotice(message: String, modifier: Modifier = Modifier) {
-    Text(message, modifier.padding(16.dp).clip(RoundedCornerShape(12.dp))
-        .background(Color(0xE6000000)).padding(horizontal = 20.dp, vertical = 12.dp)
-        .testTag("settingsSaveNotice"), color = Color.White, style = MaterialTheme.typography.bodyMedium)
+internal fun SettingsSaveNotice(
+    message: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier.padding(8.dp).widthIn(max = 432.dp).clip(RoundedCornerShape(12.dp))
+        .background(Color(0xE6000000)).testTag("settingsSaveNotice"),
+        verticalAlignment = Alignment.CenterVertically) {
+        if (expanded) {
+            Text(message, Modifier.weight(1f).padding(start = 12.dp, top = 8.dp, bottom = 8.dp),
+                color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            androidx.compose.material3.TextButton(onClick = { onExpandedChange(false) },
+                modifier = Modifier.semantics { contentDescription = "Hide reconnect guidance" }) {
+                Text("Hide", color = Color.White)
+            }
+        } else {
+            androidx.compose.material3.TextButton(onClick = { onExpandedChange(true) }) {
+                Text("Changes pending", color = Color.White)
+            }
+        }
+    }
 }
 
 /** Confirmation only: the ViewModel owns routing, permissions and exact-generation retirement. */
@@ -160,6 +180,9 @@ fun ProjectionScreen(
         onCarPlaySafeEditor: () -> Unit) -> Unit = { _, _, _ -> },
     diagnosticsOverlay: @Composable (onBack: () -> Unit) -> Unit = {},
     carPlaySafeEditorOverlay: @Composable (onBack: () -> Unit) -> Unit = {},
+    announcementStore: com.openautolink.app.announcements.ReleaseAnnouncementStore? = null,
+    announcementVersionCode: Int = com.openautolink.app.BuildConfig.VERSION_CODE,
+    onAnnouncementOpenSettings: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val carPlayState by viewModel.carPlayState.collectAsStateWithLifecycle()
@@ -168,6 +191,7 @@ fun ProjectionScreen(
     val carPlayEnabled by viewModel.carPlayEnabled.collectAsStateWithLifecycle()
     val carPlayStartupGuidance by viewModel.carPlayStartupGuidance.collectAsStateWithLifecycle()
     val settingsSaveMessage by viewModel.settingsSaveMessage.collectAsStateWithLifecycle()
+    val settingsSaveNoticeExpanded by viewModel.settingsSaveNoticeExpanded.collectAsStateWithLifecycle()
     val carPlayPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
@@ -218,6 +242,21 @@ fun ProjectionScreen(
             transportMode, showSettings, showDiagnostics,
             carPlayEnabled = carPlayEnabled, usbState = usbState, devices = usbDevices,
         )
+
+    // The optional announcement uses the SAME settings overlay, retaining the live Surface and
+    // pending USB-save guidance. No protocol, preference, reconnect or focus action is dispatched.
+    val announcementCallState = if (announcementStore != null)
+        com.openautolink.app.session.SessionManager.instanceOrNull()?.callState?.collectAsStateWithLifecycle()?.value
+        else null
+    com.openautolink.app.announcements.ReleaseAnnouncementHost(
+        announcementStore, announcementVersionCode,
+        unobstructed = !showSettings && !showDiagnostics && !showCarPlaySafeEditor &&
+            (!showUsbPicker || usbState == com.openautolink.app.transport.usb.UsbConnectionState.CONNECTED) &&
+            usbHotPlugPrompt == null && usbSwitchFailure == null && carPlayState.failure == null &&
+            !uiState.voiceSessionActive &&
+            (announcementCallState == null || announcementCallState == com.openautolink.app.audio.CallState.IDLE),
+        onOpenSettings = { onAnnouncementOpenSettings(); showSettings = true },
+    )
 
     LaunchedEffect(showSettings) {
         viewModel.setSettingsOpen(showSettings)
@@ -295,7 +334,8 @@ fun ProjectionScreen(
                 onSettings = { showSettings = true },
             )
             if (!showSettings && !showDiagnostics && !showCarPlaySafeEditor) settingsSaveMessage?.let {
-                SettingsSaveNotice(it, Modifier.align(Alignment.TopCenter))
+                SettingsSaveNotice(it, settingsSaveNoticeExpanded, viewModel::expandSettingsSaveNotice,
+                    Modifier.align(Alignment.TopEnd))
             }
             if (CarPlayVideoWaitPolicy.shouldShow(
                     carPlayState, carPlayEnabled,
@@ -614,7 +654,8 @@ fun ProjectionScreen(
         }
 
         if (!showSettings && !showDiagnostics && !showCarPlaySafeEditor) settingsSaveMessage?.let {
-            SettingsSaveNotice(it, Modifier.align(Alignment.TopCenter))
+            SettingsSaveNotice(it, settingsSaveNoticeExpanded, viewModel::expandSettingsSaveNotice,
+                    Modifier.align(Alignment.TopEnd))
         }
         // Setup/retry is secondary recovery UI, not the normal startup mechanism.
         if (settingsSaveMessage == null && carPlayEnabled && carPlayStartupGuidance != null && !showSettings && !showDiagnostics) {
@@ -744,6 +785,7 @@ fun ProjectionScreen(
 
         ProjectionOverlayControls(
             uiState = uiState,
+            enableDriverVideoRestore = uiState.sessionState == SessionState.CONNECTED || uiState.sessionState == SessionState.STREAMING,
             onSettings = { showSettings = true },
             onStats = viewModel::toggleStats,
             onReconnect = onReconnect,

@@ -122,7 +122,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             OpenAutoLinkTheme {
-                AppNavHost()
+                AppNavHost(clusterPreviewFactory = { context, projectionIdle ->
+                    com.openautolink.app.cluster.ClusterCalibrationPreview.forProduction(context, projectionIdle)
+                }, announcementStore = prefs.releaseAnnouncements)
             }
         }
 

@@ -43,6 +43,8 @@ object AasdkNative {
     @JvmStatic
     external fun nativeStopSession()
 
+    @JvmStatic external fun nativeRetireSecondaryVideo(channelId: Int, expectedNativeGeneration: Long)
+
     /**
      * Send a ByeBye to the phone, then tear the session down.
      *

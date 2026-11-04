@@ -28,6 +28,9 @@ class LogUploadTokenVisibilityTest {
     private val viewModel = mockk<SettingsViewModel>(relaxed = true).also { vm ->
         every { vm.settingsState } returns state
         every { vm.carPlaySettingsSaving } returns MutableStateFlow(false)
+        every { vm.clusterSaving } returns MutableStateFlow(false)
+        every { vm.clusterLoaded } returns MutableStateFlow(true)
+        every { vm.clusterSelection } returns MutableStateFlow(com.openautolink.app.cluster.ClusterOutputSelection())
         every { vm.carPlaySettingsLoaded } returns MutableStateFlow(true)
         every { vm.carPlayApplyError } returns MutableStateFlow("")
         every { vm.carPlaySettings } returns MutableStateFlow(CarPlaySettings())
@@ -40,12 +43,12 @@ class LogUploadTokenVisibilityTest {
     }
 
     private fun openDiagnostics() {
-        compose.setContent { MaterialTheme { SettingsScreen(viewModel = viewModel) } }
+        compose.setContent { MaterialTheme { SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = viewModel) } }
         selectDiagnostics()
     }
 
     private fun selectDiagnostics() {
-        compose.onNodeWithText("Diagnostics").performClick()
+        compose.onNodeWithTag("settingsTab_DIAGNOSTICS").performScrollTo().performClick()
         tokenField().performScrollTo()
     }
 
@@ -69,7 +72,7 @@ class LogUploadTokenVisibilityTest {
 
     @Test fun screenReopenRemasksRetainedToken() {
         val open = mutableStateOf(true)
-        compose.setContent { MaterialTheme { if (open.value) SettingsScreen(viewModel = viewModel) } }
+        compose.setContent { MaterialTheme { if (open.value) SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = viewModel) } }
         selectDiagnostics()
         compose.onNodeWithContentDescription("Show upload token").performClick()
         assertVisible("synthetic-upload-value")
@@ -84,7 +87,7 @@ class LogUploadTokenVisibilityTest {
 
     @Test fun savedStateRestorationDoesNotRestoreDisclosure() {
         val restoration = StateRestorationTester(compose)
-        restoration.setContent { MaterialTheme { SettingsScreen(viewModel = viewModel) } }
+        restoration.setContent { MaterialTheme { SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = viewModel) } }
         selectDiagnostics()
         compose.onNodeWithContentDescription("Show upload token").performClick()
         assertVisible("synthetic-upload-value")

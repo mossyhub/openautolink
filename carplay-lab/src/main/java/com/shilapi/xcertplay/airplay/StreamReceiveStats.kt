@@ -79,7 +79,8 @@ internal class StreamReceiveStats(
         if (!ended && now - windowStart < 5_000_000_000L) return
         // Labels originate at fixed callers; never echo an unknown label.
         val qualification = when (label) {
-            "video" -> "kind=video type=110"
+            "video", "video type=110" -> "kind=video type=110"
+            "video type=111" -> "kind=video type=111"
             "audio type=100" -> "kind=audio type=100"
             "audio type=101" -> "kind=audio type=101"
             "audio type=102" -> "kind=audio type=102"

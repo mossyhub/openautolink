@@ -186,6 +186,7 @@ private fun SystemTab(info: SystemInfo) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        com.openautolink.app.diagnostics.gm.GmPageObserverPanel()
         SectionHeader("Device")
         DiagRow("Android", "${info.androidVersion} (API ${info.sdkLevel})")
         DiagRow("Manufacturer", info.manufacturer)

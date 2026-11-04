@@ -50,47 +50,51 @@ internal fun CarPlayCallSettings(bindings: AudioSettingsBindings?) {
     AudioSectionTitle("CarPlay calls")
     Text("Call handling", style = MaterialTheme.typography.titleMedium)
     val editable = bindings != null && state.preferencesLoaded && !state.busy
-    AudioChoice("CarPlay", state.handler == CarPlayCallHandler.CARPLAY,
-        "callHandler_CARPLAY", editable) { bindings?.onCallHandlerChange?.invoke(CarPlayCallHandler.CARPLAY) }
-    Text("Recommended", style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant)
-    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.error) {
-        AudioChoice("Car Bluetooth", state.handler == CarPlayCallHandler.CAR_BLUETOOTH,
-            "callHandler_CAR_BLUETOOTH", editable) { bindings?.onCallHandlerChange?.invoke(CarPlayCallHandler.CAR_BLUETOOTH) }
+    SettingsGroup {
+        AudioChoice("CarPlay", state.handler == CarPlayCallHandler.CARPLAY,
+            "callHandler_CARPLAY", editable) { bindings?.onCallHandlerChange?.invoke(CarPlayCallHandler.CARPLAY) }
+        Text("Recommended", style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    Text("Warning: Bluetooth can cause repeated media pauses. Recommended: CarPlay. Unpair the iPhone from the car and leave Bluetooth disconnected.",
-        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error,
-        modifier = Modifier.testTag("carPlayBluetoothWarning"))
+
+    SettingsGroup {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.error) {
+            AudioChoice("Car Bluetooth", state.handler == CarPlayCallHandler.CAR_BLUETOOTH,
+                "callHandler_CAR_BLUETOOTH", editable) { bindings?.onCallHandlerChange?.invoke(CarPlayCallHandler.CAR_BLUETOOTH) }
+        }
+        Text("Warning: Bluetooth can cause repeated media pauses. Recommended: CarPlay. Unpair the iPhone from the car and leave Bluetooth disconnected.",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.testTag("carPlayBluetoothWarning"))
+    }
+
     if (state.appliesToNextCall) Text("Applies to the next call", style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.testTag("callNextCall"))
     if (state.handler == CarPlayCallHandler.CARPLAY) {
-        Text("Keep the iPhone disconnected from car Bluetooth for CarPlay calls.",
-            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayBluetoothPrerequisite"))
-        Text("CarPlay calls still support the car microphone, steering-wheel controls and driver display/cluster. Complete call setup below.",
-            style = MaterialTheme.typography.bodyMedium)
-        when (state.setup) {
-            CarPlayCallSetup.READY -> AudioReadOnlyRow("Setup", "Ready")
-            CarPlayCallSetup.LOADING -> Text("Checking call setup…", modifier = Modifier.testTag("callSetupChecking"))
-            CarPlayCallSetup.SETUP_REQUIRED, CarPlayCallSetup.ENABLE_ACCOUNT -> {
-                if (state.setup == CarPlayCallSetup.ENABLE_ACCOUNT)
-                    Text("Turn on OpenAutoLink, then return.", style = MaterialTheme.typography.bodyMedium)
-                Button(onClick = { bindings?.onSetUpCalls?.invoke() }, enabled = editable,
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("callSetup")) {
-                    Text(if (state.setup == CarPlayCallSetup.ENABLE_ACCOUNT) "Continue to calling accounts" else "Set up calls")
+        SettingsGroup {
+            Text("Keep the iPhone disconnected from car Bluetooth for CarPlay calls.",
+                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayBluetoothPrerequisite"))
+            Text("CarPlay calls still support the car microphone, steering-wheel controls and driver display/cluster. Complete call setup below.",
+                style = MaterialTheme.typography.bodyMedium)
+            when (state.setup) {
+                CarPlayCallSetup.READY -> AudioReadOnlyRow("Setup", "Ready")
+                CarPlayCallSetup.LOADING -> Text("Checking call setup…", modifier = Modifier.testTag("callSetupChecking"))
+                CarPlayCallSetup.SETUP_REQUIRED, CarPlayCallSetup.ENABLE_ACCOUNT -> {
+                    if (state.setup == CarPlayCallSetup.ENABLE_ACCOUNT)
+                        Text("Turn on OpenAutoLink, then return.", style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = { bindings?.onSetUpCalls?.invoke() }, enabled = editable,
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("callSetup")) {
+                        Text(if (state.setup == CarPlayCallSetup.ENABLE_ACCOUNT) "Continue to calling accounts" else "Set up calls")
+                    }
                 }
+                CarPlayCallSetup.UNAVAILABLE -> Text("Call setup unavailable", modifier = Modifier.testTag("callSetupUnavailable"))
             }
-            CarPlayCallSetup.UNAVAILABLE -> Text("Call setup unavailable", modifier = Modifier.testTag("callSetupUnavailable"))
         }
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Extra car ringtone", style = MaterialTheme.typography.bodyLarge)
-                Text("Adds a vehicle ringtone alongside CarPlay.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("extraCarRingtoneHelper"))
-            }
-            Switch(state.extraCarRingtone, onCheckedChange = { bindings?.onExtraCarRingtoneChange?.invoke(it) },
-                enabled = editable, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag("extraCarRingtone"))
+
+        SettingsToggleRow("Extra car ringtone", state.extraCarRingtone,
+            { bindings?.onExtraCarRingtoneChange?.invoke(it) }, editable, Modifier.testTag("extraCarRingtone")) {
+            Text("Extra car ringtone", style = MaterialTheme.typography.bodyLarge)
+            Text("Adds a vehicle ringtone alongside CarPlay.", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("extraCarRingtoneHelper"))
         }
     } else {
         Text("Pair the iPhone with the car and enable Phone calls.", style = MaterialTheme.typography.bodyMedium)

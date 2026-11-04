@@ -13,7 +13,8 @@ class LauncherEntryContractTest {
         val activity = source("MainActivity.kt")
         assertFalse("Activity must not own launcher-triggered modal state", activity.contains("launcherRecovery"))
         assertFalse("Activity must not restore a retired launcher modal", activity.contains("LauncherRecovery"))
-        assertTrue("Normal launch still mounts navigation", activity.contains("AppNavHost()"))
+        assertTrue("Normal launch still mounts navigation with the real preview factory",
+            activity.contains("AppNavHost(clusterPreviewFactory ="))
     }
 
     @Test fun `launcher reentry retains intent delivery without opening controls`() {

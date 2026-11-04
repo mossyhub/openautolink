@@ -13,7 +13,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # --------------------------------------------------------------------------
 
 # aasdk source headers (submodule — needed for #include <aasdk/...>)
-set(AASDK_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/opencardev-aasdk")
+set(AASDK_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/opencardev-aasdk"
+    CACHE PATH "Pinned aasdk source headers (can be an externally verified checkout)")
 get_filename_component(AASDK_SOURCE_DIR "${AASDK_SOURCE_DIR}" ABSOLUTE)
 
 set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
@@ -96,6 +97,7 @@ add_library(openautolink-jni SHARED
     aasdk_jni.cpp
     jni_transport.cpp
     jni_session.cpp
+    cluster_video_handler.cpp
     jni_channel_handlers.cpp
     jni_service_catalog.cpp
     native_crash_handler.c

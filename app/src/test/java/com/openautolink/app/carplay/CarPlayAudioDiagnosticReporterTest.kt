@@ -13,6 +13,22 @@ class CarPlayAudioDiagnosticReporterTest {
         return { message -> type.getMethod("record", String::class.java).invoke(instance, message); Unit }
     }
 
+    @Test fun alternateVideoStagesSurviveFiniteSanitizerWithoutPrivateSuffixes() {
+        val record = reporter(12, { 0L }, {} )
+        for (type in listOf(110,111)) {
+            for (stage in listOf("tcp-attached","config-delivered","authenticated-frame-delivered")) {
+                val line = "media stage=$stage kind=video type=$type"
+                assertEquals("CARPLAY_AUDIO session=12 $line",CarPlayAudioDiagnostics.sanitize(12,line))
+                assertNull(CarPlayAudioDiagnostics.sanitize(12,line+" privateKey=secret"))
+                assertNull(CarPlayAudioDiagnostics.sanitize(12,line.replace("type=$type","type=112")))
+                record(line)
+            }
+            val stats = "media stage=receive kind=video type=$type packets=2 bytes=300 missing=0 gaps=0 late=0 maxGap=0 readMs=1 arrivalMs=1 processMs=1 longReads=0 ended=true"
+            assertNotNull(CarPlayAudioDiagnostics.sanitize(12,stats))
+        }
+        val engine = File("../carplay-lab/src/main/java/com/shilapi/xcertplay/airplay/CarPlayMediaEngine.kt").readText()
+        assertTrue("Production engine must forward exact negotiated identity",engine.contains("streamType = type"))
+    }
     @Test fun boundedRateReportsSuppressionWhenNextWindowOpens() {
         var now = 0L
         val captured = mutableListOf<String>()

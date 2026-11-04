@@ -133,6 +133,7 @@ fun CarPlayProjectionLayer(
         }
 
         ProjectionOverlayControls(
+            enableDriverVideoRestore = true,
             uiState = controls,
             onSettings = onSettings,
             onStats = viewModel::toggleStats,

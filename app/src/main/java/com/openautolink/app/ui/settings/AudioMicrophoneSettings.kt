@@ -15,24 +15,30 @@ internal fun AudioMicrophoneSettings(source: String, onSourceChange: (String) ->
     bindings: AudioSettingsBindings? = null) {
     AudioSectionTitle("Microphone")
     AudioSectionTitle("Android Auto")
-    Text("Assistant microphone", style = MaterialTheme.typography.titleMedium)
-    AudioChoice("Car", source == "car", "micSource_car") { onSourceChange("car") }
-    AudioChoice("Phone", source == "phone", "micSource_phone") { onSourceChange("phone") }
+    SettingsGroup {
+        Text("Assistant microphone", style = MaterialTheme.typography.titleMedium)
+        AudioChoice("Car", source == "car", "micSource_car") { onSourceChange("car") }
+        AudioChoice("Phone", source == "phone", "micSource_phone") { onSourceChange("phone") }
+    }
+
     AudioReadOnlyRow("Calls", "Car Bluetooth")
     AudioSectionTitle("CarPlay")
-    AudioReadOnlyRow("Calls and Siri", "Car microphone")
-    if (!bindings?.microphoneMessage.isNullOrBlank()) Text(bindings!!.microphoneMessage,
-        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayMicrophoneStatus"))
-    bindings?.microphoneAction?.let { label ->
-        OutlinedButton(onClick = bindings.onMicrophoneAction,
-            modifier = Modifier.heightIn(min = 48.dp).testTag("carPlayMicrophoneAction")) { Text(label) }
+    SettingsGroup {
+        AudioReadOnlyRow("Calls and Siri", "Car microphone")
+        if (!bindings?.microphoneMessage.isNullOrBlank()) Text(bindings!!.microphoneMessage,
+            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayMicrophoneStatus"))
+        bindings?.microphoneAction?.let { label ->
+            OutlinedButton(onClick = bindings.onMicrophoneAction,
+                modifier = Modifier.heightIn(min = 48.dp).testTag("carPlayMicrophoneAction")) { Text(label) }
+        }
     }
+
 }
 
 @Composable
 internal fun AudioSectionTitle(title: String) {
     Text(title, style = MaterialTheme.typography.titleLarge,
-        modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 8.dp))
+        modifier = Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 8.dp))
 }
 
 @Composable
@@ -49,7 +55,7 @@ internal fun AudioChoice(label: String, selected: Boolean, tag: String, enabled:
 @Composable
 internal fun AudioReadOnlyRow(label: String, value: String) {
     // Stack at every width: long translated/large-font values never collide with their label.
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.bodyLarge)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

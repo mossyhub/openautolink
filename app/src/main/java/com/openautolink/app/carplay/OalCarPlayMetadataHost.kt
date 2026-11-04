@@ -25,11 +25,12 @@ internal interface CarPlayMetadataHost : AutoCloseable {
 internal class OalCarPlayMetadataHost(private val context: Context,
     private val receipt: (String) -> Unit = {},
     private val attemptContext: CarPlayAttemptContext? = null,
+    private val clusterSelection: com.openautolink.app.cluster.ClusterOutputSelection? = null,
     private val mediaCommand: (Int) -> Boolean = { false }) : CarPlayMetadataHost {
     // Retain the existing JVM constructor and trailing-lambda command call sites.
-    constructor(context: Context, mediaCommand: (Int) -> Boolean) : this(context, {}, null, mediaCommand)
+    constructor(context: Context, mediaCommand: (Int) -> Boolean) : this(context, {}, null, null, mediaCommand)
     constructor(context: Context, receipt: (String) -> Unit, mediaCommand: (Int) -> Boolean) :
-        this(context, receipt, null, mediaCommand)
+        this(context, receipt, null, null, mediaCommand)
     private val owner = Any()
     @Volatile private var controlsReady=false
     override fun mediaOutput(blocked:Boolean,current:()->Boolean) {
@@ -47,7 +48,11 @@ internal class OalCarPlayMetadataHost(private val context: Context,
     private var previousRoute: CarPlayRouteMetadata? = null
     override fun start(): Boolean {
         val preferences = AppPreferences.getInstance(context)
-        val enabled = runBlocking { preferences.clusterNavigation.first() }
+        // Production passes one frozen selection. Never reactively create a competing map manager.
+        val enabled = !OalCarPlayClusterOutput.hasOutstandingMapOutput() && (clusterSelection?.let {
+            com.openautolink.app.cluster.ClusterOutputPolicy.shouldPublishNativeIcons(it,
+                    com.openautolink.app.cluster.ClusterProjectionProtocol.CARPLAY, hasSourcedManeuver = true)
+        } ?: runBlocking { preferences.clusterNavigation.first() })
         val units = runBlocking { preferences.distanceUnits.first() }
         val manager = OalMediaSessionManager.getInstance(context)
         if (attemptContext != null && !manager.acceptsCarPlayHost(attemptContext.hostMedia)) return false

@@ -192,6 +192,9 @@ class MediaCodecDecoder(
     // The bridge-side fix (no stale IDR replay) ensures the first IDR the app
     // receives is always fresh from the phone, so a single-IDR gate suffices.
     @Volatile private var renderingEnabled = false
+    /** Successful primary output release to the Surface, never input/secondary traffic. */
+    @Volatile var lastPrimaryPresentationAtMs = 0L
+        private set
     // After replaying a cached IDR on surface re-attach, P-frames will
     // reference content we never decoded (we missed everything between
     // the cached IDR and now). Feed them to the decoder → blocky artifacts.
@@ -1087,6 +1090,7 @@ class MediaCodecDecoder(
                             } else {
                                 // Render to surface — this is live UI state, render immediately
                                 mc.releaseOutputBuffer(outputIndex, true)
+                                lastPrimaryPresentationAtMs = android.os.SystemClock.elapsedRealtime()
                             }
                             val decoded = framesDecoded.incrementAndGet()
                             if (!firstFrameRendered && renderingEnabled) {

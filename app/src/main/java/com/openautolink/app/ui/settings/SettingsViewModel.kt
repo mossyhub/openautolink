@@ -4,6 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openautolink.app.data.AppPreferences
+import com.openautolink.app.data.ClusterOutputPreferences
+import com.openautolink.app.cluster.ClusterDisplayMode
+import com.openautolink.app.cluster.ClusterOutputSelection
+import com.openautolink.app.secondary.withDefaultAaRole
 import com.openautolink.app.data.CarPlaySettings
 import com.openautolink.app.data.CarPlayPairedPhone
 
@@ -16,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -97,6 +102,86 @@ data class SettingsUiState(
     val manualIpAddress: String = AppPreferences.DEFAULT_MANUAL_IP_ADDRESS,
 )
 
+/** Next-session intent only. No preference write, host launch or reconnect during editing. */
+internal class ClusterSettingsDraft {
+    private val edits = mutableListOf<(ClusterOutputSelection) -> ClusterOutputSelection>()
+    private var lastDisplay: ClusterDisplayMode? = ClusterDisplayMode.NATIVE_ICONS
+    private var retainedOverride: ClusterDisplayMode? = null
+    @Synchronized fun observe(saved: ClusterOutputPreferences) {
+        if (edits.isEmpty()) lastDisplay = saved.lastEnabledClusterMode
+    }
+    @Synchronized fun observe(saved: ClusterOutputSelection) {
+        if (edits.isEmpty() && saved.mode != ClusterDisplayMode.OFF) lastDisplay = saved.mode
+    }
+    @Synchronized fun update(edit: (ClusterOutputSelection) -> ClusterOutputSelection) { edits += edit }
+    @Synchronized fun preview(saved: ClusterOutputSelection): ClusterOutputSelection = edits.fold(saved) { value, edit -> edit(value) }
+    @Synchronized fun chooseDisplay(mode: ClusterDisplayMode) {
+        require(mode != ClusterDisplayMode.OFF)
+        lastDisplay = mode
+        retainedOverride = mode
+        update { it.copy(mode = mode) }
+    }
+    @Synchronized fun setEnabled(enabled: Boolean) {
+        val next = if (enabled) lastDisplay ?: ClusterDisplayMode.OFF else ClusterDisplayMode.OFF
+        update { it.copy(mode = next) }
+    }
+    /** Merge edited fields and a staged previous mode against one current DataStore record. */
+    suspend fun commitPreferences(persist: suspend ((ClusterOutputPreferences) -> ClusterOutputPreferences) -> Unit): Boolean {
+        val (pending, retained) = synchronized(this) { edits.toList() to retainedOverride }
+        if (pending.isEmpty()) return true
+        return try {
+            persist { latest -> latest.copy(
+                selection = pending.fold(latest.selection) { value, edit -> edit(value) },
+                lastEnabledClusterMode = retained ?: latest.lastEnabledClusterMode,
+            ) }
+            synchronized(this) {
+                edits.subList(0, pending.size).clear()
+                if (edits.isEmpty()) retainedOverride = null
+            }
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { false }
+    }
+
+    suspend fun commit(persist: suspend ((ClusterOutputSelection) -> ClusterOutputSelection) -> Unit): Boolean {
+        val pending = synchronized(this) { edits.toList() }
+        if (pending.isEmpty()) return true
+        return try {
+            persist { latest -> pending.fold(latest) { value, edit -> edit(value) } }
+            synchronized(this) { edits.subList(0, pending.size).clear() }
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { false }
+    }
+}
+
+/** Optimistic next-session draft. A concurrent record change is not silently rebased. */
+internal class SecondaryDisplaysDraft {
+    private var expectedRevision: Long? = null
+    private val edits = linkedMapOf<com.openautolink.app.secondary.SecondaryOutputId, com.openautolink.app.secondary.SecondaryOutputPreference>()
+
+    @Synchronized fun update(saved: com.openautolink.app.secondary.SecondaryPreferencesSnapshot,
+        id: com.openautolink.app.secondary.SecondaryOutputId,
+        edit: (com.openautolink.app.secondary.SecondaryOutputPreference) -> com.openautolink.app.secondary.SecondaryOutputPreference) {
+        if (expectedRevision == null) expectedRevision = saved.revision
+        edits[id] = edit((edits[id] ?: saved.outputs[id] ?: com.openautolink.app.secondary.SecondaryOutputPreference())
+            .withDefaultAaRole(android.os.Build.PRODUCT))
+    }
+    @Synchronized fun preview(saved: com.openautolink.app.secondary.SecondaryPreferencesSnapshot) =
+        saved.copy(outputs = saved.outputs + edits)
+
+    suspend fun commit(persist: suspend (Long, Map<com.openautolink.app.secondary.SecondaryOutputId,
+        com.openautolink.app.secondary.SecondaryOutputPreference>) -> Unit): Boolean {
+        val pending = synchronized(this) { expectedRevision?.let { it to edits.toMap() } } ?: return true
+        return try {
+            persist(pending.first, pending.second)
+            synchronized(this) { edits.clear(); expectedRevision = null }
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { false }
+    }
+}
+
 /** Memory-only edits shared by every CarPlay tab; transformations copy only edited fields. */
 internal class CarPlaySettingsDraft {
     private val edits = mutableListOf<(CarPlaySettings) -> CarPlaySettings>()
@@ -174,6 +259,156 @@ class SettingsViewModel @JvmOverloads constructor(
     private val preferences = AppPreferences.getInstance(application)
     private val wppConfigServer = WppConfigBtServer(application, viewModelScope)
 
+    private val _carPlayApplyError = MutableStateFlow("")
+    val carPlayApplyError: StateFlow<String> = _carPlayApplyError
+    private val clusterDraft = ClusterSettingsDraft()
+    private val secondaryDraft = SecondaryDisplaysDraft()
+    private val secondaryRevision = MutableStateFlow(0)
+    private var latestSecondarySaved: com.openautolink.app.secondary.SecondaryPreferencesSnapshot? = null
+    val secondaryPreferences: StateFlow<com.openautolink.app.secondary.SecondaryPreferencesSnapshot?> = combine(
+        preferences.secondaryDisplayPreferences.onEach { latestSecondarySaved = it }.catch {
+            _carPlayApplyError.value = "Secondary display preferences could not be read. Optional edits are unavailable."
+        }, secondaryRevision,
+    ) { saved, _ -> secondaryDraft.preview(saved) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun updateSecondaryOutput(id: com.openautolink.app.secondary.SecondaryOutputId,
+        edit: (com.openautolink.app.secondary.SecondaryOutputPreference) -> com.openautolink.app.secondary.SecondaryOutputPreference) {
+        if (settingsEditsBlocked) return
+        val saved = latestSecondarySaved ?: return
+        if (saved.error != null) return
+        secondaryDraft.update(saved, id, edit)
+        secondaryRevision.value++
+        _carPlayApplyError.value = ""
+    }
+
+    private var secondaryPresentationObserved = false
+    private var secondaryPresentationTarget: com.openautolink.app.secondary.SecondaryDisplayDescriptor? = null
+
+    /** Observe UI identity only. Discovery/composition must never mutate saved or staged intent. */
+    fun observeSecondaryPresentationTarget(target: com.openautolink.app.secondary.SecondaryDisplayDescriptor?) {
+        secondaryPresentationObserved = true
+        secondaryPresentationTarget = target
+    }
+
+    /** Clear stale locator/epoch observations even when another settings tab is open. */
+    fun observeSecondaryPresentationInventory(inventory: com.openautolink.app.secondary.SecondaryInventorySnapshot?) {
+        val target = secondaryPresentationTarget ?: return
+        if (inventory?.displays?.singleOrNull { it.id == target.id } != target) secondaryPresentationTarget = null
+    }
+
+    /** Shared Save is the explicit migration boundary for the binary presentation UI. */
+    private fun stageSecondaryPresentationForSave(): Boolean {
+        if (!secondaryPresentationObserved) return true
+        val saved = latestSecondarySaved ?: return false
+        if (saved.error != null) return false
+        val selection = clusterDraft.preview(saved.legacyCluster.selection)
+        val video = selection.mode == ClusterDisplayMode.MAP_VIDEO
+        val target = secondaryPresentationTarget
+        if (video && target == null) {
+            _carPlayApplyError.value = "Choose a connected display before saving video."
+            return false
+        }
+        val mode = if (video) ClusterDisplayMode.MAP_VIDEO else ClusterDisplayMode.NATIVE_ICONS
+        clusterDraft.chooseDisplay(mode)
+        val current = secondaryDraft.preview(saved)
+        val ids = current.outputs.keys + listOfNotNull(target?.id)
+        ids.forEach { id -> secondaryDraft.update(saved, id) { it.copy(enabled = video && id == target?.id) } }
+        secondaryRevision.value++
+        clusterRevision.value++
+        return true
+    }
+
+    private val clusterRevision = MutableStateFlow(0)
+    private val _clusterLoaded = MutableStateFlow(false)
+    val clusterLoaded: StateFlow<Boolean> = _clusterLoaded
+    private val _clusterSaving = MutableStateFlow(false)
+    val clusterSaving: StateFlow<Boolean> = _clusterSaving
+    val clusterSelection: StateFlow<ClusterOutputSelection> = combine(
+        preferences.secondaryDisplayPreferences.onEach { clusterDraft.observe(it.legacyCluster); _clusterLoaded.value = true }
+            .catch { _carPlayApplyError.value = "Secondary display preferences could not be read." },
+        clusterRevision,
+    ) { saved, _ -> clusterDraft.preview(saved.legacyCluster.selection) }.stateIn(viewModelScope, SharingStarted.Eagerly, ClusterOutputSelection())
+
+    fun updateClusterSelection(edit: (ClusterOutputSelection) -> ClusterOutputSelection) {
+        if (!_clusterLoaded.value || settingsEditsBlocked) return
+        clusterDraft.update(edit)
+        clusterRevision.value++
+        _carPlayApplyError.value = ""
+    }
+    fun chooseClusterDisplay(mode: ClusterDisplayMode) {
+        if (!_clusterLoaded.value || settingsEditsBlocked) return
+        clusterDraft.chooseDisplay(mode)
+        clusterRevision.value++
+    }
+    fun setClusterEnabled(enabled: Boolean) {
+        if (!_clusterLoaded.value || settingsEditsBlocked) return
+        clusterDraft.setEnabled(enabled)
+        clusterRevision.value++
+    }
+
+    /** Shared Save boundary. Layout persistence is required from the production adapter.
+     * Each store acknowledges separately; on any failure no restart/close is authorized.
+     */
+    suspend fun commitSettings(commitLayoutDraft: (suspend () -> Boolean)?): Boolean = kotlinx.coroutines.withContext(
+        kotlinx.coroutines.currentCoroutineContext()[SettingsSaveTransaction] ?: SettingsSaveTransaction.next()
+    ) {
+        val receipt = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[SettingsSaveTransaction])
+        receipt.event("begin", "pending", "revision=${clusterRevision.value} adapter=${commitLayoutDraft != null}")
+        if (settingsEditsBlocked || !_clusterLoaded.value) {
+            _carPlayApplyError.value = if (!_clusterLoaded.value)
+                "Settings are still loading. Draft retained; retry Save when ready."
+            else "Another settings operation is still running. Draft retained; retry Save when it finishes."
+            receipt.event("blocked", "failed", "loaded=${_clusterLoaded.value} busy=$settingsEditsBlocked")
+            return@withContext false
+        }
+        if (!stageSecondaryPresentationForSave()) return@withContext false
+        _clusterSaving.value = true
+        var stage = "carplay"
+        try {
+            val carPlaySaved = persistCarPlaySettings()
+            receipt.event(stage, if (carPlaySaved) "success" else "failed")
+            if (!carPlaySaved) return@withContext false
+            stage = "secondary"
+            val secondarySaved = secondaryDraft.commit { revision, edits ->
+                preferences.updateSecondaryDisplayPreferences(revision, edits)
+            }
+            receipt.event(stage, if (secondarySaved) "success" else "failed")
+            if (!secondarySaved) {
+                _carPlayApplyError.value = "Secondary display settings could not be saved or changed elsewhere. Draft retained; no reconnect."
+                return@withContext false
+            }
+            secondaryRevision.value++
+            stage = "cluster"
+            val saved = clusterDraft.commitPreferences { merge -> preferences.updateClusterOutputState(merge) }
+            receipt.event(stage, if (saved) "success" else "failed")
+            if (!saved) {
+                _carPlayApplyError.value = "Cluster settings could not be saved. Try again."
+                return@withContext false
+            }
+            clusterRevision.value++
+            stage = "layout"
+            if (commitLayoutDraft == null) {
+                receipt.event(stage, "unavailable", "acceptedEdits=false")
+                return@withContext true
+            }
+            val layoutSaved = try { commitLayoutDraft() }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { false }
+            receipt.event(stage, if (layoutSaved) "success" else "failed")
+            if (!layoutSaved) _carPlayApplyError.value = "Cluster layout could not be saved. Try again."
+            layoutSaved
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            _carPlayApplyError.value = "Save was interrupted. Draft retained; retry Save."
+            receipt.event(stage, "cancelled")
+            throw cancelled
+        } catch (_: Exception) {
+            _carPlayApplyError.value = "Settings could not be saved. Draft retained; try again."
+            receipt.event(stage, "failed", "unexpected=true")
+            false
+        } finally { _clusterSaving.value = false }
+    }
+
     // Shared, memory-only next-session draft. Reading it never starts either protocol.
     private val carPlayDraft = CarPlaySettingsDraft()
     private val carPlayDraftRevision = MutableStateFlow(0)
@@ -195,9 +430,11 @@ class SettingsViewModel @JvmOverloads constructor(
     private val _carPlaySettingsStatus = MutableStateFlow("")
     val carPlaySettingsStatus: StateFlow<String> = _carPlaySettingsStatus
     private val _carPlaySettingsSaving = MutableStateFlow(false)
-    val carPlaySettingsSaving: StateFlow<Boolean> = _carPlaySettingsSaving
-    private val _carPlayApplyError = MutableStateFlow("")
-    val carPlayApplyError: StateFlow<String> = _carPlayApplyError
+    /** Transaction-wide edit/busy boundary, including the final runtime layout acknowledgement. */
+    val carPlaySettingsSaving: StateFlow<Boolean> = combine(_carPlaySettingsSaving, _clusterSaving) { cp, cluster ->
+        cp || cluster
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    private val settingsEditsBlocked: Boolean get() = _carPlaySettingsSaving.value || _clusterSaving.value
 
     private val _carPlayCredentialImportStatus = MutableStateFlow("")
     val carPlayCredentialImportStatus: StateFlow<String> = _carPlayCredentialImportStatus
@@ -206,7 +443,7 @@ class SettingsViewModel @JvmOverloads constructor(
 
     /** Explicit import, independent of the shared preference Apply/Restart transaction. */
     fun importCarPlayCredentials(privateKey: android.net.Uri, certificate: android.net.Uri) {
-        if (_carPlayCredentialImportBusy.value || _carPlaySettingsSaving.value) return
+        if (_carPlayCredentialImportBusy.value || settingsEditsBlocked) return
         _carPlayCredentialImportBusy.value = true
         _carPlayCredentialImportStatus.value = "Validating selected pair…"
         viewModelScope.launch(Dispatchers.IO) {
@@ -235,7 +472,7 @@ class SettingsViewModel @JvmOverloads constructor(
     }
 
     fun updateCarPlayDraft(edit: (CarPlaySettings) -> CarPlaySettings) {
-        if (_carPlaySettingsSaving.value || !_carPlaySettingsLoaded.value) return
+        if (settingsEditsBlocked || !_carPlaySettingsLoaded.value) return
         carPlayDraft.update(edit)
         carPlayDraftRevision.value++
         _carPlayApplyError.value = ""
@@ -244,7 +481,7 @@ class SettingsViewModel @JvmOverloads constructor(
     /** Secret remains only in this ViewModel's private memory, not a StateFlow or Bundle. */
     fun pendingCarPlayPassword(): String? = carPlayDraft.pendingPassword()
     fun updateCarPlayPassword(password: String?) {
-        if (_carPlaySettingsSaving.value) return
+        if (settingsEditsBlocked) return
         carPlayDraft.setPassword(password)
         _carPlayApplyError.value = ""
     }
@@ -277,7 +514,11 @@ class SettingsViewModel @JvmOverloads constructor(
 
     /** Global Apply awaits persistence. Validation/save failure keeps the draft and overlay open. */
     suspend fun commitCarPlaySettings(): Boolean {
-        if (_carPlaySettingsSaving.value) return false
+        if (settingsEditsBlocked) return false
+        return persistCarPlaySettings()
+    }
+
+    private suspend fun persistCarPlaySettings(): Boolean {
         _carPlaySettingsSaving.value = true
         _carPlayApplyError.value = ""
         return try {
@@ -736,9 +977,7 @@ class SettingsViewModel @JvmOverloads constructor(
         viewModelScope.launch { preferences.setAlwaysInPark(enabled) }
     }
 
-    fun updateClusterNavigation(enabled: Boolean) {
-        viewModelScope.launch { preferences.setClusterNavigation(enabled) }
-    }
+    fun updateClusterNavigation(enabled: Boolean) = setClusterEnabled(enabled)
 
     fun updateOverlayStatsButton(visible: Boolean) {
         viewModelScope.launch { preferences.setOverlayStatsButton(visible) }

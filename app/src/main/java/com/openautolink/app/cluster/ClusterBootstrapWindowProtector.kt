@@ -18,6 +18,7 @@ internal object ClusterBootstrapWindowProtector : Application.ActivityLifecycleC
     private val taskState = ClusterBootstrapTaskState<Activity>()
 
     fun install(application: Application) {
+        NativeBootstrapDiagnostics.install(application)
         application.registerActivityLifecycleCallbacks(this)
     }
 
@@ -28,6 +29,19 @@ internal object ClusterBootstrapWindowProtector : Application.ActivityLifecycleC
             CLUSTER_BINDING_GENERATION_EXTRA,
             Long.MIN_VALUE,
         )
+        val map = ClusterBindingState.frozenMapBinding()
+        if (map?.generation == generation && map.coordinator.isLive()) {
+            ClusterPhysicalHostState.record(generation, activity)
+            activity.setTheme(android.R.style.Theme_Material_NoActionBar)
+            val window = activity.window
+            window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+            window.setFormat(android.graphics.PixelFormat.OPAQUE)
+            window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+            window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            window.attributes = window.attributes.apply { alpha = 1f }
+            DiagnosticLog.i("cluster", "Map host window opaque no-touch generation=$generation display=${activity.display?.displayId}")
+            return // Never register a map owner for icon moveTaskToBack.
+        }
         taskState.protect(generation, activity)
 
         val window = activity.window
@@ -46,6 +60,7 @@ internal object ClusterBootstrapWindowProtector : Application.ActivityLifecycleC
     }
 
     fun moveTaskToBack(generation: Long) {
+        if (ClusterBindingState.frozenMapBinding()?.generation == generation) return
         val target = taskState.requestBackground(generation)
         if (target == null) {
             DiagnosticLog.w(
@@ -79,18 +94,50 @@ internal object ClusterBootstrapWindowProtector : Application.ActivityLifecycleC
         }
     }
 
-    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-    override fun onActivityStarted(activity: Activity) = Unit
+    private fun traceMapActivity(activity: Activity, event: String) {
+        if (activity.javaClass.name == CAR_APP_ACTIVITY) {
+            val nativeGeneration = activity.intent?.getLongExtra(CLUSTER_BINDING_GENERATION_EXTRA, Long.MIN_VALUE)
+            if (nativeGeneration != null && nativeGeneration != Long.MIN_VALUE &&
+                ClusterBindingState.frozenMapBinding()?.generation != nativeGeneration) {
+                // Freeze callback-time flags/identity here; worker never retains an Activity.
+                try {
+                    NativeBootstrapDiagnostics.offer(BootstrapDiagnostics.Snapshot(
+                        nativeGeneration, System.identityHashCode(activity), activity.taskId,
+                        activity.display?.displayId ?: -1, event, activity.isFinishing,
+                        activity.isChangingConfigurations, android.os.SystemClock.elapsedRealtime(),
+                    ))
+                } catch (_: Exception) { NativeBootstrapDiagnostics.rejectCapture() }
+            }
+        }
+        val generation = activity.intent?.getLongExtra(CLUSTER_BINDING_GENERATION_EXTRA, Long.MIN_VALUE) ?: return
+        val receipt = ClusterPhysicalHostState.current(generation)
+        val current = receipt?.activity?.get() === activity
+        if (!current && (activity.javaClass.name != CAR_APP_ACTIVITY ||
+            ClusterBindingState.frozenMapBinding()?.generation != generation)) return
+        runCatching {
+            val decor = activity.window?.decorView
+            DiagnosticLog.i("cluster", "OPTIONAL_ACTIVITY_V1 event=$event generation=$generation " +
+                "elapsedMs=${android.os.SystemClock.elapsedRealtime()} activity=${System.identityHashCode(activity)} " +
+                "physical=${activity.display?.displayId} current=$current finishing=${activity.isFinishing} " +
+                "destroyed=${activity.isDestroyed} decorAttached=${decor?.isAttachedToWindow} " +
+                "windowVisibility=${decor?.windowVisibility} shown=${decor?.isShown} focus=${decor?.hasWindowFocus()} oemVisibility=unknown")
+        }
+    }
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = traceMapActivity(activity, "create")
+    override fun onActivityStarted(activity: Activity) = traceMapActivity(activity, "start")
 
     override fun onActivityResumed(activity: Activity) {
+        traceMapActivity(activity, "resume")
         taskState.pendingTargetFor(activity)?.let { postMoveTaskToBack(it) }
     }
 
-    override fun onActivityPaused(activity: Activity) = Unit
-    override fun onActivityStopped(activity: Activity) = Unit
+    override fun onActivityPaused(activity: Activity) = traceMapActivity(activity, "pause")
+    override fun onActivityStopped(activity: Activity) = traceMapActivity(activity, "stop")
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
 
     override fun onActivityDestroyed(activity: Activity) {
+        traceMapActivity(activity, "destroy")
+        ClusterPhysicalHostState.destroy(activity)
         taskState.destroy(activity)
     }
 }

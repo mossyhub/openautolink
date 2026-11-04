@@ -8,6 +8,7 @@
 #pragma once
 
 #include "gal_version_policy.h"
+#include "cluster_video_handler.h"
 #include "ev_model_diagnostics.h"
 
 #include <memory>
@@ -22,6 +23,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <unordered_map>
 
 #include <jni.h>
 #include <boost/asio.hpp>
@@ -152,6 +154,8 @@ public:
 
     /** Request a video keyframe (IDR). */
     void requestKeyframe();
+    void setNativeGeneration(int64_t generation) { nativeGeneration_=generation; }
+    void retireSecondaryVideo(int channelId, int64_t expectedGeneration, std::function<bool()> currentRegistry);
 
     // Typed vehicle sensor methods — each builds a SensorBatch and sends
     void sendSpeedSensor(int speedMmPerS);
@@ -289,6 +293,13 @@ private:
     // Channels
     std::shared_ptr<aasdk::channel::control::ControlServiceChannel> controlChannel_;
     std::shared_ptr<aasdk::channel::mediasink::video::VideoMediaSinkService> videoChannel_;
+    struct OptionalVideoState {
+        std::shared_ptr<aasdk::channel::mediasink::video::VideoMediaSinkService> channel;
+        std::shared_ptr<ClusterVideoHandler> handler;
+        std::shared_ptr<SecondaryInputAssociation> input;
+    };
+    std::unordered_map<int, OptionalVideoState> optionalVideos_;
+    std::atomic<int64_t> nativeGeneration_{0};
     std::shared_ptr<aasdk::channel::mediasink::audio::AudioMediaSinkService> mediaAudioChannel_;
     std::shared_ptr<aasdk::channel::mediasink::audio::AudioMediaSinkService> guidanceAudioChannel_;
     std::shared_ptr<aasdk::channel::mediasink::audio::AudioMediaSinkService> systemAudioChannel_;
@@ -368,6 +379,7 @@ private:
     std::vector<std::pair<int, int>> advertisedVideoGeometry_;
     std::atomic<int64_t> selectedVideoEpoch_{0};
     std::atomic<int64_t> pingSentAtMs_{0};
+    int64_t pingTimestampUs_ = 0; // IO-thread owned, echoed by the peer
 
     // Channel-error coalescing + escalation tracking (guarded by errorMu_)
     std::mutex errorMu_;
@@ -438,6 +450,8 @@ private:
 
     // SDR config (from Kotlin)
     struct SdrConfig {
+        std::optional<ClusterVideoOffer> clusterOffer;
+        std::vector<ClusterVideoOffer> secondaryOffers;
         int videoWidth = 1920;
         int videoHeight = 1080;
         int videoFps = 60;
@@ -489,6 +503,11 @@ private:
 
     // Cached JNI method IDs for the callback object
     struct CallbackMethods {
+        jmethodID onSecondaryVideoState = nullptr;
+        jmethodID onSecondaryVideoFrame = nullptr;
+        jmethodID onClusterVideoState = nullptr;
+        jmethodID onClusterVideoFrame = nullptr;
+        jmethodID onProtocolPong = nullptr;
         jmethodID onSessionStarted = nullptr;
         jmethodID onSessionStopped = nullptr;
         jmethodID onVideoFrame = nullptr;

@@ -9,7 +9,15 @@ package com.openautolink.app.transport.aasdk
  * All methods are called from the native io_service thread.
  * Implementations must be lightweight — post to coroutines for heavy work.
  */
+@androidx.annotation.Keep
 interface AasdkSessionCallback {
+    fun onSecondaryVideoState(channelId: Int, streamEpoch: Long, codecType: Int,
+        configurationIndex: Int, mediaSessionId: Int, active: Boolean) {}
+    fun onSecondaryVideoFrame(channelId: Int, data: ByteArray, timestampUs: Long,
+        streamEpoch: Long, flags: Int) {}
+
+    /** A validated reply to this session's outstanding AA protocol ping, not transport traffic. */
+    fun onProtocolPong() {}
 
     /** AA session fully established (handshake + SDR complete, channels opening). */
     fun onSessionStarted()
@@ -37,6 +45,12 @@ interface AasdkSessionCallback {
     fun onVideoGeometrySelected(width: Int, height: Int, selection: Long) {
         onVideoGeometrySelected(width, height)
     }
+
+    /** Optional channel 3 only; epoch changes on setup/start/stop/replacement. */
+    fun onClusterVideoState(streamEpoch: Long, codecType: Int, configurationIndex: Int, mediaSessionId: Int, active: Boolean) {}
+
+    /** Bounded H.264 payload for the exact cluster stream epoch, never primary video. */
+    fun onClusterVideoFrame(data: ByteArray, timestampUs: Long, streamEpoch: Long, flags: Int) {}
 
     /**
      * Audio frame received from phone.

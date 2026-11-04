@@ -42,9 +42,12 @@ class ProjectionReceiver(
     /** Optional wired Bluetooth association only; never the Ethernet or AirPlay device identity. */
     private val advertisedBluetoothAddress: String? = null,
     private val captureAdmission: () -> Boolean = { false },
+    val clusterVideoConfiguration: CarPlayClusterVideoConfiguration? = null,
+    private val clusterVideoListener: CarPlayClusterVideoListener? = null,
     private val onStatus: (String) -> Unit,
 ) : Closeable {
     init {
+        require(clusterVideoListener == null || clusterVideoConfiguration != null) { "Encoded cluster listener requires qualified configuration" }
         require(btMac.matches(Regex("[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}")))
         if (advertisedBluetoothAddress != null) {
             require(wired) { "Bluetooth advertisement override is wired-only" }
@@ -56,13 +59,19 @@ class ProjectionReceiver(
         // Caller qualifies the initial presentation before handoff. It can be destroyed
         // during construction; reconcile exact receipts rather than abort the session owner.
     }
-    private val videoSelection = CarPlayDisplayPolicy.videoSelection(display)
+    private val videoSelection = CarPlayDisplayPolicy.videoSelection(display).let { main ->
+        clusterVideoConfiguration?.let { main.withCluster(it.display, it.videoSelection) } ?: main
+    }
+    val clusterVideoPilotStatus: String? get() = clusterVideoConfiguration?.let { CarPlayClusterVideoConfiguration.PILOT_STATUS }
     private val displaySelection = CarPlayDisplaySelection(
         display.copy(resolution = CarPlayResolution.entries.firstOrNull {
             it.width == videoSelection.width && it.height == videoSelection.height
         } ?: CarPlayResolution.CUSTOM,
             customWidth = videoSelection.width, customHeight = videoSelection.height,
-            fps = videoSelection.fps), videoSelection.avcDecoderName, videoSelection.usedFallback)
+            fps = videoSelection.fps,
+            preferHevc = if (clusterVideoConfiguration == null) display.preferHevc else false,
+            qualifiedVideoSelection = if (clusterVideoConfiguration == null) display.qualifiedVideoSelection else videoSelection),
+        videoSelection.avcDecoderName, videoSelection.usedFallback)
     /** Actual advertised/sink/input configuration, including a capability-qualified fallback. */
     val displayConfiguration: CarPlayDisplayPreferences get() = displaySelection.display
     private val microphoneOverride = com.shilapi.xcertplay.media.CarPlayMicrophoneExperiments.snapshot()
@@ -243,6 +252,7 @@ class ProjectionReceiver(
         manualMicrophoneExperiment = microphoneOverride != null,
         captureLedger = captureLedger, audioDiagnostic = { line, current -> enqueueStatus(line, current) },
         speechRecognitionProfile = speechRecognitionProfile,
+        clusterVideoSelection = clusterVideoConfiguration?.videoSelection,
         captureAdmission = { !closed.get() && !admissionRevoked.get() && captureAdmission() }).also { media ->
         media.setMediaOutputObserver { blocked, current ->
             val owner=active
@@ -253,6 +263,65 @@ class ProjectionReceiver(
     /** Presentation receipts do not take the session/control lifecycle lock or retire transport. */
     fun attachSurface(surface: Surface) { if (!closed.get() && !admissionRevoked.get()) sink.attachSurface(surface) }
     fun detachSurface(surface: Surface) { sink.detachSurface(surface) }
+    /** Direct decoder output only; hosted mapping uses the encoded common-renderer listener. */
+    fun attachClusterSurface(surface: Surface): com.shilapi.xcertplay.media.CarPlayClusterSurfaceLease? =
+        if (closed.get() || admissionRevoked.get() || clusterVideoListener != null) null else sink.attachClusterSurface(surface)
+    /** Revocation only. Do not release a borrowed Surface until actual owner retirement. */
+    fun detachClusterSurface(lease: com.shilapi.xcertplay.media.CarPlayClusterSurfaceLease) = sink.detachClusterSurface(lease)
+
+    private val clusterListenerLock = Any()
+    private var clusterEpoch = 0L
+    private var clusterActive = false
+    private var clusterListenerRetired = false
+    private fun clusterCallback(callback: (CarPlayClusterVideoListener) -> Unit) {
+        val listener = clusterVideoListener ?: return
+        try { callback(listener) } catch (_: Exception) {
+            // A broken optional consumer cannot poison main/control. Fence its remaining epoch.
+            clusterActive = false
+            runCatching { listener.onStreamActive(clusterEpoch, false) }
+        }
+    }
+    private fun retireClusterListener() = synchronized(clusterListenerLock) {
+        if (clusterListenerRetired) return@synchronized
+        clusterListenerRetired = true
+        if (clusterActive) {
+            clusterActive = false
+            clusterCallback { it.onStreamActive(clusterEpoch, false) }
+        }
+    }
+    /** One full sink remains the sole audio/mic owner. Encoded mode never feeds its second decoder. */
+    private val mediaSink: com.shilapi.xcertplay.airplay.MediaSink = object : com.shilapi.xcertplay.airplay.MediaSink by sink {
+        override fun onVideoConfig(type: Int, codecData: ByteArray) {
+            if (type != 111 || clusterVideoListener == null) { sink.onVideoConfig(type, codecData); return }
+            synchronized(clusterListenerLock) {
+                if (!clusterListenerRetired && clusterActive && !closed.get() && !admissionRevoked.get())
+                    clusterCallback { it.onCodecConfig(clusterEpoch, codecData.copyOf()) }
+            }
+        }
+        override fun onVideoFrame(type: Int, naluBytes: ByteArray) {
+            if (type != 111 || clusterVideoListener == null) { sink.onVideoFrame(type, naluBytes); return }
+            synchronized(clusterListenerLock) {
+                if (!clusterListenerRetired && clusterActive && !closed.get() && !admissionRevoked.get())
+                    clusterCallback { it.onFrame(clusterEpoch, naluBytes.copyOf()) }
+            }
+        }
+        override fun onScreenStreamActive(type: Int, active: Boolean) {
+            sink.onScreenStreamActive(type, active)
+            if (type != 111 || clusterVideoListener == null) return
+            synchronized(clusterListenerLock) {
+                if (clusterListenerRetired || closed.get() || admissionRevoked.get()) return
+                if (clusterActive) {
+                    clusterActive = false
+                    clusterCallback { it.onStreamActive(clusterEpoch, false) }
+                }
+                if (active) {
+                    clusterEpoch++
+                    clusterActive = true
+                    clusterCallback { it.onStreamActive(clusterEpoch, true) }
+                }
+            }
+        }
+    }
     private val oemIcons = listOf(AirPlayIcon(192, 192,
         checkNotNull(ProjectionReceiver::class.java.getResourceAsStream("/oal_carplay_home.png")) {
             "Packaged OAL return icon missing"
@@ -260,9 +329,10 @@ class ProjectionReceiver(
     private fun sessionConfig(): AirPlayConfig =
         benchReceiverConfig(btMac, port, microphoneCapability, displayConfiguration).copy(
             btMac = advertisedBluetoothAddress ?: btMac,
+            cluster = clusterVideoConfiguration?.display,
             hevc = videoSelection.hevcOffered, oemLabel = "OpenAutoLink", icons = oemIcons,
             drivingRestrictions = drivingRestrictions)
-    private val engine = CarPlayMediaEngine(sink, microphoneEnabled = microphoneCapability.available,
+    private val engine = CarPlayMediaEngine(mediaSink, microphoneEnabled = microphoneCapability.available,
         onDiagnostic = { session, message ->
             if (!closed.get() && !admissionRevoked.get() && session in sessions) status(message)
         }).apply {
@@ -813,6 +883,7 @@ class ProjectionReceiver(
     /** Cancel fences late authentication without releasing storage or waiting for control workers. */
     fun revokePendingAdmission() {
         admissionRevoked.set(true)
+        retireClusterListener()
         // Never wait for the durable commit fence while holding the receiver's unrelated lock.
         peerAdmission?.retire()
         runtimeLinks.values.forEach { it.revoke() }

@@ -12,9 +12,8 @@ import org.robolectric.annotation.Config
 @org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
 class CarPlayInactiveMetadataHostTest {
     @Test fun exactContextFencesLateHostAfterRestoreAndSuccessorWhileRoutesContinue() {
-        val constructor=OalCarPlayMetadataHost::class.java.constructors.firstOrNull {
-            it.parameterTypes.size==4 && it.parameterTypes.contains(CarPlayAttemptContext::class.java) }
-        assertNotNull("metadata host must retain the exact frozen attempt context",constructor)
+        assertTrue("metadata host must retain the exact frozen attempt context",
+            OalCarPlayMetadataHost::class.java.declaredFields.any { it.type == CarPlayAttemptContext::class.java })
         val app=RuntimeEnvironment.getApplication()
         val prefs=io.mockk.mockk<com.openautolink.app.data.AppPreferences>()
         io.mockk.mockkObject(com.openautolink.app.data.AppPreferences.Companion)
@@ -23,7 +22,8 @@ class CarPlayInactiveMetadataHostTest {
         io.mockk.every { prefs.distanceUnits } returns kotlinx.coroutines.flow.flowOf("auto")
         val manager=com.openautolink.app.media.OalMediaSessionManager.getInstance(app).also { it.initialize() }
         val old=CarPlayHostMediaLease(CarPlayHostMediaMode.INACTIVE)
-        fun host(lease:CarPlayHostMediaLease)=constructor!!.newInstance(app,{_:String ->},CarPlayAttemptContext(lease),{_:Int ->true}) as OalCarPlayMetadataHost
+        fun host(lease:CarPlayHostMediaLease)=OalCarPlayMetadataHost(app,receipt={_:String ->},
+            attemptContext=CarPlayAttemptContext(lease),mediaCommand={_:Int ->true})
         var current:OalCarPlayMetadataHost?=null
         try {
             manager.beginCarPlayHostMedia(old);current=host(old);assertTrue(current.start())
