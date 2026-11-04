@@ -49,6 +49,16 @@ Enable **Settings → Secondary Displays → Driver-display video**, then **Save
 
 Android Auto provides Cluster and Auxiliary views; CarPlay has no equivalent selector in OAL. Usually no Directions area adjustment is needed. See [Driver-display settings](docs/secondary-presentation.md) for mode selection, the optional editor and Save/reconnect instructions.
 
+### If the driver display is black
+
+Driver-display video may occasionally be black. Select the maps page on the driver display, then tap the **floating OAL logo/menu button** on the main infotainment screen and choose **Restore driver display video**. This retries the video window without using the full **Reconnect** action.
+
+The floating button may be in a different position if you have moved it.
+
+<img src="docs/screenshots/oal-menu-button.png" alt="Floating OAL logo button that opens the controls menu" width="140">
+
+![OAL controls menu with Restore driver display video](docs/screenshots/oal-driver-display-restore-menu.png)
+
 ## Choose your phone and connection
 
 | Phone / mode | Connection | Companion needed? | Notes |

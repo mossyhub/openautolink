@@ -147,7 +147,11 @@ On GM, choose maps OR native navigation icons/HUD guidance—not both, due to pr
 
 ## Driver-display video stays black after changing pages
 
-Select the driver-display page used for maps. Open OAL's floating menu and choose **Restore driver display video**. This restores the current negotiated video window without reconnecting Android Auto or CarPlay.
+Driver-display video may occasionally be black. Select the driver-display page used for maps, tap the **floating OAL logo/menu button** on the main infotainment screen and choose **Restore driver display video**. This retries the current video window without using the full **Reconnect** action.
+
+<img src="screenshots/oal-menu-button.png" alt="Floating OAL logo button that opens the controls menu" width="140">
+
+![OAL controls: choose Restore driver display video, not Reconnect or Restore button positions](screenshots/oal-driver-display-restore-menu.png)
 
 If the menu says **Reconnect required to enable driver display**, the current connection has no negotiated secondary video stream. Use the existing **Reconnect** action while the maps page is selected. If restoration fails, upload logs before reconnecting or restarting OAL.
 
