@@ -1,0 +1,23 @@
+OpenAutoLink — CarPlay attribution notices
+
+Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
+
+LIVI: Copyright (C) 2025-2026 Lasse Heitgres
+https://github.com/f-io/LIVI
+
+OpenAutoLink's Kotlin CarPlay receiver includes protocol work derived from LIVI,
+adapted through shilapi/xcertplay and shihabal3amri/DiPlay:
+https://github.com/shilapi/xcertplay
+https://github.com/shihabal3amri/DiPlay
+
+The imported DiPlay source revision is recorded in carplay-lab/UPSTREAM.json.
+Retain all existing copyright, attribution, and license notices in the adapted
+sources, including carplay-lab/UPSTREAM-LICENSE and the airplay/LICENSE file.
+LIVI's upstream NOTICE identifies its license as GPL-3.0-or-later and requests
+the attribution above in Appropriate Legal Notices and documentation, including
+for translations. This notice preserves attribution; it does not replace the
+individual components' licenses or relicense files marked GPL-3.0-only.
+
+See LICENSE for OpenAutoLink's GNU GPL v3 license and README.md for additional
+project acknowledgments. These credits do not grant rights to private accessory
+authentication credentials or Apple/OEM assets.

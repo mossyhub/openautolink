@@ -8,6 +8,14 @@ Imported from the pinned local DiPlay revision
 DiPlay credits upstream [shilapi/xcertplay](https://github.com/shilapi/xcertplay)
 (GNU GPL v3); full upstream `LICENSE` is retained alongside these sources.
 Original comments, including LIVI's clean-room SRP attribution, are retained.
+
+Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
+
+The existing Kotlin receiver carries LIVI-derived protocol work through
+shilapi/xcertplay and DiPlay. Credit belongs to LIVI/Lasse Heitgres as well as
+those intermediate projects; see the repository's [CarPlay attribution notices](../../../../../../../../NOTICE)
+and README acknowledgments. Existing per-file license notices remain unchanged.
+
 No private identity, certificate, key, media asset, or authentication data was imported.
 Bouncy Castle is the existing module dependency (1.79), under its MIT-style license.
 

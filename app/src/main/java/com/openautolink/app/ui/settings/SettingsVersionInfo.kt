@@ -31,5 +31,19 @@ internal fun SettingsVersionInfo(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth().testTag("settingsUpdateReminder"),
         )
+        Text(
+            text = "Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth().testTag("settingsLiviAttribution"),
+        )
+        Text(
+            text = "CarPlay receiver adapted through shilapi/xcertplay and shihabal3amri/DiPlay. " +
+                "OpenAutoLink is licensed under GNU GPL v3; component notices and source: " +
+                "https://github.com/mossyhub/openautolink",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth().testTag("settingsCarPlayAttribution"),
+        )
     }
 }
