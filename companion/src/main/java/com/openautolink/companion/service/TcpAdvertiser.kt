@@ -453,7 +453,9 @@ class TcpAdvertiser(
     private fun localBluetoothName(): String? = runCatching {
         val manager = context.applicationContext
             .getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
-        manager?.adapter?.name?.trim()?.takeIf { it.isNotEmpty() }
+        // Permission can be revoked between probes; retain the optional-name fallback.
+        val name = try { manager?.adapter?.name } catch (_: SecurityException) { null }
+        name?.trim()?.takeIf { it.isNotEmpty() }
     }.getOrNull()
 
     private fun respondIdentityProbe(socket: Socket, remoteIp: String) {

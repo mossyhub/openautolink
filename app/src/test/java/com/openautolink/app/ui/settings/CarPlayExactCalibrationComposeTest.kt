@@ -79,7 +79,7 @@ class CarPlayExactCalibrationComposeTest {
     private fun mount(loaded: Boolean = true) {
         if (loaded) boundary.allowRead.complete(Unit)
         compose.setContent { MaterialTheme {
-            SettingsScreen(viewModel = vm, onSaveAndConnect = {
+            SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = vm, onSaveAndConnect = {
                 vm.viewModelScope.launch {
                     applySettingsAndRestart(vm::commitCarPlaySettings, { reconnects++ }, { closes++ })
                 }

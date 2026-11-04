@@ -54,6 +54,8 @@ class AndroidMediaSink(
     private val speechRecognitionProfile: CarPlayMicrophoneExperimentProfile? = null,
     private val captureAdmission: () -> Boolean = { false },
     private val manualMicrophoneExperiment: Boolean = microphoneExperiment != null || speechRecognitionProfile != null,
+    // Frozen exact qualification; null keeps the existing single-display path unchanged.
+    clusterVideoSelection: CarPlayVideoSelection? = null,
 ) : MediaSink, Closeable {
     private val closed = AtomicBoolean()
     init { AndroidMicrophoneSupport.initialize(context) }
@@ -334,6 +336,9 @@ class AndroidMediaSink(
     private val currentVideoCodec = java.util.concurrent.atomic.AtomicReference<MediaCodec?>()
     private val codecGeneration = AtomicLong()
     private val presentation = VideoPresentation(surface)
+    private val clusterVideo = clusterVideoSelection?.let { CarPlayScreenVideoOwner(it, videoCodecFactory, ::report) }
+    fun attachClusterSurface(surface: Surface): CarPlayClusterSurfaceLease? = clusterVideo?.attach(surface)
+    fun detachClusterSurface(lease: CarPlayClusterSurfaceLease) { clusterVideo?.detach(lease) }
     init { telemetry.presentationChanged(presentation.snapshot().generation) }
     /** Receipts only: MediaCodec effects belong exclusively to lab-video. */
     fun attachSurface(surface: Surface) {
@@ -355,20 +360,27 @@ class AndroidMediaSink(
         val receipts = owners.mapNotNull { it.routeReceipt() }
         listOf("media stage=audio-owners scope=own owners=${owners.size} tracks=${receipts.size}") + receipts + volumes
     }, ::report)
-    private class VideoConfig(val codec: VideoCodec, val bytes: ByteArray, val receipt: Long)
+    private class VideoConfig(val codec: VideoCodec, val bytes: ByteArray, val receipt: Long,
+        val recovery: (() -> Unit)?, val diagnostic: ((String) -> Unit)?)
     private fun videoReceiptDue(count: Long) = count <= 4 || count % 32 == 0L
     private sealed class VideoJob {
         class Frame(val bytes: ByteArray, val presentation: VideoPresentation.Receipt, val config: VideoConfig?) : VideoJob()
         class Reset(val presentation: VideoPresentation.Receipt) : VideoJob()
     }
     private fun report(message: String) { runCatching { onStatus(message) } }
-    override fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) { if (type == 110) recovery = handler }
-    override fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) { if (type == 110) diagnostic = handler }
+    override fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {
+        if (type == 110) recovery = handler else if (type == 111) clusterVideo?.setRecovery(handler)
+    }
+    override fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {
+        if (type == 110) diagnostic = handler else if (type == 111) clusterVideo?.setDiagnostic(handler)
+    }
     @Synchronized override fun onVideoCodec(type: Int, codec: VideoCodec) {
+        if (type == 111) { requireNotNull(clusterVideo) { "Secondary video not qualified" }.codec(codec); return }
         require(type == 110 && videoSelection.decoderName(codec) != null)
         if (!closed.get()) announcedCodec = codec
     }
     @Synchronized override fun onVideoConfig(type: Int, codecData: ByteArray) {
+        if (type == 111) { clusterVideo?.config(codecData); return }
         if (closed.get() || type != 110) return
         val (actual, data) = ScreenCodec.detectConfig(codecData)
         require(actual == announcedCodec) { "Video codec/config mismatch" }
@@ -381,11 +393,12 @@ class AndroidMediaSink(
         }
         // Config must outlive frame overflow and presentation loss. One latest immutable receipt.
         val count = ++acceptedVideoConfigs
-        latestVideoConfig.set(VideoConfig(actual,data.copyOf(),count))
+        latestVideoConfig.set(VideoConfig(actual,data.copyOf(),count,recovery,diagnostic))
         videoQueue.clear()
         if (videoReceiptDue(count)) report("media stage=video-config action=accepted receipt=$count count=$count codec=${actual.name}")
     }
     override fun onVideoFrame(type: Int, naluBytes: ByteArray) {
+        if (type == 111) { clusterVideo?.frame(naluBytes); return }
         if (closed.get() || type != 110) return
         val target = presentation.snapshot()
         if (target.closed || target.surface == null) return // bounded offscreen discard; no recovery
@@ -394,8 +407,13 @@ class AndroidMediaSink(
             report("media stage=video-queue-overflow")
         }
     }
-    override fun onScreenStreamActive(type: Int, active: Boolean) {
-        if (type == 110 && !active) { videoQueue.clear(); videoQueue.offer(VideoJob.Reset(presentation.snapshot())) }
+    @Synchronized override fun onScreenStreamActive(type: Int, active: Boolean) {
+        if (type == 111) { clusterVideo?.streamChanged(); return }
+        if (type == 110) {
+            // Replacement is a new stream epoch even when its CSD bytes are identical.
+            latestVideoConfig.set(null); announcedCodec = VideoCodec.H264
+            videoQueue.clear(); videoQueue.offer(VideoJob.Reset(presentation.snapshot()))
+        }
     }
     override fun supportsAudio(format: AudioFormat): Boolean = AndroidAudioDecoderSupport.supports(format)
     override fun supportsMicrophone(format: AudioFormat): Boolean = !closed.get() &&
@@ -589,12 +607,13 @@ class AndroidMediaSink(
         }
         fun recover(reason: String, force: Boolean = false) {
             anchored = false
+            val handler = config?.recovery ?: return // no config/handler must not consume the throttle
             if (!visible()) return
             // Recovery-path entry, not proof the throttled forceKeyFrame was sent.
             val count = ++recoveries
             if (videoReceiptDue(count)) report("media stage=video-recovery reason=$reason receipt=${config?.receipt ?: 0} count=$count")
             val now = System.nanoTime()
-            if (force || now - lastRecoveryNs > 1_000_000_000L) { lastRecoveryNs = now; recovery?.invoke() }
+            if (force || now - lastRecoveryNs > 1_000_000_000L) { lastRecoveryNs = now; handler?.invoke() }
         }
         fun configure(job: VideoConfig, reason: String) {
             release()
@@ -606,6 +625,7 @@ class AndroidMediaSink(
             if (videoReceiptDue(count)) report("media stage=video-reconfigure reason=$reason receipt=${job.receipt} count=$count")
             val candidate = videoCodecFactory(checkNotNull(videoSelection.decoderName(job.codec)))
             val generation = codecGeneration.get()
+            val streamDiagnostic = job.diagnostic
             val firstRendered = AtomicBoolean()
             try {
                 val caps = candidate.codecInfo.getCapabilitiesForType(CarPlayVideoQualification.mime(job.codec))
@@ -620,7 +640,7 @@ class AndroidMediaSink(
                             report("media stage=presentation-rendered generation=${target.generation} codecGeneration=$generation")
                         val count = rendered.incrementAndGet()
                         if (count == 1L) {
-                            diagnostic?.invoke("first frame rendered")
+                            streamDiagnostic?.invoke("first frame rendered")
                             report("media stage=first-frame-rendered count=1")
                         } else if (count % 300 == 0L) report("media stage=frames-rendered count=$count")
                     }
@@ -679,7 +699,8 @@ class AndroidMediaSink(
                             config?.let { configure(it,"presentation") }; recover("presentation",force = true)
                         } else report("media stage=presentation-detached generation=${desired.generation}")
                     } else if (configChanged && desired.surface != null) {
-                        config?.let { configure(it,"config-change") }; recover("config-change")
+                        if (config == null) release()
+                        else { config?.let { configure(it,"config-change") }; recover("config-change") }
                     }
                     if (observed.surface == null) {
                         videoQueue.clear()
@@ -741,12 +762,14 @@ class AndroidMediaSink(
     /** Nonblocking cancellation while user PLAY may be inside the platform focus call. */
     fun revokePendingWork() {
         cancelPendingMediaPlay()
+        clusterVideo?.revoke()
         presentation.close()
         if (closed.compareAndSet(false, true)) telemetry.retire()
         videoThread.interrupt()
     }
     override fun close() {
         runCatching { manager?.removeOnModeChangedListener(communicationListener) }
+        clusterVideo?.close()
         cancelPendingMediaPlay()
         routeDiagnostics.close()
         presentation.close()
@@ -776,7 +799,7 @@ class AndroidMediaSink(
             val retired = synchronized(this) {
                 tracks.entries.removeIf { it.value.isRetired }
                 microphoneOwners.removeIf { it.isRetired }
-                closed.get() && routeDiagnostics.isRetired && videoRetired.get() && !videoThread.isAlive &&
+                closed.get() && (clusterVideo?.isRetired != false) && routeDiagnostics.isRetired && videoRetired.get() && !videoThread.isAlive &&
                     tracks.isEmpty() && microphoneOwners.isEmpty() &&
                     focusOwners.values.all { it.request == null && it.retiring == null }
             }

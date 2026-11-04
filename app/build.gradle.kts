@@ -186,6 +186,8 @@ dependencies {
     // Car App Library (cluster navigation)
     implementation(libs.car.app)
     implementation(libs.car.app.automotive)
+    // CarAppActivity inherits FragmentActivity; exercise the actual Activity in host tests.
+    testImplementation("androidx.fragment:fragment:1.3.0") { isTransitive = false }
 
     // MediaSession for AAOS integration
     implementation(libs.media)

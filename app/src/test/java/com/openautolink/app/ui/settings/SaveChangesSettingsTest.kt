@@ -24,7 +24,7 @@ class SaveChangesSettingsTest {
         val vm = SettingsViewModel(RuntimeEnvironment.getApplication())
         var saves = 0
         compose.setContent { MaterialTheme {
-            SettingsScreen(viewModel = vm, onSaveAndConnect = { saves++ })
+            SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = vm, onSaveAndConnect = { saves++ })
         } }
         compose.waitUntil(5000) { vm.carPlaySettingsLoaded.value }
         compose.onNodeWithTag("saveAndConnectButton").assertTextContains("Save changes")
@@ -36,7 +36,7 @@ class SaveChangesSettingsTest {
 
     @Test fun guidanceStaysBesideGlobalSaveButNotOnAutosavedAudio() {
         val vm = SettingsViewModel(RuntimeEnvironment.getApplication())
-        compose.setContent { MaterialTheme { SettingsScreen(viewModel = vm) } }
+        compose.setContent { MaterialTheme { SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = vm) } }
         for (tab in listOf("CONNECTION", "VIDEO", "DISPLAY", "INPUT", "EV", "DIAGNOSTICS")) {
             compose.onNodeWithTag("settingsTab_$tab").performScrollTo().performClick()
             compose.onNodeWithTag("saveAndConnectButton").assertTextContains("Save changes").assertIsDisplayed()

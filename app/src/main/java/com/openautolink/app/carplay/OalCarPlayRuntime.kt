@@ -72,6 +72,8 @@ class OalCarPlayRuntime(
     private val onDisplayQualified: (CarPlayDisplayPreferences) -> Unit = {},
     private val attemptContext: CarPlayAttemptContext? = null,
     private val displayOfferStore: CarPlayDisplayOfferStore = CarPlayDisplayOfferStore.PROCESS,
+    private val clusterOutput: OalCarPlayClusterOutput? = null,
+    private val clusterSelection: com.openautolink.app.cluster.ClusterOutputSelection? = null,
 ) : CarPlayRuntime {
     private val displayOfferLease = displayOfferStore.begin()
     private val canceled = AtomicBoolean()
@@ -135,10 +137,16 @@ class OalCarPlayRuntime(
         CarPlayHostUi.request { !canceled.get() && isCurrent() }
     }
 
+    /** Real constructor boundary: frozen config and encoded-only listener are installed together. */
+    internal fun createClusterReceiver(factory: (com.openautolink.carplaylab.media.CarPlayClusterVideoConfiguration?,
+        com.openautolink.carplaylab.media.CarPlayClusterVideoListener?) -> ProjectionReceiver): ProjectionReceiver =
+        ownReceiver { factory(clusterOutput?.configuration, clusterOutput?.takeIf { it.configuration != null }) }
+
     private fun ownReceiver(create: () -> ProjectionReceiver): ProjectionReceiver = synchronized(resourcesLock) {
         val projection = own(create)
         active()
         projection.setHostUiHandler(::requestHostUi)
+        projection.clusterVideoPilotStatus?.let(::receiverStatus)
         receiver = projection
         presentation = initialPresentation // Constructor starts with the qualified bootstrap target.
         reconcilePresentation()
@@ -318,7 +326,9 @@ class OalCarPlayRuntime(
         catch (failure: Exception) { throw CarPlayConnectionFailure(CarPlayFailureKind.BOOTSTRAP_AUTHENTICATION, network.manualPeer != null, failure) }
         active()
         status("CarPlay receiver MFi authentication accepted · phone AirPlay trust pending")
-        val projection = ownReceiver { ProjectionReceiver(context, config.receiverAddress, surface, auth, config.display,
+        val projection = createClusterReceiver { clusterConfiguration, clusterListener -> ProjectionReceiver(context, config.receiverAddress, surface, auth, config.display,
+            clusterVideoConfiguration = clusterConfiguration,
+            clusterVideoListener = clusterListener,
             captureAdmission = { !canceled.get() && attemptContext?.captureAdmission?.invoke() == true },
             trustedOnly = true, runtimeCarDataFactory = { session, send, receipt ->
                 // Freeze truthful implemented capability flags per actual Wi-Fi link, not Bluetooth.
@@ -334,7 +344,8 @@ class OalCarPlayRuntime(
             }, runtimeMetadataFactory = { session, receipt -> own {
                 active()
                 val metadata = OalCarPlayMetadataLink(SystemClock::elapsedRealtime, receipt,
-                    OalCarPlayMetadataHost(context.applicationContext, receipt = receipt, attemptContext = attemptContext) { index ->
+                    OalCarPlayMetadataHost(context.applicationContext, receipt = receipt, attemptContext = attemptContext,
+                        clusterSelection = clusterSelection) { index ->
                         receiver?.mediaCommand(session, index) == true
                     }).apply {
                         capturePlaybackObservation = capture@ {
@@ -481,9 +492,11 @@ class OalCarPlayRuntime(
             requestedPresentation.get() === requested && requested.surface != null) snapshot
         else snapshot.copy(presentationRendered = false)
     }
-    override fun cancel() { canceled.set(true); displayOfferStore.retire(displayOfferLease); presentationWorker.shutdownNow(); receiver?.revokePendingAdmission() }
+    override fun clusterTelemetrySnapshot(): CarPlayClusterStatus? = clusterOutput?.snapshot()
+    override fun cancel() { clusterOutput?.revoke(); canceled.set(true); displayOfferStore.retire(displayOfferLease); presentationWorker.shutdownNow(); receiver?.revokePendingAdmission() }
     override fun close() = synchronized(closeLock) {
         cancel()
+        clusterOutput?.awaitRetirement()
         val retiring = synchronized(resourcesLock) { resources.toList().asReversed() }
         val closeFailures = java.util.IdentityHashMap<AutoCloseable, Exception>()
         // Revoke every transport before waiting for workers that can depend on one another.

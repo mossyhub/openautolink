@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.openautolink.app.ui.settings
 
 import android.Manifest
@@ -8,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -73,23 +76,28 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
         viewModel.refreshCarPlaySetup()
     }
 
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
+    SettingsToggleRow(
+        label = "CarPlay",
+        checked = settings.enabled,
+        onCheckedChange = viewModel::updateCarPlayEnabled,
+        enabled = !saving && loaded,
+        controlModifier = Modifier.testTag("carPlayEnabled"),
+    ) {
             Text("CarPlay", style = MaterialTheme.typography.titleLarge)
             Text("Enable iPhone projection", style = MaterialTheme.typography.bodyMedium)
-        }
-        Switch(checked = settings.enabled, onCheckedChange = viewModel::updateCarPlayEnabled,
-            enabled = !saving && loaded, modifier = Modifier.testTag("carPlayEnabled"))
+
     }
-    Text("CarPlay connection", style = MaterialTheme.typography.titleMedium)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("usb" to "USB", "wireless" to "Wireless").forEach { (mode, label) ->
-            FilterChip(selected = settings.connectionMode == mode, enabled = !saving && loaded,
-                onClick = { viewModel.updateCarPlayDraft { it.copy(connectionMode = mode) } },
-                label = { Text(label) }, modifier = Modifier.testTag("carPlayConnection_$mode"))
+    SettingsGroup {
+        Text("CarPlay connection", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("usb" to "USB", "wireless" to "Wireless").forEach { (mode, label) ->
+                FilterChip(selected = settings.connectionMode == mode, enabled = !saving && loaded,
+                    onClick = { viewModel.updateCarPlayDraft { it.copy(connectionMode = mode) } },
+                    label = { Text(label) }, modifier = Modifier.testTag("carPlayConnection_$mode"))
+            }
         }
+        SettingsHelp("CarPlay's normal connection is independent of Android Auto. USB uses the local USB bridge and requires USB/VPN consent; iPhone may ask for Trust. Wireless uses iPhone Bluetooth and the car Wi-Fi; wireless CarPlay is unverified in the car. Selecting a connection does not enable CarPlay. Save changes, then reconnect your phone.")
     }
-    SettingsHelp("CarPlay's normal connection is independent of Android Auto. USB uses the local USB bridge and requires USB/VPN consent; iPhone may ask for Trust. Wireless uses iPhone Bluetooth and the car Wi-Fi; wireless CarPlay is unverified in the car. Selecting a connection does not enable CarPlay. Save changes, then reconnect your phone.")
 
     if (!settings.enabled) return
 
@@ -99,31 +107,40 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
     // Local echo is recreated from private ViewModel memory when returning to this tab.
     val restrictionControl = com.openautolink.app.carplay.CarPlayRestrictionPolicy.from(draft).enabled
     Text("CarPlay UI restrictions", style = MaterialTheme.typography.titleMedium)
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Vehicle-based UI restrictions", Modifier.weight(1f))
-        Switch(checked = restrictionControl,
-            enabled = !saving && loaded && !com.openautolink.app.BuildConfig.CARPLAY_DRIVING_RESTRICTIONS,
+    SettingsGroup {
+        SettingsToggleRow(label = "Vehicle-based UI restrictions",
+            checked = restrictionControl,
             onCheckedChange = { value -> viewModel.updateCarPlayDraft {
-                it.copy(drivingRestrictionsEnabled = value, alwaysInPark = if (value) it.alwaysInPark else false)
-            } }, modifier = Modifier.testTag("carPlayDrivingRestrictions"))
-    }
-    Text("When enabled, only fresh, valid vehicle Park unlocks the main-screen keyboard and lists. Missing or invalid gear stays restricted. Save changes, then reconnect your phone.",
-        style = MaterialTheme.typography.bodySmall)
-    if (com.openautolink.app.BuildConfig.CARPLAY_DRIVING_RESTRICTIONS) {
-        Text("This build keeps restriction control enabled.", style = MaterialTheme.typography.bodySmall)
-    }
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text("Always in Park")
-            Text("CarPlay only · parked use", style = MaterialTheme.typography.bodySmall)
+                    it.copy(drivingRestrictionsEnabled = value, alwaysInPark = if (value) it.alwaysInPark else false)
+                } },
+            enabled = !saving && loaded && !com.openautolink.app.BuildConfig.CARPLAY_DRIVING_RESTRICTIONS,
+            controlModifier = Modifier.testTag("carPlayDrivingRestrictions"),
+        ) {
+            Text("Vehicle-based UI restrictions")
         }
-        Switch(checked = draft.alwaysInPark && restrictionControl,
-            enabled = !saving && loaded && restrictionControl,
-            onCheckedChange = { value -> viewModel.updateCarPlayDraft { it.copy(alwaysInPark = value) } },
-            modifier = Modifier.testTag("carPlayAlwaysInPark"))
+        Text("When enabled, only fresh, valid vehicle Park unlocks the main-screen keyboard and lists. Missing or invalid gear stays restricted. Save changes, then reconnect your phone.",
+            style = MaterialTheme.typography.bodyMedium)
+        if (com.openautolink.app.BuildConfig.CARPLAY_DRIVING_RESTRICTIONS) {
+            Text("This build keeps restriction control enabled.", style = MaterialTheme.typography.bodyMedium)
+        }
     }
-    Text("Use only while safely parked. Overrides CarPlay main-screen UI restrictions even when gear is missing or not Park; it does not change actual vehicle gear, Android Auto, secondary displays or video permissions. Turn off to restore vehicle-based restrictions. Enable Vehicle-based UI restrictions above first. Save changes, then reconnect your phone.",
-        style = MaterialTheme.typography.bodySmall)
+
+    SettingsGroup {
+        SettingsToggleRow(
+            label = "Always in Park",
+            checked = draft.alwaysInPark && restrictionControl,
+            onCheckedChange = { value -> viewModel.updateCarPlayDraft { it.copy(alwaysInPark = value) } },
+            enabled = !saving && loaded && restrictionControl,
+            controlModifier = Modifier.testTag("carPlayAlwaysInPark"),
+        ) {
+                Text("Always in Park")
+                Text("CarPlay only · parked use", style = MaterialTheme.typography.bodyMedium)
+
+        }
+        Text("Use only while safely parked. Overrides CarPlay main-screen UI restrictions even when gear is missing or not Park; it does not change actual vehicle gear, Android Auto, secondary displays or video permissions. Turn off to restore vehicle-based restrictions. Enable Vehicle-based UI restrictions above first. Save changes, then reconnect your phone.",
+            style = MaterialTheme.typography.bodyMedium)
+    }
+
     var password: String? by remember { mutableStateOf(viewModel.pendingCarPlayPassword()) }
     var advanced by remember { mutableStateOf(false) }
     var phoneMenu by remember { mutableStateOf(false) }
@@ -171,7 +188,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("Refresh phones") }
                 OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth settings") }
             }
@@ -183,7 +200,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
                         phoneMenu = false
                     }, enabled = !saving, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                         Text("${phone.name.ifBlank { "Unnamed phone" }} · ${phone.address}",
-                            style = MaterialTheme.typography.bodySmall)
+                            style = MaterialTheme.typography.bodyMedium)
                     }
                 }
                 SettingsHelp("Select the paired iPhone OAL should use. The saved Bluetooth address identifies it; a name alone does not establish trust.")
@@ -199,12 +216,12 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
                 identityReady -> "Authentication configured on this head unit."
                 bundledIdentityAvailable -> "Authentication bundled; validated on first connect."
                 else -> "This build has no bundled authentication. Import a compatible identity below."
-            }, style = MaterialTheme.typography.bodySmall)
-            Text("Import is for setup or recovery. It does not pair your iPhone.", style = MaterialTheme.typography.bodySmall)
+            }, style = MaterialTheme.typography.bodyMedium)
+            Text("Import is for setup or recovery. It does not pair your iPhone.", style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(onClick = { setupHelp = true }, enabled = !saving && !importing) {
                 Text(if (identityReady || bundledIdentityAvailable) "Replace authentication identity" else "Import authentication identity")
             }
-            if (importStatus.isNotEmpty()) Text(importStatus, style = MaterialTheme.typography.bodySmall)
+            if (importStatus.isNotEmpty()) Text(importStatus, style = MaterialTheme.typography.bodyMedium)
         }
         if (draft.connectionMode == "wireless") {
             TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced" else "Advanced network") }
@@ -214,50 +231,62 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayRequiredAction"))
             Text("Use your car hotspot's actual details. OAL does not change the hotspot.",
                 style = MaterialTheme.typography.bodyMedium)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Use shared Wi-Fi / LAN instead of car AP", Modifier.weight(1f))
-                Switch(checked = draft.sharedWifiOverride, enabled = !saving, onCheckedChange = {
+            SettingsToggleRow(label = "Use shared Wi-Fi / LAN instead of car AP",
+                checked = draft.sharedWifiOverride,
+                onCheckedChange = {
                     val shared = it
                     viewModel.updateCarPlayDraft { current -> current.copy(sharedWifiOverride = shared,
                         interfaceName = if (current.interfaceName in listOf("wlan0", "ap_br_swlan0")) {
                             if (shared) "wlan0" else "ap_br_swlan0"
                         } else current.interfaceName) }
-                })
+                },
+                enabled = !saving,
+            ) {
+                Text("Use shared Wi-Fi / LAN instead of car AP")
             }
-            Text("Address family", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("auto" to "Auto", "ipv4" to "IPv4", "ipv6" to "IPv6").forEach { (family, label) ->
-                    FilterChip(selected = draft.networkFamily == family, enabled = !saving,
-                        onClick = { viewModel.updateCarPlayDraft { it.copy(networkFamily = family) } },
-                        label = { Text(label) }, modifier = Modifier.testTag("carPlayFamily_$family"))
+            SettingsGroup {
+                Text("Address family", style = MaterialTheme.typography.titleMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("auto" to "Auto", "ipv4" to "IPv4", "ipv6" to "IPv6").forEach { (family, label) ->
+                        FilterChip(selected = draft.networkFamily == family, enabled = !saving,
+                            onClick = { viewModel.updateCarPlayDraft { it.copy(networkFamily = family) } },
+                            label = { Text(label) }, modifier = Modifier.testTag("carPlayFamily_$family"))
+                    }
+                }
+                SettingsHelp("Auto uses IPv6 on the car hotspot and IPv4 on shared LAN. Match both endpoints when overriding.")
+            }
+
+            SettingsGroup {
+                CarPlayField(if (draft.sharedWifiOverride) "Phone numeric IP (required)" else "Phone numeric IP (optional)",
+                    draft.peerAddress, !saving) { value -> viewModel.updateCarPlayDraft { it.copy(peerAddress = value) } }
+                if (!draft.sharedWifiOverride) {
+                    SettingsHelp("Leave phone IP empty for first connection or a previously trusted iPhone. Pair in system Bluetooth settings and accept CarPlay on the iPhone. Use a trusted hotspot for first setup.")
                 }
             }
-            SettingsHelp("Auto uses IPv6 on the car hotspot and IPv4 on shared LAN. Match both endpoints when overriding.")
-            CarPlayField(if (draft.sharedWifiOverride) "Phone numeric IP (required)" else "Phone numeric IP (optional)",
-                draft.peerAddress, !saving) { value -> viewModel.updateCarPlayDraft { it.copy(peerAddress = value) } }
-            if (!draft.sharedWifiOverride) {
-                SettingsHelp("Leave phone IP empty for first connection or a previously trusted iPhone. Pair in system Bluetooth settings and accept CarPlay on the iPhone. Use a trusted hotspot for first setup.")
-            }
+
             CarPlayField("Network interface", draft.interfaceName, !saving) { value -> viewModel.updateCarPlayDraft { it.copy(interfaceName = value) } }
-            CarPlayField("Exact local address (optional)", draft.localAddress, !saving) { value ->
-                viewModel.updateCarPlayDraft { it.copy(localAddress = value) }
+            SettingsGroup {
+                CarPlayField("Exact local address (optional)", draft.localAddress, !saving) { value ->
+                    viewModel.updateCarPlayDraft { it.copy(localAddress = value) }
+                }
+                SettingsHelp("Leave local address empty to use this interface's address. OAL checks IPv6 scope automatically.")
             }
-            SettingsHelp("Leave local address empty to use this interface's address. OAL checks IPv6 scope automatically.")
+
             if (!draft.sharedWifiOverride) {
                 CarPlayField("Existing AP frequency (MHz)", draft.apFrequencyMhz.toString(), !saving) { value ->
                     viewModel.updateCarPlayDraft { it.copy(apFrequencyMhz = value.toIntOrNull() ?: 0) }
                 }
                 Text("AP security", style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("wpa2" to "WPA2", "wpa3" to "WPA3").forEach { (security, label) ->
                         FilterChip(selected = draft.apSecurity == security, enabled = !saving,
                             onClick = { viewModel.updateCarPlayDraft { it.copy(apSecurity = security) } },
                             label = { Text(label) }, modifier = Modifier.testTag("carPlayApSecurity_$security"))
                     }
                 }
-                Text("Match the actual car AP frequency and security; these CarPlay overrides never change Android Auto WPP settings.", style = MaterialTheme.typography.bodySmall)
+                Text("Match the actual car AP frequency and security; these CarPlay overrides never change Android Auto WPP settings.", style = MaterialTheme.typography.bodyMedium)
             } else {
-                Text("Shared Wi-Fi uses the connected network's actual frequency and security; saved car AP overrides are retained.", style = MaterialTheme.typography.bodySmall)
+                Text("Shared Wi-Fi uses the connected network's actual frequency and security; saved car AP overrides are retained.", style = MaterialTheme.typography.bodyMedium)
             }
             CarPlayField("Actual Wi-Fi SSID", draft.ssid, !saving) { value -> viewModel.updateCarPlayDraft { it.copy(ssid = value) } }
             OutlinedTextField(value = password ?: "", onValueChange = { password = it; viewModel.updateCarPlayPassword(it) }, enabled = !saving,
@@ -268,17 +297,20 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
             if (passwordSaved) TextButton(onClick = { password = ""; viewModel.updateCarPlayPassword("") }, enabled = !saving) { Text("Clear saved passphrase on Save changes") }
         }
         // One existing saved value applies to both CarPlay transports, not Android Auto.
-        CarPlayField("Head unit Bluetooth MAC (USB and wireless)", draft.receiverAddress, !saving) { value ->
-            viewModel.updateCarPlayDraft { it.copy(receiverAddress = value) }
+        SettingsGroup {
+            CarPlayField("Head unit Bluetooth MAC (USB and wireless)", draft.receiverAddress, !saving) { value ->
+                viewModel.updateCarPlayDraft { it.copy(receiverAddress = value) }
+            }
+            Text(if (draft.connectionMode == "usb")
+                "Optional for USB. Leave empty to preserve existing USB behavior. Bluetooth association effects are unverified."
+                else "Required for wireless CarPlay.", style = MaterialTheme.typography.bodyMedium)
+            SettingsHelp("On GM, open the car's Settings app → System → About, then scroll to Bluetooth address. Enter that address, not the phone address or Wi-Fi BSSID. Android's 02:00:00:00:00:00 placeholder cannot be used.")
+            Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodyMedium)
         }
-        Text(if (draft.connectionMode == "usb")
-            "Optional for USB. Leave empty to preserve existing USB behavior. Bluetooth association effects are unverified."
-            else "Required for wireless CarPlay.", style = MaterialTheme.typography.bodySmall)
-        SettingsHelp("On GM, open the car's Settings app → System → About, then scroll to Bluetooth address. Enter that address, not the phone address or Wi-Fi BSSID. Android's 02:00:00:00:00:00 placeholder cannot be used.")
-        Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
+
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Text("Android Auto settings below apply only to Android phones.", style = MaterialTheme.typography.bodySmall)
+        Text("Android Auto settings below apply only to Android phones.", style = MaterialTheme.typography.bodyMedium)
     }
     if (setupHelp) {
         OalAlertDialog(onDismissRequest = {
@@ -334,23 +366,29 @@ fun CarPlayDisplaySettingsSection(
     val showExactCalibration = exactCalibrationExpanded || calibrationError
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader("CarPlay")
-        Text("CarPlay safe area", style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(onClick = onNavigateToCarPlaySafeAreaEditor, enabled = !saving,
-            modifier = Modifier.testTag("carPlaySafeAreaEditor")) { Text("Calibrate safe controls") }
-        Text("Background can extend to the edges; controls stay inside your manual safe rectangle. No automatic curve detection.",
-            style = MaterialTheme.typography.bodySmall)
-        Text("Safe edges: T ${settings.safeTop / 100.0}% · B ${settings.safeBottom / 100.0}% · L ${settings.safeLeft / 100.0}% · R ${settings.safeRight / 100.0}%",
-            style = MaterialTheme.typography.bodySmall)
-        Text("CarPlay status bar", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("automatic" to "Automatic", "bottom" to "Bottom", "driver_side" to "Driver side").forEach { (id, label) ->
-                FilterChip(selected = settings.dockPosition == id, enabled = loaded && !saving,
-                    onClick = { viewModel.updateCarPlayDraft { it.copy(dockPosition = id) } },
-                    label = { Text(label) }, modifier = Modifier.testTag("carPlayDock_$id"))
-            }
+        SettingsGroup {
+            Text("CarPlay safe area", style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick = onNavigateToCarPlaySafeAreaEditor, enabled = !saving,
+                modifier = Modifier.testTag("carPlaySafeAreaEditor")) { Text("Calibrate safe controls") }
+            Text("Background can extend to the edges; controls stay inside your manual safe rectangle. No automatic curve detection.",
+                style = MaterialTheme.typography.bodyMedium)
+            Text("Safe edges: T ${settings.safeTop / 100.0}% · B ${settings.safeBottom / 100.0}% · L ${settings.safeLeft / 100.0}% · R ${settings.safeRight / 100.0}%",
+                style = MaterialTheme.typography.bodyMedium)
         }
-        Text("Applies on the next CarPlay connection; does not change icon or text size.",
-            style = MaterialTheme.typography.bodySmall)
+
+        SettingsGroup {
+            Text("CarPlay status bar", style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("automatic" to "Automatic", "bottom" to "Bottom", "driver_side" to "Driver side").forEach { (id, label) ->
+                    FilterChip(selected = settings.dockPosition == id, enabled = loaded && !saving,
+                        onClick = { viewModel.updateCarPlayDraft { it.copy(dockPosition = id) } },
+                        label = { Text(label) }, modifier = Modifier.testTag("carPlayDock_$id"))
+                }
+            }
+            Text("Applies on the next CarPlay connection; does not change icon or text size.",
+                style = MaterialTheme.typography.bodyMedium)
+        }
+
         Text("CarPlay UI scale", style = MaterialTheme.typography.titleMedium)
         Text("Last frozen offer", style = MaterialTheme.typography.labelLarge)
         val lastOffer = offer
@@ -364,64 +402,73 @@ fun CarPlayDisplaySettingsSection(
             "$phase · $basis · reference ${lastOffer.referenceWidthMm} → offered ${lastOffer.effectiveWidthMm}×${lastOffer.effectiveHeightMm} mm"
         }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayLastOffer"))
         Text("Next session · ${if (settings.autoScale) "Auto" else "Manual"} · reference ${settings.widthPhysicalMm} mm (draft)",
-            style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("carPlayPendingScale"))
+            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("carPlayPendingScale"))
         SettingsHelp("Offers describe the local runtime, not confirmed phone-visible size. Hardware estimate is not a measured panel. When Auto metrics are unavailable or untrusted, Auto uses reference calibration and viewport fit, not a real-panel measurement. Draft changes do not change the last frozen offer.")
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Auto sizing", Modifier.weight(1f))
-            Switch(checked = settings.autoScale, enabled = !saving && loaded,
+        SettingsGroup {
+            SettingsToggleRow(label = "Auto sizing",
+                checked = settings.autoScale,
                 onCheckedChange = { automatic ->
-                    viewModel.updateCarPlayDraft { it.copy(autoScale = automatic) }
-                }, modifier = Modifier.testTag("carPlayAutoScale"))
+                        viewModel.updateCarPlayDraft { it.copy(autoScale = automatic) }
+                    },
+                enabled = !saving && loaded,
+                controlModifier = Modifier.testTag("carPlayAutoScale"),
+            ) {
+                Text("Auto sizing")
+            }
+            Text("Auto uses the next session's viewport. Turn off for manual UI size.", style = MaterialTheme.typography.bodyMedium)
         }
-        Text("Auto uses the next session's viewport. Turn off for manual UI size.", style = MaterialTheme.typography.bodySmall)
-        Text("Manual UI size", style = MaterialTheme.typography.titleMedium)
-        // Follow AA DPI's local drag + finished draft update; larger UI is to the right.
-        Slider(
-            value = (500 - sliderWidthMm).toFloat(),
-            onValueChange = { sliderWidthMm = 500 - it.toInt() },
-            onValueChangeFinished = {
-                viewModel.updateCarPlayDraft { it.copy(widthPhysicalMm = sliderWidthMm).copy(physicalWidthDraft = null) }
-            },
-            valueRange = 100f..400f,
-            steps = 0,
-            enabled = !saving && !settings.autoScale && loaded,
-            modifier = Modifier.fillMaxWidth(0.7f).testTag("carPlayUiScale"),
-        )
-        Row(Modifier.fillMaxWidth(0.7f), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Smaller UI", style = MaterialTheme.typography.bodySmall)
-            Text("Larger UI", style = MaterialTheme.typography.bodySmall)
-        }
-        Text("Larger UI shows less content; smaller UI shows more.", style = MaterialTheme.typography.bodySmall)
-        TextButton(onClick = { exactCalibrationExpanded = !showExactCalibration }, enabled = !calibrationError) {
-            Text(if (showExactCalibration) "Hide exact calibration" else "Show exact calibration")
-        }
-        // Invalid text must stay visible while it blocks the existing global Save.
-        if (showExactCalibration) {
-            OutlinedTextField(
-                value = settings.physicalWidthDraft ?: settings.widthPhysicalMm.toString(),
-                onValueChange = { value -> viewModel.updateCarPlayDraft { current ->
-                    val width = value.toIntOrNull()?.takeIf {
-                        it in CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM && it.toString() == value
-                    }
-                    current.copy(widthPhysicalMm = width ?: current.widthPhysicalMm, physicalWidthDraft = value)
-                } },
+
+        SettingsGroup {
+            Text("Manual UI size", style = MaterialTheme.typography.titleMedium)
+            // Follow AA DPI's local drag + finished draft update; larger UI is to the right.
+            Slider(
+                value = (500 - sliderWidthMm).toFloat(),
+                onValueChange = { sliderWidthMm = 500 - it.toInt() },
+                onValueChangeFinished = {
+                    viewModel.updateCarPlayDraft { it.copy(widthPhysicalMm = sliderWidthMm).copy(physicalWidthDraft = null) }
+                },
+                valueRange = 100f..400f,
+                steps = 0,
                 enabled = !saving && !settings.autoScale && loaded,
-                label = { Text("UI calibration (mm)") },
-                supportingText = { Text(if (calibrationError) "Enter a whole number from 100 to 400."
-                    else "100–400 · next connection") },
-                isError = calibrationError,
-                singleLine = true,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(0.7f).testTag("carPlayPhysicalWidth"),
+                modifier = Modifier.fillMaxWidth().testTag("carPlayUiScale"),
             )
-            Text("Calibration: physical width $sliderWidthMm mm. Smaller physical width makes the UI larger. Auto estimates width from the viewport; this is CarPlay metadata, not Android Auto DPI.",
-                style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Smaller UI", style = MaterialTheme.typography.bodyMedium)
+                Text("Larger UI", style = MaterialTheme.typography.bodyMedium)
+            }
+            Text("Larger UI shows less content; smaller UI shows more.", style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = { exactCalibrationExpanded = !showExactCalibration }, enabled = !calibrationError) {
+                Text(if (showExactCalibration) "Hide exact calibration" else "Show exact calibration")
+            }
+            // Invalid text must stay visible while it blocks the existing global Save.
+            if (showExactCalibration) {
+                OutlinedTextField(
+                    value = settings.physicalWidthDraft ?: settings.widthPhysicalMm.toString(),
+                    onValueChange = { value -> viewModel.updateCarPlayDraft { current ->
+                        val width = value.toIntOrNull()?.takeIf {
+                            it in CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM && it.toString() == value
+                        }
+                        current.copy(widthPhysicalMm = width ?: current.widthPhysicalMm, physicalWidthDraft = value)
+                    } },
+                    enabled = !saving && !settings.autoScale && loaded,
+                    label = { Text("UI calibration (mm)") },
+                    supportingText = { Text(if (calibrationError) "Enter a whole number from 100 to 400."
+                        else "100–400 · next connection") },
+                    isError = calibrationError,
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth().testTag("carPlayPhysicalWidth"),
+                )
+                Text("Calibration: physical width $sliderWidthMm mm. Smaller physical width makes the UI larger. Auto estimates width from the viewport; this is CarPlay metadata, not Android Auto DPI.",
+                    style = MaterialTheme.typography.bodyMedium)
+            }
         }
-        Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
+
+        Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodyMedium)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider()
-        Text("Android Auto settings below apply only to Android phones.", style = MaterialTheme.typography.bodySmall)
+        Text("Android Auto settings below apply only to Android phones.", style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -450,24 +497,32 @@ fun CarPlayVideoSettingsSection(viewModel: SettingsViewModel) {
     Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader("CarPlay")
         Text("Resolution / detail", style = MaterialTheme.typography.titleMedium)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Fit to window (standard detail tiers)", Modifier.weight(1f))
-            Switch(checked = draft.windowDetail, enabled = !saving && !draft.autoResolution &&
-                draft.resolution in setOf("720p", "1080p", "1440p", "4k"),
+        SettingsGroup {
+            SettingsToggleRow(label = "Fit to window (standard detail tiers)",
+                checked = draft.windowDetail,
                 onCheckedChange = { fit -> viewModel.updateCarPlayDraft { it.copy(fitToWindow = fit) } },
-                modifier = Modifier.testTag("carPlayFitToWindow"))
+                enabled = !saving && !draft.autoResolution &&
+                    draft.resolution in setOf("720p", "1080p", "1440p", "4k"),
+                controlModifier = Modifier.testTag("carPlayFitToWindow"),
+            ) {
+                Text("Fit to window (standard detail tiers)")
+            }
+            SettingsHelp("With Fit to window, 720p/1080p/1440p/4K select encoded detail at the measured available window aspect in either display mode. Off preserves exact preset geometry and aspect-fits it. Custom and geometry-named presets always remain exact; saved values are never changed by this switch.")
         }
-        SettingsHelp("With Fit to window, 720p/1080p/1440p/4K select encoded detail at the measured available window aspect in either display mode. Off preserves exact preset geometry and aspect-fits it. Custom and geometry-named presets always remain exact; saved values are never changed by this switch.")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(true to "Automatic", false to "Manual").forEach { (automatic, label) ->
-                OutlinedButton(enabled = !saving, onClick = {
-                    viewModel.updateCarPlayDraft { it.copy(autoResolution = automatic) }
-                }, modifier = Modifier.testTag("carPlayResolutionPolicy_$automatic")) {
-                    Text(if (draft.autoResolution == automatic) "$label ✓" else label)
+
+        SettingsGroup {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(true to "Automatic", false to "Manual").forEach { (automatic, label) ->
+                    OutlinedButton(enabled = !saving, onClick = {
+                        viewModel.updateCarPlayDraft { it.copy(autoResolution = automatic) }
+                    }, modifier = Modifier.testTag("carPlayResolutionPolicy_$automatic")) {
+                        Text(if (draft.autoResolution == automatic) "$label ✓" else label)
+                    }
                 }
             }
+            SettingsHelp("Automatic selects one exact decoder-qualified 1440p-class geometry at the measured display aspect, with bounded lower-detail and safe 720p30 fallback. It does not ask iPhone to choose a resolution or add another screen. Manual values are retained.")
         }
-        SettingsHelp("Automatic selects one exact decoder-qualified 1440p-class geometry at the measured display aspect, with bounded lower-detail and safe 720p30 fallback. It does not ask iPhone to choose a resolution or add another screen. Manual values are retained.")
+
         Column {
             OutlinedButton(onClick = { resolutionMenu = true }, enabled = !saving && !draft.autoResolution,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("carPlayResolutionMenu")) {
@@ -509,47 +564,53 @@ fun CarPlayVideoSettingsSection(viewModel: SettingsViewModel) {
                 isError = videoError != null, singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("carPlayCustomHeight"))
             Text("Positive even dimensions; the exact size and rate must qualify on this decoder.",
-                style = MaterialTheme.typography.bodySmall)
+                style = MaterialTheme.typography.bodyMedium)
         }
-        Text("Maximum FPS", style = MaterialTheme.typography.titleMedium)
-        Column {
-            OutlinedButton(onClick = { fpsMenu = true }, enabled = !saving && request != null,
-                modifier = Modifier.testTag("carPlayFps")) { Text("Common / saved rates") }
-            DropdownMenu(expanded = fpsMenu, onDismissRequest = { fpsMenu = false }) {
-                CarPlayDisplayPreferences.QUICK_FRAME_RATES.filter { fps ->
-                    request != null && (draft.usesWindowGeometry || CarPlayDisplayPolicy.isQualified(request.copy(fps = fps), probe))
-                }.forEach { fps ->
-                    DropdownMenuItem(text = { Text("$fps maximum FPS") }, onClick = {
-                        viewModel.updateCarPlayDraft { it.copy(fps = fps, fpsDraft = null) }; fpsMenu = false
-                    })
+        SettingsGroup {
+            Text("Maximum FPS", style = MaterialTheme.typography.titleMedium)
+            Column {
+                OutlinedButton(onClick = { fpsMenu = true }, enabled = !saving && request != null,
+                    modifier = Modifier.testTag("carPlayFps")) { Text("Common / saved rates") }
+                DropdownMenu(expanded = fpsMenu, onDismissRequest = { fpsMenu = false }) {
+                    CarPlayDisplayPreferences.QUICK_FRAME_RATES.filter { fps ->
+                        request != null && (draft.usesWindowGeometry || CarPlayDisplayPolicy.isQualified(request.copy(fps = fps), probe))
+                    }.forEach { fps ->
+                        DropdownMenuItem(text = { Text("$fps maximum FPS") }, onClick = {
+                            viewModel.updateCarPlayDraft { it.copy(fps = fps, fpsDraft = null) }; fpsMenu = false
+                        })
+                    }
                 }
             }
+            OutlinedTextField(value = draft.fpsDraft ?: draft.fps.toString(),
+                onValueChange = { value -> viewModel.updateCarPlayDraft {
+                    it.copy(fps = value.toIntOrNull() ?: 0, fpsDraft = value)
+                } }, enabled = !saving, label = { Text("Custom maximum FPS (1–60)") },
+                isError = videoError != null, singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("carPlayCustomFps"))
+            SettingsHelp("Maximum FPS is a cap, not a constant achieved rate. 30 and 60 are common choices; 1–60 is the current product range, not a protocol limit. Local decoder support does not verify iPhone acceptance.")
         }
-        OutlinedTextField(value = draft.fpsDraft ?: draft.fps.toString(),
-            onValueChange = { value -> viewModel.updateCarPlayDraft {
-                it.copy(fps = value.toIntOrNull() ?: 0, fpsDraft = value)
-            } }, enabled = !saving, label = { Text("Custom maximum FPS (1–60)") },
-            isError = videoError != null, singleLine = true,
-            modifier = Modifier.fillMaxWidth().testTag("carPlayCustomFps"))
-        Text("Codec", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("h264" to "H.264", "hevc" to "Automatic (H.264 + qualified HEVC)").forEach { (id, label) ->
-                OutlinedButton(enabled = !saving, onClick = {
-                    viewModel.updateCarPlayDraft { it.copy(videoCodec = id) }
-                }, modifier = Modifier.testTag("carPlayCodec_$id")) {
-                    Text(if (draft.videoCodec == id) "$label ✓" else label)
+
+        SettingsGroup {
+            Text("Codec", style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("h264" to "H.264", "hevc" to "Automatic (H.264 + qualified HEVC)").forEach { (id, label) ->
+                    OutlinedButton(enabled = !saving, onClick = {
+                        viewModel.updateCarPlayDraft { it.copy(videoCodec = id) }
+                    }, modifier = Modifier.testTag("carPlayCodec_$id")) {
+                        Text(if (draft.videoCodec == id) "$label ✓" else label)
+                    }
                 }
             }
+            SettingsHelp("Automatic codec always retains H.264 and offers HEVC only when the same exact size, rate and profile qualify. Automatic is the default for new settings; saved H.264 choices are preserved. HEVC has been verified on one phone/display after a negotiation correction, not on every device. If connection fails, select H.264, save changes, then reconnect your phone. Local qualification is not phone acceptance; no automatic retry is performed.")
         }
-        SettingsHelp("Automatic codec always retains H.264 and offers HEVC only when the same exact size, rate and profile qualify. Automatic is the default for new settings; saved H.264 choices are preserved. HEVC has been verified on one phone/display after a negotiation correction, not on every device. If connection fails, select H.264, save changes, then reconnect your phone. Local qualification is not phone acceptance; no automatic retry is performed.")
+
         if (videoError != null) Text(videoError, color = MaterialTheme.colorScheme.error)
         else if (!draft.usesWindowGeometry && !supportedProfile) Text("This exact size and maximum FPS are not supported by the local decoder.",
-            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        SettingsHelp("Maximum FPS is a cap, not a constant achieved rate. 30 and 60 are common choices; 1–60 is the current product range, not a protocol limit. Local decoder support does not verify iPhone acceptance.")
-        Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodySmall)
+            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        Text("Save changes, then reconnect your phone.", style = MaterialTheme.typography.bodyMedium)
         if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider()
-        Text("Android Auto settings below apply only to Android phones.", style = MaterialTheme.typography.bodySmall)
+        Text("Android Auto settings below apply only to Android phones.", style = MaterialTheme.typography.bodyMedium)
     }
 }
 @Composable

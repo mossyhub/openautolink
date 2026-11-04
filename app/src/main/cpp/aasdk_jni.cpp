@@ -49,6 +49,25 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
 
 extern "C" {
 
+JNIEXPORT void JNICALL
+Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeRetireSecondaryVideo(
+    JNIEnv*, jclass, jint channelId, jlong expectedGeneration)
+{
+    std::shared_ptr<openautolink::jni::JniSession> session;
+    {
+        std::lock_guard<std::mutex> lock(gSessionMutex);
+        if(gSessionAdmissionClosed || expectedGeneration<=0 || gSessionGeneration.load()!=expectedGeneration)return;
+        session=std::atomic_load(&gSession);
+    }
+    // The queued registry predicate must not retain an owner on stopped IO either.
+    if(session)session->retireSecondaryVideo(channelId,expectedGeneration,[weakSession=std::weak_ptr<openautolink::jni::JniSession>(session),expectedGeneration]{
+        const auto session=weakSession.lock();
+        if(!session)return false;
+        std::lock_guard<std::mutex> lock(gSessionMutex);
+        return !gSessionAdmissionClosed && gSessionGeneration.load()==expectedGeneration && std::atomic_load(&gSession)==session;
+    });
+}
+
 /*
  * Class:     com_openautolink_app_transport_aasdk_AasdkNative
  * Method:    nativeInstallCrashHandler
@@ -97,6 +116,7 @@ Java_com_openautolink_app_transport_aasdk_AasdkNative_nativeCreateSession(
             gSessionCreating = false;
             gSessionAdmissionClosed = false;
             const jlong generation = gSessionGeneration.fetch_add(1) + 1;
+            replacement->setNativeGeneration(generation);
             return generation;
         }
     } catch (...) {

@@ -60,7 +60,10 @@ object NativeCallDiagnostics {
             true
         } catch (_: RejectedExecutionException) { persisted = false; false }
     }
-    fun flush(timeoutMs: Long = 2000): Boolean = try {
-        worker.submit {}.get(timeoutMs, TimeUnit.MILLISECONDS); true
-    } catch (_: Exception) { false }
+    private val flushBarrier = NativeCallFlushBarrier(worker) { snapshot ->
+        val line = snapshot.toLogLine()
+        if (snapshot.outcome == NativeCallFlushOutcome.COMPLETE) android.util.Log.i("OALNativeCall", line)
+        else android.util.Log.w("OALNativeCall", line)
+    }
+    fun flush(timeoutMs: Long = 2000): Boolean = flushBarrier.flush(timeoutMs)
 }

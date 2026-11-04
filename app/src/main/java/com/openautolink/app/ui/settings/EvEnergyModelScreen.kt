@@ -1,9 +1,12 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.openautolink.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -104,30 +107,30 @@ fun EvEnergyModelTab(
             Spacer(Modifier.height(16.dp))
             LiveReadoutCard(readout, state.tuningEnabled)
             Spacer(Modifier.height(8.dp))
-            Card(modifier = Modifier.fillMaxWidth(0.85f)) {
-                Column(modifier = Modifier.padding(16.dp)) {
+            SettingsGroup {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Safety and shadow status", fontWeight = FontWeight.SemiBold)
-                    Text("Selected: ${state.drivingMode}", style = MaterialTheme.typography.bodySmall)
-                    Text("Effective on Maps wire: existing unlearned model", style = MaterialTheme.typography.bodySmall)
+                    Text("Selected: ${state.drivingMode}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Effective on Maps wire: existing unlearned model", style = MaterialTheme.typography.bodyMedium)
                     Text(
                         "Safety hold: learned, manual, multiplier, and profile values are not sent while the external contract is unvalidated.",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
                         "Shadow learner: always observing valid consumption samples (${learned.lastTickStatus.ifBlank { "awaiting data" }}); navigation is not required.",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                 }
             }
 
             Spacer(Modifier.height(24.dp))
-            HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+            HorizontalDivider(modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(16.dp))
 
             TuningControls(state, viewModel, enabled = state.tuningEnabled, learned = learned)
 
             Spacer(Modifier.height(24.dp))
-            HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+            HorizontalDivider(modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(16.dp))
             ProfilesDatabaseCard(
                 lastUpdateMs = state.profilesLastUpdateMs,
@@ -137,7 +140,7 @@ fun EvEnergyModelTab(
             )
 
             Spacer(Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(
                     onClick = viewModel::sendNow,
                     modifier = Modifier.testTag("evSendNow"),
@@ -167,11 +170,8 @@ fun EvEnergyModelTab(
 
 @Composable
 private fun ExplanationCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(0.85f),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    SettingsGroup {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 text = "What this does",
                 style = MaterialTheme.typography.titleMedium,
@@ -197,11 +197,8 @@ private fun ExplanationCard() {
 
 @Composable
 private fun MasterToggleRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(0.85f),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
+    SettingsToggleRow(if (enabled) "Customize" else "Use default calculation", enabled, onToggle,
+        controlModifier = Modifier.testTag("evMasterToggle")) {
             Text(
                 text = if (enabled) "Customize" else "Use default calculation",
                 style = MaterialTheme.typography.titleMedium,
@@ -212,25 +209,17 @@ private fun MasterToggleRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
                     "Sliders below override the default model."
                 else
                     "Driving rate is derived from the dashboard's range estimate.",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        Switch(
-            checked = enabled,
-            onCheckedChange = onToggle,
-            modifier = Modifier.testTag("evMasterToggle"),
-        )
-    }
+            }
+
 }
 
 @Composable
 private fun LiveReadoutCard(r: EvEnergyModelViewModel.LiveReadout, tuningEnabled: Boolean) {
-    Card(
-        modifier = Modifier.fillMaxWidth(0.85f),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    SettingsGroup {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 text = "Live readout",
                 style = MaterialTheme.typography.titleMedium,
@@ -241,7 +230,7 @@ private fun LiveReadoutCard(r: EvEnergyModelViewModel.LiveReadout, tuningEnabled
                 Text(
                     text = "Waiting for vehicle data… connect a phone and start the car. " +
                         "Non-EV vehicles never populate this card.",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 return@Column
@@ -261,8 +250,8 @@ private fun LiveReadoutCard(r: EvEnergyModelViewModel.LiveReadout, tuningEnabled
 
 @Composable
 private fun ReadoutRow(label: String, value: String, emphasized: Boolean = false) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
@@ -281,11 +270,11 @@ private fun TuningControls(
     learned: com.openautolink.app.data.EvLearnedRateEstimator.Snapshot,
 ) {
     val alpha = if (enabled) 1f else 0.4f
-    Column(modifier = Modifier.fillMaxWidth(0.85f)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         SectionTitle("Driving consumption", alpha)
         Spacer(Modifier.height(8.dp))
 
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val modes = listOf(
                 AppPreferences.EV_DRIVING_MODE_DERIVED to "Derived",
                 AppPreferences.EV_DRIVING_MODE_MULTIPLIER to "Multiplier",
@@ -293,12 +282,12 @@ private fun TuningControls(
                 AppPreferences.EV_DRIVING_MODE_LEARNED to "Learned",
             )
             modes.forEachIndexed { i, (mode, label) ->
-                SegmentedButton(
+                androidx.compose.material3.FilterChip(
                     selected = state.drivingMode == mode,
                     onClick = { if (enabled) vm.setDrivingMode(mode) },
-                    shape = SegmentedButtonDefaults.itemShape(index = i, count = modes.size),
                     enabled = enabled,
-                ) { Text(label) }
+                    label = { Text(label) },
+                )
             }
         }
 
@@ -330,7 +319,7 @@ private fun TuningControls(
             )
             else -> Text(
                 text = "Driving rate = (current Wh ÷ remaining range) × 1000.",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -393,7 +382,7 @@ private fun SectionTitle(text: String, alpha: Float) {
         text = text,
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+        color = MaterialTheme.colorScheme.onSurface,
     )
 }
 
@@ -413,7 +402,7 @@ private fun SliderRow(
                 text = label,
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f),
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 text = format(value),
@@ -439,15 +428,8 @@ private fun DetectedVehicleCard(
     onApply: () -> Unit,
 ) {
     val title = if (match.matched) "Detected vehicle (matched)" else "Detected vehicle"
-    Card(
-        modifier = Modifier.fillMaxWidth(0.85f),
-        colors = CardDefaults.cardColors(
-            containerColor = if (match.matched)
-                MaterialTheme.colorScheme.secondaryContainer
-            else MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    SettingsGroup {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             val identity = listOfNotNull(match.carMake, match.carModel, match.carYear)
@@ -458,7 +440,7 @@ private fun DetectedVehicleCard(
                 if (!match.displayName.isNullOrBlank() && match.displayName != "${match.carMake} ${match.carModel} ${match.carYear}") {
                     Text(
                         "= ${match.displayName}",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -474,7 +456,7 @@ private fun DetectedVehicleCard(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Not in the bundled profile database. You can still tune manually below.",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -492,11 +474,13 @@ private fun EpaBaselineRow(
     // Sub-toggle is only meaningful when master tuning is OFF and a profile
     // matched. Otherwise show it disabled with explanatory text.
     val effectivelyActionable = !masterEnabled && hasMatch
-    Row(
-        modifier = Modifier.fillMaxWidth(0.85f),
-        verticalAlignment = Alignment.CenterVertically,
+    SettingsToggleRow(
+        label = "Use EPA values as baseline",
+        checked = useEpa,
+        onCheckedChange = onToggle,
+        enabled = effectivelyActionable,
+        controlModifier = Modifier.testTag("evUseEpaBaseline"),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
             Text(
                 "Use EPA values as baseline",
                 style = MaterialTheme.typography.titleSmall,
@@ -516,16 +500,10 @@ private fun EpaBaselineRow(
                     else ->
                         "Maps will use the dashboard's range-derived Wh/km (default)."
                 },
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        Switch(
-            checked = useEpa,
-            onCheckedChange = onToggle,
-            enabled = effectivelyActionable,
-            modifier = Modifier.testTag("evUseEpaBaseline"),
-        )
+
     }
 }
 
@@ -535,15 +513,8 @@ private fun LearnedStatusCard(
     enabled: Boolean,
     onReset: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (learned.usable)
-                MaterialTheme.colorScheme.secondaryContainer
-            else MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    SettingsGroup {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 text = "Learned rate",
                 style = MaterialTheme.typography.titleSmall,
@@ -560,7 +531,7 @@ private fun LearnedStatusCard(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Confidence: %.1f km of valid samples".format(learned.sampleKm),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
@@ -610,11 +581,8 @@ private fun ProfilesDatabaseCard(
     refreshing: Boolean,
     onRefresh: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(0.85f),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    SettingsGroup {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 "EV profile database",
                 style = MaterialTheme.typography.titleMedium,
@@ -624,7 +592,7 @@ private fun ProfilesDatabaseCard(
             Text(
                 "Driving Wh/km and DCFC kW per make/model/year. Bundled with the app " +
                     "and updated only when you tap Refresh.",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(8.dp))

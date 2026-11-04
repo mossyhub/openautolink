@@ -78,14 +78,12 @@ class CarPlayCaptureProductionIntegrationTest {
             .invoke(null,context,notify) as (CaptureTerminalSummary)->Boolean
     }
     private fun receiver(context:Context,status:(String)->Unit,sink:((CaptureTerminalSummary)->Boolean)?=null):ProjectionReceiver {
-        val ctor=ProjectionReceiver::class.java.declaredConstructors.singleOrNull {
-            !it.isSynthetic && it.parameterCount==14 && it.parameterTypes[12]==kotlin.jvm.functions.Function0::class.java
-        }
-        assertNotNull("Production receiver must accept a typed durable terminal sink and explicit managed admission",ctor)
         val surface=mockk<Surface>();every {surface.isValid} returns true
-        return ctor!!.newInstance(context,"02:00:00:00:00:01",surface,mockk<MfiAuthenticator>(relaxed=true),
+        return ProjectionReceiver(context,"02:00:00:00:00:01",surface,mockk<MfiAuthenticator>(relaxed=true),
             CarPlayDisplayPreferences(qualifiedVideoSelection=CarPlayVideoSelection(1280,720,30,"test.avc")),
-            false,null,null,true,false,sink,null,{true},status) as ProjectionReceiver
+            trustedOnly=false, runtimeCarDataFactory=null, runtimeMetadataFactory=null,
+            wired=true, drivingRestrictions=false, onCaptureTerminal=sink,
+            advertisedBluetoothAddress=null, captureAdmission={true}, onStatus=status)
     }
     private fun logs(context:Context)=File(context.getExternalFilesDir(null),"openautolink/logs").apply {mkdirs()}
     private fun terminals(context:Context)=logs(context).listFiles().orEmpty().filter {it.name.startsWith("carplay_capture_run_")}

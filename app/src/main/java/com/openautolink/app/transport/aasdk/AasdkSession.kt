@@ -76,6 +76,33 @@ class AasdkSession(
 
     // -- Output flows (consumed by SessionManager) --
 
+    private val clusterVideo = AasdkClusterVideoStream()
+    private val secondaryVideo = AasdkSecondaryVideoStreams()
+    @Volatile var lastProtocolPongAtMs = 0L
+        private set
+    @Volatile var lastPrimaryPictureAtMs = 0L
+        private set
+    private data class NativeOutputOwner(val generation: Long, val owner: String, val legacyOwner: String)
+    @Volatile private var secondaryNativeOwner: NativeOutputOwner? = null
+    val secondaryVideoSelections: StateFlow<Map<Int, AasdkSecondaryVideoSelection>> = secondaryVideo.selections
+    val secondaryVideoFrames: Flow<AasdkSecondaryVideoFrame> = secondaryVideo.frames
+    fun isCurrentSecondaryVideo(frame: AasdkSecondaryVideoFrame) = secondaryVideo.isCurrent(frame)
+    fun retireSecondaryVideo(channelId: Int) {
+        val authority = secondaryNativeOwner ?: return
+        val (generation, owner) = authority
+        secondaryVideo.retire(channelId, expectedOwner = owner)
+        if (channelId == 3) clusterVideo.retire(authority.legacyOwner)
+        if (generation > 0) AasdkNative.nativeRetireSecondaryVideo(channelId, generation)
+    }
+    val clusterVideoSelection: StateFlow<AasdkClusterVideoSelection?> = clusterVideo.selection
+    val clusterVideoFrames: Flow<AasdkClusterVideoFrame> = clusterVideo.frames
+
+    /** Recheck after every consumer queue, immediately before decoder admission. */
+    fun isCurrentClusterVideo(frame: AasdkClusterVideoFrame): Boolean = clusterVideo.isCurrent(frame)
+
+    /** Local optional-output retirement only; never stops/reconnects the AA session. */
+    fun retireClusterVideo() = retireSecondaryVideo(3)
+
     @Volatile var evTelemetryToken: String = java.util.UUID.randomUUID().toString()
         private set
     private val evReceiptLock = Any()
@@ -91,10 +118,14 @@ class AasdkSession(
         get() = synchronized(evReceiptLock) { selectedVideoGeometry?.let { it.width to it.height } }
     internal val selectedTouchGeometry: SelectedTouchGeometry?
         get() = synchronized(evReceiptLock) { selectedVideoGeometry }
-    fun beginEvTelemetryGeneration() = synchronized(evReceiptLock) {
-        evTelemetryToken = java.util.UUID.randomUUID().toString()
-        selectedVideoGeometry = null
-        videoGeometryEpoch++
+    fun beginEvTelemetryGeneration() {
+        secondaryVideo.retire()
+        clusterVideo.retire()
+        synchronized(evReceiptLock) {
+            evTelemetryToken = java.util.UUID.randomUUID().toString()
+            selectedVideoGeometry = null
+            videoGeometryEpoch++
+        }
     }
     private fun resetSelectedVideoGeometry() = synchronized(evReceiptLock) {
         selectedVideoGeometry = null
@@ -103,7 +134,44 @@ class AasdkSession(
     private fun telemetryCallback(): AasdkSessionCallback {
         val owner = evTelemetryToken
         val geometryEpoch = synchronized(evReceiptLock) { videoGeometryEpoch }
+        lastProtocolPongAtMs = 0L
+        lastPrimaryPictureAtMs = 0L
+        val frozenOffers = sdrConfig.frozenSecondaryOffers()
+        val clusterOwner = clusterVideo.begin(sdrConfig.clusterOffer?.takeIf { frozenOffers.any { offer -> offer.channelId == 3 } })
+        secondaryVideo.configure(frozenOffers)
+        val secondaryOwner = secondaryVideo.begin()
+        secondaryNativeOwner = NativeOutputOwner(nativeSessionGeneration.get(), secondaryOwner, clusterOwner)
         return object : AasdkSessionCallback by this {
+            override fun onVideoFrame(data: ByteArray, timestampUs: Long, width: Int, height: Int, flags: Int) {
+                synchronized(evReceiptLock) {
+                    if (owner == evTelemetryToken && geometryEpoch == videoGeometryEpoch) {
+                        this@AasdkSession.onVideoFrame(data, timestampUs, width, height, flags)
+                    }
+                }
+            }
+            override fun onProtocolPong() {
+                synchronized(evReceiptLock) {
+                    if (owner == evTelemetryToken && geometryEpoch == videoGeometryEpoch) {
+                        this@AasdkSession.onProtocolPong()
+                    }
+                }
+            }
+            override fun onSecondaryVideoState(channelId: Int, streamEpoch: Long, codecType: Int, configurationIndex: Int, mediaSessionId: Int, active: Boolean) {
+                secondaryVideo.onState(secondaryOwner, channelId, streamEpoch, codecType, configurationIndex, mediaSessionId, active)
+                if (channelId == 3) clusterVideo.onState(clusterOwner, streamEpoch, codecType, configurationIndex, mediaSessionId, active)
+            }
+            override fun onSecondaryVideoFrame(channelId: Int, data: ByteArray, timestampUs: Long, streamEpoch: Long, flags: Int) {
+                secondaryVideo.onFrame(secondaryOwner, channelId, data, timestampUs, streamEpoch, flags)
+                if (channelId == 3) clusterVideo.onFrame(clusterOwner, data, timestampUs, streamEpoch, flags)
+            }
+            override fun onClusterVideoState(streamEpoch: Long, codecType: Int, configurationIndex: Int, mediaSessionId: Int, active: Boolean) {
+                secondaryVideo.onState(secondaryOwner, 3, streamEpoch, codecType, configurationIndex, mediaSessionId, active)
+                clusterVideo.onState(clusterOwner, streamEpoch, codecType, configurationIndex, mediaSessionId, active)
+            }
+            override fun onClusterVideoFrame(data: ByteArray, timestampUs: Long, streamEpoch: Long, flags: Int) {
+                secondaryVideo.onFrame(secondaryOwner, 3, data, timestampUs, streamEpoch, flags)
+                clusterVideo.onFrame(clusterOwner, data, timestampUs, streamEpoch, flags)
+            }
             override fun onVideoGeometrySelected(width: Int, height: Int) {
                 onVideoGeometrySelected(width, height, 0L)
             }
@@ -115,6 +183,8 @@ class AasdkSession(
                 }
             }
             override fun onSessionStopped(reason: String) {
+                secondaryVideo.retire(expectedOwner = secondaryOwner)
+                clusterVideo.retire(clusterOwner)
                 synchronized(evReceiptLock) {
                     if (owner == evTelemetryToken) {
                         if (geometryEpoch == videoGeometryEpoch) {
@@ -1076,7 +1146,14 @@ class AasdkSession(
         }
     }
 
+    override fun onProtocolPong() {
+        lastProtocolPongAtMs = SystemClock.elapsedRealtime()
+    }
+
     override fun onVideoFrame(data: ByteArray, timestampUs: Long, width: Int, height: Int, flags: Int) {
+        if (flags and (VideoFrame.FLAG_CODEC_CONFIG or VideoFrame.FLAG_END_OF_STREAM) == 0) {
+            lastPrimaryPictureAtMs = SystemClock.elapsedRealtime()
+        }
         recordVideoFrameFlow(data.size, flags)
         val frame = VideoFrame(
             width = width,
@@ -1468,6 +1545,13 @@ class AasdkSession(
 
     override fun onNativeLog(level: Int, tag: String, message: String) {
         if (tag == "vem") com.openautolink.app.diagnostics.EvTelemetryRecorder.instance.nativeModel(evTelemetryToken, tag, message)
+        if (tag == "secondary-video" && message.startsWith("OPTIONAL_AA_V1 ")) {
+            val owner = secondaryDiagnosticOwner
+            val line = "session=${owner?.first ?: -1} attempt=${owner?.second ?: -1} $message"
+            if (level >= 2) com.openautolink.app.diagnostics.DiagnosticLog.w(tag, line)
+            else com.openautolink.app.diagnostics.DiagnosticLog.i(tag, line)
+            return
+        }
         when (level) {
             0 -> com.openautolink.app.diagnostics.DiagnosticLog.d(tag, message)
             2 -> com.openautolink.app.diagnostics.DiagnosticLog.w(tag, message)
@@ -1476,6 +1560,10 @@ class AasdkSession(
         }
     }
 
+    @Volatile private var secondaryDiagnosticOwner: Pair<Long, Long>? = null
+    internal fun bindSecondaryDiagnosticOwner(projectionEpoch: Long, attempt: Long) {
+        secondaryDiagnosticOwner = projectionEpoch to attempt
+    }
     override fun onSensorSubscribed(sensorType: Int) {
         com.openautolink.app.diagnostics.DiagnosticLog.i(
             "vhal", "phone subscribed sensor type=$sensorType — pushing current state"

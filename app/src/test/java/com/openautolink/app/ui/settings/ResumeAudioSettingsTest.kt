@@ -20,8 +20,8 @@ class ResumeAudioSettingsTest {
     @After fun cleanup() { OalMediaSessionManager.instanceOrNull()?.release() }
     @Test fun audioUsesOrdinaryPlayWithoutSeparateResumeButtonOrVacantExplanation() {
         val vm=SettingsViewModel(RuntimeEnvironment.getApplication())
-        compose.setContent { MaterialTheme { SettingsScreen(viewModel=vm) } }
-        compose.onNodeWithTag("settingsTab_AUDIO").performClick()
+        compose.setContent { MaterialTheme { SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel=vm) } }
+        compose.onNodeWithTag("settingsTab_AUDIO").performScrollTo().performClick()
         compose.onNodeWithTag("resumeCarPlayAudio").assertDoesNotExist()
         compose.onNodeWithText("Resume audio").assertDoesNotExist()
         compose.onNodeWithText("After returning from another source, resume music and navigation audio.").assertDoesNotExist()

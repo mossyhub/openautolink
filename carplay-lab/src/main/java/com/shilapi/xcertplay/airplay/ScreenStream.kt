@@ -22,7 +22,10 @@ enum class VideoCodec { H264, H265 }
  * and the per-frame nonce is an 8-byte little-endian counter.
  */
 class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String) -> Unit = {}, private val expectedPeer: InetAddress? = null,
-    private val socketBinding: com.openautolink.carplaylab.network.CarPlaySocketBinding? = null) : Closeable {
+    private val socketBinding: com.openautolink.carplaylab.network.CarPlaySocketBinding? = null,
+    private val streamType: Int = 110) : Closeable {
+    init { require(streamType == 110 || streamType == 111) }
+    private fun diagnostic(stage: String) { runCatching { onDiagnostic("media stage=$stage kind=video type=$streamType") } }
     interface Listener {
         fun onCodec(codec: VideoCodec) {}
         fun onConfig(codecData: ByteArray) {}
@@ -34,6 +37,20 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
     private val frameCounter = AtomicLong(0)
     private var nalLengthSize = 4
     private val firstFrameLogged = AtomicBoolean(false)
+    private val generation = generations.incrementAndGet()
+    private val terminalLogged = AtomicBoolean(false)
+    private fun terminal(cause: Throwable?, locallyClosed: Boolean = false) {
+        if (!terminalLogged.compareAndSet(false, true)) return
+        val reason = when {
+            locallyClosed -> "closed"
+            cause == null -> "eof"
+            cause is java.security.GeneralSecurityException -> "security"
+            cause is IllegalArgumentException -> "malformed"
+            cause is java.io.IOException -> "io"
+            else -> "platform"
+        }
+        runCatching { onDiagnostic("media stage=screen-terminal kind=video type=$streamType generation=$generation reason=$reason") }
+    }
     private var server: ServerSocket? = null
     private var socket: Socket? = null
     private var thread: Thread? = null
@@ -51,6 +68,7 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        terminal(null, locallyClosed = true)
         safeClose(socket)
         safeClose(server)
         thread?.interrupt()
@@ -65,15 +83,17 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
             }
             if (closed.get()) { safeClose(accepted); return }
             socket = accepted
+            diagnostic("tcp-attached")
             run(accepted)
         } catch (error: Exception) {
+            terminal(error)
             if (!closed.get()) listener.onClosed(error)
         }
     }
 
     private fun run(sock: Socket) {
         var failure: Throwable? = null
-        val stats = StreamReceiveStats("video", onDiagnostic)
+        val stats = StreamReceiveStats("video type=$streamType", onDiagnostic)
         try {
             val input = sock.getInputStream()
             while (!closed.get()) {
@@ -89,6 +109,7 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
         } catch (error: Exception) {
             failure = error
         } finally {
+            terminal(failure, locallyClosed = closed.get())
             stats.flush(ended = true)
             if (socket === sock) socket = null
             safeClose(sock)
@@ -99,22 +120,16 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
     private fun onMessage(header: ByteArray, body: ByteArray, stats: StreamReceiveStats) {
         when (header[OPCODE_OFFSET].toInt() and 0xff) {
             OP_VIDEO_FRAME -> {
-                val payload = if (body.size >= ScreenCodec.TAG_SIZE) {
-                    val start = System.nanoTime()
-                    ScreenCodec.decryptFrame(key, frameCounter.get(), header, body)
-                        .also {
-                            stats.decrypted(System.nanoTime() - start, body.size)
-                            frameCounter.incrementAndGet()
-                        }
-                } else {
-                    body
-                }
-                if (firstFrameLogged.compareAndSet(false, true)) {
-                    Unit
-                }
+                val start = System.nanoTime()
+                val payload = ScreenCodec.decryptFrame(key, frameCounter.get(), header, body)
+                    .also {
+                        stats.decrypted(System.nanoTime() - start, body.size)
+                        frameCounter.incrementAndGet()
+                    }
                 val frame = ScreenCodec.lengthPrefixedToAnnexB(payload,nalLengthSize)
                 require(frame.isNotEmpty()) { "Invalid video NAL framing" }
                 listener.onFrame(frame)
+                if (firstFrameLogged.compareAndSet(false, true)) diagnostic("authenticated-frame-delivered")
             }
             OP_VIDEO_CONFIG -> {
                 val (codec, codecData) = ScreenCodec.detectConfig(body)
@@ -124,6 +139,7 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
                 Unit
                 listener.onCodec(codec)
                 listener.onConfig(codecData)
+                diagnostic("config-delivered")
             }
         }
     }
@@ -141,6 +157,7 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
     }
 
     private companion object {
+        val generations = AtomicLong()
         const val TAG = "xcertplay-usb"
         const val HEADER_LEN = 128
         const val OPCODE_OFFSET = 4
@@ -155,9 +172,10 @@ private fun ByteArray.hexPrefix(length: Int): String =
 
 /** Extracts the avcC/hvcC codec-data record from a VideoConfig payload. */
 object ScreenCodec {
-    fun decryptFrame(key: ByteArray, counter: Long, header: ByteArray, body: ByteArray): ByteArray =
-        if (body.size < TAG_SIZE) body
-        else AirPlayCrypto.chachaOpen(key, AirPlayCrypto.nonce64(counter), body, header)
+    fun decryptFrame(key: ByteArray, counter: Long, header: ByteArray, body: ByteArray): ByteArray {
+        require(body.size >= TAG_SIZE) { "Video frame is missing its authentication tag" }
+        return AirPlayCrypto.chachaOpen(key, AirPlayCrypto.nonce64(counter), body, header)
+    }
 
     /** Convert the exact length width declared by avcC/hvcC. Invalid framing fails closed. */
     fun lengthPrefixedToAnnexB(payload: ByteArray, lengthSize: Int = 4): ByteArray =

@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Incoming caller gate only; does not grant OAL any OEM/system privileges. -->
+    <permission android:name="${applicationId}.permission.OBSERVE_CLUSTER_PAGE"
+        android:protectionLevel="signature" />
+    <!-- Both own processes use this existing own signature gate for the primitive relay. -->
+    <uses-permission android:name="${applicationId}.permission.OBSERVE_CLUSTER_PAGE" />
+
     <queries>
         <intent><action android:name="android.car.intent.action.MEDIA_TEMPLATE" /></intent>
         <package android:name="com.android.car.settings" />
@@ -14,6 +20,8 @@
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Normal permission: reorder the exact existing own cluster task without the recents/Home path. -->
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -88,6 +96,26 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.OpenAutoLink">
 
+        <!-- Optional installed OEM API supplies its own Parcelable implementations. Nothing
+             in the gm.* namespace is bundled by OAL. Missing library => decode fails closed. -->
+        <uses-library android:name="info3_cluster" android:required="false" />
+
+        <!-- Default-on observer; guarded return applies only to explicit live direct video.
+             Framework system/root/own-UID exceptions mean privileged class, not unique GM.
+             Dedicated process avoids all normal production Application startup on receipt. -->
+        <service android:name=".diagnostics.gm.GmPageObserverService"
+            android:label="OAL GM page-event observer (experimental)"
+            android:enabled="true" android:exported="true"
+            android:process=":gmPageObserver"
+            android:permission="${applicationId}.permission.OBSERVE_CLUSTER_PAGE">
+            <intent-filter>
+                <action android:name="gm.cluster.action.APP_SELECTED" />
+                <category android:name="com.gm.intent.category.COREAPP" />
+            </intent-filter>
+            <meta-data android:name="AppType" android:value="oal_page_selection_observer" />
+            <meta-data android:name="SupportedDisplay" android:value="IPC" />
+        </service>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -117,6 +145,42 @@
             <meta-data
                 android:name="distractionOptimized"
                 android:value="true" />
+        </activity>
+
+        <!-- Owner-started transparent grid; normal bounded app window, no navigation host. -->
+        <activity android:name=".ui.settings.LiveGridWindowActivity" android:exported="false"
+            android:launchMode="standard" android:excludeFromRecents="true" android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.grid" android:theme="@style/Theme.OpenAutoLink.LiveGrid">
+            <meta-data android:name="distractionOptimized" android:value="true" />
+        </activity>
+
+        <!-- Direct public external-display canvas; token admission is process-local. -->
+        <activity android:name=".cluster.ClusterDirectVideoActivity" android:exported="false"
+            android:launchMode="standard" android:excludeFromRecents="true" android:noHistory="false"
+            android:resizeableActivity="true" android:taskAffinity="${applicationId}.cluster.direct"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <meta-data android:name="distractionOptimized" android:value="true" />
+        </activity>
+        <activity
+            android:name=".secondary.SecondaryProjectionActivity"
+            android:exported="false"
+            android:launchMode="standard"
+            android:excludeFromRecents="true"
+            android:noHistory="false"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.secondary.projection"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <meta-data android:name="distractionOptimized" android:value="true" />
+        </activity>
+
+        <!-- Public driver-display launch trampoline; never a launcher or center-app task. -->
+        <activity
+            android:name=".cluster.ClusterMapLaunchActivity"
+            android:exported="false"
+            android:taskAffinity="${applicationId}.cluster.map.launch"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <meta-data android:name="distractionOptimized" android:value="true" />
         </activity>
 
         <!-- Hidden CarAppActivity — triggers Templates Host binding for cluster.

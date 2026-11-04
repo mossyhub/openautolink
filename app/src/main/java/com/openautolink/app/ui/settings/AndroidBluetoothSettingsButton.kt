@@ -22,7 +22,7 @@ internal fun AndroidBluetoothSettingsButton() {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var result by remember { mutableStateOf<AndroidBluetoothSettingsLauncher.Result?>(null) }
-    Column {
+    SettingsGroup {
         OutlinedButton(onClick = {
             // Check at the click, not a remembered snapshot or projection Always-in-Park override.
             result = when {
@@ -33,8 +33,8 @@ internal fun AndroidBluetoothSettingsButton() {
             }
         }, modifier = Modifier.testTag("androidBluetoothSettings")) { Text("Android Bluetooth settings") }
         Text("Alternate Android Settings screen, if installed. Open only while safely parked. You operate any phone/media controls; OAL does not automatically change Bluetooth profiles. Vehicle restrictions still apply.",
-            style = MaterialTheme.typography.bodySmall)
-        result?.let { Text(it.message, style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium)
+        result?.let { Text(it.message, style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.testTag("androidBluetoothSettingsResult")) }
     }
 }

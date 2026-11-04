@@ -38,24 +38,89 @@ object AppDestinations {
 internal fun rememberProductionSettingsSaveAction(
     settingsViewModel: SettingsViewModel,
     projectionViewModel: ProjectionViewModel,
+    commitClusterLayout: (suspend () -> Boolean)?,
     onBack: () -> Unit,
 ): () -> Unit {
     val scope = rememberCoroutineScope()
     return {
-        scope.launch {
-            projectionViewModel.clearSettingsSaveMessage()
+        val receipt = com.openautolink.app.ui.settings.SettingsSaveTransaction.next()
+        receipt.event("click", "received", "adapter=${commitClusterLayout != null}")
+        // Navigation completion must return to Android Main even when persistence resumes on IO.
+        scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate + receipt) {
             applySettingsAndRestart(
-                settingsViewModel::commitCarPlaySettings,
-                { projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect) },
-                onBack,
+                {
+                    // A missing adapter has never accepted a cluster edit: its entire pane is
+                    // unavailable. Do not invent a successful layout acknowledgement or require
+                    // the optional store for an ordinary-settings-only transaction. Once installed,
+                    // the owner retains the adapter and every Save awaits its real commit.
+                    settingsViewModel.commitSettings(commitClusterLayout)
+                },
+                {
+                    receipt.event("reconnect_dispatch", "requested", "source=save kind=${if (projectionViewModel.carPlayState.value.selected) "CarPlay" else "AndroidAuto"}")
+                    projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect)
+                },
+                { onBack(); receipt.event("close", "completed") },
             )
         }
     }
 }
 
+/** Exact callback used by the rendered projection Reconnect menu, separate from committed Save. */
+@Composable
+internal fun rememberProductionProjectionReconnectAction(
+    settingsViewModel: SettingsViewModel,
+    projectionViewModel: ProjectionViewModel,
+): () -> Unit = {
+    com.openautolink.app.ui.settings.SettingsSaveTransaction.next().event("reconnect_dispatch", "requested", "source=menu commitsDraft=false")
+    if (projectionViewModel.carPlayState.value.selected) projectionViewModel.reconnectCarPlay()
+    else projectionViewModel.reconnectAndroidAutoWithLiveHost(settingsViewModel::saveAndReconnect)
+}
+
+/** Production route: initialize the real binding only after the retained projection VM exists.
+ * The host supplies preview admission explicitly; there is no disconnected/no-op default. */
 @Composable
 fun AppNavHost(
+    clusterPreviewFactory: (android.content.Context, () -> Boolean) -> com.openautolink.app.cluster.ClusterCalibrationPreview,
     navController: NavHostController = rememberNavController(),
+    secondaryOutputStatuses: kotlinx.coroutines.flow.StateFlow<Map<com.openautolink.app.secondary.SecondaryOutputId,
+        com.openautolink.app.secondary.SecondaryOutputStatus>>? = null,
+    announcementStore: com.openautolink.app.announcements.ReleaseAnnouncementStore? = null,
+    announcementVersionCode: Int = com.openautolink.app.BuildConfig.VERSION_CODE,
+) {
+    val projectionViewModel: ProjectionViewModel = viewModel()
+    val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    // ProjectionViewModel initializes the actual process SessionManager before this lookup.
+    val manager = remember(projectionViewModel) {
+        requireNotNull(com.openautolink.app.session.SessionManager.instanceOrNull())
+    }
+    val preferences = remember(context) { com.openautolink.app.data.AppPreferences.getInstance(context) }
+    val preview = remember(context, projectionViewModel, manager) {
+        clusterPreviewFactory(context) {
+            manager.sessionState.value == com.openautolink.app.session.SessionState.IDLE &&
+                !projectionViewModel.carPlayState.value.selected && !projectionViewModel.carPlayState.value.busy
+        }
+    }
+    var initializationError by remember { mutableStateOf<String?>(null) }
+    val bindings = com.openautolink.app.ui.settings.rememberProductionClusterSettingsBinding(
+        context, preferences, manager.sessionState, manager.clusterVideoStatus,
+        projectionViewModel.carPlayState, preview,
+        onInitializationError = { initializationError = it },
+    )
+    val secondarySource = com.openautolink.app.ui.settings.rememberProductionSecondaryDisplaysSource(context, secondaryOutputStatuses ?: manager.secondaryOutputStatuses)
+    // Optional cluster loading must never replace the real projection/navigation tree.
+    AppNavHost(clusterBindings = bindings, navController = navController,
+        clusterInitializationError = initializationError, secondarySource = secondarySource,
+        announcementStore = announcementStore, announcementVersionCode = announcementVersionCode)
+}
+
+@Composable
+fun AppNavHost(
+    clusterBindings: com.openautolink.app.ui.settings.ClusterSettingsBindings?,
+    navController: NavHostController = rememberNavController(),
+    clusterInitializationError: String? = null,
+    secondarySource: com.openautolink.app.ui.settings.SecondaryDisplaysSource? = null,
+    announcementStore: com.openautolink.app.announcements.ReleaseAnnouncementStore? = null,
+    announcementVersionCode: Int = com.openautolink.app.BuildConfig.VERSION_CODE,
 ) {
     // Share ViewModels across screens
     val settingsViewModel: SettingsViewModel = viewModel()
@@ -87,19 +152,27 @@ fun AppNavHost(
         composable(AppDestinations.PROJECTION) {
             val projectionUiState by projectionViewModel.uiState.collectAsStateWithLifecycle()
             val carPlayState by projectionViewModel.carPlayState.collectAsStateWithLifecycle()
-            val reconnectProjection = {
-                if (carPlayState.selected) projectionViewModel.reconnectCarPlay()
-                else settingsViewModel.saveAndReconnect()
-            }
+            val reconnectProjection = rememberProductionProjectionReconnectAction(settingsViewModel, projectionViewModel)
 
+            var announcementSettings by remember { mutableStateOf(false) }
             ProjectionScreen(
                 viewModel = projectionViewModel,
+                announcementStore = announcementStore,
+                announcementVersionCode = announcementVersionCode,
+                onAnnouncementOpenSettings = { announcementSettings = true },
                 onNavigateToSettings = {
                     // Legacy — no longer used, settings are an overlay now
                 },
                 onReconnect = reconnectProjection,
                 settingsOverlay = { onBack, onShowDiagnostics, onCarPlaySafeEditor ->
+                    androidx.compose.runtime.DisposableEffect(Unit) {
+                        onDispose { announcementSettings = false }
+                    }
                     SettingsScreen(
+                        initialSecondaryDisplays = announcementSettings,
+                        clusterBindings = clusterBindings,
+                        clusterInitializationError = clusterInitializationError,
+                        secondarySource = secondarySource,
                         viewModel = settingsViewModel,
                         audioBindings = audioBindings,
                         sessionState = projectionUiState.sessionState,
@@ -108,7 +181,7 @@ fun AppNavHost(
                             carPlayState.busy -> "CarPlay · connecting"
                             else -> "CarPlay · stopped"
                         } else null,
-                        onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel, onBack),
+                        onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel, clusterBindings?.commitLayoutDraft, onBack),
                         onBack = onBack,
                         onNavigateToDiagnostics = onShowDiagnostics,
                         onNavigateToCarPlaySafeAreaEditor = onCarPlaySafeEditor,
@@ -132,10 +205,13 @@ fun AppNavHost(
             var showCarPlaySafeEditor by remember { mutableStateOf(false) }
             Box(Modifier.fillMaxSize()) {
                 SettingsScreen(
+                    clusterBindings = clusterBindings,
+                    clusterInitializationError = clusterInitializationError,
+                        secondarySource = secondarySource,
                     viewModel = settingsViewModel,
                     audioBindings = audioBindings,
                     onBack = { navController.popBackStack() },
-                    onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel) {
+                    onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel, clusterBindings?.commitLayoutDraft) {
                         navController.popBackStack()
                     },
                     onNavigateToDiagnostics = { navController.navigate(AppDestinations.DIAGNOSTICS) },

@@ -124,7 +124,15 @@ class AasdkSdrConfig(
      */
     @JvmField val panelWidth: Int = 0,
     @JvmField val panelHeight: Int = 0,
+
+    /** Absent by default. Freeze a qualified offer before native session start. */
+    @JvmField val clusterOffer: AasdkClusterVideoOffer? = null,
+    secondaryOffers: Array<AasdkSecondaryVideoOffer> = emptyArray(),
 ) {
+    @JvmField val secondaryOffers: Array<AasdkSecondaryVideoOffer> = secondaryOffers.copyOf()
+    internal fun frozenSecondaryOffers(): List<AasdkSecondaryVideoOffer> =
+        if (secondaryOffers.isNotEmpty()) AasdkSecondaryVideoOffer.validated(secondaryOffers.copyOf().toList())
+        else listOfNotNull(clusterOffer?.let(AasdkSecondaryVideoOffer::fromLegacy))
     private val galPolicy = GalProtocolPolicy.forVersion(galVersion)
 
     /** Materialized policy fields consumed directly by JNI; do not re-derive natively. */

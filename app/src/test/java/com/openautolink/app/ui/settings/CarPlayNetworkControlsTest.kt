@@ -27,7 +27,8 @@ class CarPlayNetworkControlsTest {
         assertFalse(editor.contains("updateWpp"))
         val navigation = source("ui/navigation/AppNavHost.kt")
         assertTrue(navigation.contains("applySettingsAndRestart("))
-        assertTrue(navigation.contains("settingsViewModel::commitCarPlaySettings"))
+        assertTrue(navigation.contains("rememberProductionSettingsSaveAction("))
+        SettingsSaveSourceContract.assertContract(navigation, source("ui/settings/SettingsViewModel.kt"))
     }
 
     private fun source(path: String): String {

@@ -139,8 +139,12 @@ object DiagnosticLog {
      }
 
      private fun addLocal(level: DiagnosticLevel, tag: String, msg: String) {
+        val wallMs = System.currentTimeMillis()
+        // Independent best-effort live observer sees the original emitted message, before
+        // the existing UI's 500-character cap. File logs and LogUploader are unchanged.
+        runCatching { com.openautolink.app.diagnostics.live.LiveLogSink.diagnostic(wallMs, level.name, tag, msg) }
         val entry = LocalLogEntry(
-            timestamp = System.currentTimeMillis(),
+            timestamp = wallMs,
             level = level,
             tag = tag,
             message = fitLocalDiagnosticMessage(msg),

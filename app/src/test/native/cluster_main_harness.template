@@ -1,0 +1,56 @@
+// JNI/transport boundaries only; MAIN_METHODS is verbatim production JniSession code.
+#include <atomic>
+#include <vector>
+using jint=int;
+using jlong=long long;
+using jsize=int;
+using jbyte=signed char;
+using jbyteArray=std::vector<jbyte>*;
+struct FakeJni {
+    int codec=0,frames=0,flags=0,width=0,height=0;
+    bool ExceptionCheck(){return false;}void ExceptionClear(){}
+    jbyteArray NewByteArray(jsize n){return new std::vector<jbyte>(n);}
+    void SetByteArrayRegion(jbyteArray a,jsize,jsize n,const jbyte* bytes){a->assign(bytes,bytes+n);}
+    void DeleteLocalRef(jbyteArray a){delete a;}
+    void CallVoidMethod(void*,int,jint c){codec=c;}
+    void CallVoidMethod(void*,int,jint w,jint h,jlong){width=w;height=h;}
+    void CallVoidMethod(void*,int,jbyteArray,jlong,jint,jint,jint f){++frames;flags=f;}
+};
+#define LOGI(...) ((void)0)
+#define LOGW(...) ((void)0)
+using JNIEnv=FakeJni;
+namespace openautolink::jni {
+namespace media=aap_protobuf::service::media::shared::message;
+struct JniSession {
+    boost::asio::io_service::strand* strand_;
+    std::shared_ptr<Wire> videoChannel_;
+    FakeJni env;
+    void* callbackRef_=this;
+    struct {int onVideoCodecConfigured=1,onVideoGeometrySelected=2,onVideoFrame=3;}cbMethods_;
+    std::atomic<int> negotiatedCodecType_{0},activeVideoSessionId_{0},currentVideoFocus_{0},advertisedVideoConfigCount_{1};
+    std::atomic<bool> stopped_{false};
+    std::atomic<int64_t> selectedVideoEpoch_{0};
+    std::vector<std::pair<int,int>> advertisedVideoGeometry_{{1920,1080}};
+    struct {bool autoNegotiate=false;int videoWidth=1920,videoHeight=1080;}sdrConfig_;
+    int aborts=0;
+    JniSession(boost::asio::io_service::strand& s,std::shared_ptr<Wire> w):strand_(&s),videoChannel_(w){}
+    FakeJni* getEnv(bool& attached){attached=false;return &env;}
+    void releaseEnv(bool){}
+    int mediaSetupMaxUnacked(){return 2;}
+    int videoAckSessionId(int id){return id;}
+    aasdk::channel::mediasink::video::IVideoMediaSinkServiceEventHandler::Pointer shared_from_this(){return {};}
+    void onChannelError(const aasdk::error::Error&){++aborts;}
+    template<class T>void logProtoRaw(const char*,const T&){}
+    template<class T>void reportGalStartEnvelope(const char*,const T&){}
+    void reportMediaOptions(const char*,const aasdk::common::DataConstBuffer&){}
+    void nativeDiag(int,const char*,const std::string&){}
+    void onChannelOpenRequest(const aap_protobuf::service::control::message::ChannelOpenRequest&);
+    void onMediaChannelSetupRequest(const media::Setup&);
+    void onMediaChannelStartIndication(const media::Start&);
+    void onMediaChannelStopIndication(const media::Stop&);
+    void onMediaWithTimestampIndication(aasdk::messenger::Timestamp::ValueType,const aasdk::common::DataConstBuffer&);
+    void onMediaIndication(const aasdk::common::DataConstBuffer&);
+    void onMediaOptions(const aasdk::common::DataConstBuffer&);
+};
+MAIN_METHODS
+}

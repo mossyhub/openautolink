@@ -187,6 +187,9 @@ class WifiJobService : JobService() {
                 .getSystemService(Context.WIFI_SERVICE) as WifiManager
             val scanResults = try {
                 wifiManager.scanResults ?: emptyList()
+            } catch (_: SecurityException) {
+                // Revoked scan permission is an unavailable scan, not an auto-start signal.
+                emptyList()
             } catch (_: Exception) {
                 emptyList()
             }

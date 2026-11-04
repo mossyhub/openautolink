@@ -158,11 +158,53 @@ object CarPlayVideoQualification {
 /** Immutable capability receipt, not evidence of configure/start, phone acceptance or rendering. */
 data class CarPlayVideoSelection(val width: Int, val height: Int, val fps: Int,
     val avcDecoderName: String, val hevcDecoderName: String? = null, val usedFallback: Boolean = false,
-    val selectionReason: String = if (usedFallback) "manual_unqualified_baseline" else "manual_exact") {
+    val selectionReason: String = if (usedFallback) "manual_unqualified_baseline" else "manual_exact",
+    val clusterQualification: CarPlayClusterVideoQualification? = null) {
     init { require(width > 0 && height > 0 && fps > 0 && avcDecoderName.isNotBlank())
         require(hevcDecoderName == null || hevcDecoderName.isNotBlank()) }
     val hevcOffered: Boolean get() = hevcDecoderName != null
     fun matches(config: AirPlayConfig): Boolean = width == config.main.widthPixels &&
-        height == config.main.heightPixels && fps == config.main.fps && config.cluster == null
+        height == config.main.heightPixels && fps == config.main.fps &&
+        (clusterQualification?.let { !config.hevc && !hevcOffered && it.matches(config.cluster) }
+            ?: (config.cluster == null))
+    /** Global HEVC is intentionally disabled for BOTH screens in this bounded AVC pilot. */
+    fun withCluster(display: com.shilapi.xcertplay.airplay.AirPlayDisplayConfig,
+        selection: CarPlayVideoSelection): CarPlayVideoSelection {
+        require(clusterQualification == null) { "Main receipt already bound" }
+        return copy(hevcDecoderName = null,
+            clusterQualification = CarPlayClusterVideoQualification.qualify(display, selection))
+    }
     fun decoderName(codec: VideoCodec): String? = if (codec == VideoCodec.H264) avcDecoderName else hevcDecoderName
+}
+
+/** Exact per-display capability plus immutable encoded geometry, not simultaneous-decoder proof. */
+class CarPlayClusterVideoQualification private constructor(
+    val display: com.shilapi.xcertplay.airplay.AirPlayDisplayConfig,
+    val videoSelection: CarPlayVideoSelection,
+) {
+    fun matches(candidate: com.shilapi.xcertplay.airplay.AirPlayDisplayConfig?): Boolean = candidate == display
+
+    companion object {
+        fun qualify(display: com.shilapi.xcertplay.airplay.AirPlayDisplayConfig,
+            selection: CarPlayVideoSelection): CarPlayClusterVideoQualification {
+            require(display.widthPixels == 1280 && display.heightPixels == 480 && display.fps == 30)
+            require(selection.width == display.widthPixels && selection.height == display.heightPixels &&
+                selection.fps == display.fps && !selection.hevcOffered && selection.clusterQualification == null)
+            require(display.primaryInputDevice == 0 && display.features == 0 &&
+                display.initialUrl == "maps:/car/instrumentcluster/map" &&
+                display.safeAreaDrawOutside == false && display.viewAreas == null && display.initialViewArea == 0)
+            val view = requireNotNull(display.viewArea)
+            val safe = requireNotNull(display.safeArea)
+            for (insets in listOf(view, safe)) {
+                require(listOf(insets.top, insets.bottom, insets.left, insets.right).all { it >= 0 })
+                require(insets.left.toLong() + insets.right < display.widthPixels &&
+                    insets.top.toLong() + insets.bottom < display.heightPixels)
+            }
+            require(safe.top >= view.top && safe.bottom >= view.bottom &&
+                safe.left >= view.left && safe.right >= view.right)
+            // No mutable list, alternate URL, or inferred physical size enters this receipt.
+            require(display.widthPhysicalMm == null && display.heightPhysicalMm == null)
+            return CarPlayClusterVideoQualification(display, selection)
+        }
+    }
 }

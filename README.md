@@ -29,6 +29,36 @@ Android Auto and CarPlay share one app, with independent connection settings. **
 >
 > [Create your AAB](docs/build-aab.md) · [Internal Test installation](docs/install-gm.md) · [CarPlay authentication](docs/carplay-private-mfi-assets.md)
 
+## Driver-display maps — OAL 0.1.575
+
+Show Android Auto or Apple CarPlay maps on the driver display as well as the main infotainment screen.
+
+**Disabled by default:** on GM, driver-display maps replace native navigation icons and HUD guidance. You can choose maps or native guidance, not both. GM's privileged-access restrictions prevent OAL from keeping both active together; this trade-off is why the feature ships turned off.
+
+Enable **Settings → Secondary Displays → Driver-display video**, then **Save changes**. **After first enabling it, manually restart the GM head unit:** while parked, hold the steering-wheel **End Call** button for about **30 seconds**, then wait for the head unit to restart itself.
+
+**Your phone controls what appears on the driver display.** OAL does not generate that view; it displays the video supplied by Android Auto or CarPlay and your navigation app, with some layout customization options. The layout and information shown can therefore change as Android Auto, iOS/CarPlay and your navigation apps are updated.
+
+### Android Auto
+
+![Android Auto maps on the driver display and main infotainment screen of a Chevrolet Blazer](docs/screenshots/android-auto-driver-display.jpg)
+
+### Apple CarPlay
+
+![Apple CarPlay maps on the driver display and main infotainment screen of a Chevrolet Blazer](docs/screenshots/carplay-driver-display.jpg)
+
+Android Auto provides Cluster and Auxiliary views; CarPlay has no equivalent selector in OAL. Usually no Directions area adjustment is needed. See [Driver-display settings](docs/secondary-presentation.md) for mode selection, the optional editor and Save/reconnect instructions.
+
+### If the driver display is black
+
+Driver-display video may occasionally be black. Select the maps page on the driver display, then tap the **floating OAL logo/menu button** on the main infotainment screen and choose **Restore driver display video**. This retries the video window without using the full **Reconnect** action.
+
+The floating button may be in a different position if you have moved it.
+
+<img src="docs/screenshots/oal-menu-button.png" alt="Floating OAL logo button that opens the controls menu" width="140">
+
+![OAL controls menu with Restore driver display video](docs/screenshots/oal-driver-display-restore-menu.png)
+
 ## Choose your phone and connection
 
 | Phone / mode | Connection | Companion needed? | Notes |
@@ -88,6 +118,14 @@ For CarPlay, include your own [authorized authentication pair](docs/carplay-priv
 The car itself needs internet-connected Wi-Fi or its data service; [an OnStar data plan is not required](#car-internet-no-onstar-data-plan-required).
 
 The car APK on [GitHub Releases](https://github.com/mossyhub/openautolink/releases/latest) is for AAOS systems/emulators that permit APK installation. **It cannot be sideloaded onto a locked GM production head unit.**
+
+### GM setup
+
+After first installing OAL, or first enabling **Driver-display video**, manually restart the GM head unit. While parked, hold the steering-wheel **End Call** button for about **30 seconds**, then wait for the head unit to restart itself.
+
+**Driver-display video is off by default.** Open **Settings → Secondary Displays**: leave **Driver-display video** off for native navigation icons/HUD, or turn it on for Android Auto or CarPlay maps on the driver display. Tap **Save changes**. USB: unplug and reconnect to apply.
+
+On GM, video disables navigation icons on the driver display and HUD. GM’s privileged-access restrictions mean it’s video or native guidance—not both. See [driver-display settings](docs/secondary-presentation.md) for AA modes and the Directions area editor.
 
 ### Car internet: no OnStar data plan required
 

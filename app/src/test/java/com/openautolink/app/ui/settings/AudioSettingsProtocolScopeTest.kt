@@ -35,8 +35,8 @@ class AudioSettingsProtocolScopeTest {
         io.mockk.every { com.openautolink.app.data.AppPreferences.getInstance(any()) } returns failing
         try {
             val vm = SettingsViewModel(RuntimeEnvironment.getApplication())
-            compose.setContent { MaterialTheme { SettingsScreen(viewModel = vm) } }
-            compose.onNodeWithTag("settingsTab_AUDIO").performClick()
+            compose.setContent { MaterialTheme { SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = vm) } }
+            compose.onNodeWithTag("settingsTab_AUDIO").performScrollTo().performClick()
             compose.onNodeWithTag("micSource_phone").performScrollTo().performClick()
             compose.onNodeWithText("Audio settings could not be saved. Try again.").assertExists()
             compose.onNodeWithTag("micSource_car").assertIsSelected()
@@ -47,11 +47,11 @@ class AudioSettingsProtocolScopeTest {
     @Test fun audioSaveNeverCommitsOrDiscardsAnInvalidVideoDraft() {
         val prefs = com.openautolink.app.data.AppPreferences.getInstance(RuntimeEnvironment.getApplication())
         val vm = SettingsViewModel(RuntimeEnvironment.getApplication())
-        compose.setContent { MaterialTheme { SettingsScreen(viewModel = vm) } }
+        compose.setContent { MaterialTheme { SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = vm) } }
         compose.waitUntil(5000) { vm.carPlaySettingsLoaded.value }
         val stored = kotlinx.coroutines.runBlocking { prefs.carPlaySettings.first() }
         compose.runOnIdle { vm.updateCarPlayDraft { it.copy(widthDraft = "invalid") } }
-        compose.onNodeWithTag("settingsTab_AUDIO").performClick()
+        compose.onNodeWithTag("settingsTab_AUDIO").performScrollTo().performClick()
         compose.onNodeWithTag("micSource_phone").performScrollTo().performClick()
         // DataStore's edit transform resumes on its caller's Main dispatcher after IO.
         // Drain that actual paused Robolectric looper on each observation, not just before IO.
@@ -70,9 +70,9 @@ class AudioSettingsProtocolScopeTest {
 
     @Test fun audioAutosavesWithoutReconnectButOtherPagesRetainTheirTransaction() {
         val vm = SettingsViewModel(RuntimeEnvironment.getApplication())
-        compose.setContent { MaterialTheme { SettingsScreen(viewModel = vm) } }
+        compose.setContent { MaterialTheme { SettingsScreen(clusterBindings = clusterSettingsFixture(), viewModel = vm) } }
         compose.onNodeWithTag("saveAndConnectButton").assertExists()
-        compose.onNodeWithTag("settingsTab_AUDIO").performClick()
+        compose.onNodeWithTag("settingsTab_AUDIO").performScrollTo().performClick()
         compose.onNodeWithTag("saveAndConnectButton").assertDoesNotExist()
         compose.onNodeWithText("Android Auto", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("Assistant microphone").assertExists()

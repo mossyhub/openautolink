@@ -83,6 +83,11 @@ internal class ClusterBindingRegistry {
     }
 
     @Synchronized
+    fun markNotReady(lease: SessionLease) {
+        if (activeGeneration == lease.generation && readySessionId == lease.sessionId) readySessionId = null
+    }
+
+    @Synchronized
     fun unregisterSession(lease: SessionLease) {
         if (activeGeneration != lease.generation) return
         liveSessionIds -= lease.sessionId
@@ -162,11 +167,41 @@ internal class GenerationOwnedSlot<T : Any> {
 /** Process-wide facade used by ClusterManager and AndroidX cluster Sessions. */
 internal object ClusterBindingState {
     private val registry = ClusterBindingRegistry()
+    data class MapBinding(
+        val generation: Long,
+        var snapshot: ClusterMapOutputSnapshot,
+        val coordinator: ClusterOutputCoordinator,
+        val onDestroyed: () -> Unit,
+        val receipt: ClusterDriverDisplayReceipt? = null,
+    )
+    private var mapBinding: MapBinding? = null
 
-    fun openManager(): ClusterBindingRegistry.ManagerLease = registry.openManager()
+    fun frozenMapBinding(): MapBinding? = synchronized(ClusterBindingLifecycle.lock) { mapBinding }
+    fun installMapBinding(lease: ClusterBindingRegistry.ManagerLease, binding: MapBinding): Boolean =
+        synchronized(ClusterBindingLifecycle.lock) {
+            if (!registry.isManagerCurrent(lease) || lease.generation != binding.generation || mapBinding != null) false
+            else { mapBinding = binding; true }
+        }
 
-    fun closeManager(lease: ClusterBindingRegistry.ManagerLease): Boolean =
+    fun openManager(): ClusterBindingRegistry.ManagerLease = synchronized(ClusterBindingLifecycle.lock) {
+        mapBinding?.let {
+            check(it.coordinator.retire(it.snapshot.lease, "manager replacement").getNow(false) || it.coordinator.isRetirementAcknowledged()) {
+                "Previous cluster output retirement is not acknowledged"
+            }
+            ClusterMainSession.invalidateBindingGeneration(it.generation, "manager replacement")
+        }
+        mapBinding = null
+        registry.openManager()
+    }
+
+    fun closeManager(lease: ClusterBindingRegistry.ManagerLease): Boolean = synchronized(ClusterBindingLifecycle.lock) {
+        if (!registry.isManagerCurrent(lease)) return@synchronized false
+        mapBinding?.let {
+            if (!it.coordinator.retire(it.snapshot.lease, "manager close").getNow(false) && !it.coordinator.isRetirementAcknowledged()) return@synchronized false
+        }
+        mapBinding = null
         registry.closeManager(lease)
+    }
 
     fun registerSession(expectedGeneration: Long? = null): ClusterBindingRegistry.SessionLease? =
         registry.registerSession(expectedGeneration)
@@ -177,8 +212,17 @@ internal object ClusterBindingState {
     fun markReady(lease: ClusterBindingRegistry.SessionLease): Boolean =
         registry.markReady(lease)
 
-    fun unregisterSession(lease: ClusterBindingRegistry.SessionLease) =
+    fun markNotReady(lease: ClusterBindingRegistry.SessionLease) = registry.markNotReady(lease)
+
+    fun unregisterSession(lease: ClusterBindingRegistry.SessionLease) = synchronized(ClusterBindingLifecycle.lock) {
+        val binding = mapBinding
+        val wasLive = binding?.generation == lease.generation && registry.hasLiveSession(
+            ClusterBindingRegistry.ManagerLease(lease.generation))
         registry.unregisterSession(lease)
+        if (wasLive && !registry.hasLiveSession(ClusterBindingRegistry.ManagerLease(lease.generation))) {
+            binding?.onDestroyed?.invoke()
+        }
+    }
 
     fun isManagerCurrent(lease: ClusterBindingRegistry.ManagerLease): Boolean =
         registry.isManagerCurrent(lease)

@@ -39,6 +39,16 @@ class OalApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // A cold passive-service start must not restore live, install VHAL/media/BT,
+        // initialize projection, or acquire native integration. Normal process unchanged.
+        if (com.openautolink.app.diagnostics.gm.isGmObserverProcess(Application.getProcessName(), packageName)) {
+            com.openautolink.app.diagnostics.gm.GmAdmissionDiagnostics.record(this,
+                com.openautolink.app.diagnostics.gm.GmAdmissionDiagnostics.Code.APPLICATION)
+            return
+        }
+        // Optional startup restores only explicit saved launch consent, asynchronously off Main.
+        com.openautolink.app.diagnostics.live.LiveDiagnostics.initialize(this)
+        com.openautolink.app.diagnostics.gm.GmAdmissionDiagnostics.initializeMain(this)
         // Application is created before ConnectionService too: no Settings/Activity visit is
         // required to load durable call intent. Admission remains closed while the IO load runs.
         com.openautolink.app.carplay.CarPlayCallController.get(this)
@@ -116,6 +126,11 @@ class OalApplication : Application() {
     }
 
     override fun onTerminate() {
+        if (com.openautolink.app.diagnostics.gm.isGmObserverProcess(Application.getProcessName(), packageName)) {
+            super.onTerminate()
+            return
+        }
+        com.openautolink.app.diagnostics.live.LiveDiagnostics.stop()
         com.openautolink.app.diagnostics.BluetoothReconnectService.close()
         carBluetoothConnectionObserver?.close()
         carBluetoothObservationScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()

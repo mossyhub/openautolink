@@ -104,7 +104,11 @@ class CarPlaySettingsPlacementTest {
         assertTrue(settings.contains("activeProtocolStatus: String? = null"))
         val content = function(screen, "SettingsScreenContent")
         assertTrue(settings.contains("SettingsScreenContent(viewModel, sessionState, onSaveAndConnect, onBack,"))
-        assertTrue(settings.contains("onNavigateToCarPlaySafeAreaEditor, activeProtocolStatus, audioBindings)"))
+        assertTrue(settings.contains("onNavigateToCarPlaySafeAreaEditor, activeProtocolStatus, audioBindings, clusterBindings,"))
+        assertTrue(settings.contains("clusterInitializationError, secondarySource)"))
+        assertTrue(settings.contains("secondarySource: SecondaryDisplaysSource? = null"))
+        assertTrue(content.contains("clusterInitializationError: String?"))
+        assertTrue(content.contains("secondarySource: SecondaryDisplaysSource?"))
         assertTrue(content.contains("activeProtocolStatus = activeProtocolStatus"))
         assertTrue(status.contains("val statusText = activeProtocolStatus ?: when (sessionState)"))
         assertTrue(status.contains("if (activeProtocolStatus != null)"))
@@ -151,8 +155,16 @@ class CarPlaySettingsPlacementTest {
         val root = generateSequence(File(requireNotNull(System.getProperty("user.dir")))) { it.parentFile }
             .first { File(it, "app/src/main").isDirectory }
         val nav = File(root, "app/src/main/java/com/openautolink/app/ui/navigation/AppNavHost.kt").readText()
-        assertTrue(nav.contains("applySettingsAndRestart("))
-        assertTrue(nav.contains("settingsViewModel::commitCarPlaySettings"))
+        val save = function(nav, "rememberProductionSettingsSaveAction")
+        assertEquals("Only the shared action owns the global transaction", 1,
+            Regex("applySettingsAndRestart\\(").findAll(nav).count())
+        assertTrue(save.contains("applySettingsAndRestart("))
+        SettingsSaveSourceContract.assertContract(nav, vm)
+        assertTrue(save.contains("projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect)"))
+        assertTrue(save.indexOf("settingsViewModel.commitSettings(commitClusterLayout)") <
+            save.indexOf("projectionViewModel.reconnectAfterSettingsSave"))
+        assertTrue(nav.contains("onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel, clusterBindings?.commitLayoutDraft, onBack)"))
+        assertTrue(nav.contains("onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel, clusterBindings?.commitLayoutDraft) {"))
         assertTrue(nav.contains("CarPlay · video active"))
         val screen = function(source("SettingsScreen.kt"), "SettingsScreenContent")
         assertTrue(screen.contains("carPlaySettingsSaving"))

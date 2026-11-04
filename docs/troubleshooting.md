@@ -132,10 +132,28 @@ Some GM cluster displays use a phone number or their own contact lookup even whe
 
 Treat cluster navigation and media as separate integrations.
 
+To return to native navigation icons/HUD, open **Settings → Secondary Displays**, turn **Driver-display video** off, then tap **Save changes**. USB: unplug and reconnect to apply. Wireless reconnects automatically when no call is active. There is no separate per-screen enable switch to coordinate. See [driver-display settings](secondary-presentation.md).
+
 - Confirm main-screen projection works first.
 - Start an active route and check for visible turn updates, not only a binding/status message.
 - Check media independently.
 - On a new vehicle, report cluster support as unknown until visible output is observed.
+
+## Driver-display maps do not appear after first enabling
+
+Driver-display video is off by default. Open **Settings → Secondary Displays**, enable **Driver-display video**, then select **Save changes**. **After first enabling it, manually restart the GM head unit:** while parked, hold the steering-wheel **End Call** button for about **30 seconds**, then wait for the head unit to restart itself. For USB, unplug and reconnect after saving; wireless reconnects automatically when safe.
+
+On GM, choose maps OR native navigation icons/HUD guidance—not both, due to privileged-access restrictions. See [Driver-display settings](secondary-presentation.md) for mode selection and the optional Directions area editor. **Done** in that editor returns a draft; it does not replace **Save changes**.
+
+## Driver-display video stays black after changing pages
+
+Driver-display video may occasionally be black. Select the driver-display page used for maps, tap the **floating OAL logo/menu button** on the main infotainment screen and choose **Restore driver display video**. This retries the current video window without using the full **Reconnect** action.
+
+<img src="screenshots/oal-menu-button.png" alt="Floating OAL logo button that opens the controls menu" width="140">
+
+![OAL controls: choose Restore driver display video, not Reconnect or Restore button positions](screenshots/oal-driver-display-restore-menu.png)
+
+If the menu says **Reconnect required to enable driver display**, the current connection has no negotiated secondary video stream. Use the existing **Reconnect** action while the maps page is selected. If restoration fails, upload logs before reconnecting or restarting OAL.
 
 ## H.265 or high resolution behaves badly
 

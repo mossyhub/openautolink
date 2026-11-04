@@ -16,6 +16,7 @@ interface CarPlayRuntime : Closeable {
     fun detachSurface(surface: Surface) {}
     /** Constant-space observed receiver counters, never inferred from status strings. */
     fun telemetrySnapshot(): com.openautolink.carplaylab.media.ReceiverTelemetrySnapshot? = null
+    fun clusterTelemetrySnapshot(): CarPlayClusterStatus? = null
 }
 
 /** Safe memory-only UI receipt: never retain an exception, cause or diagnostic message. */
@@ -33,6 +34,7 @@ data class CarPlayUiState(
     val failure: CarPlayFailureUi? = null,
     /** Revoked by Stop/failure, independently of the worker's retirement-in-progress busy flag. */
     val videoWaitActive: Boolean = true,
+    val cluster: CarPlayClusterStatus = CarPlayClusterStatus(),
 ) {
     val waitingForVideo: Boolean get() = selected && busy && videoWaitActive && failure == null &&
         evidence.telemetry?.presentationRendered != true
@@ -47,6 +49,9 @@ class CarPlayCoordinator(
     private val retireAndroidAuto: () -> Unit,
     private val sessionLeases: CarPlaySessionLeaseSource = CarPlaySessionLeaseSource.NONE,
     private val mediaLeases: CarPlayHostMediaLeaseSource = CarPlayHostMediaLeaseSource.NONE,
+    private val cancelRetainedClusterHost: () -> Unit = {},
+    private val captureRetainedClusterHostCancellation: () -> (() -> Unit) = { {} },
+    private val retireAndroidAutoRetainingHost: () -> Unit = retireAndroidAuto,
     private val onState: (CarPlayUiState) -> Unit,
 ) : Closeable {
     // Preserve positional and trailing-onState callers as well as existing named arguments.
@@ -55,9 +60,15 @@ class CarPlayCoordinator(
 
     constructor(ownership: CarPlayOwnership, retireAndroidAuto: () -> Unit,
                 sessionLeases: CarPlaySessionLeaseSource, onState: (CarPlayUiState) -> Unit) :
-        this(ownership, retireAndroidAuto, sessionLeases, CarPlayHostMediaLeaseSource.NONE, onState)
+        this(ownership, retireAndroidAuto, sessionLeases, CarPlayHostMediaLeaseSource.NONE, onState = onState)
 
-    private class Attempt(val token: CarPlayOwnership.Token, val initialSurface: Surface?, val sessionLease: CarPlaySessionLease) {
+    constructor(ownership: CarPlayOwnership, retireAndroidAuto: () -> Unit,
+        sessionLeases: CarPlaySessionLeaseSource, mediaLeases: CarPlayHostMediaLeaseSource, onState: (CarPlayUiState) -> Unit) :
+        this(ownership, retireAndroidAuto, sessionLeases, mediaLeases, cancelRetainedClusterHost = {}, onState = onState)
+
+    private class Attempt(val token: CarPlayOwnership.Token, val initialSurface: Surface?, val sessionLease: CarPlaySessionLease,
+        val retainedClusterHost: Boolean, val cancelRetainedHost: () -> Unit) {
+        val preserveHostOnClose = AtomicBoolean()
         val context = CarPlayAttemptContext(CarPlayHostMediaLease(
             CarPlayPlayingPublicationExperiment.snapshotMode()), captureAdmission = { !canceled.get() && sessionLease.captureAllowed() },
             onCaptureRetirement = sessionLease::onCaptureRetirement, onInputAdvertised = sessionLease::inputAdvertised,
@@ -81,14 +92,19 @@ class CarPlayCoordinator(
     fun connect(enabled: Boolean, factory: ((String) -> Unit) -> CarPlayRuntime): Boolean =
         connectWithContext(enabled) { _, report -> factory(report) }
 
-    fun connectWithContext(enabled: Boolean, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime): Boolean = synchronized(lock) {
+    fun connectWithContext(enabled: Boolean, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime): Boolean =
+        connectOwned(enabled, factory, false)
+    fun connectForExplicitReconnect(enabled: Boolean, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime): Boolean =
+        connectOwned(enabled, factory, true)
+    private fun connectOwned(enabled: Boolean, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime,
+        retainClusterHost: Boolean): Boolean = synchronized(lock) {
         if (closed || !enabled || current != null || com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return false
         val lease = token ?: ownership.reserve(enabled)?.also { token = it } ?: return false
         val sessionLease = try { sessionLeases.acquire() } catch (_: Exception) {
             publish(CarPlayUiState(selected = true, status = "CarPlay protection unavailable · reconnect while app is visible"))
             return false
         }
-        val attempt = Attempt(lease, presentation, sessionLease)
+        val attempt = Attempt(lease, presentation, sessionLease, retainClusterHost, captureRetainedClusterHostCancellation())
         current = attempt
         publish(CarPlayUiState(selected = true, busy = true, status = "Retiring Android Auto before CarPlay"))
         worker.execute { run(attempt, factory) }
@@ -100,6 +116,7 @@ class CarPlayCoordinator(
         try {
             attempt.sessionLease.onProtectionLost {
                 attempt.canceled.set(true)
+                attempt.cancelRetainedHost()
                 attempt.sessionLease.revokeCapture()
                 attempt.runtime?.cancel()
                 interrupter.execute { runCatching { attempt.runtime?.close() } }
@@ -107,7 +124,7 @@ class CarPlayCoordinator(
             // OS acceptance is not promotion. Never retire AA/bootstrap transport unprotected.
             attempt.sessionLease.awaitReady()
             // Return means real stop completion, never an IDLE snapshot.
-            retireAndroidAuto()
+            if (attempt.retainedClusterHost) retireAndroidAutoRetainingHost() else retireAndroidAuto()
             ownership.acknowledgeAaRetired(attempt.token)
             if (attempt.canceled.get() || !ownership.canBootstrap(attempt.token)) return
             attempt.mediaBegun = true // even partial apply owns retryable cleanup debt.
@@ -143,6 +160,7 @@ class CarPlayCoordinator(
             if (!attempt.canceled.get()) record(attempt, failedStatus)
             synchronized(lock) { if (current === attempt) publish(state.copy(videoWaitActive = false)) }
         } finally {
+            if (!attempt.preserveHostOnClose.get()) attempt.cancelRetainedHost()
             try {
                 finishAttempt(attempt)
                 synchronized(lock) {
@@ -166,6 +184,9 @@ class CarPlayCoordinator(
         if (!attempt.runtimeClosed) retirementStage(CarPlayForegroundStage.RUNTIME_CLOSE) {
             attempt.runtime?.cancel()
             attempt.runtime?.close()
+            attempt.runtime?.clusterTelemetrySnapshot()?.let { cluster ->
+                synchronized(lock) { if (current === attempt) publish(state.copy(cluster = cluster)) }
+            }
             attempt.runtimeClosed = true
             attempt.runtime = null
         }
@@ -218,6 +239,9 @@ class CarPlayCoordinator(
     fun refreshTelemetry() = synchronized(lock) {
         val attempt = current ?: return@synchronized
         if (attempt.canceled.get()) return@synchronized
+        attempt.runtime?.clusterTelemetrySnapshot()?.let { cluster ->
+            if (state.cluster != cluster) publish(state.copy(cluster = cluster))
+        }
         val snapshot = attempt.runtime?.telemetrySnapshot() ?: return@synchronized
         if (state.evidence.telemetry != snapshot)
             publish(state.copy(evidence = state.evidence.copy(telemetry = snapshot)))
@@ -233,13 +257,18 @@ class CarPlayCoordinator(
         if (!closed) publish(state.copy(failure = failure))
     }
 
-    fun stop() = synchronized(lock) {
+    fun stop(preserveClusterHostForReconnect: Boolean = false) {
+        if (!preserveClusterHostForReconnect) cancelRetainedClusterHost()
+        synchronized(lock) {
         commandEpoch++ // revoke already-queued reconnects even if no runtime exists yet.
         val attempt = current ?: return@synchronized
+        attempt.preserveHostOnClose.set(preserveClusterHostForReconnect)
         attempt.canceled.set(true)
         attempt.sessionLease.revokeCapture()
         attempt.runtime?.cancel()
-        publish(state.copy(videoWaitActive = false, status = "Stopping CarPlay; waiting for exact receiver/control retirement"))
+        publish(state.copy(videoWaitActive = false,
+            cluster = attempt.runtime?.clusterTelemetrySnapshot() ?: state.cluster,
+            status = "Stopping CarPlay; waiting for exact receiver/control retirement"))
         // Socket closure breaks blocking connect/recv. Never close/join MediaCodec on UI thread.
         interrupter.execute { runCatching { attempt.runtime?.close() } }
         // Also retries a previously failed close after the original worker returned.
@@ -255,31 +284,33 @@ class CarPlayCoordinator(
         }
     }
 
+    }
+
     fun reconnect(enabled: Boolean, factory: ((String) -> Unit) -> CarPlayRuntime) =
         reconnectWithContext(enabled) { _, report -> factory(report) }
 
     fun reconnectWithContext(enabled: Boolean, factory: (CarPlayAttemptContext, (String) -> Unit) -> CarPlayRuntime) {
         synchronized(lock) {
             if (closed || !enabled || token == null) return
-            stop()
+            stop(preserveClusterHostForReconnect = true)
             val requestEpoch = commandEpoch
             worker.execute {
                 synchronized(lock) {
-                    if (!closed && requestEpoch == commandEpoch) connectWithContext(enabled, factory)
+                    if (!closed && requestEpoch == commandEpoch) connectOwned(enabled, factory, true)
                 }
             }
         }
     }
-    fun returnToAndroidAuto(preserveFailure: Boolean = false, onReturned: () -> Unit = {}) = synchronized(lock) {
+    fun returnToAndroidAuto(preserveFailure: Boolean = false, preserveClusterHostForReconnect: Boolean = false, onReturned: () -> Unit = {}) = synchronized(lock) {
         if (worker.isShutdown) return@synchronized
         // Automatic cable retirement releases ownership, not the user's failure receipt.
         if (!preserveFailure) dismissFailure()
-        stop()
+        stop(preserveClusterHostForReconnect)
         worker.execute {
             val lease = synchronized(lock) { token } ?: return@execute
             try {
                 // Also retry AA retirement if the initial handoff failed.
-                retireAndroidAuto()
+                if (preserveClusterHostForReconnect) retireAndroidAutoRetainingHost() else retireAndroidAuto()
                 ownership.acknowledgeAaRetired(lease)
                 synchronized(lock) {
                     if (current != null) return@synchronized

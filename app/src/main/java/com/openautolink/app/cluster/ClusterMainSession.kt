@@ -29,6 +29,14 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.time.ZonedDateTime
 
+/** Preserve synchronous host policy unless a caller owns an enclosing lifecycle monitor.
+ * That caller must return before Main runs any coordinator/future/observer effects. */
+internal fun clusterLifecycleEffect(action: () -> Unit) {
+    if (Thread.holdsLock(ClusterBindingLifecycle.lock)) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post { action() }
+    } else action()
+}
+
 /**
  * GM AAOS cluster session — relays Trip data via NavigationManager.updateTrip().
  *
@@ -44,7 +52,15 @@ import java.time.ZonedDateTime
  * - GM AAOS: creates only DISPLAY_TYPE_MAIN (one session)
  * Only the first (primary) owns NavigationManager. Subsequent sessions are passive.
  */
-class ClusterMainSession : Session() {
+open class ClusterMainSession internal constructor(
+    private val nativeGuidance: Boolean = true,
+    private val hideBootstrap: Boolean = true,
+) : Session() {
+    protected open fun acceptsBinding(generation: Long): Boolean = ClusterBindingState.frozenMapBinding() == null
+    internal open fun onPrimaryCreated(lease: ClusterBindingRegistry.SessionLease) = Unit
+    protected open fun onPrimaryRetired(): java.util.concurrent.CompletableFuture<Boolean> =
+        java.util.concurrent.CompletableFuture.completedFuture(true)
+    protected open fun outputScreen(): Screen = RelayScreen(carContext)
 
     companion object {
         private const val TAG = "ClusterMain"
@@ -58,25 +74,45 @@ class ClusterMainSession : Session() {
          * Without this, Templates Host keeps the cluster UI on its last frame
          * because our process going away doesn't synchronously notify it.
          */
-        fun endActiveNavigation() = synchronized(ClusterBindingLifecycle.lock) {
-            val session = primarySessions.currentOwner() ?: return@synchronized
-            if (session.navigationLifecycle.onRouteTerminated() ==
-                ClusterNavigationLifecyclePolicy.Action.END
-            ) {
-                try {
-                    session.navigationManager?.navigationEnded()
-                    Log.i(TAG, "navigationEnded() forced on user exit")
-                    DiagnosticLog.i("cluster", "navigationEnded() forced on user exit")
-                } catch (e: Exception) {
-                    Log.w(TAG, "endActiveNavigation() failed: ${e.message}")
+        fun endActiveNavigation() {
+            var mapSession: ClusterMainSession? = null
+            var mapBinding: ClusterBindingState.MapBinding? = null
+            synchronized(ClusterBindingLifecycle.lock) {
+                val session = primarySessions.currentOwner() ?: return
+                if (!session.hideBootstrap) {
+                    mapSession = session
+                    mapBinding = ClusterBindingState.frozenMapBinding()?.takeIf {
+                        it.generation == session.bindingLease?.generation
+                    }
+                } else if (session.navigationLifecycle.onRouteTerminated() ==
+                    ClusterNavigationLifecyclePolicy.Action.END
+                ) {
+                    try {
+                        session.navigationManager?.navigationEnded()
+                        Log.i(TAG, "navigationEnded() forced on user exit")
+                        DiagnosticLog.i("cluster", "navigationEnded() forced on user exit")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "endActiveNavigation() failed: ${e.message}")
+                    }
                 }
             }
+            mapSession?.retirePrimary("user exit", endNavigation = true)
+            mapBinding?.let { binding -> clusterLifecycleEffect {
+                binding.coordinator.retire(binding.snapshot.lease, "user exit")
+            } }
         }
 
         /** Retire only the primary owned by [generation]. A late callback from
          * that session cannot clear a replacement generation's owner. */
-        fun invalidateBindingGeneration(generation: Long, reason: String) = synchronized(ClusterBindingLifecycle.lock) {
-            primarySessions.invalidate(generation)?.retirePrimary(reason, endNavigation = true)
+        fun invalidateBindingGeneration(generation: Long, reason: String) {
+            val owner = synchronized(ClusterBindingLifecycle.lock) {
+                primarySessions.currentOwner()?.takeIf { primarySessions.isOwner(generation, it) }
+            } ?: return
+            owner.retirePrimary(reason, endNavigation = true).thenAccept { acknowledged ->
+                synchronized(ClusterBindingLifecycle.lock) {
+                    if (acknowledged) primarySessions.release(generation, owner)
+                }
+            }
         }
     }
 
@@ -119,10 +155,14 @@ class ClusterMainSession : Session() {
         }
     }
 
-    override fun onCreateScreen(intent: Intent): Screen =
-        synchronized(ClusterBindingLifecycle.lock) { createScreen(intent) }
+    override fun onCreateScreen(intent: Intent): Screen {
+        val effects = mutableListOf<() -> Unit>()
+        val screen = synchronized(ClusterBindingLifecycle.lock) { createScreen(intent, effects) }
+        effects.forEach { clusterLifecycleEffect(it) }
+        return screen
+    }
 
-    private fun createScreen(intent: Intent): Screen {
+    private fun createScreen(intent: Intent, effects: MutableList<() -> Unit>): Screen {
         val expectedGeneration = if (intent.hasExtra(CLUSTER_BINDING_GENERATION_EXTRA)) {
             intent.getLongExtra(CLUSTER_BINDING_GENERATION_EXTRA, Long.MIN_VALUE)
         } else {
@@ -137,31 +177,42 @@ class ClusterMainSession : Session() {
             )
             return RelayScreen(carContext)
         }
+        if (!acceptsBinding(lease.generation)) {
+            ClusterBindingState.unregisterSession(lease)
+            return RelayScreen(carContext)
+        }
         bindingLease = lease
 
         lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onDestroy(owner: LifecycleOwner) = synchronized(ClusterBindingLifecycle.lock) {
-                val ownedLease = bindingLease
+            override fun onDestroy(owner: LifecycleOwner) {
+                val ownedLease = synchronized(ClusterBindingLifecycle.lock) {
+                    bindingLease.also { bindingLease = null }
+                }
                 if (ownedLease != null) {
-                    if (primarySessions.release(ownedLease.generation, this@ClusterMainSession)) {
-                        retirePrimary("session destroy", endNavigation = true)
+                    if (primarySessions.isOwner(ownedLease.generation, this@ClusterMainSession)) {
+                        retirePrimary("session destroy", endNavigation = true).thenAccept { acknowledged ->
+                            synchronized(ClusterBindingLifecycle.lock) {
+                                if (acknowledged) {
+                                    primarySessions.release(ownedLease.generation, this@ClusterMainSession)
+                                    ClusterBindingState.unregisterSession(ownedLease)
+                                }
+                            }
+                        }
                         DiagnosticLog.i(
                             "cluster",
                             "ClusterMainSession destroyed generation=${ownedLease.generation}",
                         )
-                    }
-                    ClusterBindingState.unregisterSession(ownedLease)
+                    } else ClusterBindingState.unregisterSession(ownedLease)
                 }
-                bindingLease = null
+
             }
         })
 
         val claim = primarySessions.claim(lease.generation, this)
         val primaryAccepted = claim.accepted && ClusterBindingState.markPrimary(lease)
-        claim.displaced?.retirePrimary(
-            "superseded by generation ${lease.generation}",
-            endNavigation = true,
-        )
+        claim.displaced?.let { displaced -> effects.add {
+            displaced.retirePrimary("superseded by generation ${lease.generation}", endNavigation = true)
+        } }
         if (claim.accepted && !primaryAccepted) {
             primarySessions.release(lease.generation, this)
             Log.w(TAG, "Primary claim lost because generation ${lease.generation} retired")
@@ -177,6 +228,9 @@ class ClusterMainSession : Session() {
             Log.i(TAG, "Secondary session created — passive")
             return RelayScreen(carContext)
         }
+
+        effects.add { onPrimaryCreated(lease) }
+        if (!nativeGuidance) return outputScreen()
 
         try {
             navigationManager = carContext.getCarService(NavigationManager::class.java)
@@ -211,13 +265,13 @@ class ClusterMainSession : Session() {
             collectNavigationState()
         }
 
-        if (navigationManager != null) {
+        if (navigationManager != null && hideBootstrap) {
             if (ClusterBindingState.markReady(lease)) {
                 DiagnosticLog.i(
                     "cluster",
                     "Cluster session ready generation=${lease.generation}; collector and NavigationManager callback installed",
                 )
-                ClusterBootstrapWindowProtector.moveTaskToBack(lease.generation)
+                if (hideBootstrap) ClusterBootstrapWindowProtector.moveTaskToBack(lease.generation)
             } else {
                 DiagnosticLog.w(
                     "cluster",
@@ -226,10 +280,12 @@ class ClusterMainSession : Session() {
             }
         }
 
-        return RelayScreen(carContext)
+        return outputScreen()
     }
 
-    private fun retirePrimary(reason: String, endNavigation: Boolean) {
+    private fun retirePrimary(reason: String, endNavigation: Boolean): java.util.concurrent.CompletableFuture<Boolean> {
+        val retirement = onPrimaryRetired()
+        synchronized(ClusterBindingLifecycle.lock) {
         if (endNavigation && navigationLifecycle.onRouteTerminated() ==
             ClusterNavigationLifecyclePolicy.Action.END
         ) {
@@ -243,6 +299,8 @@ class ClusterMainSession : Session() {
         scope = null
         navigationManager = null
         Log.i(TAG, "Primary session retired: $reason")
+        }
+        return retirement
     }
 
     private fun isCurrentPrimary(): Boolean {

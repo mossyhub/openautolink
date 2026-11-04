@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.1.575 — Maps on your driver display
+
+Includes the accumulated driver-display and Settings changes since public GitHub release 0.1.555.
+
+### Driver-display maps
+
+- Show Android Auto or Apple CarPlay maps on the driver display alongside projection on the main infotainment screen. **Driver-display video is off by default.**
+- On GM, choose maps OR native navigation icons/HUD guidance—not both. GM's privileged navigation/display restrictions prevent simultaneous use; this trade-off is why video ships disabled.
+- Enable **Settings → Secondary Displays → Driver-display video**, then **Save changes**. After first enabling it, manually restart the GM head unit: while parked, hold steering-wheel **End Call** for about **30 seconds**, then wait for the head unit to restart itself.
+- **Your phone controls what appears on the driver display.** OAL displays the video supplied by Android Auto or CarPlay and your navigation app, with some layout customization options. Layout and information can change with Android Auto, iOS/CarPlay and navigation-app updates.
+- Android Auto offers **Cluster** and **Auxiliary** roles; Google Maps' Auxiliary view adds destination and speed information. CarPlay has no equivalent selector in OAL.
+- Keep the full video window automatic. The optional **Directions area** editor adjusts only the inner safe area when directions or other non-map content are hidden or cut off, with a bounded **30-second preview**. **Done** returns a draft; **Save changes** applies it. Preserve existing custom areas and provide **Restore default** for the inner area.
+
+### Display return and lifecycle
+
+- Preserve the negotiated Android Auto and CarPlay secondary streams while their video window is hidden, and safely reattach video when the current window returns.
+- Improve GM page-return handling and provide **Restore driver display video** as a video-only fallback in the floating menu. It does not reconnect the phone; when no secondary stream is negotiated, the menu directs the user to Reconnect instead.
+- Fence stale display callbacks, queued frames and replaced output owners; retain cleanup obligations rather than treating an incomplete close as success.
+- Preserve native navigation guidance when driver-display video is off, without a separate coexistence toggle.
+
+### Clearer Settings and diagnostics
+
+- Group explanations beside their controls throughout Connection, Display, Secondary Displays, Video, Audio, Input, EV configuration and Diagnostics, with clearer section boundaries and readable content widths.
+- Preserve saved preferences and existing save behavior. Audio/call choices save automatically; connection, video and display changes use **Save changes**. Wireless reconnects automatically when safe. For USB, unplug and reconnect after saving to apply the next-session settings.
+- Expand opt-in read-only live diagnostics, endpoint-specific consent and pairing, and bounded secondary-display/page-return diagnostics. Diagnostic observations do not control the vehicle or replace normal setup.
+
+### Companion
+
+- Keep Wi-Fi scan permission denial from starting a scan-dependent service, while retaining the normal positive scan path.
+- Treat unavailable Bluetooth-name access as optional rather than failing the connection setup.
+
+See [Driver-display settings](docs/secondary-presentation.md) for the walkthrough and [README photos](README.md#driver-display-maps--oal-01575) for Android Auto and CarPlay examples.
+
 ## 0.1.555 — Restore CarPlay audio when phone playback resumes
 
 - Restore music and navigation audio when phone playback resumes after switching away from OpenAutoLink, without a separate Resume button.

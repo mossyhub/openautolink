@@ -8,10 +8,17 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.openautolink.app.secondary.SecondaryOutputId
+import com.openautolink.app.secondary.SecondaryOutputPreference
+import com.openautolink.app.secondary.SecondaryPreferencesSnapshot
+import com.openautolink.app.secondary.AaSecondaryRole
+import com.openautolink.app.cluster.ClusterDisplayMode
+import com.openautolink.app.cluster.ClusterOutputSelection
 import com.openautolink.app.transport.aasdk.GalProtocolPolicy
 import com.openautolink.app.video.SeedIdrPolicy
 import com.openautolink.app.video.SeedIdrThresholds
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -20,6 +27,54 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
  * App preferences backed by DataStore.
  */
 class AppPreferences private constructor(private val dataStore: DataStore<Preferences>) {
+    /** Optional release metadata shares the existing app store; construction performs no IO. */
+    val releaseAnnouncements by lazy { com.openautolink.app.announcements.ReleaseAnnouncementStore(dataStore) }
+    /** Same transaction snapshot as legacyCluster; reading never migrates or enables outputs. */
+    val secondaryDisplayPreferences: Flow<SecondaryPreferencesSnapshot> = dataStore.data.map(::readSecondaryPreferences)
+
+    suspend fun getSecondaryDisplayPreferences(): SecondaryPreferencesSnapshot = secondaryDisplayPreferences.first()
+
+    /** Atomic optimistic merge. Failure/cancellation propagates; no output is launched here. */
+    suspend fun updateSecondaryDisplayPreferences(
+        expectedRevision: Long,
+        edits: Map<SecondaryOutputId, SecondaryOutputPreference>,
+    ): SecondaryPreferencesSnapshot {
+        require(expectedRevision >= 0)
+        val frozenEdits = LinkedHashMap(edits)
+        val committed = dataStore.edit { values ->
+            val current = readSecondaryPreferences(values)
+            check(current.error == null) { current.error ?: "Invalid secondary display record" }
+            if (current.revision != expectedRevision) throw ConcurrentModificationException("Secondary display preferences changed")
+            if (frozenEdits.isNotEmpty()) {
+                check(current.revision < Long.MAX_VALUE) { "Secondary display revision exhausted" }
+                val next = current.copy(revision = current.revision + 1, outputs = current.outputs + frozenEdits)
+                values[SECONDARY_DISPLAY_OUTPUTS] = SecondaryDisplayPreferences.encode(next)
+            }
+        }
+        return readSecondaryPreferences(committed)
+    }
+
+    /**
+     * Caller MUST first resolve the one unambiguous exact existing GM_HOSTED receipt.
+     * An opaque ID cannot prove OEM qualification. Never call for generic inventory/UI rows.
+     * Adds durable intent only, grants no rendering privilege and leaves all legacy keys intact.
+     */
+    suspend fun migrateSecondaryClusterPreference(id: SecondaryOutputId): SecondaryPreferencesSnapshot {
+        val committed = dataStore.edit { values ->
+            val current = readSecondaryPreferences(values)
+            check(current.error == null) { current.error ?: "Invalid secondary display record" }
+            if (id !in current.outputs) {
+                check(current.revision < Long.MAX_VALUE) { "Secondary display revision exhausted" }
+                val legacy = current.legacyCluster.selection
+                val migrated = SecondaryOutputPreference(legacy.mode != ClusterDisplayMode.OFF,
+                    AaSecondaryRole.AUXILIARY, legacy.androidAuto, legacy.carPlay)
+                values[SECONDARY_DISPLAY_OUTPUTS] = SecondaryDisplayPreferences.encode(current.copy(
+                    revision = current.revision + 1, outputs = current.outputs + (id to migrated)))
+            }
+        }
+        return readSecondaryPreferences(committed)
+    }
+
     val carPlayCallPreferences: Flow<CarPlayCallPreferences> = dataStore.data.map {
         CarPlayCallPreferences.decode(it[CARPLAY_CALL_PREFERENCES])
     }
@@ -41,6 +96,13 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
                 }
             }
         }
+
+        val SECONDARY_DISPLAY_OUTPUTS = stringPreferencesKey("secondary_display_outputs_v1")
+
+        private fun readSecondaryPreferences(values: Preferences): SecondaryPreferencesSnapshot =
+            // Preference keys compare by name, not value type. A typed getter would cast before
+            // the decoder can reject a record persisted under this name with another type.
+            SecondaryDisplayPreferences.read(values.asMap()[SECONDARY_DISPLAY_OUTPUTS], readClusterPreferences(values))
 
         /** Atomic CarPlay-only record; no Wi-Fi password or authentication material. */
         val CARPLAY_SETTINGS = stringPreferencesKey("carplay_settings_v1")
@@ -141,6 +203,44 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         // reports a usable gear. See issue #61.
         val ALWAYS_IN_PARK = booleanPreferencesKey("always_in_park")
         val CLUSTER_NAVIGATION = booleanPreferencesKey("cluster_navigation")
+        val CLUSTER_DISPLAY_MODE = stringPreferencesKey("cluster_display_mode_v1")
+        val CLUSTER_LAST_ENABLED_MODE = stringPreferencesKey("cluster_last_enabled_mode_v1")
+
+        private fun readClusterPreferences(values: Preferences): ClusterOutputPreferences {
+            val selection = readClusterOutputSelection(values)
+            val last = if (selection.mode != ClusterDisplayMode.OFF) selection.mode else {
+                val raw = values[CLUSTER_LAST_ENABLED_MODE]
+                if (raw != null) ClusterDisplayMode.entries.find { it.name == raw && it != ClusterDisplayMode.OFF }
+                else if (values[CLUSTER_DISPLAY_MODE] == null || values[CLUSTER_DISPLAY_MODE] == "OFF")
+                    ClusterDisplayMode.NATIVE_ICONS else null
+            }
+            return ClusterOutputPreferences(selection, last)
+        }
+        val CLUSTER_ANDROID_AUTO = booleanPreferencesKey("cluster_android_auto_v1")
+        val CLUSTER_CARPLAY = booleanPreferencesKey("cluster_carplay_v1")
+        val CLUSTER_NATIVE_ICONS_WITH_MAP = booleanPreferencesKey("cluster_native_icons_with_map_v1")
+        val CLUSTER_DIRECT_VIDEO_WINDOW = booleanPreferencesKey("cluster_direct_video_window_v1")
+
+        private fun readClusterOutputSelection(values: Preferences): ClusterOutputSelection {
+            val storedMode = values[CLUSTER_DISPLAY_MODE]
+            val mode = if (storedMode == null) {
+                if (values[CLUSTER_NAVIGATION] == false) ClusterDisplayMode.OFF
+                else ClusterDisplayMode.NATIVE_ICONS
+            } else {
+                ClusterDisplayMode.entries.find { it.name == storedMode } ?: ClusterDisplayMode.OFF
+            }
+            return ClusterOutputSelection(
+                mode = mode,
+                androidAuto = values[CLUSTER_ANDROID_AUTO] ?: true,
+                carPlay = values[CLUSTER_CARPLAY] ?: true,
+                nativeIconsWithMap = values[CLUSTER_NATIVE_ICONS_WITH_MAP] ?: false,
+                directVideoWindow = values[CLUSTER_DIRECT_VIDEO_WINDOW] ?: false,
+            )
+        }
+
+        private fun requestsNativeIcons(selection: ClusterOutputSelection): Boolean =
+            selection.mode == ClusterDisplayMode.NATIVE_ICONS ||
+                (selection.mode == ClusterDisplayMode.MAP_VIDEO && selection.nativeIconsWithMap)
         val OVERLAY_STATS_BUTTON = booleanPreferencesKey("overlay_stats_button")
         val OVERLAY_PHONE_SWITCH_BUTTON = booleanPreferencesKey("overlay_phone_switch_button")
         val OVERLAY_RECONNECT_BUTTON = booleanPreferencesKey("overlay_reconnect_button")
@@ -619,9 +719,23 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         prefs[ALWAYS_IN_PARK] ?: DEFAULT_ALWAYS_IN_PARK
     }
 
-    val clusterNavigation: Flow<Boolean> = dataStore.data.map { prefs ->
-        prefs[CLUSTER_NAVIGATION] ?: DEFAULT_CLUSTER_NAVIGATION
-    }
+    /** Coherent mode + retained previous mode from the same DataStore snapshot. */
+    val clusterOutputPreferences: Flow<ClusterOutputPreferences> = dataStore.data.map(::readClusterPreferences)
+
+    /** One coherent next-session intent snapshot. Reading never starts cluster output. */
+    val clusterOutputSelection: Flow<ClusterOutputSelection> = clusterOutputPreferences.map { it.selection }
+    val lastEnabledClusterMode: Flow<ClusterDisplayMode?> = clusterOutputPreferences.map { it.lastEnabledClusterMode }
+
+    suspend fun getClusterOutputPreferences(): ClusterOutputPreferences = clusterOutputPreferences.first()
+
+    /** Explicit master switch; unlike the legacy native-icon toggle this restores the saved Map choice. */
+    suspend fun setClusterOutputEnabled(enabled: Boolean): ClusterOutputPreferences =
+        updateClusterOutputPreferences { saved ->
+            saved.selection.copy(mode = if (enabled) saved.lastEnabledClusterMode ?: ClusterDisplayMode.OFF else ClusterDisplayMode.OFF)
+        }
+
+    /** Global native-icon compatibility view; new consumers must apply protocol-specific policy. */
+    val clusterNavigation: Flow<Boolean> = clusterOutputSelection.map(::requestsNativeIcons)
 
     val overlayStatsButton: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[OVERLAY_STATS_BUTTON] ?: DEFAULT_OVERLAY_STATS_BUTTON
@@ -924,8 +1038,72 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         dataStore.edit { it[ALWAYS_IN_PARK] = enabled }
     }
 
+    /** Saved intent snapshot only; not an active negotiated output or admission lease. */
+    suspend fun getClusterOutputSelection(): ClusterOutputSelection = clusterOutputSelection.first()
+
+    /** Atomically save all selection fields. Returns this transaction's committed intent, not activation. */
+    suspend fun setClusterOutputSelection(selection: ClusterOutputSelection): ClusterOutputSelection =
+        updateClusterOutputSelection { selection }
+
+    /** Merge edited fields against the snapshot inside the transaction; unrelated settings are untouched. */
+    suspend fun updateClusterOutputSelection(
+        transform: (ClusterOutputSelection) -> ClusterOutputSelection,
+    ): ClusterOutputSelection = updateClusterOutputPreferences { transform(it.selection) }.selection
+
+    /** Transform current committed state, preserving concurrent field edits and returning this edit's snapshot. */
+    suspend fun updateClusterOutputPreferences(
+        transform: (ClusterOutputPreferences) -> ClusterOutputSelection,
+    ): ClusterOutputPreferences = updateClusterOutputState { current -> current.copy(selection = transform(current)) }
+
+    /** Use when a staged non-Off choice was followed by Off before Save; persist both in one edit.
+     * Transform only edited fields against current, rather than replacing an old UI snapshot.
+     */
+    suspend fun updateClusterOutputState(
+        transform: (ClusterOutputPreferences) -> ClusterOutputPreferences,
+    ): ClusterOutputPreferences {
+        val committed = dataStore.edit { values ->
+            val updated = transform(readClusterPreferences(values))
+            val next = updated.selection
+            val last = next.mode.takeUnless { it == ClusterDisplayMode.OFF } ?: updated.lastEnabledClusterMode
+            // Explicit invalid sentinel prevents a later OFF read inventing a previous enabled mode.
+            values[CLUSTER_LAST_ENABLED_MODE] = last?.name ?: "UNAVAILABLE"
+            values[CLUSTER_DISPLAY_MODE] = next.mode.name
+            values[CLUSTER_ANDROID_AUTO] = next.androidAuto
+            values[CLUSTER_CARPLAY] = next.carPlay
+            values[CLUSTER_NATIVE_ICONS_WITH_MAP] = next.nativeIconsWithMap
+            values[CLUSTER_DIRECT_VIDEO_WINDOW] = next.directVideoWindow
+            values[CLUSTER_NAVIGATION] = requestsNativeIcons(next)
+        }
+        return readClusterPreferences(committed)
+    }
+
+    /** Scoped custom intent. Invalid/stale records return Automatic plus a truthful reason, never a resized guess. */
+    fun clusterLayout(scope: ClusterLayoutScope, canvas: com.openautolink.app.cluster.PixelRect): Flow<ClusterLayoutRead> =
+        dataStore.data.map { ClusterLayoutStorage.decode(it[scope.preferenceKey], scope, canvas) }
+
+    suspend fun getClusterLayout(scope: ClusterLayoutScope, canvas: com.openautolink.app.cluster.PixelRect): ClusterLayoutRead =
+        clusterLayout(scope, canvas).first()
+
+    /** Single-record save; no preview, reconnect, or runtime activation. Returns this exact edit's snapshot. */
+    suspend fun saveClusterLayout(layout: SavedClusterLayout): ClusterLayoutRead {
+        val key = layout.scope.preferenceKey
+        val committed = dataStore.edit { it[key] = layout.encode() }
+        return ClusterLayoutStorage.decode(committed[key], layout.scope, layout.canvas)
+    }
+
+    /** Removing one override means Automatic; no other vehicle/profile or unrelated preferences are touched. */
+    suspend fun resetClusterLayout(scope: ClusterLayoutScope, canvas: com.openautolink.app.cluster.PixelRect): ClusterLayoutRead {
+        require(scope.panel.bounds.contains(canvas))
+        val key = scope.preferenceKey
+        val committed = dataStore.edit { it.remove(key) }
+        return ClusterLayoutStorage.decode(committed[key], scope, canvas)
+    }
+
+    /** Legacy toggle changes mode, never an independent bypass of the selected output. */
     suspend fun setClusterNavigation(enabled: Boolean) {
-        dataStore.edit { it[CLUSTER_NAVIGATION] = enabled }
+        updateClusterOutputSelection {
+            it.copy(mode = if (enabled) ClusterDisplayMode.NATIVE_ICONS else ClusterDisplayMode.OFF)
+        }
     }
 
     suspend fun setOverlayStatsButton(visible: Boolean) {

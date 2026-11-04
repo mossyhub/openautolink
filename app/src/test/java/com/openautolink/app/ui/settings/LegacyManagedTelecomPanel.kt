@@ -16,6 +16,7 @@ import com.openautolink.carplaylab.telecom.ManagedTelecomExperiment
 import com.openautolink.carplaylab.telecom.TelecomAccountDiagnostics
 import com.openautolink.carplaylab.telecom.TelecomAccountSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -25,6 +26,11 @@ internal fun LegacyManagedTelecomPanel() {
     val context = LocalContext.current
     val experiment = remember(context) { ManagedTelecomExperiment.get(context) }
     val scope = rememberCoroutineScope()
+    // The test Recomposer is unconfined; preserve the normal Android window's
+    // Main delivery for this historical fixture without replacing global Main.
+    val uiDispatcher = remember {
+        android.os.Handler(android.os.Looper.getMainLooper()).asCoroutineDispatcher().immediate
+    }
     var attached by remember { mutableStateOf(true) }
     var enabled by remember { mutableStateOf(experiment.enabledForProcess) }
     var controls by remember { mutableStateOf(experiment.nativeControlsEnabled) }
@@ -44,7 +50,7 @@ internal fun LegacyManagedTelecomPanel() {
     fun accountAction(enableGeneration: Long? = null, action: () -> String) {
         val request = ++operation
         busy = true; status = "WORKING"
-        scope.launch {
+        scope.launch(uiDispatcher) {
             val result = withContext(Dispatchers.IO) { action() }
             // Enable lifecycle completion is independent of the latest status/display request.
             if (attached && enableGeneration != null && pendingEnable == enableGeneration) {

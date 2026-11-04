@@ -57,6 +57,10 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     lint {
         // registerForActivityResult works fine with ComponentActivity (no Fragment needed).
         // This lint check is a false positive for Compose-only apps without Fragment dependency.
@@ -87,4 +91,6 @@ dependencies {
 
     // Testing
     testImplementation(libs.junit)
+    // Same checksum-verified host fixture version already pinned by app and carplay-lab.
+    testImplementation(libs.robolectric)
 }
