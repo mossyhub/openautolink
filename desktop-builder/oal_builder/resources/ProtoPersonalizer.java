@@ -20,6 +20,7 @@ public final class ProtoPersonalizer {
         entry("enabled", 0x0101000e), entry("exported", 0x01010010),
         entry("process", 0x01010011), entry("taskAffinity", 0x01010012),
         entry("excludeFromRecents", 0x01010017), entry("authorities", 0x01010018),
+        entry("noHistory", 0x0101022d), entry("resizeableActivity", 0x010104f6),
         entry("launchMode", 0x0101001d), entry("screenOrientation", 0x0101001e),
         entry("configChanges", 0x0101001f), entry("value", 0x01010024),
         entry("resource", 0x01010025), entry("minSdkVersion", 0x0101020c),
@@ -32,6 +33,58 @@ public final class ProtoPersonalizer {
         entry("compileSdkVersionCodename", 0x01010573), entry("appComponentFactory", 0x0101057a),
         entry("foregroundServiceType", 0x01010599), entry("dataExtractionRules", 0x0101063e)
     );
+    private static final String OBSERVER = "com.openautolink.app.diagnostics.gm.GmPageObserverService";
+    private static final Set<String> OWN_PERMISSIONS = Set.of(".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION", ".permission.OBSERVE_CLUSTER_PAGE");
+    private static final Map<String, String> AFFINITIES = Map.ofEntries(
+        entry("androidx.car.app.activity.CarAppActivity", ".templates"),
+        entry("com.openautolink.app.ui.settings.LiveGridWindowActivity", ".grid"),
+        entry("com.openautolink.app.cluster.ClusterDirectVideoActivity", ".cluster.direct"),
+        entry("com.openautolink.app.secondary.SecondaryProjectionActivity", ".secondary.projection"),
+        entry("com.openautolink.app.cluster.ClusterMapLaunchActivity", ".cluster.map.launch")
+    );
+    private static final Set<String> RESIZABLE = Set.of("com.openautolink.app.ui.settings.LiveGridWindowActivity", "com.openautolink.app.cluster.ClusterDirectVideoActivity", "com.openautolink.app.secondary.SecondaryProjectionActivity");
+    private static final Set<String> NO_HISTORY = Set.of("com.openautolink.app.cluster.ClusterDirectVideoActivity", "com.openautolink.app.secondary.SecondaryProjectionActivity");
+
+    private static String ownSuffix(String value) {
+        return value.startsWith(oldId) && OWN_PERMISSIONS.contains(value.substring(oldId.length()))
+            ? value.substring(oldId.length()) : null;
+    }
+
+    private static String identityEdit(String path, String name, String value, String component) {
+        if ((path.equals("/manifest/permission") || path.equals("/manifest/uses-permission")) && name.equals("name") && ownSuffix(value) != null)
+            return path + "@name:" + ownSuffix(value);
+        if (path.equals("/manifest/application/activity") && name.equals("taskAffinity") && AFFINITIES.containsKey(component) && value.equals(oldId + AFFINITIES.get(component)))
+            return path + "@taskAffinity:" + component;
+        if (path.equals("/manifest/application/provider") && name.equals("authorities") && component.equals("androidx.startup.InitializationProvider") && value.equals(oldId + ".androidx-startup"))
+            return path + "@authorities:" + component;
+        if (path.equals("/manifest/application/service") && name.equals("permission") && component.equals(OBSERVER) && value.equals(oldId + ".permission.OBSERVE_CLUSTER_PAGE"))
+            return path + "@permission:" + component;
+        return null;
+    }
+
+    private static Set<String> expectedEdits(boolean driver) {
+        Set<String> result = new HashSet<>(Set.of("/manifest@package", "/manifest@versionCode"));
+        for (String suffix : OWN_PERMISSIONS) {
+            if (!driver && !suffix.equals(".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")) continue;
+            result.add("/manifest/permission@name:" + suffix);
+            result.add("/manifest/uses-permission@name:" + suffix);
+        }
+        for (var affinity : AFFINITIES.entrySet())
+            if (driver || affinity.getValue().equals(".templates"))
+                result.add("/manifest/application/activity@taskAffinity:" + affinity.getKey());
+        result.add("/manifest/application/provider@authorities:androidx.startup.InitializationProvider");
+        if (driver) result.add("/manifest/application/service@permission:" + OBSERVER);
+        return result;
+    }
+
+    private static void validateSites(Resources.XmlElement.Builder e, String path) {
+        String component = attribute(e, "name");
+        if (path.equals("/manifest/application/activity") && AFFINITIES.containsKey(component))
+            require(attribute(e, "taskAffinity").equals(oldId + AFFINITIES.get(component)));
+        if (path.equals("/manifest/application/service") && component.equals(OBSERVER))
+            require(attribute(e, "permission").equals(oldId + ".permission.OBSERVE_CLUSTER_PAGE"));
+    }
+
     private static String oldId, newId;
     private static int version;
     private static final Set<String> seen = new HashSet<>();
@@ -82,9 +135,11 @@ public final class ProtoPersonalizer {
             applications++;
             require(attribute(e, "name").equals("com.openautolink.app.OalApplication"));
         }
+        validateSites(e, path);
         Set<String> attributes = new HashSet<>();
         if (path.equals("/manifest/permission")) {
-            require(attribute(e, "name").equals(oldId + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"));
+            require(ownSuffix(attribute(e, "name")) != null);
+            require(e.getAttributeList().stream().anyMatch(a -> a.getNamespaceUri().equals(ANDROID) && a.getName().equals("protectionLevel") && a.hasCompiledItem() && a.getCompiledItem().hasPrim()));
             require(Set.of("2", "0x00000002", "signature").contains(attribute(e, "protectionLevel")));
         }
         for (int i = 0; i < e.getAttributeCount(); i++) {
@@ -138,7 +193,17 @@ public final class ProtoPersonalizer {
                     require(a.getCompiledItem().hasStr() || a.getCompiledItem().hasRawStr());
                 require(!Set.of("sharedUserId", "sharedUserMaxSdkVersion", "versionCodeMajor", "isFeatureSplit", "targetPackage").contains(a.getName()));
                 if (a.getName().equals("taskAffinity"))
-                    require(path.equals("/manifest/application/activity") && attribute(e, "name").equals("androidx.car.app.activity.CarAppActivity") && a.getValue().equals(oldId + ".templates"));
+                    require(identityEdit(path, a.getName(), a.getValue(), attribute(e, "name")) != null);
+                if (a.getName().equals("resizeableActivity") || a.getName().equals("noHistory")) {
+                    require(path.equals("/manifest/application/activity"));
+                    require(a.getName().equals("resizeableActivity")
+                        ? RESIZABLE.contains(attribute(e, "name")) && a.getValue().equals("true")
+                        : NO_HISTORY.contains(attribute(e, "name")) && a.getValue().equals("false"));
+                    require(a.hasCompiledItem() && a.getCompiledItem().hasPrim());
+                    var prim = a.getCompiledItem().getPrim();
+                    require(prim.getOneofValueCase() == Resources.Primitive.OneofValueCase.BOOLEAN_VALUE
+                        && Boolean.toString(prim.getBooleanValue()).equals(a.getValue()));
+                }
                 if (a.getName().equals("authorities") && path.startsWith("/manifest/application/"))
                     require(path.equals("/manifest/application/provider") && attribute(e, "name").equals("androidx.startup.InitializationProvider") && a.getValue().equals(oldId + ".androidx-startup"));
             }
@@ -159,13 +224,12 @@ public final class ProtoPersonalizer {
                 if (key.equals("/manifest@versionCode")) {
                     numeric = true;
                     replacement = Integer.toString(version);
-                } else if ((key.equals("/manifest/permission@name") || key.equals("/manifest/uses-permission@name"))
-                        && a.getValue().equals(oldId + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")) {
-                    replacement = newId + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION";
-                } else if (key.equals("/manifest/application/activity@taskAffinity") && a.getValue().equals(oldId + ".templates")) {
-                    replacement = newId + ".templates";
-                } else if (key.equals("/manifest/application/provider@authorities") && a.getValue().equals(oldId + ".androidx-startup")) {
-                    replacement = newId + ".androidx-startup";
+                } else {
+                    String edit = identityEdit(path, a.getName(), a.getValue(), attribute(e, "name"));
+                    if (edit != null) {
+                        key = edit;
+                        replacement = newId + a.getValue().substring(oldId.length());
+                    }
                 }
             }
             if (replacement != null) {
@@ -198,7 +262,7 @@ public final class ProtoPersonalizer {
         oldId = args[2]; newId = args[3]; version = Integer.parseInt(args[4]);
         var original = Resources.XmlNode.parseFrom(Files.readAllBytes(input.resolve("manifest.pb")));
         var changed = rewrite(original, "");
-        require(seen.size() == 6 && applications == 1);
+        require((seen.equals(expectedEdits(false)) || seen.equals(expectedEdits(true))) && applications == 1);
         var table = Resources.ResourceTable.parseFrom(Files.readAllBytes(input.resolve("resources.pb")));
         require(table.getPackageCount() == 1 && table.getPackage(0).getPackageName().equals(oldId)
             && table.getPackage(0).hasPackageId() && table.getPackage(0).getPackageId().getId() == 127);

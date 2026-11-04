@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "url": "https://github.com/mossyhub/openautolink/releases/download/web-builder-runtime/website-runtime-template552-audio-category.zip",
-  "size": 246078,
-  "sha256": "cf8dbedb5f93b1035c016458edef0742614efadf84e5e1623f0041f22570b0d3",
+  "url": "https://github.com/mossyhub/openautolink/releases/download/web-builder-runtime/website-runtime-template575-driver-display.zip",
+  "size": 246713,
+  "sha256": "e1513f3a548475201315db7613d222caa5d6b6628a16b63f96dadb2600fad87e",
   "files": {
-    "assets/build.worker-J0IUCRPA.js": {
-      "size": 330617,
-      "sha256": "57c5015b4fe2d68186fe1165a9400bf207546ef457f3e530ef2afa7a26cfa1f8"
+    "assets/build.worker-B53mqKGO.js": {
+      "size": 332841,
+      "sha256": "b7cd034322c1d238e9515ae4dd6ed79d53c57bd35241ebb1fe782d8dda862e01"
     },
     "assets/index-BLgC4A59.css": {
       "size": 5530,
       "sha256": "1eb9ff33499cf420a9d7c30704f5b5ef0e20d5139a4eafcca84e62f1ba3819f2"
     },
-    "assets/index-G96Acm-A.js": {
-      "size": 332508,
-      "sha256": "f9446f675c42691ea8c9a22b553fac14b4f8e7e93ed13c43e76edfc5da7196e0"
+    "assets/index-sSFouIPs.js": {
+      "size": 332555,
+      "sha256": "0272f53106b5c18ba361fb29878ffe36c751c85a2cfe074d4ef7145a64858eaf"
     },
     "brand/oal-logo.png": {
       "size": 55524,
@@ -22,7 +22,7 @@
     },
     "index.html": {
       "size": 3317,
-      "sha256": "89f56f9abbfc91ef09afd1252f53f31450b970e570634f5a831d6db3866c7ad2"
+      "sha256": "d194a67eaa21cabc903c7311d07958c353405afbef2c16a48ae1feb789058744"
     },
     "staticwebapp.config.json": {
       "size": 767,
