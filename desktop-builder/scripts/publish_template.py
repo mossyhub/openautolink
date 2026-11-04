@@ -70,7 +70,8 @@ def produce_descriptor(aab, *, tag, commit, version_code, output_dir, java, java
     with tempfile.TemporaryDirectory(prefix='oal-publication-', dir=aab.parent) as temporary:
         probe = Path(temporary)
         # Real helper checks resource/manifest identity agreement and the exact
-        # six reviewed edits, preserves payload, and rejects unknown identity use.
+        # reviewed legacy or driver-display identity profile, preserves payload,
+        # and rejects unknown identity use.
         try:
             personalize_bundle(aab, probe / 'probe.aab', original_app_id=TEMPLATE_APPLICATION_ID,
                                app_id='com.openautolink.publication.probe', version_code=version_code,
