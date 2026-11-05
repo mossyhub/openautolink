@@ -16,6 +16,7 @@ import com.openautolink.app.transport.aasdk.AasdkSecondaryVideoOffer
 import com.openautolink.app.navigation.ManeuverState
 import com.openautolink.app.navigation.ManeuverType
 import io.mockk.*
+import com.openautolink.app.secondary.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -32,7 +33,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
-@Config(manifest = Config.NONE, application = android.app.Application::class, sdk = [32])
+@Config(application = android.app.Application::class, sdk = [32], shadows = [ClusterDirectVideoLifecycleTest.Admission::class, ClusterDirectVideoLifecycleTest.TextureBoundary::class])
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ClusterMapSessionTest {
@@ -259,135 +260,64 @@ class ClusterMapSessionTest {
         } finally { owner.release() }
     }
 
-    @Test fun explicitAaReconnectUsesRetainedHostInProductionOfferFactory() = runtimeExpandedReconnect(false)
-    @Test fun explicitCpReconnectUsesRetainedHostInProductionConfigurationFactory() = runtimeExpandedReconnect(true)
-    private fun runtimeExpandedReconnect(carPlay: Boolean) {
-        val (context, launches) = driverContext()
-        every { context.applicationContext } returns context
-        val pref = mockk<com.openautolink.app.data.AppPreferences>()
-        mockkObject(com.openautolink.app.data.AppPreferences.Companion)
-        every { com.openautolink.app.data.AppPreferences.getInstance(any()) } returns pref
-        coEvery { pref.getClusterLayout(any(), any()) } returns com.openautolink.app.data.ClusterLayoutRead(null,
-            com.openautolink.app.data.ClusterLayoutUnavailableReason.NO_CUSTOM_LAYOUT)
-        val descriptor = com.openautolink.app.secondary.SecondaryDisplayDescriptor(
-            com.openautolink.app.secondary.SecondaryOutputId("actual-gm"), 7, 1, "GM", 2000, 810, 160,
-            com.openautolink.app.secondary.SecondaryRoute.GM_HOSTED,
-            com.openautolink.app.secondary.SecondaryReason.NONE, "Qualified driver cluster")
-        val inventory = kotlinx.coroutines.flow.MutableStateFlow(com.openautolink.app.secondary.SecondaryInventorySnapshot(1, listOf(descriptor)))
-        val drivers = mutableListOf<ClusterRenderDriver>()
-        val runtime = com.openautolink.app.secondary.SecondaryOutputRuntime(context, inventory, { mapping, name ->
-            val driver = object : ClusterRenderDriver {
-                override fun initialize() {}
-                override fun configure(config: ClusterCodecConfig) {}
-                override fun submit(frame: ClusterEncodedFrame) = true
-                override fun poll() = ClusterRenderProgress(0,0)
-                override fun stopDecoder() {}
-                override fun clearOutput() {}
-                override fun detach() = true
-            }
-            drivers += driver
-            ClusterProjectionOutput(mapping, ClusterRenderDriverFactory { _, _ -> driver }, name)
-        }, { _, _ -> "exact.avc" })
-        val selection = ClusterOutputSelection(ClusterDisplayMode.MAP_VIDEO)
-        val preferences = com.openautolink.app.secondary.SecondaryPreferencesSnapshot(1,
-            mapOf(descriptor.id to com.openautolink.app.secondary.SecondaryOutputPreference(true,
-                com.openautolink.app.secondary.AaSecondaryRole.CLUSTER, true, true)),
-            com.openautolink.app.data.ClusterOutputPreferences(selection, ClusterDisplayMode.MAP_VIDEO))
-        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
-        fun pump(predicate: () -> Boolean) {
-            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
-            while (!predicate() && System.nanoTime() < deadline) {
-                org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(2)
-            }
-            assertTrue("Production runtime condition timed out", predicate())
-        }
+    @Test fun explicitAaReconnectUsesFreshDirectHostInProductionOfferFactory() = runtimeDirectReconnect(false)
+    @Test fun explicitCpReconnectUsesFreshDirectHostInProductionConfigurationFactory() = runtimeDirectReconnect(true)
+    private fun runtimeDirectReconnect(carPlay: Boolean) {
+        // Other tests in this class drive pure AndroidX callbacks with a virtual Main.
+        // These two exercise the real direct Activity/registry's Main dispatcher instead.
+        Dispatchers.resetMain()
+        val f=RetainedHostRuntimeFixture()
         try {
-            val first = scope.async { if (carPlay) runtime.prepareCarPlay(101, preferences)
-                else runtime.prepareAndroidAuto(101, preferences) }
-            pump { ClusterBindingState.frozenMapBinding() != null }
-            val binding = requireNotNull(ClusterBindingState.frozenMapBinding())
-            val hosted = service().onCreateSession(SessionInfo(SessionInfo.DISPLAY_TYPE_MAIN, "actual"))
-            hosted.onCreateScreen(Intent().putExtra(CLUSTER_BINDING_GENERATION_EXTRA, binding.generation))
-            val callback = callbacks.single(); val container = surface()
-            callback.onSurfaceAvailable(container)
-            callback.onVisibleAreaChanged(Rect(0,135,2000,810))
-            callback.onStableAreaChanged(Rect(0,135,2000,810))
-            pump { first.isCompleted }
-            val initial = kotlinx.coroutines.runBlocking { first.await() }
-            assertNotNull(runtime.mapping(descriptor.id))
-            callback.onVisibleAreaChanged(Rect(0,0,2000,810))
-            val frozen = runtime.mapping(descriptor.id) as ClusterVideoMapping
-            assertEquals(PixelRect(98,135,1904,745), frozen.qualifiedDisplay.effectiveOutput)
-            val method = runtime.javaClass.methods.singleOrNull { it.name == "retainForExplicitReconnect" }
-            assertNotNull("Production reconnect must consume retained live host instead of qualifiedInitialDisplay", method)
-            assertEquals(true, method!!.invoke(runtime))
-            val retirement = if (carPlay) (initial as com.openautolink.app.secondary.PreparedCarPlaySecondaryOutput).retire("explicit reconnect")
-                else (initial as com.openautolink.app.secondary.PreparedAaSecondaryOutputs).retire("explicit reconnect")
-            pump { retirement.isDone }
-            assertTrue(retirement.get())
-            assertSame(binding, ClusterBindingState.frozenMapBinding())
-            val second = scope.async { if (carPlay) runtime.prepareCarPlay(102, preferences)
-                else runtime.prepareAndroidAuto(102, preferences) }
-            pump { second.isCompleted }
-            val result = kotlinx.coroutines.runBlocking { second.await() }
-            val expanded = runtime.mapping(descriptor.id) as ClusterVideoMapping
-            assertEquals(PixelRect(98,65,1904,745), expanded.qualifiedDisplay.effectiveOutput)
-            assertEquals(qualified.safe, expanded.qualifiedDisplay.safe)
-            if (carPlay) {
-                val configuration = (result as com.openautolink.app.secondary.PreparedCarPlaySecondaryOutput).configuration
-                assertNotNull(configuration)
-                assertNotEquals((initial as com.openautolink.app.secondary.PreparedCarPlaySecondaryOutput).configuration!!.display.safeArea,
-                    configuration!!.display.safeArea)
-                fun serialize(configuration: com.openautolink.carplaylab.media.CarPlayClusterVideoConfiguration): Pair<ByteArray, Map<*, *>> {
-                    val info = com.shilapi.xcertplay.airplay.AirPlayInfoPlist.build(
-                        com.shilapi.xcertplay.airplay.AirPlayConfig("fixture", "00:00:00:00:00:00", "00:00:00:00:00:00", "fixture",
-                            com.shilapi.xcertplay.airplay.AirPlayDisplayConfig(1280,720), cluster = configuration.display,
-                            disableAudioOutput = true), availableAudioFormats = emptySet())
-                    val bytes = com.shilapi.xcertplay.airplay.BplistCodec.encode(info)
-                    return bytes to (com.shilapi.xcertplay.airplay.BplistCodec.decode(bytes) as Map<*, *>)
+            val initial=f.prepared(carPlay,101);assertTrue(f.offered(initial))
+            val old=f.owner()!!.handle!!.owner
+            val frozen=f.runtime.mapping(f.descriptor.id)!!
+            assertNull(ClusterBindingState.frozenMapBinding())
+            assertFalse(f.runtime.retainForExplicitReconnect())
+            val custom=SecondaryLayoutPreference(
+                SecondaryLayoutScope(f.descriptor.id,android.os.Build.PRODUCT,android.os.Build.FINGERPRINT,2000,810,160),
+                SecondaryLayoutBox(0.0,0.0,1.0,1.0),SecondaryLayoutBox(.35,.25,.65,.65),
+                directSafe=SecondaryLayoutBox(.4,.3,.6,.6))
+            val nextPrefs=f.frozen.copy(outputs=mapOf(f.descriptor.id to f.frozen.outputs.getValue(f.descriptor.id).copy(layout=custom)))
+            assertSame("Staging new intent cannot mutate frozen mapping",frozen,f.runtime.mapping(f.descriptor.id))
+            // Configuration is intentionally revoked by retirement. Snapshot the immutable
+            // advertised value while its exact owner is current, not through the retired getter.
+            val initialConfiguration = if (carPlay) (initial as PreparedCarPlaySecondaryOutput).configuration else null
+            val retirement=f.retire(initial);f.pump { retirement.isDone };assertTrue(retirement.get())
+            if (carPlay) assertNull((initial as PreparedCarPlaySecondaryOutput).configuration)
+            assertFalse(old.isCurrent);assertEquals(1,f.detached.get())
+            val job=f.scope.async { if(carPlay) f.runtime.prepareCarPlay(102,nextPrefs) else f.runtime.prepareAndroidAuto(102,nextPrefs) }
+            f.pump { job.isCompleted };val result=kotlinx.coroutines.runBlocking { job.await() }
+            assertTrue(f.offered(result));assertNotSame(old,f.owner()!!.handle!!.owner)
+            assertEquals(102L,f.owner()!!.handle!!.owner.projectionEpoch)
+            val mapping=f.runtime.mapping(f.descriptor.id)!!
+            assertEquals(PixelRect(0,0,2000,810),mapping.target.output)
+            assertEquals(PixelRect(800,243,1200,486),mapping.target.safe)
+            assertNotEquals(frozen.phoneSafeInsets,mapping.phoneSafeInsets)
+            if(carPlay) {
+                fun info(p:Any):Map<*,*> {
+                    val configuration = if (p === initial) requireNotNull(initialConfiguration)
+                        else requireNotNull((p as PreparedCarPlaySecondaryOutput).configuration)
+                    val dict=com.shilapi.xcertplay.airplay.AirPlayInfoPlist.build(
+                        com.shilapi.xcertplay.airplay.AirPlayConfig("fixture","00:00:00:00:00:00","00:00:00:00:00:00","fixture",
+                            com.shilapi.xcertplay.airplay.AirPlayDisplayConfig(1280,720),cluster=configuration.display,
+                            disableAudioOutput=true),availableAudioFormats=emptySet())
+                    return com.shilapi.xcertplay.airplay.BplistCodec.decode(com.shilapi.xcertplay.airplay.BplistCodec.encode(dict)) as Map<*,*>
                 }
-                val (oldBytes, oldInfo) = serialize(initial.configuration!!)
-                val (newBytes, newInfo) = serialize(configuration)
-                val oldDisplays = oldInfo["displays"] as List<*>
-                val newDisplays = newInfo["displays"] as List<*>
-                assertEquals(oldDisplays.first(), newDisplays.first()) // Main110 stays byte-equivalent.
-                val alternate = newDisplays[1] as Map<*, *>
-                assertEquals(111L, (alternate["type"] as Number).toLong())
-                val view = (alternate["viewAreas"] as List<*>).single() as Map<*, *>
-                val wireSafe = view["safeArea"] as Map<*, *>
-                assertEquals(configuration.display.safeArea!!.top.toLong(), (wireSafe["originYPixels"] as Number).toLong())
-                assertEquals(false, wireSafe["drawUIOutsideSafeArea"])
-                System.getProperty("handoff.receipt.dir")?.let { dir ->
-                    java.io.File(dir).mkdirs()
-                    java.io.File(dir, "cp-before.bplist").writeBytes(oldBytes)
-                    java.io.File(dir, "cp-after.bplist").writeBytes(newBytes)
-                }
-
+                val before=info(initial)["displays"] as List<*>;val after=info(result)["displays"] as List<*>
+                assertEquals(before.first(),after.first())
+                val alternate=after[1] as Map<*,*>;assertEquals(111L,(alternate["type"] as Number).toLong())
+                val safe=((alternate["viewAreas"] as List<*>).single() as Map<*,*>)["safeArea"] as Map<*,*>
+                assertEquals(mapping.phoneSafeInsets.top.toLong(),(safe["originYPixels"] as Number).toLong())
+                assertEquals(false,safe["drawUIOutsideSafeArea"])
             } else {
-                val offer = (result as com.openautolink.app.secondary.PreparedAaSecondaryOutputs).offers.single()
-                assertEquals(expanded.codecCrop.top, offer.cropTop)
-                assertEquals(expanded.phoneSafeInsets.top, offer.safeTop)
-                assertNotEquals((initial as com.openautolink.app.secondary.PreparedAaSecondaryOutputs).offers.single().cropTop, offer.cropTop)
-                System.getProperty("handoff.receipt.dir")?.let { dir ->
-                    val fields = listOf("channelId", "protocolDisplayId", "displayType", "density", "cropLeft", "cropTop", "cropRight", "cropBottom",
-                        "safeLeft", "safeTop", "safeRight", "safeBottom", "stableLeft", "stableTop", "stableRight", "stableBottom")
-                    fun json(value: AasdkSecondaryVideoOffer) = org.json.JSONObject().also { receipt ->
-                        fields.forEach { field -> receipt.put(field, value.javaClass.getField(field).getInt(value)) }
-                    }
-                    java.io.File(dir).mkdirs()
-                    java.io.File(dir, "aa-runtime-offers.json").writeText(org.json.JSONObject()
-                        .put("before", json(initial.offers.single())).put("after", json(offer)).toString())
-                }
-
+                val offer=(result as PreparedAaSecondaryOutputs).offers.single()
+                assertEquals(mapping.codecCrop.top,offer.cropTop);assertEquals(mapping.phoneSafeInsets.top,offer.safeTop)
+                assertEquals(3,offer.channelId);assertEquals(1,offer.protocolDisplayId)
+                assertNotEquals((initial as PreparedAaSecondaryOutputs).offers.single().safeTop,offer.safeTop)
             }
-            assertSame(binding, ClusterBindingState.frozenMapBinding())
-            assertEquals(1, launches.size)
-            assertEquals(1, callbacks.size)
-            assertEquals(2, drivers.size)
-        } finally {
-            val close = runtime.close(); pump { close.isDone }; assertTrue(close.get())
-            scope.cancel()
-        }
+            assertEquals(2,f.launches.size);assertEquals(2,f.bridges.size)
+            assertNull(ClusterBindingState.frozenMapBinding())
+        } finally { f.close();Dispatchers.setMain(dispatcher) }
     }
 
     @Test fun expandedLiveDisplayMakesEditorBackgroundAndEssentialBoundsDistinct() {

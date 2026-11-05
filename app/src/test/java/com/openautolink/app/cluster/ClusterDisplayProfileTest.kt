@@ -56,8 +56,13 @@ class ClusterDisplayProfileTest {
 
     @Test fun hostChangesAreRequalifiedAndSafeCannotBeSilentlyClipped() {
         val changed = host.copy(visible = PixelRect(100, 140, 1800, 800), stable = PixelRect(120, 150, 1900, 700))
+        val qualified = requireNotNull(ClusterDisplayProfiles.qualify(identity, bindings, changed))
+        assertEquals("Background uses visible intersection, not stable essential bounds",
+            PixelRect(100, 140, 1800, 745), qualified.effectiveOutput)
         assertEquals(PixelRect(120, 150, 1800, 700),
-            requireNotNull(ClusterDisplayProfiles.qualify(identity, bindings, changed)).effectiveOutput)
+            qualified.effectiveOutput.intersect(changed.stable))
+        assertEquals(qualified.profile.safe, qualified.safe)
+        assertTrue(requireNotNull(qualified.effectiveOutput.intersect(changed.stable)).contains(qualified.safe))
         assertNull(ClusterDisplayProfiles.qualify(identity, bindings, host.copy(visible = PixelRect(0, 170, 2000, 810))))
         assertNull(ClusterDisplayProfiles.qualify(identity, bindings, host.copy(stable = PixelRect(0, 0, 2000, 100))))
         val resized = ClusterHostGeometry(7, PixelSize(1000, 405), PixelRect(0, 0, 1000, 405), PixelRect(0, 0, 1000, 405))

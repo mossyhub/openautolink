@@ -7,6 +7,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import com.openautolink.app.data.*
 import com.openautolink.carplaylab.telecom.ManagedTelecomExperiment
+import com.openautolink.app.ui.testing.closeCarPlayCallControllerAndAwait
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.junit.*
@@ -18,8 +19,11 @@ import org.robolectric.annotation.Config
 
 @org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [32,33,34], manifest = Config.NONE, application = Application::class)
+@Config(sdk = [32,33,34], manifest = Config.NONE, application = Application::class, shadows=[CallReceiptFileSyncShadow::class])
 class CarPlayCallControllerTest {
+    @After fun drainReceiptWriterBeforeSandboxReset() {
+        assertTrue("Actual receipt worker must finish before this Android context is discarded",com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush())
+    }
     private class Store : DataStore<Preferences> {
         val state = MutableStateFlow<Preferences>(emptyPreferences())
         override val data: Flow<Preferences> = state
@@ -42,6 +46,38 @@ class CarPlayCallControllerTest {
         }
         val afterRead = java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>()
         override fun getConnectionState(device: android.bluetooth.BluetoothDevice) = state
+    }
+    private fun flushFixtureReceipts() {
+        if(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush()) return
+        val worker=com.openautolink.carplaylab.telecom.NativeCallDiagnostics::class.java.getDeclaredField("worker")
+            .apply { isAccessible=true }.get(null) as java.util.concurrent.ThreadPoolExecutor
+        val threads=Thread.getAllStackTraces().filterKeys { it.name=="native-call-receipts" }
+            .entries.joinToString("\n") { (t,stack)->"${t.name} ${t.state}\n"+stack.joinToString("\n") }
+        val outcomes=org.robolectric.shadows.ShadowLog.getLogsForTag("OALNativeCall").joinToString { it.msg }
+        throw AssertionError("Receipt flush failed: queue=${worker.queue.size} active=${worker.activeCount} completed=${worker.completedTaskCount} closed=${worker.isShutdown}; outcomes=$outcomes; workers=$threads")
+    }
+    @Test @Config(sdk=[32,34])
+    fun receiptWriterPreservesRealFifoTimeoutAndRecoversAfterOsSyncHold() {
+        val native=com.openautolink.carplaylab.telecom.NativeCallDiagnostics
+        assertTrue(native.flush())
+        val entered=java.util.concurrent.CountDownLatch(1)
+        val release=java.util.concurrent.CountDownLatch(1)
+        val line="media stage=native-policy actor=HFP state=UNKNOWN admitted=false action=OBSERVED cause=PROFILE_CENSUS"
+        CallReceiptFileSyncShadow.beforeSync={entered.countDown();check(release.await(5,java.util.concurrent.TimeUnit.SECONDS))}
+        try {
+            assertTrue(native.record(RuntimeEnvironment.getApplication(),line))
+            assertTrue("Actual AtomicFile writer entered the OS sync boundary",entered.await(1,java.util.concurrent.TimeUnit.SECONDS))
+            assertFalse("The production 2s FIFO deadline must still fail while its writer is held",native.flush())
+            release.countDown()
+            CallReceiptFileSyncShadow.beforeSync=null
+            assertTrue("The same production queue recovers after the exact writer completes",native.flush())
+            val file=java.io.File(RuntimeEnvironment.getApplication().getExternalFilesDir(null),"openautolink/logs/native_call_controls.log")
+            assertTrue(file.readLines().contains(line))
+            assertTrue("Only OS physical sync is modeled; actual writer executed",CallReceiptFileSyncShadow.syncCalls.get()>0)
+        } finally {
+            release.countDown();CallReceiptFileSyncShadow.beforeSync=null
+            assertTrue(native.flush())
+        }
     }
     private fun guardWorker(guard: com.openautolink.carplaylab.telecom.HfpCallGuard) =
         guard.javaClass.getDeclaredField("worker").apply { isAccessible = true }.get(guard) as java.util.concurrent.ScheduledExecutorService
@@ -67,7 +103,7 @@ class CarPlayCallControllerTest {
             refreshFixtureGuard(guard)
             assertSame("fixture refresh must serialize with the actual scheduled census worker", expected, actual)
             assertEquals(com.openautolink.carplaylab.telecom.HfpCallGuard.Status.HFP_OWNED, guard.status)
-        } finally { guard.close() }
+        } finally { guard.close();assertTrue(guardWorker(guard).awaitTermination(5,java.util.concurrent.TimeUnit.SECONDS)) }
     }
     @Test @Config(sdk = [32,34])
     fun overlappingManualCensusCanReturnBeforeNewerReadPublishes() {
@@ -98,7 +134,7 @@ class CarPlayCallControllerTest {
             release.countDown()
             worker.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
             assertEquals("the actual newer census publishes the connected conflict", com.openautolink.carplaylab.telecom.HfpCallGuard.Status.HFP_OWNED, guard.status)
-        } finally { release.countDown(); guard.close() }
+        } finally { release.countDown(); guard.close();assertTrue(guardWorker(guard).awaitTermination(5,java.util.concurrent.TimeUnit.SECONDS)) }
     }
     @Test @Config(sdk = [32,34])
     fun failedHfpAttemptPreservesExactActiveOwnerAndEndWhileBlockingNewAdmission() = runBlocking {
@@ -169,7 +205,7 @@ class CarPlayCallControllerTest {
             link.handle(call(0)); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals(android.telecom.Connection.STATE_DISCONNECTED, connection.state)
             assertFalse(backend.hasAdmittedCall)
-        } finally { controller.close(); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle(); service.onDestroy() }
+        } finally { closeCarPlayCallControllerAndAwait(controller); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle(); service.onDestroy() }
     }
     @Test @Config(sdk = [32,34])
     fun lateConnectedPreservesOwnerWithoutManufacturingHandoverOrCommands() = runBlocking {
@@ -203,10 +239,12 @@ class CarPlayCallControllerTest {
             for (state in listOf(android.bluetooth.BluetoothProfile.STATE_CONNECTED, android.bluetooth.BluetoothProfile.STATE_CONNECTING, android.bluetooth.BluetoothProfile.STATE_DISCONNECTING)) {
                 profile.state = state; refreshFixtureGuard(guard)
                 link.handle(call(suffix = (state + 2).toString())); shadowOf(android.os.Looper.getMainLooper()).idle()
-                assertEquals("conflict escaped new-call gate", 1, os.allIncomingCalls.size)
+                if(os.allIncomingCalls.size!=1) throw AssertionError("conflict escaped new-call gate: state=$state guard=${guard.status} controller=${controller.state.value} at=${android.os.SystemClock.elapsedRealtime()} snapshot="+
+                    guard.javaClass.getDeclaredField("snapshot").apply { isAccessible=true }.get(guard))
+                assertEquals("conflict escaped new-call gate",1,os.allIncomingCalls.size)
                 link.handle(call(0, (state + 2).toString())); shadowOf(android.os.Looper.getMainLooper()).idle()
             }
-            assertTrue(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush())
+            flushFixtureReceipts()
             val receipts = java.io.File(app.getExternalFilesDir(null), "openautolink/logs/native_call_controls.log").readLines()
             assertTrue("guard decision must survive manual export", receipts.any { it.contains("stage=native-policy actor=HFP") && it.contains("action=PRESERVED") })
             assertTrue(receipts.any { it.contains("stage=native-policy") && it.contains("action=BLOCKED") })
@@ -217,7 +255,7 @@ class CarPlayCallControllerTest {
             os.enablePhoneAccount(backend.handle, false); backend.refresh(); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals(android.telecom.Connection.STATE_DISCONNECTED, revoked.state)
             revoked.onReject(); backend.refresh(); assertEquals(1, rejects)
-            assertTrue(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush())
+            flushFixtureReceipts()
             assertTrue(java.io.File(app.getExternalFilesDir(null), "openautolink/logs/native_call_controls.log").readText().contains("actor=AUTHORITY state=DISABLED"))
             val file = java.io.File(app.getExternalFilesDir(null), "openautolink/logs/native_call_controls.log")
             val bytes = file.readBytes()
@@ -231,7 +269,7 @@ class CarPlayCallControllerTest {
                     assertArrayEquals(bytes, zip.getInputStream(zip.getEntry(file.name)).readBytes())
                 }
             }
-        } finally { controller.close(); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle(); service.onDestroy() }
+        } finally { closeCarPlayCallControllerAndAwait(controller); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle(); service.onDestroy() }
     }
     @Test fun explicitCarPlayAdmitsWithUnknownHfpWithoutClaimingDisconnected() = runBlocking {
         val app = RuntimeEnvironment.getApplication()
@@ -251,7 +289,7 @@ class CarPlayCallControllerTest {
             controller.setHandler(CarPlayCallPreferences.Handler.CAR_BLUETOOTH)
             link.handle(call(0)); link.handle(call(suffix = "2")); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals("car Bluetooth must never announce a new OAL call", 1, shadowOf(manager).allIncomingCalls.size)
-        } finally { controller.close(); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle() }
+        } finally { closeCarPlayCallControllerAndAwait(controller); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle() }
     }
     @Test fun handlerSwitchKeepsExactAdmittedConnectionControlsButWithholdsNewCalls() = runBlocking {
         val app = RuntimeEnvironment.getApplication()
@@ -282,7 +320,7 @@ class CarPlayCallControllerTest {
             assertEquals("ordinary next-call switch revoked current owner's guarded End", 2, commands.size)
             link.handle(call(0)); link.handle(call(suffix = "2")); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals("new OAL ring escaped saved car-Bluetooth selection", 1, os.allIncomingCalls.size)
-        } finally { controller.close(); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle(); service.onDestroy() }
+        } finally { closeCarPlayCallControllerAndAwait(controller); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle(); service.onDestroy() }
     }
     @Test fun failedRepairCannotBeForgottenByAReplacementLinkOrSuccessfulSuccessorRepair() = runBlocking {
         val app = RuntimeEnvironment.getApplication()
@@ -309,7 +347,7 @@ class CarPlayCallControllerTest {
             }
             assertFalse("repairing only a successor cannot acknowledge predecessor debt", repair.await())
             assertEquals(CarPlayCallController.Setup.UNAVAILABLE, controller.prepare().setup)
-        } finally { controller.close(); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle() }
+        } finally { closeCarPlayCallControllerAndAwait(controller,expectedLocalCleanupFailure=true); backend.disable(); shadowOf(android.os.Looper.getMainLooper()).idle() }
     }
     @Test fun startupWithoutSettingsSeparatesMissingPermissionDisabledAndReadyAndNeverLaunches() = runBlocking {
         val context: Context = RuntimeEnvironment.getApplication()
@@ -332,6 +370,6 @@ class CarPlayCallControllerTest {
             shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(android.Manifest.permission.READ_PHONE_NUMBERS)
             assertEquals(CarPlayCallController.Setup.PERMISSION_NEEDED, controller.prepare().setup)
             assertNull(shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity)
-        } finally { controller.close() }
+        } finally { closeCarPlayCallControllerAndAwait(controller) }
     }
 }

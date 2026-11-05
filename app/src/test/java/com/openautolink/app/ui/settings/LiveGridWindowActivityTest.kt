@@ -41,14 +41,34 @@ class LiveGridWindowActivityTest {
     }
     companion object { var allowed = true }
     private val app = RuntimeEnvironment.getApplication() as Application
+    private var inventoryFixture: RawDisplayTestFixture? = null
+    @org.junit.After fun closeInventory() { inventoryFixture?.close() }
     private fun target(): com.openautolink.app.secondary.SecondaryDisplayDescriptor {
         allowed = true
         val id = ShadowDisplayManager.addDisplay("w800dp-h480dp-mdpi", "Grid bench external")
         val display = app.getSystemService(DisplayManager::class.java).getDisplay(id)
         shadowOf(display).setFlags(Display.FLAG_PRESENTATION); shadowOf(display).setState(Display.STATE_ON)
-        val inventory = SecondaryDisplayPolicyInventory.get(app)
-        repeat(10) { shadowOf(Looper.getMainLooper()).idle() }
-        return inventory.snapshots.value.displays.single { it.displayId == id }.also { assertEquals(SecondaryRoute.PUBLIC_ACTIVITY, it.route) }
+        val fixture = RawDisplayTestFixture(app).also { inventoryFixture = it }
+        return fixture.target(id, 800, 480, SecondaryRoute.PUBLIC_ACTIVITY)
+    }
+    private fun binding(display: com.openautolink.app.secondary.SecondaryDisplayDescriptor,
+        directionsArea: Boolean = false, idle: () -> Boolean): LiveGridPreviewBinding {
+        val real = LiveGridWindows.binding(app, display, directionsArea, idle)
+        return real.copy(start = { geometry, seconds ->
+            // Preserve the actual failure, with exact at-Start receipts (not a raw-row guess).
+            // Intentional idle/stale/denied negatives still exercise production unchanged.
+            try { real.start(geometry, seconds) } catch (failure: Exception) {
+                val producer = SecondaryDisplayPolicyInventory.get(app)
+                val current = producer.snapshots.value.displays.singleOrNull { it.id == display.id }
+                val actual = app.getSystemService(DisplayManager::class.java).getDisplay(display.displayId)
+                val metrics = android.util.DisplayMetrics().also { actual?.getRealMetrics(it) }
+                failure.addSuppressed(AssertionError("AT_GRID_START expected=$display current=$current " +
+                    "producer=${System.identityHashCode(producer)} raw=${producer.raw.displays.value} " +
+                    "actualValid=${actual?.isValid} state=${actual?.state} flags=${actual?.flags} " +
+                    "metrics=${metrics.widthPixels}x${metrics.heightPixels}"))
+                throw failure
+            }
+        })
     }
     private val geometry = LiveGridGeometry(PixelSize(800, 480), PixelRect(0, 0, 800, 480),
         PixelRect(100, 50, 700, 430), PixelRect(200, 100, 600, 380))
@@ -58,7 +78,7 @@ class LiveGridWindowActivityTest {
             ActivityOptions.makeBasic().setLaunchDisplayId(display).toBundle()).create()
     }
     @Test fun directActivityRendersTransparentGridUpdatesLiveAndStaleStopCannotRetireB() {
-        val display = target(); val a = LiveGridWindows.binding(app, display) { true }
+        val display = target(); val a = binding(display) { true }
         a.start(geometry, 15)
         val controller = launch(display.displayId); val activity = controller.get()
         assertFalse(activity.isFinishing)
@@ -74,14 +94,14 @@ class LiveGridWindowActivityTest {
         val next = geometry.adjustGrid(false, false, 40, 20)
         assertTrue(a.update(next)); val after = draw(); assertEquals(0, after.getPixel(160, 80)); assertNotEquals(0, after.getPixel(200, 100))
         a.stop(); assertTrue(activity.isFinishing)
-        val b = LiveGridWindows.binding(app, display) { true }; b.start(geometry, 15)
+        val b = binding(display) { true }; b.start(geometry, 15)
         val successor = launch(display.displayId)
         a.stop(); controller.destroy()
         assertFalse(successor.get().isFinishing)
         b.stop(); assertTrue(successor.get().isFinishing); successor.destroy()
     }
     @Test fun sameBindingRestartSurvivesDelayedPredecessorActivityStop() {
-        val display = target(); val binding = LiveGridWindows.binding(app, display) { true }
+        val display = target(); val binding = binding(display) { true }
         binding.start(geometry, 15)
         val predecessor = launch(display.displayId).start().resume()
         var successor: ActivityController<LiveGridWindowActivity>? = null
@@ -117,7 +137,7 @@ class LiveGridWindowActivityTest {
     @Test
     @Config(shadows = [Admission::class, Coordinates::class])
     fun repeatedDrawReusesCoordinatesAndReadsActualOriginAgain() {
-        val display = target(); val binding = LiveGridWindows.binding(app, display) { true }
+        val display = target(); val binding = binding(display) { true }
         binding.start(geometry, 15)
         val controller = launch(display.displayId)
         try {
@@ -137,7 +157,7 @@ class LiveGridWindowActivityTest {
         } finally { binding.stop(); controller.destroy() }
     }
     @Test fun directWindowDeadlineCannotBeExtendedByGeometryEdits() {
-        val display = target(); val binding = LiveGridWindows.binding(app, display) { true }
+        val display = target(); val binding = binding(display) { true }
         binding.start(geometry, 15); val controller = launch(display.displayId)
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(12))
         assertTrue(binding.update(geometry.adjustGrid(false, false, 1, 1)))
@@ -145,7 +165,7 @@ class LiveGridWindowActivityTest {
         assertTrue(controller.get().isFinishing); assertFalse(binding.update(geometry)); controller.destroy()
     }
     @Test fun directionsPhysicalWindowHasThirtySecondOriginalDeadlineAndNoEditRenewal() {
-        val display = target(); val binding = LiveGridWindows.binding(app, display, directionsArea = true) { true }
+        val display = target(); val binding = binding(display, directionsArea = true) { true }
         binding.start(geometry, 30); val controller = launch(display.displayId).start().resume()
         try {
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(20))
@@ -159,23 +179,23 @@ class LiveGridWindowActivityTest {
     }
     @Test fun thirtySecondBudgetIsScopedAndStillBounded() {
         val display = target()
-        val legacy = LiveGridWindows.binding(app, display) { true }
+        val legacy = binding(display) { true }
         try { legacy.start(geometry, 30); fail("Legacy tools retain 15s budget") } catch (_: IllegalArgumentException) { }
-        val directions = LiveGridWindows.binding(app, display, directionsArea = true) { true }
+        val directions = binding(display, directionsArea = true) { true }
         try { directions.start(geometry, 31); fail("Directions must remain bounded") } catch (_: IllegalArgumentException) { }
         assertNull(shadowOf(app).nextStartedActivity)
     }
     @Test fun idleAndExactAndroidAdmissionAreRequiredNoFallbackWindowStarts() {
         val display = target()
-        val notIdle = LiveGridWindows.binding(app, display) { false }
+        val notIdle = binding(display) { false }
         try { notIdle.start(geometry, 15); fail("Projection must not be disturbed") } catch (_: IllegalStateException) { }
         assertNull(shadowOf(app).nextStartedActivity)
-        val denied = LiveGridWindows.binding(app, display) { true }; allowed = false
+        val denied = binding(display) { true }; allowed = false
         try { denied.start(geometry, 15); fail("Android admission must hold") } catch (_: IllegalStateException) { }
         assertNull(shadowOf(app).nextStartedActivity)
     }
     @Test fun staleDisplayEpochAndWrongActualDisplayFailClosed() {
-        val display = target(); val binding = LiveGridWindows.binding(app, display) { true }
+        val display = target(); val binding = binding(display) { true }
         binding.start(geometry, 15)
         val wrong = launch(Display.DEFAULT_DISPLAY); assertTrue(wrong.get().isFinishing); wrong.destroy()
         assertFalse(binding.update(geometry))

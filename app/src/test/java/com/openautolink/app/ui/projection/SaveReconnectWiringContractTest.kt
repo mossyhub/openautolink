@@ -51,9 +51,9 @@ class SaveReconnectWiringContractTest {
         assertTrue(dispatch.indexOf("val saved = preferences.carPlaySettings.first()") < dispatch.indexOf("usbSwitchPolicy.wirelessCarPlay("))
         assertTrue(dispatch.contains("usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)"))
         assertFalse(dispatch.contains("carPlayEnabled.value"))
-        assertTrue(dispatch.contains("carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)"))
-        val retirement = dispatch.indexOf("retireUsbProjection()")
-        val connect = dispatch.indexOf("carPlayCoordinator.connectWithContext(")
+        assertTrue(dispatch.contains("carPlayCoordinator.connectForExplicitReconnect(true, ::createCarPlayRuntime)"))
+        val retirement = dispatch.indexOf("retireUsbProjection(preserveClusterHostForReconnect = retainedClusterHost)")
+        val connect = dispatch.indexOf("carPlayCoordinator.connectForExplicitReconnect(")
         assertTrue("USB retirement must precede context-aware CarPlay dispatch", retirement >= 0 && connect > retirement)
         assertTrue(dispatch.contains("preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB"))
         assertFalse("Global Save keeps the passive USB watcher alive", dispatch.contains("stopUnifiedUsb()"))
@@ -61,12 +61,19 @@ class SaveReconnectWiringContractTest {
 
     @Test fun globalSaveDoesNotReuseSelectedOnlyOverlayReconnect() {
         val nav = source("ui/navigation/AppNavHost.kt")
-        val save = nav.substringAfter("internal fun rememberProductionSettingsSaveAction(").substringBefore("@Composable\nfun AppNavHost")
+        val save = nav.substringAfter("internal fun rememberProductionSettingsSaveAction(")
+            .substringBefore("/** Exact callback used by the rendered projection Reconnect menu")
         assertEquals("Both real Settings destinations must share the tested production callback", 2,
             Regex("onSaveAndConnect = rememberProductionSettingsSaveAction").findAll(nav).count())
         assertTrue("Successful committed save must dispatch from saved preferences, including enabled but unselected CarPlay",
             save.contains("projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect)"))
-        assertFalse("Save cannot depend on the captured UI selection", save.contains("carPlayState"))
+        // The per-click receipt may report UI protocol; it must not select reconnect policy.
+        val dispatch = save.lineSequence().filterNot { it.trimStart().startsWith("receipt.event(") }.joinToString("\n")
+        assertTrue("Actual dispatch must exist within shared Save", save.contains("projectionViewModel.reconnectAfterSettingsSave"))
+        assertFalse("Save cannot dispatch from the captured UI selection", dispatch.contains("if (projectionViewModel.carPlayState"))
+        assertFalse(dispatch.contains("when (projectionViewModel.carPlayState"))
+        assertFalse(dispatch.contains("if (carPlayState"))
+        assertFalse(dispatch.contains("when (carPlayState"))
         assertFalse("Save must not reuse the stale selected-only reconnect closure", save.contains("\n                                    reconnectProjection,"))
     }
 }

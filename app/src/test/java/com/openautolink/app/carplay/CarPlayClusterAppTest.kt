@@ -13,8 +13,17 @@ import com.shilapi.xcertplay.airplay.AirPlayInsets
 import com.shilapi.xcertplay.media.CarPlayVideoSelection
 import io.mockk.*
 import java.util.concurrent.CompletableFuture
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -121,27 +130,58 @@ class CarPlayClusterAppTest {
         assertFalse(output.snapshot().phoneStreamActive)
         assertNotNull(output.snapshot().output.error)
     }
-    @Test fun mapMetadataNeverCreatesCompetingManagerAndPreservesSourceAndMedia() {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun mapMetadataNeverCreatesCompetingManagerAndPreservesSourceAndMedia() = runTest {
         val prefs=mockk<AppPreferences>()
         mockkObject(AppPreferences.Companion,OalMediaSessionManager.Companion)
         every { AppPreferences.getInstance(any()) } returns prefs
         every { prefs.distanceUnits } returns flowOf("metric")
         val media=mockk<OalMediaSessionManager>(relaxed=true)
         every { OalMediaSessionManager.getInstance(any()) } returns media
-        for (icons in listOf(false,true)) {
-            val host=OalCarPlayMetadataHost(mockk(),clusterSelection=selection.copy(nativeIconsWithMap=icons))
-            try {
-                assertTrue(host.start())
-                assertNull(host.javaClass.getDeclaredField("cluster").apply { isAccessible=true }.get(host))
-                val nav=com.openautolink.carplaylab.metadata.CarPlayNavigationMetadata(2,0,200,"Road",100,1000)
-                host.publishRoute(com.openautolink.carplaylab.metadata.CarPlayMediaMetadata(title="Song"),
-                    com.openautolink.carplaylab.metadata.CarPlayRouteMetadata(1,nav),byteArrayOf(1))
-                assertEquals(200,ClusterNavigationState.state.value?.distanceMeters)
-                assertTrue(ClusterNavigationState.isActive)
-                verify { media.updateCarPlay(any(),any(),any(),false) }
-                verify(exactly=0) { prefs.clusterNavigation }
-            } finally { host.close() }
-        }
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            for (icons in listOf(false,true)) {
+                val frozen=selection.copy(nativeIconsWithMap=icons)
+                // Legacy non-GM coexistence may create a native guidance manager, never a MAP owner.
+                val native=ClusterOutputPolicy.shouldPublishNativeIcons(frozen,
+                    ClusterProjectionProtocol.CARPLAY,hasSourcedManeuver=true)
+                assertEquals(icons && !ClusterOutputPolicy.isGmVehicle(),native)
+                val host=OalCarPlayMetadataHost(mockk(),clusterSelection=frozen)
+                var demand: Job? = null
+                try {
+                    assertTrue(host.start())
+                    val manager=host.javaClass.getDeclaredField("cluster").apply { isAccessible=true }.get(host) as ClusterManager?
+                    demand=manager?.let { ClusterManager::class.java.getDeclaredField("demandJob").apply { isAccessible=true }.get(it) as Job? }
+                    assertEquals("native manager follows the frozen runtime policy",native,manager != null)
+                    if (manager != null) {
+                        assertNull("metadata must never admit a competing MAP output",
+                            ClusterManager::class.java.getDeclaredField("mapOutput").apply { isAccessible=true }.get(manager))
+                        assertNotNull(demand)
+                        runCurrent()
+                        assertTrue(demand!!.isActive)
+                    }
+                    val nav=com.openautolink.carplaylab.metadata.CarPlayNavigationMetadata(2,0,200,"Road",100,1000)
+                    val song=com.openautolink.carplaylab.metadata.CarPlayMediaMetadata(title="Song $icons")
+                    val art=byteArrayOf(1)
+                    host.publishRoute(song,com.openautolink.carplaylab.metadata.CarPlayRouteMetadata(1,nav),art)
+                    assertEquals(CarPlayClusterMetadataAdapter.maneuver(nav),ClusterNavigationState.state.value)
+                    assertEquals(200,ClusterNavigationState.state.value?.distanceMeters)
+                    assertTrue(ClusterNavigationState.isActive)
+                    val owner=host.javaClass.getDeclaredField("owner").apply { isAccessible=true }.get(host)
+                    verify(exactly=1) { media.updateCarPlay(owner,song,art,false) }
+                    verify(exactly=0) { prefs.clusterNavigation }
+                } finally {
+                    try { host.close() } finally {
+                        // Join the exact process-scope collector before resetMain/unmockkAll,
+                        // including assertion or close failures; do not reset global ownership.
+                        demand?.cancelAndJoin()
+                    }
+                }
+                assertTrue(demand?.isCompleted != false)
+                assertNull(ClusterNavigationState.state.value)
+                assertFalse(ClusterNavigationState.isActive)
+            }
+        } finally { Dispatchers.resetMain() }
     }
     @Test fun retainedMapDebtWithholdsNativeManagerWithoutWithholdingMedia() {
         val prefs=mockk<AppPreferences>()

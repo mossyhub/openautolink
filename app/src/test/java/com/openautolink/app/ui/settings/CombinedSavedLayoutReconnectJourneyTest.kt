@@ -30,11 +30,12 @@ import java.io.File
 import io.mockk.*
 import com.openautolink.app.secondary.*
 
-/** Real settings binding + production initial qualifier + real DataStore + rendered editor and
+/** Supported legacy adapter/resolver coverage, deliberately not the public Directions entrypoint.
+ * Real settings binding + production initial qualifier + real DataStore + rendered editor and
  * direct Activity. OS public display/Build identity are controlled fixtures, not a GM device. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [32, 34], application = Application::class, qualifiers = "w1000dp-h360dp-land-mdpi",
-    shadows = [LiveGridWindowActivityTest.Admission::class])
+    shadows = [LiveGridWindowActivityTest.Admission::class, ClusterDirectVideoLifecycleTest.TextureBoundary::class])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class CombinedSavedLayoutReconnectJourneyTest {
@@ -48,19 +49,28 @@ class CombinedSavedLayoutReconnectJourneyTest {
     private fun journey(carPlay: Boolean, output: PixelRect, expected: PixelRect) = runBlocking<Unit> {
         val app = RuntimeEnvironment.getApplication()
         val oldProduct = Build.PRODUCT
+        val oldBuild = Build.ID
+        val oldRevision = Build.VERSION.INCREMENTAL
         ReflectionHelpers.setStaticField(Build::class.java, "PRODUCT", "aegean_orange")
+        ReflectionHelpers.setStaticField(Build::class.java, "ID", profile.vehicle.buildFamily)
+        ReflectionHelpers.setStaticField(Build.VERSION::class.java, "INCREMENTAL", profile.vehicle.buildRevision.toString())
         LiveGridWindowActivityTest.allowed = true
         val id = ShadowDisplayManager.addDisplay("w2000dp-h810dp-mdpi", "Controlled physical cluster")
         val physical = app.getSystemService(DisplayManager::class.java).getDisplay(id)
         shadowOf(physical).setFlags(Display.FLAG_PRESENTATION); shadowOf(physical).setState(Display.STATE_ON)
+        val inventoryFixture = RawDisplayTestFixture(app)
+        val liveTarget = inventoryFixture.target(id,2000,810,com.openautolink.app.secondary.SecondaryRoute.GM_HOSTED)
         val initial = requireNotNull(ClusterProjectionOutput.qualifiedInitialDisplay(app))
         assertEquals(legacy, initial.host.visible) // Real shipped initial qualifier, not an injected model.
-        val job = SupervisorJob()
+        var job = SupervisorJob()
         val file = File(app.filesDir, "direct-journey-${java.util.UUID.randomUUID()}.preferences_pb")
-        val store = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
-            scope = CoroutineScope(job + Dispatchers.IO), produceFile = { file })
-        val preferences = AppPreferences::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
-            .apply { isAccessible = true }.newInstance(store)
+        fun stored(): AppPreferences {
+            val store=androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
+                scope=CoroutineScope(job+Dispatchers.IO),produceFile={file})
+            return AppPreferences::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+                .apply { isAccessible=true }.newInstance(store)
+        }
+        var preferences=stored()
         val safe = PixelRect(636,150,1471,661) // Exact latest restored upload intent.
         val saved = SavedClusterLayout(scope, legacy, output, safe)
         preferences.saveClusterLayout(saved)
@@ -137,36 +147,58 @@ class CombinedSavedLayoutReconnectJourneyTest {
             val committed = requireNotNull(preferences.getClusterLayout(scope, after.canvas).custom)
             assertEquals(after.output, committed.output); assertEquals(after.safe, committed.safe)
             compose.runOnIdle { mounted = false }; compose.waitForIdle()
+            job.cancelAndJoin();job=SupervisorJob();preferences=stored() // actual cold file-backed reopen
             compose.runOnIdle { bound = null; opened = false; mounted = true }
             compose.waitUntil(5000) { shadowOf(Looper.getMainLooper()).idle(); bound?.layout != null }
             assertEquals(after, bound?.layout)
-            // Real cold runtime reads the same real file-backed store, then actual callbacks expand.
+            // The supported legacy adapter/resolver retains its own durable geometry. It is
+            // NOT permission for today's direct host to reshape the map output or adopt AndroidX.
+            val rejected=ClusterSavedLayoutResolver.resolve(initial,preferences::getClusterLayout)
+            if(after.output.top<135) assertEquals(ClusterLayoutFallbackReason.CANVAS_CHANGED,rejected.fallbackReason)
+            val expanded=requireNotNull(ClusterDisplayProfiles.qualify(profile.vehicle,
+                listOf(ClusterDisplayBinding(profile.role,id)),
+                ClusterHostGeometry(id,profile.panel,profile.panel.bounds,legacy)))
+            val legacyResolved=ClusterSavedLayoutResolver.resolve(expanded,preferences::getClusterLayout)
+            assertNull(legacyResolved.fallbackReason)
+            assertEquals(after.output,legacyResolved.display.effectiveOutput);assertEquals(after.safe,legacyResolved.display.safe)
             mockkObject(AppPreferences.Companion)
             every { AppPreferences.getInstance(any()) } returns preferences
-            val f=RetainedHostRuntimeFixture(preferences).also { runtimeFixture=it }
-            val first=f.prepared(carPlay,501); assertTrue(f.offered(first));f.captureManager(first)
-            val oldMapping=f.runtime.mapping(f.descriptor.id) as ClusterVideoMapping
-            assertEquals(135,oldMapping.qualifiedDisplay.host.visible.top)
-            assertNotEquals(after.output,oldMapping.qualifiedDisplay.effectiveOutput)
-            assertEquals(committed,preferences.getClusterLayout(scope,after.canvas).custom)
-            val exactBinding=f.binding; val exactCallback=f.callback
-            f.expand()
-            assertSame(oldMapping,f.runtime.mapping(f.descriptor.id))
-            f.expand(); assertEquals(1,f.bridges.size) // No callback-driven reconnect or SDR mutation.
-            assertTrue(requireNotNull(bound).commitLayoutDraft()) // Explicit shared-commit boundary.
-            assertTrue(f.runtime.retainForExplicitReconnect())
-            val retired=f.retire(first); f.pump { retired.isDone };assertTrue(retired.get())
-            assertEquals(1,f.detached.get())
+            val f=RetainedHostRuntimeFixture(preferences,nativeGraphics = true).also { runtimeFixture=it }
+            preferences.setClusterOutputSelection(f.selection)
+            preferences.updateSecondaryDisplayPreferences(preferences.getSecondaryDisplayPreferences().revision,f.frozen.outputs)
+            f.frozen=preferences.getSecondaryDisplayPreferences()
+            val first=f.prepared(carPlay,501);assertTrue(f.offered(first))
+            val oldMapping=f.runtime.mapping(f.descriptor.id)!!
+            val exactOwner=f.owner()!!.handle!!.owner
+            assertEquals(profile.panel.bounds,oldMapping.target.output)
+            assertNull(ClusterBindingState.frozenMapBinding())
+            fun normalized(rect:PixelRect)=SecondaryLayoutBox(rect.left/2000.0,rect.top/810.0,rect.right/2000.0,rect.bottom/810.0)
+            val directLayout=SecondaryLayoutPreference(
+                SecondaryLayoutScope(f.descriptor.id,Build.PRODUCT,Build.FINGERPRINT,2000,810,160),
+                normalized(after.output),normalized(after.safe),directSafe=normalized(after.safe))
+            val oldPrefs=preferences.getSecondaryDisplayPreferences()
+            preferences.updateSecondaryDisplayPreferences(oldPrefs.revision,
+                oldPrefs.outputs + (f.descriptor.id to oldPrefs.outputs.getValue(f.descriptor.id).copy(layout=directLayout)))
+            assertSame("Save cannot mutate negotiated mapping",oldMapping,f.runtime.mapping(f.descriptor.id))
+            assertFalse("Direct path has no retained AndroidX manager",f.runtime.retainForExplicitReconnect())
+            val firstConfiguration = if (carPlay) (first as PreparedCarPlaySecondaryOutput).configuration else null
+            val retired=f.retire(first);f.pump { retired.isDone };assertTrue(retired.get())
+            if (carPlay) assertNull((first as PreparedCarPlaySecondaryOutput).configuration)
+            assertFalse(exactOwner.isCurrent);assertEquals(1,f.detached.get())
+            f.frozen=preferences.getSecondaryDisplayPreferences()
             val next=f.prepared(carPlay,502);assertTrue(f.offered(next))
-            assertSame(exactBinding,f.binding);assertSame(exactCallback,f.callback)
-            assertEquals(1,f.physical.size);assertEquals(2,f.bridges.size)
-            val mapping=f.runtime.mapping(f.descriptor.id) as ClusterVideoMapping
-            assertEquals(after.output,mapping.qualifiedDisplay.effectiveOutput);assertEquals(after.safe,mapping.qualifiedDisplay.safe)
+            assertNotSame(exactOwner,f.owner()!!.handle!!.owner)
+            assertEquals(502L,f.owner()!!.handle!!.owner.projectionEpoch)
+            assertEquals(2,f.physical.size);assertEquals(2,f.bridges.size)
+            val mapping=f.runtime.mapping(f.descriptor.id)!!
+            assertEquals(profile.panel.bounds,mapping.target.output)
+            assertEquals(after.safe,mapping.target.safe)
             assertEquals(committed,preferences.getClusterLayout(scope,after.canvas).custom)
             val receipt=System.getProperty("handoff.receipt.dir")?.let { File(it).also { d -> d.mkdirs() } }
             if(carPlay) {
                 fun info(p: Any): Pair<ByteArray,Map<*,*>> {
-                    val configuration=(p as PreparedCarPlaySecondaryOutput).configuration!!
+                    val configuration = if (p === first) requireNotNull(firstConfiguration)
+                        else requireNotNull((p as PreparedCarPlaySecondaryOutput).configuration)
                     val dict=com.shilapi.xcertplay.airplay.AirPlayInfoPlist.build(
                         com.shilapi.xcertplay.airplay.AirPlayConfig("fixture","00:00:00:00:00:00","00:00:00:00:00:00","fixture",
                             com.shilapi.xcertplay.airplay.AirPlayDisplayConfig(1280,720),cluster=configuration.display,
@@ -197,9 +229,12 @@ class CombinedSavedLayoutReconnectJourneyTest {
             runtimeFixture?.close()
             activity?.pause()?.stop()?.destroy()
             job.cancelAndJoin(); file.delete()
+            inventoryFixture.close()
             ReflectionHelpers.setStaticField(Build::class.java, "PRODUCT", oldProduct)
+            ReflectionHelpers.setStaticField(Build::class.java, "ID", oldBuild)
+            ReflectionHelpers.setStaticField(Build.VERSION::class.java, "INCREMENTAL", oldRevision)
         }
     }
-    @Test fun aaSavedLegacyEditorRestartColdFactoryExpansionExplicitApply() = journey(false, legacy, profile.output)
-    @Test fun cpSavedLegacyEditorRestartColdFactoryExpansionExplicitApply() = journey(true, legacy, profile.output)
+    @Test fun aaLegacyAdapterSaveThenFreshDirectHostAppliesOnlySafeArea() = journey(false, legacy, profile.output)
+    @Test fun cpLegacyAdapterSaveThenFreshDirectHostAppliesOnlySafeArea() = journey(true, legacy, profile.output)
 }

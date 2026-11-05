@@ -22,6 +22,7 @@ import com.openautolink.app.carplay.*
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.data.CarPlayCallPreferences
 import com.openautolink.app.ui.testing.createOalComposeRule
+import com.openautolink.app.ui.testing.closeCarPlayCallControllerTestProcessAndAwait
 import com.openautolink.carplaylab.telecom.ManagedTelecomExperiment
 import com.openautolink.carplaylab.telecom.TelecomAccountSettings
 import kotlinx.coroutines.runBlocking
@@ -65,9 +66,7 @@ class ProductionAudioTransactionsTest {
 
     @Before fun prepareProcess() {
         // Retire actual process owner before replacing Robolectric's Application; no lease reset.
-        val old = ReflectionHelpers.getStaticField<CarPlayCallController?>(CarPlayCallController::class.java, "instance")
-        old?.close()
-        ReflectionHelpers.setStaticField(CarPlayCallController::class.java, "instance", null)
+        closeCarPlayCallControllerTestProcessAndAwait()
         com.openautolink.app.ui.testing.resetNativeTelecomTestProcess(app)
         runBlocking { AppPreferences.getInstance(app).updateCarPlayCallPreferences { CarPlayCallPreferences() } }
         shadowOf(app).denyPermissions(Manifest.permission.READ_PHONE_NUMBERS, Manifest.permission.RECORD_AUDIO)
@@ -76,8 +75,7 @@ class ProductionAudioTransactionsTest {
     }
     @After fun retireProcess() {
         if (::activity.isInitialized) CarPlayForegroundVisibility.paused(activity)
-        ReflectionHelpers.getStaticField<CarPlayCallController?>(CarPlayCallController::class.java, "instance")?.close()
-        ReflectionHelpers.setStaticField(CarPlayCallController::class.java, "instance", null)
+        closeCarPlayCallControllerTestProcessAndAwait()
         backend.disable()
         shadowOf(Looper.getMainLooper()).idle()
     }
@@ -471,23 +469,35 @@ class ProductionAudioTransactionsTest {
             val other = first.permissionRegistry.accepted.single()
             assertEquals(otherPermission, other.permission)
             first.permissionRegistry.throwOnceFor = failedPermission
-            val launchEntered = CountDownLatch(1)
-            val releaseFailure = CountDownLatch(1)
+            data class LaunchEntry(val attempts: Int, val busy: Boolean, val failurePublished: Boolean)
+            val launchEntry = java.util.concurrent.atomic.AtomicReference<LaunchEntry?>(null)
             if (observeEntry) first.permissionRegistry.beforeThrow = {
-                // Hold the real IO continuation after recording entry, before throwing.
-                launchEntered.countDown()
-                check(releaseFailure.await(10, TimeUnit.SECONDS))
+                // Observe on the actual launch thread; never block Main awaiting its observer.
+                launchEntry.set(LaunchEntry(first.permissionRegistry.attempts.size,
+                    first.binding!!.calls.busy, phoneLaunchFailurePublished(first)))
             }
-            try {
+            if (observeEntry) {
+                // Suspend the real setup at its existing mutex, not at the OS callback. This
+                // lets Compose publish busy before launch without changing dispatchers.
+                val operations = ReflectionHelpers.getField<kotlinx.coroutines.sync.Mutex>(
+                    CarPlayCallController.get(app), "operations")
+                val owner = Any()
+                drain { operations.holdsLock(owner) || operations.tryLock(owner) }
+                try {
+                    compose.runOnIdle { first.binding!!.onSetUpCalls() }
+                    drain { first.binding!!.calls.busy }
+                    assertEquals("Setup is suspended before the failed launch", 1,
+                        first.permissionRegistry.attempts.size)
+                } finally { operations.unlock(owner) }
+                drain { launchEntry.get() != null }
+                val entry = requireNotNull(launchEntry.get())
+                assertEquals(2, entry.attempts)
+                assertTrue("Launch entry precedes exception handling", entry.busy)
+                assertFalse("Attempt entry must not satisfy the failure-completion predicate",
+                    entry.failurePublished)
+            } else {
                 invoke(first, failedPermission) // The real registry removes its launched key and rethrows.
-                if (observeEntry) {
-                    drain { launchEntered.count == 0L && first.binding!!.calls.busy }
-                    assertEquals(2, first.permissionRegistry.attempts.size)
-                    assertTrue("Launch entry precedes exception handling", first.binding!!.calls.busy)
-                    assertFalse("Attempt entry must not satisfy the failure-completion predicate",
-                        phoneLaunchFailurePublished(first))
-                }
-            } finally { releaseFailure.countDown() }
+            }
             // Launch entry is not the exception handler's published UI completion.
             drain {
                 if (phoneFails) phoneLaunchFailurePublished(first)

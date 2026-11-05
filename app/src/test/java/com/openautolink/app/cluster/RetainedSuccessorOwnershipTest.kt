@@ -10,7 +10,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
-@Config(sdk=[32],application=android.app.Application::class,manifest=Config.NONE)
+@Config(sdk=[32],application=android.app.Application::class,shadows=[ClusterDirectVideoLifecycleTest.Admission::class,ClusterDirectVideoLifecycleTest.TextureBoundary::class])
 class RetainedSuccessorOwnershipTest {
     @Before fun setup() {
         mockkObject(com.openautolink.app.diagnostics.DiagnosticLog)
@@ -24,30 +24,35 @@ class RetainedSuccessorOwnershipTest {
     @Test fun cpCanceledSuccessorRetiresInstalledLeaseAndRecovers()=exercise(true,1,true)
     @Test fun aaFalseSuccessorAttachRetiresInstalledLeaseAndRecovers()=exercise(false,2,false)
     @Test fun cpFalseSuccessorAttachRetiresInstalledLeaseAndRecovers()=exercise(true,2,false)
-    @Test fun completedCpPreparationIsNotAnAndroidXHostCallbackAcknowledgement() {
-        val f=RetainedHostRuntimeFixture()
+    @Test fun carPlayPreparationWaitsForActualDirectTextureAndGpuAcknowledgement() {
+        val f=RetainedHostRuntimeFixture(fault=3)
         try {
             f.attachHosts=false
-            val first=f.prepared(true,200)
-            assertTrue("CP configuration exists before OS callback delivery",f.offered(first))
-            assertNull("Held actual AndroidX callback has not run",f.callback)
+            val first=f.start(true,200)
+            f.pump { f.launches.size==1 }
+            assertFalse("No configuration before OS Texture callback",first.isCompleted)
+            assertTrue(f.bridges.isEmpty())
             f.attachHosts=true
-            f.pump { f.callback!=null && f.runtime.currentLiveHostedDisplay()!=null }
-            assertNotNull(f.runtime.currentLiveHostedDisplay())
+            f.pump { f.initialized.get()==1 }
+            assertFalse("Texture callback is not the GPU acknowledgement",first.isCompleted)
+            assertFalse(f.owner()!!.handle!!.ready.isDone)
+            f.gate.countDown();f.pump { first.isCompleted }
+            assertTrue(f.offered(runBlocking { first.await() }))
+            assertTrue(f.runtime.statuses.value.getValue(f.descriptor.id).hostAttached)
+            assertNull("Direct video never acquires AndroidX map authority",ClusterBindingState.frozenMapBinding())
         } finally { f.close() }
     }
     private fun exercise(cp:Boolean,fault:Int,cancel:Boolean) {
         val f=RetainedHostRuntimeFixture(fault=fault)
         try {
-            val first=f.prepared(cp,201);assertTrue(f.offered(first));f.captureManager(first)
-            // CP preparation may complete before the artificial OS host delivery. Await the
-            // actual callback/host receipt rather than dereferencing a callback not yet delivered.
-            f.pump { f.callback!=null && f.runtime.currentLiveHostedDisplay()!=null };f.expand()
-            assertTrue(f.runtime.retainForExplicitReconnect())
+            val first=f.prepared(cp,201);assertTrue(f.offered(first))
+            assertTrue(f.runtime.statuses.value.getValue(f.descriptor.id).hostAttached)
+            val predecessor=f.owner()!!.handle!!.owner
+            assertFalse("Direct owners cannot hand off an AndroidX manager",f.runtime.retainForExplicitReconnect())
             val retired=f.retire(first);f.pump { retired.isDone };assertTrue(retired.get())
             val next=f.start(cp,202)
             f.pump { f.bridges.size==2 && f.initialized.get()>=2 }
-            val installed=requireNotNull(f.binding).snapshot.lease
+            val installed=f.hostOwners.last()
             assertEquals(202L,installed.projectionEpoch)
             if(cancel) next.cancel()
             f.pump { next.isCompleted }
@@ -55,11 +60,15 @@ class RetainedSuccessorOwnershipTest {
             val cleanup=f.runtime.retire("ordinary full stop after canceled preparation")
             f.gate.countDown();f.pump { cleanup.isDone }
             assertTrue("Actual installed successor lease must retire, not a placeholder lease",cleanup.get())
-            f.pump { ClusterBindingState.frozenMapBinding()==null }
+            assertFalse(predecessor.isCurrent)
+            assertFalse(installed.isCurrent)
+            assertNull(ClusterBindingState.frozenMapBinding())
             assertTrue("Both generations must positively detach",f.detached.get()>=2)
             val recovery=f.prepared(cp,203)
             assertTrue("A later explicit reconnect must acquire the real process claim and offer again",f.offered(recovery))
-            assertEquals(135,(f.runtime.mapping(f.descriptor.id) as ClusterVideoMapping).qualifiedDisplay.host.visible.top)
+            assertEquals(203L,f.owner()!!.handle!!.owner.projectionEpoch)
+            assertNotSame(installed,f.owner()!!.handle!!.owner)
+            assertEquals(PixelRect(0,0,2000,810),f.runtime.mapping(f.descriptor.id)!!.target.output)
         } finally { f.close() }
     }
 }

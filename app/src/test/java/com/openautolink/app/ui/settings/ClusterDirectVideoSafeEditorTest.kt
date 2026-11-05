@@ -37,9 +37,14 @@ class ClusterDirectVideoSafeEditorTest {
         val id=ShadowDisplayManager.addDisplay("w1600dp-h600dp-mdpi","No calibration database")
         val physical=app.getSystemService(DisplayManager::class.java).getDisplay(id)
         shadowOf(physical).setFlags(Display.FLAG_PRESENTATION);shadowOf(physical).setState(Display.STATE_ON)
-        val inventory=SecondaryDisplayPolicyInventory.get(app)
-        repeat(5) { shadowOf(Looper.getMainLooper()).idle() }
-        val descriptor=inventory.snapshots.value.displays.single { it.displayId==id }
+        RawDisplayTestFixture(app).use { catalog ->
+        val inventory=catalog.policy
+        val catalogContext=SecondaryDisplayPolicyInventory::class.java.getDeclaredField("context").apply { isAccessible=true }.get(inventory) as android.content.Context
+        assertSame("Catalog must belong to this fixture application, not an earlier Robolectric sandbox",app.applicationContext,catalogContext.applicationContext)
+        // Await the actual policy publication, not a guessed number of looper drains.
+        compose.waitUntil(5000) { shadowOf(Looper.getMainLooper()).idle()
+            inventory.snapshots.value.displays.any { it.displayId == id } }
+        val descriptor=catalog.target(id,1600,600,SecondaryRoute.PUBLIC_ACTIVITY)
         val source=SecondaryDisplaysSource(inventory.snapshots,inventory.raw.displays,null)
         val file=File(app.filesDir,"direct-safe-${java.util.UUID.randomUUID()}.preferences_pb")
         var storeJob=SupervisorJob()
@@ -69,7 +74,10 @@ class ClusterDirectVideoSafeEditorTest {
                 onSaveAndConnect={ saves.launch { assertTrue(vm.commitSettings(null));saved++ } }) } } }
             loaded();openEditor()
             compose.onNodeWithTag("liveGridStart").performClick()
-            val intent=requireNotNull(shadowOf(app).nextStartedActivity)
+            val launched=shadowOf(app).nextStartedActivity
+            if(launched==null) throw AssertionError("Preview launch missing: captured=$descriptor; current=${inventory.snapshots.value}; UI="+
+                compose.onRoot(useUnmergedTree=true).printToString())
+            val intent=launched
             grid=ActivityController.of(LiveGridWindowActivity(),intent,ActivityOptions.makeBasic().setLaunchDisplayId(id).toBundle()).create().start().resume()
             val before=grid!!.get().window.attributes.let { listOf(it.x,it.y,it.width,it.height) }
             val canvas=compose.onNodeWithTag("liveGridCanvas")
@@ -116,6 +124,7 @@ class ClusterDirectVideoSafeEditorTest {
         } finally {
             compose.runOnIdle { mounted=false };compose.waitForIdle();grid?.let { if(!it.get().isDestroyed) it.pause().stop().destroy() }
             vm.viewModelScope.cancel();saveJob.cancel();storeJob.cancelAndJoin();unmockkAll();file.delete()
+        }
         }
     }
 }

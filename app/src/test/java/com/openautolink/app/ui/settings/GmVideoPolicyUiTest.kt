@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.lifecycle.viewModelScope
+import androidx.compose.ui.unit.dp
 import com.openautolink.app.cluster.*
 import com.openautolink.app.data.*
 import com.openautolink.app.displays.DiscoveredSecondaryDisplay
@@ -54,6 +55,7 @@ class GmVideoPolicyUiTest {
             MutableStateFlow(listOf(DiscoveredSecondaryDisplay(id.value,2,display.name,2000,810,true,true,false,null))),null)
         mockkObject(AppPreferences.Companion)
         every { AppPreferences.getInstance(any()) } returns preferences
+        val beforeOpen=preferences.getSecondaryDisplayPreferences()
         val vm=SettingsViewModel(app)
         var saved=0
         try {
@@ -68,6 +70,8 @@ class GmVideoPolicyUiTest {
             compose.onNodeWithTag("clusterNativeWithMap").assertDoesNotExist()
             compose.onNodeWithTag("clusterDisplay_NATIVE_ICONS").assertDoesNotExist()
             compose.onNodeWithTag("clusterDisplay_OFF").assertDoesNotExist()
+            assertEquals("Opening either policy must not write selection or output intent",beforeOpen,
+                preferences.getSecondaryDisplayPreferences())
             if(!savedVideo) {
                 video.assertIsOff()
                 assertEquals(ClusterDisplayMode.NATIVE_ICONS,preferences.getClusterOutputSelection().mode)
@@ -77,9 +81,21 @@ class GmVideoPolicyUiTest {
             }
             video.assertIsOn()
             if(gm) {
-                val consequence=compose.onNodeWithTag("gmVideoConsequence").performScrollTo()
+                val consequence=compose.onNodeWithTag("gmVideoConsequence", useUnmergedTree=true).performScrollTo()
                 consequence.assertTextEquals("Video disables navigation icons on the driver display and HUD.")
-                assertTrue(video.getUnclippedBoundsInRoot().bottom<=consequence.getUnclippedBoundsInRoot().top)
+                consequence.assertIsDisplayed()
+                compose.onNode(hasTestTag("gmVideoConsequence") and
+                    hasAnyAncestor(hasTestTag("settingGroup_Driver-display video")), useUnmergedTree=true).assertExists()
+                compose.onNode(hasTestTag("clusterDisplay_MAP_VIDEO") and
+                    hasAnyAncestor(hasTestTag("settingGroup_Driver-display video")), useUnmergedTree=true).assertExists()
+                val control=video.getUnclippedBoundsInRoot()
+                val helper=consequence.getUnclippedBoundsInRoot()
+                val group=compose.onNodeWithTag("settingGroup_Driver-display video",useUnmergedTree=true).getUnclippedBoundsInRoot()
+                assertTrue("Readable control keeps the 48dp touch target", control.bottom-control.top>=48.dp)
+                assertTrue(helper.right-helper.left>0.dp && helper.bottom-helper.top>0.dp)
+                assertTrue("Associated supporting text stays in its own group", helper.left>=group.left &&
+                    helper.right<=group.right && helper.top>=group.top && helper.bottom<=group.bottom)
+                assertTrue("Supporting copy must not overlap the switch",helper.right<=control.left)
             } else compose.onNodeWithTag("gmVideoConsequence").assertDoesNotExist()
             video.performScrollTo().performClick().assertIsOff()
             assertTrue(vm.clusterSelection.value.nativeIconsWithMap)

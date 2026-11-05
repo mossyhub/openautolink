@@ -11,7 +11,8 @@ class SupportOpenAutoLinkTest {
     @Test
     fun `support card is below global controls on the initial Connection page only`() {
         val settings = projectFile("app/src/main/java/com/openautolink/app/ui/settings/SettingsScreen.kt").readText()
-        assertTrue(settings.contains("mutableStateOf(SettingsTab.CONNECTION)"))
+        assertTrue(settings.contains("initialSecondaryDisplays: Boolean = false"))
+        assertTrue(settings.contains("if (initialSecondaryDisplays) SettingsTab.INSTRUMENT_CLUSTER else SettingsTab.CONNECTION"))
         val screen = settings.substringBefore("private fun ConnectionStatusBar")
         val controls = screen.indexOf("ConnectionStatusBar(")
         val support = screen.indexOf("SupportOpenAutoLink(")
