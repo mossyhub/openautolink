@@ -28,6 +28,23 @@ permissions:
   contents: read
 
 jobs:
+  native-startup-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise native startup transport failure handling
+        run: python3 app/src/test/native/startup_transport_failure_test.py --output "$RUNNER_TEMP/native-startup-tests"
+      - name: Retain native startup regression receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-startup-tests
+          path: ${{ runner.temp }}/native-startup-tests/
+          retention-days: 14
+
   website-release-tests:
     runs-on: ubuntu-22.04
     timeout-minutes: 5

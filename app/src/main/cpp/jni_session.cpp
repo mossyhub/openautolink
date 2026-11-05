@@ -1510,6 +1510,15 @@ void JniSession::triggerAbort(const std::string& reason)
 void JniSession::onChannelError(const aasdk::error::Error& e)
 {
     reportChannelError("control", e);
+    // Before negotiation there is only one receive chain. A dead JNI reader
+    // rejects it once, so the five-channel live-session escalation cannot fire.
+    // Retire this exact owner now rather than retaining a dead pipe until the
+    // startup watchdog and suppressing the phone's intervening redial requests.
+    // Intentional stop/ByeBye keeps its existing reason and retirement owner.
+    if (e.getCode() == aasdk::error::ErrorCode::OPERATION_ABORTED &&
+        !streaming_ && !stopped_ && !byeByeSent_) {
+        triggerAbort("startup transport closed before negotiation");
+    }
 }
 
 void JniSession::reportChannelError(const char* channelName, const aasdk::error::Error& e)
