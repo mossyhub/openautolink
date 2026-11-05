@@ -441,11 +441,14 @@ Reports from Polestar and other non-GM AAOS vehicles are especially welcome, fro
 
 - Adam Harlow — native GM Audio discovery/browsing and background-media work that informed this integration.
 - [opencardev/aasdk](https://github.com/opencardev/aasdk) — Android Auto protocol library; the OAL fork adds navigation and EV energy-model extensions.
-- [shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay) — CarPlay receiver source/reference adapted for OAL; upstream credits shilapi/xcertplay. See retained source notices and the private authentication policy.
+- [LIVI](https://github.com/f-io/LIVI) by Lasse Heitgres ([f-io](https://github.com/f-io)) — original CarPlay protocol work underlying the Kotlin receiver adapted through xcertplay and DiPlay. Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
+- [shilapi/xcertplay](https://github.com/shilapi/xcertplay) and [shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay) — the Kotlin CarPlay receiver source/reference adapted for OAL. Credit belongs to each project in that lineage; see [CarPlay attribution notices](NOTICE), retained source notices, and the private authentication policy.
 - [metheos/carlink_native](https://github.com/metheos/carlink_native), [lvalen91/Carlink](https://github.com/lvalen91/Carlink), and the [XDA Carlink thread](https://xdaforums.com/t/carlink.4774308/) — proof-of-concept inspiration and technical collaboration.
 - [opencardev/openauto](https://github.com/opencardev/openauto) — head-unit architecture reference.
 - [nisargjhaveri/WirelessAndroidAutoDongle](https://github.com/nisargjhaveri/WirelessAndroidAutoDongle) — Bluetooth/Wi-Fi bootstrap reference.
 - [andreknieriem/open-headunit](https://github.com/andreknieriem/open-headunit) — receiver/protocol reference.
+
+In the car app, open **Settings → Connection → Credits & legal notices** for the CarPlay attribution.
 
 ## License
 

@@ -45,6 +45,52 @@ class SettingsVersionInfoTest {
         assertNarrowPane(150)
     }
 
+    @Test
+    @Config(sdk = [32, 34], qualifiers = "w600dp-h320dp-mdpi")
+    fun `CarPlay upstream credits are readable in narrow scrollable settings`() {
+        compose.setContent {
+            OpenAutoLinkTheme(oalUiScalePercent = 150) {
+                Box(Modifier.size(300.dp, 240.dp)) {
+                    OalUiScale {
+                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                            SettingsVersionInfo()
+                        }
+                    }
+                }
+            }
+        }
+        val liviCredit = "Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)"
+        compose.onNodeWithText(liviCredit).assertDoesNotExist()
+        compose.onNodeWithTag("settingsLegalNotices").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithTag("settingsLegalNoticesDialog").assertIsDisplayed()
+        val credits = listOf(
+            liviCredit,
+            "CarPlay receiver adapted through shilapi/xcertplay and shihabal3amri/DiPlay. " +
+                "OpenAutoLink is licensed under GNU GPL v3; component notices and source: " +
+                "https://github.com/mossyhub/openautolink",
+        )
+        for (text in credits) {
+            val node = compose.onNodeWithText(text).performScrollTo().assertIsDisplayed()
+            val results = mutableListOf<TextLayoutResult>()
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { action ->
+                assertTrue(action(results))
+            }
+            val layout = results.single()
+            assertFalse("credits must wrap without overflow", layout.hasVisualOverflow)
+            assertEquals("credits must retain their full text", text.length,
+                layout.getLineEnd(layout.lineCount - 1))
+            for (line in 0 until layout.lineCount) {
+                assertFalse("credits must not be ellipsized", layout.isLineEllipsized(line))
+            }
+        }
+        compose.onNodeWithTag("settingsLegalNoticesClose").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText(liviCredit).assertDoesNotExist()
+        compose.onNodeWithTag("settingsLegalNoticesDialog").assertDoesNotExist()
+        compose.onNodeWithTag("settingsLegalNotices").performScrollTo().performClick()
+        compose.onNodeWithText(liviCredit).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("settingsLegalNoticesClose").performScrollTo().performClick()
+    }
+
     private fun assertNarrowPane(percent: Int) {
         compose.setContent {
             OpenAutoLinkTheme(oalUiScalePercent = percent) {
