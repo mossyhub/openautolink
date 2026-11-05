@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import org.junit.runner.Description
+import org.junit.runners.model.MultipleFailureException
 import org.junit.runners.model.Statement
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
@@ -26,7 +27,22 @@ fun createOalComposeRule(): ComposeContentTestRule {
                 )
                 activity.theme = android.R.style.Theme_Material_Light_NoActionBar
                 activity.exported = true
-                compose.apply(base, description).evaluate()
+                val failures = mutableListOf<Throwable>()
+                try {
+                    compose.apply(base, description).evaluate()
+                } catch (failure: Throwable) {
+                    failures.add(failure)
+                } finally {
+                    // Fallback after composition/Activity disposal, before Robolectric resets
+                    // this sandbox. Explicit creators also retire before removing their mocks.
+                    try {
+                        closeCarPlayCallControllerTestProcessAndAwait()
+                    } catch (failure: Throwable) {
+                        failures.add(failure)
+                    }
+                }
+                // Preserve both the original test exception and any teardown failure.
+                MultipleFailureException.assertEmpty(failures)
             }
         }
     }

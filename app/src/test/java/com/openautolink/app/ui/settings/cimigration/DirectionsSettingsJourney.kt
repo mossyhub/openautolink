@@ -15,6 +15,7 @@ import com.openautolink.app.cluster.*
 import com.openautolink.app.data.*
 import com.openautolink.app.secondary.*
 import com.openautolink.app.ui.settings.*
+import com.openautolink.app.ui.testing.closeCarPlayCallControllerTestProcessAndAwait
 import com.openautolink.app.displays.DiscoveredSecondaryDisplay
 import com.openautolink.app.session.SessionState
 import io.mockk.*
@@ -324,6 +325,7 @@ internal class DirectionsSettingsJourney(private val compose: ComposeContentTest
             cleanup { compose.runOnIdle { mounted = false; if (created) { settings.viewModelScope.cancel(); projection.viewModelScope.cancel() } }; compose.waitForIdle() }
             for (grid in grids) cleanup { grid.pause().stop().destroy() }
             cleanup { protocols.close() }
+            cleanup { closeCarPlayCallControllerTestProcessAndAwait() }
             cleanup { storeJob.cancelAndJoin(); coldJob?.cancelAndJoin() }
             cleanup { unmockkAll(); file.delete(); ReflectionHelpers.setStaticField(Build::class.java, "PRODUCT", product) }
             cleanup { if (activityContexts == null) System.clearProperty("robolectric.createActivityContexts")

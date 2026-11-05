@@ -22,6 +22,7 @@ import com.openautolink.app.carplay.*
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.data.CarPlayCallPreferences
 import com.openautolink.app.ui.testing.createOalComposeRule
+import com.openautolink.app.ui.testing.closeCarPlayCallControllerTestProcessAndAwait
 import com.openautolink.carplaylab.telecom.ManagedTelecomExperiment
 import com.openautolink.carplaylab.telecom.TelecomAccountSettings
 import kotlinx.coroutines.runBlocking
@@ -65,9 +66,7 @@ class ProductionAudioTransactionsTest {
 
     @Before fun prepareProcess() {
         // Retire actual process owner before replacing Robolectric's Application; no lease reset.
-        val old = ReflectionHelpers.getStaticField<CarPlayCallController?>(CarPlayCallController::class.java, "instance")
-        old?.close()
-        ReflectionHelpers.setStaticField(CarPlayCallController::class.java, "instance", null)
+        closeCarPlayCallControllerTestProcessAndAwait()
         com.openautolink.app.ui.testing.resetNativeTelecomTestProcess(app)
         runBlocking { AppPreferences.getInstance(app).updateCarPlayCallPreferences { CarPlayCallPreferences() } }
         shadowOf(app).denyPermissions(Manifest.permission.READ_PHONE_NUMBERS, Manifest.permission.RECORD_AUDIO)
@@ -76,8 +75,7 @@ class ProductionAudioTransactionsTest {
     }
     @After fun retireProcess() {
         if (::activity.isInitialized) CarPlayForegroundVisibility.paused(activity)
-        ReflectionHelpers.getStaticField<CarPlayCallController?>(CarPlayCallController::class.java, "instance")?.close()
-        ReflectionHelpers.setStaticField(CarPlayCallController::class.java, "instance", null)
+        closeCarPlayCallControllerTestProcessAndAwait()
         backend.disable()
         shadowOf(Looper.getMainLooper()).idle()
     }

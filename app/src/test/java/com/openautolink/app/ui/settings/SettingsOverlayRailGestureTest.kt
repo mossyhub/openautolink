@@ -14,6 +14,7 @@ import com.openautolink.app.session.*
 import com.openautolink.app.ui.navigation.AppNavHost
 import com.openautolink.app.ui.settings.*
 import com.openautolink.app.ui.testing.createOalComposeRule
+import com.openautolink.app.ui.testing.closeCarPlayCallControllerTestProcessAndAwait
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -192,6 +193,7 @@ class SettingsOverlayRailGestureTest {
             mounted = false
             if (created) { settings.viewModelScope.cancel(); projection.viewModelScope.cancel() }
         }
+        closeCarPlayCallControllerTestProcessAndAwait()
         unmockkObject(AppPreferences.Companion, SessionManager.Companion,
             com.openautolink.app.transport.PhoneDiscovery.Companion,
             com.openautolink.app.carplay.CarPlaySessionLeases.Companion,

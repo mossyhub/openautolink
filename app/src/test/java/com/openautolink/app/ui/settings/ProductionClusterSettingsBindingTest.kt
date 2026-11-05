@@ -11,6 +11,7 @@ import com.openautolink.app.carplay.CarPlayClusterStatus
 import com.openautolink.app.session.SessionState
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.ui.testing.createOalComposeRule
+import com.openautolink.app.ui.testing.closeCarPlayCallControllerTestProcessAndAwait
 import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
@@ -192,6 +193,7 @@ class ProductionClusterSettingsBindingTest {
                     projection.viewModelScope.cancel()
                 }
             }
+            closeCarPlayCallControllerTestProcessAndAwait()
             unmockkObject(AppPreferences.Companion, com.openautolink.app.session.SessionManager.Companion,
                 com.openautolink.app.transport.PhoneDiscovery.Companion, ClusterProjectionOutput.Companion,
                 com.openautolink.app.carplay.CarPlaySessionLeases.Companion,

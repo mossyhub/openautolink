@@ -71,22 +71,61 @@ class PreOfferEpochRecoveryTest {
             assertEquals(1,f.launches.size)
         } finally { f.close() }
     }
-    @Test fun cancelledTicketAtRetirementBoundaryNeverLaunchesSuccessor() {
+    @Test fun cancelledTicketAtRetirementBoundaryNeverLaunchesSuccessor() = cancelledTicket(false)
+    @Test fun blockedDiagnosticConsumerCannotDelayRetirementBoundaryCancellation() = cancelledTicket(true)
+    private fun cancelledTicket(holdConsumer:Boolean) {
         val f=RetainedHostRuntimeFixture();val authority=java.util.concurrent.atomic.AtomicBoolean(true)
+        val marker="fixture-diagnostic-hold-${java.util.UUID.randomUUID()}"
+        val drainedMarker="fixture-diagnostic-drained-${java.util.UUID.randomUUID()}"
+        val entered=java.util.concurrent.CountDownLatch(1)
+        val release=java.util.concurrent.CountDownLatch(1)
+        val consumerExited=java.util.concurrent.CountDownLatch(1)
+        val drained=java.util.concurrent.CountDownLatch(1)
         every { com.openautolink.app.diagnostics.DiagnosticLog.i(any(),any()) } answers {
-            if(secondArg<String>().contains("stage=preoffer_epoch_retry_wait")) authority.set(false)
+            val line=secondArg<String>()
+            if(line.contains(marker)) {
+                entered.countDown()
+                try { check(release.await(3,TimeUnit.SECONDS)) } finally { consumerExited.countDown() }
+            }
+            if(line.contains(drainedMarker))drained.countDown()
+            Unit
+        }
+        mockkObject(PageReturnDiagnostics)
+        every { PageReturnDiagnostics.tryOffer(any()) } answers {
+            // Cancellation is an ingress decision, not an asynchronous persistence receipt.
+            if(firstArg<String>().contains("stage=preoffer_epoch_retry_wait"))authority.set(false)
+            callOriginal()
         }
         try {
+            if(holdConsumer) {
+                assertTrue(PageReturnDiagnostics.tryOffer(marker))
+                assertTrue("Actual diagnostic consumer is held",entered.await(1,TimeUnit.SECONDS))
+            }
             f.attachHosts=false
             val next=f.scope.async { f.runtime.prepareAndroidAuto(305,f.frozen) { authority.get() } }
             f.pump { f.owner()?.handle!=null && f.launches.size==1 }
             assertFalse("Launch alone must not acknowledge the direct host",next.isCompleted)
             f.ignition(true)
             f.pump { next.isCompleted }
-            assertFalse(authority.get())
+            assertEquals("Cancellation cannot depend on the held diagnostic consumer",1,f.launches.size)
+            assertFalse("Ingress cancellation must already be visible",authority.get())
             assertTrue(runBlocking { next.await() }.offers.isEmpty())
             assertEquals(1,f.launches.size)
-        } finally { f.close() }
+            if(holdConsumer) {
+                assertEquals("No diagnostic persistence was needed for cancellation",1L,release.count)
+                assertEquals("Consumer must still be held, not timed out",1L,consumerExited.count)
+            }
+        } finally {
+            release.countDown()
+            try {
+                try {
+                    if(holdConsumer) {
+                        assertTrue(PageReturnDiagnostics.tryOffer(drainedMarker))
+                        assertTrue("Exact held consumer drained before mock removal",drained.await(2,TimeUnit.SECONDS))
+                    }
+                } finally { f.close() }
+            } finally { unmockkObject(PageReturnDiagnostics) }
+        }
     }
     @Test fun privatePhysicalReadbackCannotAuthorizeEpochRetry() {
         val f=RetainedHostRuntimeFixture()
