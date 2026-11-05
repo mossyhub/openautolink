@@ -1,179 +1,199 @@
 package com.openautolink.app.cluster
 
 import android.app.Application
-import android.content.Context
-import android.hardware.display.DisplayManager
 import android.os.Build
-import android.os.Looper
-import android.view.Display
 import android.view.Surface
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.*
 import com.openautolink.app.carplay.OalCarPlayClusterOutput
 import com.openautolink.app.data.*
-import com.openautolink.app.session.SessionManager
+import com.openautolink.app.secondary.*
 import com.openautolink.app.transport.aasdk.*
 import com.shilapi.xcertplay.media.CarPlayVideoQualification
 import com.shilapi.xcertplay.media.CarPlayVideoSelection
 import io.mockk.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.util.ReflectionHelpers
+import org.robolectric.annotation.ConscryptMode
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
 
-/** Actual offer consumers + coordinator, real scoped storage/geometry; only device boundaries mocked. */
+/** Direct consumers freeze safe-only intent from measured full bounds. Legacy resolver/
+ * coordinator geometry remains independently covered, not a direct readiness signal. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [32], application = Application::class, manifest = Config.NONE)
+@Config(sdk = [32], application = Application::class,
+    shadows = [ClusterDirectVideoLifecycleTest.Admission::class, ClusterDirectVideoLifecycleTest.TextureBoundary::class])
+@ConscryptMode(ConscryptMode.Mode.OFF)
 class ClusterLayoutConsumptionIntegrationTest {
     private val profile = ClusterDisplayProfiles.AEGEAN_ORANGE_239
-    private val host = ClusterHostGeometry(7, profile.panel, PixelRect(0,135,2000,810), PixelRect(0,135,2000,810))
-    private val layoutScope = ClusterLayoutScope(profile.vehicle, profile.id, profile.role, profile.panel)
-    private val custom = SavedClusterLayout(layoutScope, host.visible, PixelRect(200,150,1800,750), PixelRect(650,250,1300,600))
+    private val legacyCanvas = PixelRect(0,135,2000,810)
+    private val layoutScope = ClusterLayoutScope(profile.vehicle,profile.id,profile.role,profile.panel)
+    private val custom = SavedClusterLayout(layoutScope,legacyCanvas,PixelRect(200,150,1800,750),PixelRect(650,250,1300,600))
     private val selection = ClusterOutputSelection(ClusterDisplayMode.MAP_VIDEO)
-    private class Store : DataStore<Preferences> {
-        private val state = MutableStateFlow<Preferences>(emptyPreferences())
-        override val data: Flow<Preferences> = state
-        override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
-            transform(state.value).also { state.value = it }
+    private fun fixture(block: suspend (DirectSessionRuntimeFixture) -> Unit) = runBlocking {
+        val f = DirectSessionRuntimeFixture()
+        try { block(f) } finally { f.close() }
     }
-    private lateinit var active: com.openautolink.app.secondary.HostedSecondaryRuntimeFixture
-    private data class Offered(val wire: AasdkSecondaryVideoOffer, val mapping: ClusterVideoMapping)
-    private suspend fun prepare(manager: SessionManager, session: AasdkSession): Offered {
-        val prepared = active.prepare(selection)
-        return Offered(prepared.offers.single(), active.mapping())
+    private fun layout(f: DirectSessionRuntimeFixture, saved: SavedClusterLayout = custom): SecondaryLayoutPreference {
+        fun normalized(rect: PixelRect) = SecondaryLayoutBox(rect.left/2000.0,rect.top/810.0,rect.right/2000.0,rect.bottom/810.0)
+        return SecondaryLayoutPreference(SecondaryLayoutScope(f.descriptor.id,Build.PRODUCT,Build.FINGERPRINT,2000,810,160),
+            normalized(saved.output),normalized(saved.safe),directSafe = normalized(saved.safe))
     }
-    private fun await(result: CompletableFuture<Boolean>) {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-        while (!result.isDone && System.nanoTime() < deadline) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(5) }
-        assertTrue(result.get(1, TimeUnit.SECONDS))
+    private suspend fun legacy(f: DirectSessionRuntimeFixture): ClusterLayoutResolution =
+        ClusterSavedLayoutResolver.resolve(requireNotNull(ClusterProjectionOutput.qualifiedInitialDisplay(f.context)),f.preferences::getClusterLayout)
+    private fun assertWire(offer: AasdkSecondaryVideoOffer, mapping: VideoMapping) {
+        assertEquals(listOf(mapping.codecCrop.left,mapping.codecCrop.top,mapping.codecCrop.right,mapping.codecCrop.bottom),
+            listOf(offer.cropLeft,offer.cropTop,offer.cropRight,offer.cropBottom))
+        assertEquals(listOf(mapping.phoneSafeInsets.left,mapping.phoneSafeInsets.top,mapping.phoneSafeInsets.right,mapping.phoneSafeInsets.bottom),
+            listOf(offer.safeLeft,offer.safeTop,offer.safeRight,offer.safeBottom))
+        assertEquals(listOf(mapping.stableContentInsets.left,mapping.stableContentInsets.top,mapping.stableContentInsets.right,mapping.stableContentInsets.bottom),
+            listOf(offer.stableLeft,offer.stableTop,offer.stableRight,offer.stableBottom))
     }
-    private fun fixture(block: suspend (Context, AppPreferences, SessionManager, AasdkSession) -> Unit) = runBlocking {
-        active = com.openautolink.app.secondary.HostedSecondaryRuntimeFixture(host.displayId)
+    @Test fun aaProductionOfferSerializesCustomInsetsAndFreezesUntilNextOfferThenReset() = fixture { f ->
+        f.preferences.saveClusterLayout(custom)
+        val resolved = legacy(f)
+        assertNull(resolved.fallbackReason)
+        assertEquals(custom.output,resolved.display.effectiveOutput)
+        assertEquals(custom.safe,resolved.display.safe)
+        assertEquals(profile.id,resolved.display.profile.id)
+        assertEquals(profile.output,resolved.display.profile.output)
+        val initial = f.prepare(selection,layout(f))
+        val wire = initial.offers.single()
+        val mapping = f.mapping()
+        val config = AasdkSdrConfig(secondaryOffers = arrayOf(wire))
+        assertSame(wire,config.secondaryOffers.single())
+        assertWire(wire,mapping)
+        assertEquals(profile.panel.bounds,mapping.target.output)
+        assertEquals(custom.safe,mapping.target.safe)
+        assertNull(initial.hostedManager)
+        assertNull(ClusterBindingState.frozenMapBinding())
+        val changed = custom.copy(safe = PixelRect(700,300,1200,550))
+        f.preferences.saveClusterLayout(changed)
+        f.freeze(selection,layout(f,changed))
+        assertSame(mapping,f.mapping())
+        assertEquals(custom.safe,mapping.target.safe)
+        assertTrue(f.await(f.manager.retireClusterVideoOutput()))
+        val next = f.prepare(selection,layout(f,changed))
+        assertNotEquals(wire.safeLeft,next.offers.single().safeLeft)
+        assertEquals(changed.safe,f.mapping().target.safe)
+        assertWire(next.offers.single(),f.mapping())
+        assertTrue(f.await(f.manager.retireClusterVideoOutput()))
+        f.preferences.resetClusterLayout(layoutScope,legacyCanvas)
+        val reset = f.prepare(selection)
+        assertEquals(ClusterLayoutFallbackReason.NO_CUSTOM_LAYOUT,legacy(f).fallbackReason)
+        assertEquals(profile.panel.bounds,f.mapping().target.output)
+        assertEquals(SecondaryProjectionActivity.directDefaultSafe(2000,810),f.mapping().target.safe)
+        assertWire(reset.offers.single(),f.mapping())
+        assertNull(f.manager.clusterVideoStatus.value.error)
+        verify(exactly = 0) { f.session.forceReconnect(any()); f.session.stop() }
+    }
+
+    /** Keep the already-green legacy consumer separate from the direct runtime. */
+    @Test fun carPlayProductionConfigurationReceivesPixelInsetsAndFreezesUntilReset() = runBlocking {
+        val f = HostedSecondaryRuntimeFixture()
         mockkObject(CarPlayVideoQualification)
         every { CarPlayVideoQualification.select(1280,480,30,false) } returns CarPlayVideoSelection(1280,480,30,"exact.avc")
-        try { block(active.context, active.preferences, active.manager, active.session) }
-        finally { active.close() }
+        fun await(result: CompletableFuture<Boolean>) { assertTrue(HostedSecondaryRuntimeFixture.await(result)) }
+        try {
+            f.preferences.saveClusterLayout(custom)
+            val output = withContext(Dispatchers.IO) { OalCarPlayClusterOutput.prepare(f.context,selection) }
+            try {
+                val config = requireNotNull(output.configuration)
+                assertEquals(1280,config.display.widthPixels); assertEquals(480,config.display.heightPixels)
+                assertEquals(listOf(360,80,400,120),requireNotNull(config.display.safeArea).let { listOf(it.left,it.top,it.right,it.bottom) })
+                assertEquals("exact.avc",config.videoSelection.avcDecoderName)
+                assertNull(output.snapshot().layoutSelectionReason)
+                f.preferences.resetClusterLayout(layoutScope,legacyCanvas)
+                assertEquals(360,config.display.safeArea!!.left)
+                assertNull(output.snapshot().output.error)
+            } finally { await(output.retire()) }
+            val reset = withContext(Dispatchers.IO) { OalCarPlayClusterOutput.prepare(f.context,selection) }
+            try {
+                assertNotNull(reset.configuration)
+                assertNotEquals(360,reset.configuration!!.display.safeArea!!.left)
+                assertEquals(ClusterLayoutFallbackReason.NO_CUSTOM_LAYOUT,reset.snapshot().layoutSelectionReason)
+                assertNull(reset.snapshot().output.error)
+            } finally { await(reset.retire()) }
+        } finally { f.close() }
     }
 
-    private fun assertCustom(mapping: ClusterVideoMapping) {
-        assertEquals(custom.output, mapping.qualifiedDisplay.effectiveOutput)
-        assertEquals(custom.safe, mapping.qualifiedDisplay.safe)
-        assertEquals(profile.id, mapping.qualifiedDisplay.profile.id)
-        assertEquals(profile.output, mapping.qualifiedDisplay.profile.output)
-        assertEquals(host, mapping.qualifiedDisplay.host)
-        assertNotNull(mapping.qualifiedDisplay.validatedLayout)
-        assertTrue(custom.safe.contains(mapping.drawableToHost.forward(mapping.safeInDrawable).inward()))
-    }
-
-    @Test fun aaProductionOfferSerializesCustomInsetsAndFreezesUntilNextOfferThenReset() = fixture { _, prefs, manager, session ->
-        prefs.saveClusterLayout(custom)
-        val offer = withContext(Dispatchers.IO) { prepare(manager,session) }
-        val config = AasdkSdrConfig(secondaryOffers = arrayOf(offer.wire))
-        assertSame(offer.wire, config.secondaryOffers.single())
-        assertCustom(offer.mapping)
-        assertEquals(listOf(360,80,400,120), listOf(offer.wire.safeLeft,offer.wire.safeTop,offer.wire.safeRight,offer.wire.safeBottom))
-        assertEquals(listOf(0,120,1280,600), listOf(offer.wire.cropLeft,offer.wire.cropTop,offer.wire.cropRight,offer.wire.cropBottom))
-        assertEquals(offer.wire.safeTop, offer.wire.stableTop)
-        assertNull(manager.clusterLayoutSelectionReason.value)
-        prefs.saveClusterLayout(custom.copy(safe = PixelRect(700,300,1200,550)))
-        assertCustom(offer.mapping)
-        await(manager.retireClusterVideoOutput())
-        val changed = withContext(Dispatchers.IO) { prepare(manager,session) }
-        assertNotEquals(offer.wire.safeLeft,changed.wire.safeLeft)
-        await(manager.retireClusterVideoOutput())
-        prefs.resetClusterLayout(layoutScope,host.visible)
-        val reset = withContext(Dispatchers.IO) { prepare(manager,session) }
-        assertNull(reset.mapping.qualifiedDisplay.validatedLayout)
-        assertEquals(PixelRect(98,135,1904,745), reset.mapping.qualifiedDisplay.effectiveOutput)
-        assertEquals(profile.safe,reset.mapping.qualifiedDisplay.safe)
-        assertEquals(ClusterLayoutFallbackReason.NO_CUSTOM_LAYOUT,manager.clusterLayoutSelectionReason.value)
-        assertNull(manager.clusterVideoStatus.value.error)
-        verify(exactly = 0) { session.forceReconnect(any()); session.stop() }
-    }
-
-    @Test fun carPlayProductionConfigurationReceivesPixelInsetsAndFreezesUntilReset() = fixture { ctx,prefs,_,_ ->
-        prefs.saveClusterLayout(custom)
-        val output = withContext(Dispatchers.IO) { OalCarPlayClusterOutput.prepare(ctx,selection) }
+    @Test fun staleFullCanvasFallsBackInBothProductionConsumersWithoutPrimaryError() = fixture { f ->
+        f.preferences.saveClusterLayout(custom.copy(canvas = profile.panel.bounds))
+        assertEquals(ClusterLayoutFallbackReason.CANVAS_CHANGED,legacy(f).fallbackReason)
+        val stale = layout(f).let { it.copy(scope = it.scope.copy(panelHeight = 811)) }
+        val initial = f.prepare(selection,stale)
+        assertEquals(profile.panel.bounds,f.mapping().target.output)
+        assertEquals(SecondaryProjectionActivity.directDefaultSafe(2000,810),f.mapping().target.safe)
+        assertWire(initial.offers.single(),f.mapping())
+        assertNull(f.manager.clusterVideoStatus.value.error)
+        assertTrue(f.await(f.manager.retireClusterVideoOutput()))
+        val frozen = f.freeze(selection,stale)
+        val pending = f.scope.async { f.runtime.prepareCarPlay(200,frozen) }
+        f.pump { pending.isCompleted }
+        val output = pending.await()
         try {
             val config = requireNotNull(output.configuration)
-            assertEquals(1280,config.display.widthPixels); assertEquals(480,config.display.heightPixels)
-            assertEquals(listOf(360,80,400,120), requireNotNull(config.display.safeArea).let { listOf(it.left,it.top,it.right,it.bottom) })
-            assertEquals("exact.avc",config.videoSelection.avcDecoderName)
-            assertNull(output.snapshot().layoutSelectionReason)
-            prefs.resetClusterLayout(layoutScope,host.visible)
-            assertEquals(360,config.display.safeArea!!.left)
+            val mapping = f.mapping()
+            assertEquals(profile.panel.bounds,mapping.target.output)
+            val automatic = SecondaryProjectionActivity.directDefaultSafe(2000,810)
+            assertEquals(automatic.intersect(SecondaryVideoMapping.carPlayDestination(profile.panel.bounds)),mapping.target.safe)
+            assertEquals(listOf(mapping.phoneSafeInsets.left,mapping.phoneSafeInsets.top,mapping.phoneSafeInsets.right,mapping.phoneSafeInsets.bottom),
+                requireNotNull(config.display.safeArea).let { listOf(it.left,it.top,it.right,it.bottom) })
             assertNull(output.snapshot().output.error)
-        } finally { await(output.retire()) }
-        val reset = withContext(Dispatchers.IO) { OalCarPlayClusterOutput.prepare(ctx,selection) }
-        try {
-            assertNotNull(reset.configuration)
-            assertNotEquals(360,reset.configuration!!.display.safeArea!!.left)
-            assertEquals(ClusterLayoutFallbackReason.NO_CUSTOM_LAYOUT,reset.snapshot().layoutSelectionReason)
-            assertNull(reset.snapshot().output.error)
-        } finally { await(reset.retire()) }
+            assertEquals(ClusterLayoutFallbackReason.CANVAS_CHANGED,legacy(f).fallbackReason)
+        } finally { assertTrue(f.await(output.retire("fixture done"))) }
+        verify(exactly = 0) { f.session.forceReconnect(any()); f.session.stop() }
     }
 
-    @Test fun staleFullCanvasFallsBackInBothProductionConsumersWithoutPrimaryError() = fixture { ctx,prefs,manager,session ->
-        prefs.saveClusterLayout(custom.copy(canvas = profile.panel.bounds))
-        val offer = withContext(Dispatchers.IO) { prepare(manager,session) }
-        assertNull(offer.mapping.qualifiedDisplay.validatedLayout)
-        assertEquals(ClusterLayoutFallbackReason.CANVAS_CHANGED,manager.clusterLayoutSelectionReason.value)
-        assertNull(manager.clusterVideoStatus.value.error)
-        await(manager.retireClusterVideoOutput())
-        val output = withContext(Dispatchers.IO) { OalCarPlayClusterOutput.prepare(ctx,selection) }
+    @Test fun retirementBetweenReservationAndInstallCancelsOfferAndAcknowledgesExactPreparedResources() = fixture { f ->
+        f.preferences.saveClusterLayout(custom)
+        val frozen = f.freeze(selection,layout(f))
+        val resume = CountDownLatch(1)
+        f.initializeGate = resume
+        val pending = f.scope.async { f.runtime.prepareAndroidAuto(99,frozen) }
         try {
-            assertNotNull(output.configuration)
-            assertEquals(ClusterLayoutFallbackReason.CANVAS_CHANGED,output.snapshot().layoutSelectionReason)
-            assertNull(output.snapshot().output.error)
-        } finally { await(output.retire()) }
-        verify(exactly = 0) { session.forceReconnect(any()); session.stop() }
-    }
-
-    @Test fun retirementBetweenReservationAndInstallCancelsOfferAndAcknowledgesExactPreparedResources() = fixture { ctx,prefs,manager,session ->
-        prefs.saveClusterLayout(custom)
-        val entered = java.util.concurrent.CountDownLatch(1)
-        val resume = java.util.concurrent.CountDownLatch(1)
-        val pm = ctx.packageManager
-        every { pm.setComponentEnabledSetting(any(), android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED, any()) } answers {
-            entered.countDown()
-            check(resume.await(5,TimeUnit.SECONDS))
-        }
-        val pending = CoroutineScope(currentCoroutineContext()).async(Dispatchers.IO) {
-            active.runtime.prepareAndroidAuto(99, active.snapshot(selection))
-        }
-        try {
-            assertTrue(entered.await(5,TimeUnit.SECONDS))
-            // beginMapOutput has constructed the real manager/renderer and installed its
-            // process binding, but preparation has not published the session output/offer.
-            assertNull(active.prepared)
-            val retirement = active.runtime.retire("preparation canceled")
-            assertSame(retirement,active.runtime.retire("same exact owner"))
+            f.pump { f.initialized.get() == 1 }
+            val exact = requireNotNull(f.owner())
+            assertNull(f.prepared)
+            assertFalse(exact.handle!!.ready.isDone)
+            val retirement = f.runtime.retire("preparation canceled")
+            assertSame(retirement,f.runtime.retire("same exact owner"))
             assertFalse(retirement.isDone)
             resume.countDown()
+            f.pump { pending.isCompleted }
             assertTrue(pending.await().offers.isEmpty())
-            await(retirement)
-            assertNull(active.prepared)
-            assertNull(active.runtime.mapping(active.descriptor.id))
-            assertSame(retirement,active.runtime.retire("still exact owner"))
-            // Cleanup discharged actual process admission, not merely a fabricated success.
-            val successor = withContext(Dispatchers.IO) { prepare(manager,session) }
-            assertCustom(successor.mapping)
-            verify(exactly = 0) { session.forceReconnect(any()); session.stop() }
+            assertTrue(f.await(retirement))
+            assertNull(f.runtime.mapping(f.descriptor.id))
+            assertFalse(exact.handle!!.owner.isCurrent)
+            assertEquals(1,f.detached.get())
+            assertSame(retirement,f.runtime.retire("still exact owner"))
+            f.initializeGate = null
+            val successor = f.prepare(selection,layout(f))
+            assertEquals(1,successor.offers.size)
+            assertEquals(custom.safe,f.mapping().target.safe)
+            assertNotSame(exact.handle!!.owner,f.owner()!!.handle!!.owner)
+            verify(exactly = 0) { f.session.forceReconnect(any()); f.session.stop() }
         } finally { resume.countDown(); pending.cancelAndJoin() }
     }
 
-    @Test fun actualOfferedCustomAndSafeOnlyLayoutsAttachOnlyToExactHost() = fixture { _,prefs,manager,session ->
+    @Test fun actualOfferedCustomAndSafeOnlyLayoutsAttachOnlyToExactHost() = fixture { f ->
         for (intent in listOf(custom,custom.copy(output = PixelRect(98,135,1904,745)))) {
-            prefs.saveClusterLayout(intent)
-            val offer = withContext(Dispatchers.IO) { prepare(manager,session) }
+            f.preferences.saveClusterLayout(intent)
+            val offered = f.prepare(selection,layout(f,intent))
+            val mapping = f.mapping()
+            assertWire(offered.offers.single(),mapping)
+            assertEquals(profile.panel.bounds,mapping.target.output)
+            assertEquals(intent.safe,mapping.target.safe)
+            val exact = requireNotNull(f.owner())
+            val receipt = exact.handle!!.ready.get()
+            assertFalse(exact.attach(receipt.copy(owner = SecondaryHostOwner(f.descriptor,999))).get())
+            assertFalse(exact.attach(receipt.copy(geometry = receipt.geometry.copy(safe = PixelRect(0,136,2000,810)))).get())
+            assertTrue(exact.bridge!!.status.value.hostAttached)
+            // Legacy custom output still requires the exact frozen AndroidX host receipt.
+            val display = legacy(f).display
+            assertEquals(intent.output,display.effectiveOutput)
             var attaches = 0; var detaches = 0
             val bridge = object : ClusterHostOutputBridge {
                 override fun attach(lease: ClusterOutputLease,surface: Surface,geometry: ClusterHostGeometry) =
@@ -184,21 +204,21 @@ class ClusterLayoutConsumptionIntegrationTest {
                     CompletableFuture.completedFuture(true).also { detaches++ }
             }
             val lease = ClusterOutputLease(30,40)
-            val snapshot = ClusterMapOutputSnapshot(lease,selection,ClusterProjectionProtocol.ANDROID_AUTO,offer.mapping.qualifiedDisplay)
+            val snapshot = ClusterMapOutputSnapshot(lease,selection,ClusterProjectionProtocol.ANDROID_AUTO,display)
             val coordinator = ClusterOutputCoordinator(snapshot,bridge)
             val owner = Any(); val surface = mockk<Surface> { every { isValid } returns true }
+            val host = display.host
             assertTrue(coordinator.claim(owner))
             assertTrue(coordinator.attachHost(lease,owner,surface,host).get())
             assertEquals(1,attaches)
-            // Output/safe still fit: even a one-pixel stable-only change must reject this frozen custom receipt.
             assertFalse(coordinator.updateBounds(lease,owner,surface,host.copy(stable = PixelRect(0,136,2000,810))).get())
             assertFalse(coordinator.isHostAttached()); assertEquals(1,detaches)
-            assertFalse(coordinator.attachHost(lease,owner,surface,host.copy(displayId = 8)).get())
+            assertFalse(coordinator.attachHost(lease,owner,surface,host.copy(displayId = host.displayId+1)).get())
             assertFalse(coordinator.attachHost(lease,owner,surface,host.copy(visible = PixelRect(0,140,2000,810))).get())
             assertEquals(1,attaches)
             assertEquals(intent.safe,snapshot.display.safe)
             assertTrue(coordinator.retire(lease,"test").get())
-            await(manager.retireClusterVideoOutput())
+            assertTrue(f.await(f.manager.retireClusterVideoOutput()))
         }
     }
 }

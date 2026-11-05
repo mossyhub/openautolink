@@ -46,6 +46,7 @@ class ProductionClusterSettingsBindingTest {
         preferences.setDirectTransport("usb")
         val readEntered = CompletableDeferred<Unit>()
         val releaseRead = CompletableDeferred<Unit>()
+        val readFailed = CompletableDeferred<Unit>()
         val session = io.mockk.mockk<com.openautolink.app.session.SessionManager>(relaxed = true)
         val sessionState = MutableStateFlow(SessionState.IDLE)
         val starts = java.util.concurrent.atomic.AtomicInteger()
@@ -62,6 +63,7 @@ class ProductionClusterSettingsBindingTest {
         io.mockk.coEvery { preferences.getClusterLayout(any(), any()) } coAnswers {
             readEntered.complete(Unit)
             releaseRead.await()
+            readFailed.complete(Unit)
             throw java.io.IOException("optional layout read failed")
         }
         every { com.openautolink.app.carplay.CarPlaySessionLeases.forContext(any()) } returns
@@ -130,7 +132,9 @@ class ProductionClusterSettingsBindingTest {
             compose.onNodeWithText("Settings").performClick()
             compose.onNodeWithTag("settingsScreen").assertIsDisplayed()
             compose.onNodeWithTag("settingsTab_INSTRUMENT_CLUSTER").performScrollTo().performClick()
-            compose.onNodeWithTag("clusterSettingsUnavailable").assertExists()
+            compose.onNodeWithTag("clusterSettingsUnavailable").assertDoesNotExist()
+            compose.onNodeWithTag("secondaryImportantContentEditor").assertDoesNotExist()
+            compose.onNodeWithTag("clusterDisplay_MAP_VIDEO").assertExists()
             compose.onNodeWithTag("adjustClusterLayout").assertDoesNotExist()
             compose.onNodeWithTag("clusterDisplay_NATIVE_ICONS").assertDoesNotExist()
             compose.onNodeWithTag("settingsTab_DIAGNOSTICS").performScrollTo().performClick()
@@ -153,11 +157,13 @@ class ProductionClusterSettingsBindingTest {
             compose.runOnIdle { navigation.navigate(com.openautolink.app.ui.navigation.AppDestinations.SETTINGS) }
             releaseRead.complete(Unit)
             compose.onNodeWithTag("settingsTab_INSTRUMENT_CLUSTER").performScrollTo().performClick()
-            compose.waitUntil(5000) {
-                compose.onAllNodesWithText("optional layout read failed", substring = true)
-                    .fetchSemanticsNodes().isNotEmpty()
+            // Optional legacy adapter failure is not rendered as the current per-output pane.
+            compose.waitUntil(5000) { shadowOf(android.os.Looper.getMainLooper()).idle();
+                readFailed.isCompleted && compose.onAllNodesWithTag("clusterDisplay_MAP_VIDEO").fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithTag("clusterSettingsUnavailable").assertExists()
+            compose.onNodeWithTag("clusterSettingsUnavailable").assertDoesNotExist()
+            compose.onNodeWithTag("secondaryImportantContentEditor").assertDoesNotExist()
+            compose.onNodeWithTag("clusterDisplay_MAP_VIDEO").assertExists()
             compose.onNodeWithTag("settingsTab_DISPLAY").performScrollTo().performClick()
             compose.runOnIdle { settings.updateCarPlayDraft { it.copy(ssid = "Ordinary save survives") } }
             compose.onNodeWithTag("saveAndConnectButton").assertIsEnabled().performClick()
@@ -272,7 +278,7 @@ class ProductionClusterSettingsBindingTest {
             compose.runOnIdle {
                 assertFalse(original.update(geometry))
                 try { requireNotNull(bound?.liveGrid).start(geometry, 15); fail("New active session must withhold the grid") }
-                catch (failure: IllegalStateException) { assertTrue(requireNotNull(failure.message).contains("Stop phone projection")) }
+                catch (failure: IllegalStateException) { assertTrue(requireNotNull(failure.message).contains("Disconnect your phone to preview on driver display.")) }
             }
             assertNull(shadowOf(app).nextStartedActivity)
         } finally {

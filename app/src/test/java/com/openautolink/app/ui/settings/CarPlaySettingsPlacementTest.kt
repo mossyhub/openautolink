@@ -39,7 +39,7 @@ class CarPlaySettingsPlacementTest {
         assertRejected { assertVideoSave(editor + "\ncopy(phoneAddress = \"\")") }
     }
 
-    @Test fun existingTabsUseProtocolGroupsAndCollapsedHelp() {
+    @Test fun existingTabsUseProtocolGroupsAndAlwaysVisibleHelp() {
         val screen = source("SettingsScreen.kt")
         val editor = source("CarPlaySettings.kt")
         val connection = function(screen, "ConnectionTab")
@@ -59,8 +59,9 @@ class CarPlaySettingsPlacementTest {
         assertTrue(video.contains("SettingsHelp("))
         assertTrue(editor.contains("SettingsHelp("))
         val help = function(screen, "SettingsHelp")
-        assertTrue(help.contains("mutableStateOf(false)"))
-        assertTrue(help.contains("if (expanded)"))
+        assertTrue(help.contains("Text("))
+        assertFalse("Supporting help is intentionally always visible", help.contains("if (expanded)"))
+        assertFalse(help.contains("mutableStateOf(false)"))
         // Network inputs remain in the explicitly collapsed advanced block.
         val setup = function(editor, "CarPlaySettingsSection")
         for (field in listOf("peerAddress", "interfaceName", "networkFamily", "localAddress", "apFrequencyMhz", "apSecurity")) {
@@ -105,7 +106,7 @@ class CarPlaySettingsPlacementTest {
         val content = function(screen, "SettingsScreenContent")
         assertTrue(settings.contains("SettingsScreenContent(viewModel, sessionState, onSaveAndConnect, onBack,"))
         assertTrue(settings.contains("onNavigateToCarPlaySafeAreaEditor, activeProtocolStatus, audioBindings, clusterBindings,"))
-        assertTrue(settings.contains("clusterInitializationError, secondarySource)"))
+        assertTrue(settings.contains("clusterInitializationError, secondarySource, initialSecondaryDisplays)"))
         assertTrue(settings.contains("secondarySource: SecondaryDisplaysSource? = null"))
         assertTrue(content.contains("clusterInitializationError: String?"))
         assertTrue(content.contains("secondarySource: SecondaryDisplaysSource?"))

@@ -121,6 +121,9 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
+        // The Android TLS provider has no desktop JNI. Match the qualified host-test environment;
+        // this affects Robolectric setup only, not the packaged provider or production TLS.
+        unitTests.all { it.systemProperty("robolectric.conscryptMode", "OFF") }
     }
 
     lint {

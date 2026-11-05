@@ -19,7 +19,11 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[32,35],application=Application::class,manifest=Config.NONE)
 class LiveSettingsTest {
-    @get:Rule val compose=createOalComposeRule()
+    private val process=LiveProcessTestFixture()
+    val compose=createOalComposeRule()
+    // Retire predecessors before Compose checks for uncaught process exceptions;
+    // dispose composition before the final process teardown.
+    @get:Rule val rules: org.junit.rules.TestRule=org.junit.rules.RuleChain.outerRule(process).around(compose)
     @Test fun invitationEyeIsAccessibleMaskedByDefaultAndClearedOnSubmitAtNarrowWidth() {
         LiveDiagnostics.initialize(RuntimeEnvironment.getApplication());LiveDiagnostics.stop()
         compose.waitUntil(5000){LiveDiagnostics.ready.value}
@@ -57,21 +61,45 @@ class LiveSettingsTest {
         assertEquals(active,LiveDiagnostics.endpoint.value)
         assertEquals("Off",LiveDiagnostics.status.value)
     }
-    @Test fun launchChoiceIsExplicitAndExplainsStopScope() {
-        LiveDiagnostics.initialize(RuntimeEnvironment.getApplication());LiveDiagnostics.stop()
+    // The awaited process fixture, not this application class, owns singleton isolation.
+    class LaunchChoiceApplication : Application()
+    @Config(application=LaunchChoiceApplication::class)
+    @Test fun storedLaunchOptOutCanBeEnabledAndStopDoesNotEraseLaunchChoice() {
+        val app=RuntimeEnvironment.getApplication() as Application
+        assertEquals(LaunchChoiceApplication::class.java,app.javaClass)
+        assertFalse("this fixture must own an uninitialized observer",LiveDiagnostics.ready.value)
+        val consent=LiveConsentStore(app)
+        consent.save(false) // explicit saved choice, not an assertion about the launch default
+        assertFalse(consent.load())
+        LiveDiagnostics.initialize(app)
+        val observerScope=LiveDiagnostics::class.java.getDeclaredField("scope").apply{isAccessible=true}
+            .get(LiveDiagnostics) as kotlinx.coroutines.CoroutineScope
+        compose.waitUntil(5000){LiveDiagnostics.ready.value && observerScope.coroutineContext[kotlinx.coroutines.Job]!!.children.none{it.isActive}}
+        LiveDiagnostics.stop()
+        try {
         compose.setContent{MaterialTheme{androidx.compose.foundation.layout.Column(
             androidx.compose.ui.Modifier.verticalScroll(rememberScrollState())
         ){LiveDiagnosticsSettings()}}}
         compose.onNodeWithTag("liveDiagnosticsAutoConnect").performScrollTo().assertIsOff()
         compose.onNodeWithText("Auto-connect on OAL launch").assertExists()
-        compose.onNodeWithText("Stop pauses this run only. Turn off auto-connect to stay Off after the next launch.").assertExists()
+        compose.onNode(hasText("Stop pauses",substring=true) and
+            hasText("run only",substring=true) and hasText("auto-connect",substring=true) and
+            hasText("next launch",substring=true)).assertExists()
         compose.onNodeWithTag("liveDiagnosticsAutoConnect").performClick()
-        compose.waitUntil(5000){LiveDiagnostics.autoConnect.value}
+        compose.waitUntil(5000){LiveDiagnostics.autoConnect.value && consent.load()}
         compose.onNodeWithTag("liveDiagnosticsAutoConnect").assertIsOn()
-        assertTrue(LiveConsentStore(RuntimeEnvironment.getApplication()).load())
+        assertTrue(consent.load())
+        compose.onNodeWithTag("liveDiagnosticsStop").performScrollTo().performClick()
+        assertEquals("Off",LiveDiagnostics.status.value)
+        assertTrue("Stop must not erase the next-launch choice",consent.load())
+        compose.onNodeWithTag("liveDiagnosticsAutoConnect").performScrollTo().assertIsOn()
         compose.onNodeWithTag("liveDiagnosticsAutoConnect").performClick()
-        compose.waitUntil(5000){!LiveDiagnostics.autoConnect.value}
-        assertFalse(LiveConsentStore(RuntimeEnvironment.getApplication()).load())
+        compose.waitUntil(5000){!LiveDiagnostics.autoConnect.value && !consent.load()}
+        compose.onNodeWithTag("liveDiagnosticsAutoConnect").assertIsOff()
+        assertFalse(consent.load())
+        } finally {
+            process.retire()
+        }
     }
     @Test fun renderedOptInMissingInvitationAndStopRemainReadOnly() {
         LiveDiagnostics.initialize(RuntimeEnvironment.getApplication());LiveDiagnostics.stop()

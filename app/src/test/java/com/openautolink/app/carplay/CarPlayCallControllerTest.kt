@@ -43,6 +43,15 @@ class CarPlayCallControllerTest {
         val afterRead = java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>()
         override fun getConnectionState(device: android.bluetooth.BluetoothDevice) = state
     }
+    private fun flushFixtureReceipts() {
+        if(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush()) return
+        val worker=com.openautolink.carplaylab.telecom.NativeCallDiagnostics::class.java.getDeclaredField("worker")
+            .apply { isAccessible=true }.get(null) as java.util.concurrent.ThreadPoolExecutor
+        val threads=Thread.getAllStackTraces().filterKeys { it.name=="native-call-receipts" }
+            .entries.joinToString("\n") { (t,stack)->"${t.name} ${t.state}\n"+stack.joinToString("\n") }
+        val outcomes=org.robolectric.shadows.ShadowLog.getLogsForTag("OALNativeCall").joinToString { it.msg }
+        throw AssertionError("Receipt flush failed: queue=${worker.queue.size} active=${worker.activeCount} completed=${worker.completedTaskCount} closed=${worker.isShutdown}; outcomes=$outcomes; workers=$threads")
+    }
     private fun guardWorker(guard: com.openautolink.carplaylab.telecom.HfpCallGuard) =
         guard.javaClass.getDeclaredField("worker").apply { isAccessible = true }.get(guard) as java.util.concurrent.ScheduledExecutorService
     private fun refreshFixtureGuard(guard: com.openautolink.carplaylab.telecom.HfpCallGuard) {
@@ -203,10 +212,12 @@ class CarPlayCallControllerTest {
             for (state in listOf(android.bluetooth.BluetoothProfile.STATE_CONNECTED, android.bluetooth.BluetoothProfile.STATE_CONNECTING, android.bluetooth.BluetoothProfile.STATE_DISCONNECTING)) {
                 profile.state = state; refreshFixtureGuard(guard)
                 link.handle(call(suffix = (state + 2).toString())); shadowOf(android.os.Looper.getMainLooper()).idle()
-                assertEquals("conflict escaped new-call gate", 1, os.allIncomingCalls.size)
+                if(os.allIncomingCalls.size!=1) throw AssertionError("conflict escaped new-call gate: state=$state guard=${guard.status} controller=${controller.state.value} at=${android.os.SystemClock.elapsedRealtime()} snapshot="+
+                    guard.javaClass.getDeclaredField("snapshot").apply { isAccessible=true }.get(guard))
+                assertEquals("conflict escaped new-call gate",1,os.allIncomingCalls.size)
                 link.handle(call(0, (state + 2).toString())); shadowOf(android.os.Looper.getMainLooper()).idle()
             }
-            assertTrue(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush())
+            flushFixtureReceipts()
             val receipts = java.io.File(app.getExternalFilesDir(null), "openautolink/logs/native_call_controls.log").readLines()
             assertTrue("guard decision must survive manual export", receipts.any { it.contains("stage=native-policy actor=HFP") && it.contains("action=PRESERVED") })
             assertTrue(receipts.any { it.contains("stage=native-policy") && it.contains("action=BLOCKED") })
@@ -217,7 +228,7 @@ class CarPlayCallControllerTest {
             os.enablePhoneAccount(backend.handle, false); backend.refresh(); shadowOf(android.os.Looper.getMainLooper()).idle()
             assertEquals(android.telecom.Connection.STATE_DISCONNECTED, revoked.state)
             revoked.onReject(); backend.refresh(); assertEquals(1, rejects)
-            assertTrue(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush())
+            flushFixtureReceipts()
             assertTrue(java.io.File(app.getExternalFilesDir(null), "openautolink/logs/native_call_controls.log").readText().contains("actor=AUTHORITY state=DISABLED"))
             val file = java.io.File(app.getExternalFilesDir(null), "openautolink/logs/native_call_controls.log")
             val bytes = file.readBytes()

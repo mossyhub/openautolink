@@ -28,11 +28,12 @@ import org.robolectric.shadows.ShadowDisplayManager
 import org.robolectric.util.ReflectionHelpers
 import java.io.File
 
-/** Real settings binding + production initial qualifier + real DataStore + rendered editor and
+/** Supported legacy adapter/resolver coverage, deliberately not the public Directions entrypoint.
+ * Real settings binding + production initial qualifier + real DataStore + rendered editor and
  * direct Activity. OS public display/Build identity are controlled fixtures, not a GM device. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [32, 34], application = Application::class, qualifiers = "w1000dp-h360dp-land-mdpi",
-    shadows = [LiveGridWindowActivityTest.Admission::class])
+    shadows = [LiveGridWindowActivityTest.Admission::class, ClusterDirectVideoLifecycleTest.TextureBoundary::class])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class ProductionDirectCalibrationJourneyTest {
@@ -44,19 +45,28 @@ class ProductionDirectCalibrationJourneyTest {
     private fun journey(output: PixelRect, expected: PixelRect) = runBlocking<Unit> {
         val app = RuntimeEnvironment.getApplication()
         val oldProduct = Build.PRODUCT
+        val oldBuild = Build.ID
+        val oldRevision = Build.VERSION.INCREMENTAL
         ReflectionHelpers.setStaticField(Build::class.java, "PRODUCT", "aegean_orange")
+        ReflectionHelpers.setStaticField(Build::class.java, "ID", profile.vehicle.buildFamily)
+        ReflectionHelpers.setStaticField(Build.VERSION::class.java, "INCREMENTAL", profile.vehicle.buildRevision.toString())
         LiveGridWindowActivityTest.allowed = true
         val id = ShadowDisplayManager.addDisplay("w2000dp-h810dp-mdpi", "Controlled physical cluster")
         val physical = app.getSystemService(DisplayManager::class.java).getDisplay(id)
         shadowOf(physical).setFlags(Display.FLAG_PRESENTATION); shadowOf(physical).setState(Display.STATE_ON)
+        val inventoryFixture = RawDisplayTestFixture(app)
+        val liveTarget = inventoryFixture.target(id,2000,810,com.openautolink.app.secondary.SecondaryRoute.GM_HOSTED)
         val initial = requireNotNull(ClusterProjectionOutput.qualifiedInitialDisplay(app))
         assertEquals(legacy, initial.host.visible) // Real shipped initial qualifier, not an injected model.
-        val job = SupervisorJob()
+        var job = SupervisorJob()
         val file = File(app.filesDir, "direct-journey-${java.util.UUID.randomUUID()}.preferences_pb")
-        val store = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
-            scope = CoroutineScope(job + Dispatchers.IO), produceFile = { file })
-        val preferences = AppPreferences::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
-            .apply { isAccessible = true }.newInstance(store)
+        fun stored(): AppPreferences {
+            val store=androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
+                scope=CoroutineScope(job+Dispatchers.IO),produceFile={file})
+            return AppPreferences::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
+                .apply { isAccessible=true }.newInstance(store)
+        }
+        var preferences=stored()
         val safe = PixelRect(636,150,1471,661) // Exact latest restored upload intent.
         val saved = SavedClusterLayout(scope, legacy, output, safe)
         preferences.saveClusterLayout(saved)
@@ -118,6 +128,7 @@ class ProductionDirectCalibrationJourneyTest {
             val committed = requireNotNull(preferences.getClusterLayout(scope, after.canvas).custom)
             assertEquals(after.output, committed.output); assertEquals(after.safe, committed.safe)
             compose.runOnIdle { mounted = false }; compose.waitForIdle()
+            job.cancelAndJoin();job=SupervisorJob();preferences=stored() // actual cold file-backed reopen
             compose.runOnIdle { bound = null; opened = false; mounted = true }
             compose.waitUntil(5000) { shadowOf(Looper.getMainLooper()).idle(); bound?.layout != null }
             assertEquals(after, bound?.layout)
@@ -136,7 +147,10 @@ class ProductionDirectCalibrationJourneyTest {
             compose.runOnIdle { mounted = false }; compose.waitForIdle()
             activity?.pause()?.stop()?.destroy()
             job.cancelAndJoin(); file.delete()
+            inventoryFixture.close()
             ReflectionHelpers.setStaticField(Build::class.java, "PRODUCT", oldProduct)
+            ReflectionHelpers.setStaticField(Build::class.java, "ID", oldBuild)
+            ReflectionHelpers.setStaticField(Build.VERSION::class.java, "INCREMENTAL", oldRevision)
         }
     }
     @Test fun latestLegacyMaximumOpensMossySizedThenActualStartDragSaveRestores() = journey(legacy, profile.output)

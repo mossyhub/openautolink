@@ -10,10 +10,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.TimeUnit
 
-/** Real optional runtime, manager and AndroidX Surface callbacks; controlled OS/GPU boundaries. */
+/** Real optional runtime, registry and direct TextureView callbacks; controlled OS/GPU boundaries. */
 @RunWith(RobolectricTestRunner::class)
 @org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
-@Config(sdk=[32,34], application=android.app.Application::class, manifest=Config.NONE)
+@Config(sdk=[32,34], application=android.app.Application::class, shadows=[ClusterDirectVideoLifecycleTest.Admission::class,ClusterDirectVideoLifecycleTest.TextureBoundary::class])
 class IgnitionReadinessRuntimeTest {
     @Before fun setup() {
         mockkObject(com.openautolink.app.diagnostics.DiagnosticLog)
@@ -38,14 +38,28 @@ class IgnitionReadinessRuntimeTest {
         } finally { release.countDown();f.close() }
     }
     @Test fun realLegacyMigrationPersistsOnlyAfterOn() = withRealPreferences { prefs ->
+        val traces=java.util.concurrent.ConcurrentLinkedDeque<String>()
+        val waiting=java.util.concurrent.CountDownLatch(1)
+        every { com.openautolink.app.diagnostics.DiagnosticLog.i(any(),any()) } answers {
+            val line=secondArg<String>()
+            traces.addLast(line);while(traces.size>64)traces.pollFirst()
+            if(line.contains("session=202") && line.contains("stage=readiness_wait"))waiting.countDown()
+            Unit
+        }
         runBlocking { prefs.setClusterOutputSelection(ClusterOutputSelection(ClusterDisplayMode.MAP_VIDEO)) }
         val f=RetainedHostRuntimeFixture(preferences=prefs)
         try {
             f.ignition(false);val frozen=runBlocking { prefs.getSecondaryDisplayPreferences() };assertTrue(frozen.outputs.isEmpty())
-            val next=f.scope.async { f.runtime.prepareAndroidAuto(202,frozen) };Thread.sleep(150);assertFalse(next.isCompleted)
+            val began=System.nanoTime()
+            val next=f.scope.async { f.runtime.prepareAndroidAuto(202,frozen) }
+            assertTrue("Actual OFF readiness must begin before inspecting migration: $traces",waiting.await(1,TimeUnit.SECONDS))
+            assertFalse(next.isCompleted)
             assertTrue(runBlocking { prefs.getSecondaryDisplayPreferences() }.outputs.isEmpty())
+            val beforeOnMs=TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-began)
             f.ignition(true);f.pump { next.isCompleted }
-            val offered = runBlocking { next.await() }.offers.single()
+            val prepared=runBlocking { next.await() }
+            assertEquals("Legacy offer missing after ON: descriptor=${f.descriptor}; frozen=$frozen; statuses=${f.runtime.statuses.value}; initialized=${f.initialized.get()}; launches=${f.launches.size}; beforeOnMs=$beforeOnMs; traces=$traces",1,prepared.offers.size)
+            val offered = prepared.offers.single()
             assertEquals(3, offered.channelId)
             assertEquals("Fresh GM intent must reach the phone as Auxiliary", 2, offered.displayType)
             assertEquals(SecondaryOutputPreference(true,AaSecondaryRole.AUXILIARY,true,true),runBlocking { prefs.getSecondaryDisplayPreferences() }.outputs[f.descriptor.id])
@@ -98,33 +112,33 @@ class IgnitionReadinessRuntimeTest {
         every { com.openautolink.app.data.AppPreferences.getInstance(any()) } returns prefs
         try { test(prefs) } finally { runBlocking { job.cancelAndJoin() };dir.deleteRecursively() }
     }
-    @Test fun ticketCancelledDuringSavedLayoutReadNeverLaunchesStaleHost() {
-        val f=RetainedHostRuntimeFixture()
-        val pref=mockk<com.openautolink.app.data.AppPreferences>()
-        val entered=java.util.concurrent.CountDownLatch(1)
-        val release=CompletableDeferred<Unit>()
+    @Test fun ticketCancelledDuringDirectGpuAttachNeverOffersStaleHost() {
+        val f=RetainedHostRuntimeFixture(fault=3)
         val authority=java.util.concurrent.atomic.AtomicBoolean(true)
-        every { com.openautolink.app.data.AppPreferences.getInstance(any()) } returns pref
-        coEvery { pref.getClusterLayout(any(),any()) } coAnswers {
-            entered.countDown();release.await()
-            com.openautolink.app.data.ClusterLayoutRead(null,com.openautolink.app.data.ClusterLayoutUnavailableReason.NO_CUSTOM_LAYOUT)
-        }
         try {
             val next=f.scope.async { f.runtime.prepareAndroidAuto(202,f.frozen) { authority.get() } }
-            assertTrue(entered.await(2,TimeUnit.SECONDS));authority.set(false);release.complete(Unit);f.pump { next.isCompleted }
+            f.pump { f.initialized.get()==1 }
+            val old=f.owner()!!.handle!!.owner
+            assertFalse(next.isCompleted)
+            authority.set(false);f.gate.countDown();f.pump { next.isCompleted }
             assertTrue(runBlocking { next.await() }.offers.isEmpty())
-            assertTrue("No stale renderer/manager may be launched after suspended read",f.bridges.isEmpty())
+            val cleanup=f.runtime.retire("revoked direct attach");f.pump { cleanup.isDone };assertTrue(cleanup.get())
+            assertFalse(old.isCurrent)
             assertNull(ClusterBindingState.frozenMapBinding())
-        } finally { release.complete(Unit);f.close() }
+            val successor=f.prepared(false,203)
+            assertTrue(f.offered(successor));assertNotSame(old,f.owner()!!.handle!!.owner)
+            assertEquals(203L,f.owner()!!.handle!!.owner.projectionEpoch)
+        } finally { f.close() }
     }
     @Test fun legacyMissingModernIntentWaitsAndMigratesAfterQualification() {
         val f=RetainedHostRuntimeFixture()
-        val pref=mockk<com.openautolink.app.data.AppPreferences>()
-        val migrated=java.util.concurrent.atomic.AtomicInteger()
-        every { com.openautolink.app.data.AppPreferences.getInstance(any()) } returns pref
-        coEvery { pref.getClusterLayout(any(),any()) } returns com.openautolink.app.data.ClusterLayoutRead(null, com.openautolink.app.data.ClusterLayoutUnavailableReason.NO_CUSTOM_LAYOUT)
-        coEvery { pref.migrateSecondaryClusterPreference(f.descriptor.id) } answers { migrated.incrementAndGet(); f.frozen }
         try {
+            val pref=mockk<com.openautolink.app.data.AppPreferences>()
+            val migrated=java.util.concurrent.atomic.AtomicInteger()
+            mockkObject(com.openautolink.app.data.AppPreferences.Companion)
+            every { com.openautolink.app.data.AppPreferences.getInstance(f.context) } returns pref
+            coEvery { pref.getClusterLayout(any(),any()) } returns com.openautolink.app.data.ClusterLayoutRead(null, com.openautolink.app.data.ClusterLayoutUnavailableReason.NO_CUSTOM_LAYOUT)
+            coEvery { pref.migrateSecondaryClusterPreference(f.descriptor.id) } answers { migrated.incrementAndGet(); f.frozen }
             f.ignition(false)
             val frozen=f.frozen.copy(outputs=emptyMap())
             val next=f.scope.async { f.runtime.prepareAndroidAuto(202,frozen) }
@@ -134,7 +148,9 @@ class IgnitionReadinessRuntimeTest {
             f.ignition(true); f.pump { next.isCompleted }
             assertEquals(listOf(3),runBlocking { next.await() }.offers.map { it.channelId })
             assertEquals(1,migrated.get())
-        } finally { f.close() }
+        } finally {
+            try { f.close() } finally { unmockkObject(com.openautolink.app.data.AppPreferences.Companion) }
+        }
     }
 
     @Test fun offForeverIsBoundedAndLateOnNeverHotAdds() {
@@ -168,7 +184,7 @@ class IgnitionReadinessRuntimeTest {
             assertTrue(runBlocking { next.await() }.offers.isEmpty());assertTrue(f.bridges.isEmpty())
             val successor=f.prepared(false,203);assertTrue(f.offered(successor))
             val old=runBlocking { next.await() }.retire("late predecessor"); f.pump { old.isDone }
-            assertTrue(requireNotNull(f.binding).coordinator.isHostAttached())
+            assertTrue(f.runtime.statuses.value.getValue(f.descriptor.id).hostAttached)
         } finally { f.close() }
     }
     @Test fun coroutineCancellationWhileWaitingDoesNotLaunch() {
@@ -185,7 +201,7 @@ class IgnitionReadinessRuntimeTest {
             val replace=f.scope.async { f.runtime.prepareAndroidAuto(203,f.frozen.copy(outputs=mapOf(f.descriptor.id to SecondaryOutputPreference()))) }
             f.pump { replace.isCompleted && old.isCompleted };assertTrue((runBlocking { old.await() } as PreparedAaSecondaryOutputs).offers.isEmpty())
             f.ignition(true);val successor=f.prepared(false,204);assertTrue(f.offered(successor))
-            val ack=f.retire(runBlocking { old.await() });f.pump { ack.isDone };assertTrue(requireNotNull(f.binding).coordinator.isHostAttached())
+            val ack=f.retire(runBlocking { old.await() });f.pump { ack.isDone };assertTrue(f.runtime.statuses.value.getValue(f.descriptor.id).hostAttached)
         } finally { f.close() }
     }
     @Test fun carPlayPredecessorOffOnReturnsWithAndroidAutoOffer() {
@@ -197,14 +213,28 @@ class IgnitionReadinessRuntimeTest {
         } finally { f.close() }
     }
     @Test fun unknownVehicleDoesNotWait()=rejected { f -> org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build::class.java,"PRODUCT","unknown");f.frozen }
-    @Test fun privatePhysicalTargetDoesNotWait()=rejected { f -> every { f.display.flags } returns android.view.Display.FLAG_PRIVATE;f.frozen }
+    @Test fun privatePhysicalTargetDoesNotWait()=rejected { f -> org.robolectric.Shadows.shadowOf(f.display).setFlags(android.view.Display.FLAG_PRIVATE);f.frozen }
     @Test fun ambiguousPhysicalTargetsDoNotWait()=rejected { f ->
-        val passenger=mockk<android.view.Display>(relaxed=true)
-        every { passenger.displayId } returns 8;every { passenger.getRealSize(any()) } answers { firstArg<android.graphics.Point>().set(2000,810) }
-        every { f.displays.displays } returns arrayOf(f.display,passenger);f.frozen
+        org.robolectric.shadows.ShadowDisplayManager.addDisplay("w2000dp-h810dp-mdpi","Ambiguous physical peer")
+        f.frozen
     }
     @Test fun disabledOutputDoesNotWait()=rejected { f -> f.frozen.copy(outputs=mapOf(f.descriptor.id to SecondaryOutputPreference(false,AaSecondaryRole.CLUSTER,true,true))) }
-    @Test fun disabledAaDoesNotWait()=rejected { f -> f.frozen.copy(outputs=mapOf(f.descriptor.id to SecondaryOutputPreference(true,AaSecondaryRole.CLUSTER,false,true))) }
+    @Test fun falseAaCompatibilityShadowStillWaitsAndOffersAfterDirectAck() {
+        val f=RetainedHostRuntimeFixture()
+        try {
+            f.ignition(false);f.attachHosts=false
+            val row=SecondaryOutputPreference(true,AaSecondaryRole.CLUSTER,false,true)
+            val frozen=f.frozen.copy(outputs=mapOf(f.descriptor.id to row))
+            val next=f.scope.async { f.runtime.prepareAndroidAuto(202,frozen) }
+            Thread.sleep(150);assertFalse(next.isCompleted)
+            f.ignition(true);f.pump { f.launches.size==1 }
+            assertFalse("Saved false is not Video veto, nor is launch an acknowledgement",next.isCompleted)
+            f.attachHosts=true;f.pump { next.isCompleted }
+            assertEquals(listOf(3),runBlocking { next.await() }.offers.map { it.channelId })
+            assertEquals(row,frozen.outputs.getValue(f.descriptor.id))
+            assertTrue(f.runtime.statuses.value.getValue(f.descriptor.id).hostAttached)
+        } finally { f.close() }
+    }
     @Test fun unsetGmRoleWaitsForQualifiedTargetThenUsesAuxiliary() {
         val f=RetainedHostRuntimeFixture()
         try {
@@ -252,8 +282,8 @@ class IgnitionReadinessRuntimeTest {
             val result=runBlocking { next.await() } as PreparedAaSecondaryOutputs
             assertEquals(listOf(3),result.offers.map { it.channelId })
             assertEquals(listOf(1),result.offers.map { it.protocolDisplayId })
-            assertEquals(202L,requireNotNull(f.binding).snapshot.lease.projectionEpoch)
-            assertTrue(requireNotNull(f.binding).coordinator.isHostAttached())
+            assertEquals(202L,f.owner()!!.handle!!.owner.projectionEpoch)
+            assertTrue(f.runtime.statuses.value.getValue(f.descriptor.id).hostAttached)
             assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-start)<1900)
         } finally { f.close() }
     }
