@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.577 — Android Auto wake and connection recovery
+
+- Remove a shutdown lock-order defect that can freeze the car app when a media Pause command overlaps Android Auto disconnect cleanup, preventing later automatic connections.
+- Retire a failed startup transport immediately when it closes before Android Auto negotiation, rather than retaining it until the startup watchdog expires.
+- Preserve current-session command delivery, stale-session rejection, intentional disconnect behavior, and CarPlay media ownership.
+- Both repairs have regression coverage. Confirmation of the reported freeze and reconnect behavior in a vehicle remains pending.
+- Companion application behavior and connection setup are unchanged; no re-pairing or settings reset is required.
+
 ## 0.1.575 — Maps on your driver display
 
 Includes the accumulated driver-display and Settings changes since public GitHub release 0.1.555.
