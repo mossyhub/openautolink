@@ -41,7 +41,16 @@ class ClusterDirectVideoRuntimeTest {
         val inputs=AtomicInteger();val configs=AtomicInteger();val parks=AtomicInteger();val resumes=AtomicInteger()
         var initializeGate:java.util.concurrent.CountDownLatch?=null
         override fun initialize() { initializeGate?.let { check(it.await(3,TimeUnit.SECONDS)) } }
-        override fun configure(config:ClusterCodecConfig) { configs.incrementAndGet() }
+        val configured=java.util.concurrent.CopyOnWriteArrayList<ClusterCodecConfig>()
+        var firstConfigGate:java.util.concurrent.CountDownLatch?=null
+        val firstConfigEntered=java.util.concurrent.CountDownLatch(1)
+        override fun configure(config:ClusterCodecConfig) {
+            configured.add(config)
+            if(configs.incrementAndGet()==1) {
+                firstConfigEntered.countDown()
+                firstConfigGate?.let { check(it.await(3,TimeUnit.SECONDS)) }
+            }
+        }
         override fun submit(frame:ClusterEncodedFrame):Boolean { inputs.incrementAndGet();return true }
         override fun poll()=ClusterRenderProgress(0,0)
         override fun stopDecoder()=Unit
@@ -74,6 +83,9 @@ class ClusterDirectVideoRuntimeTest {
     @Test fun directCarPlayExplicitNativeChoiceAdmitsRealGuidanceAlongsideOnlyDirectVideo()=journey(true,true,AaSecondaryRole.CLUSTER,true)
     @Test fun gmAndroidAutoVideoSuppressesNativeDespiteSavedTrueAndKeepsFrames()=journey(false,true,AaSecondaryRole.AUXILIARY,true,true)
     @Test fun gmCarPlayVideoSuppressesNativeDespiteSavedTrueAndKeepsFrames()=journey(true,true,AaSecondaryRole.AUXILIARY,true,true)
+    @Test fun carPlayExplicitConfigAndIdrOnlyKeepOneDriverConfigWhileFirstConfigureIsHeld()=journey(true,true,AaSecondaryRole.AUXILIARY,true,true,holdCarPlayConfig=true)
+    @Test fun carPlayLegacyInlineParameterSetsRequireTwoDriverConfigsWhileFirstConfigureIsHeld()=journey(true,true,AaSecondaryRole.AUXILIARY,true,true,holdCarPlayConfig=true,carPlayInlineSets=CarPlayInlineSets.LEGACY)
+    @Test fun carPlayMatchingInlineParameterSetsAlsoConfigureTwiceWhileFirstConfigureIsHeld()=journey(true,true,AaSecondaryRole.AUXILIARY,true,true,holdCarPlayConfig=true,carPlayInlineSets=CarPlayInlineSets.MATCHING)
     @Test fun gmIconsOnlyAndroidAutoStillPublishesRealSourcedTrip()=nativeOnly(false)
     @Test fun gmIconsOnlyCarPlayStillPublishesRealSourcedTrip()=nativeOnly(true)
     private fun nativeOnly(cp:Boolean) {
@@ -152,7 +164,8 @@ class ClusterDirectVideoRuntimeTest {
         } catch (failure: Throwable) { cleanup(); throw failure }
     }
 
-    private fun journey(cp:Boolean,gm:Boolean=false,role:AaSecondaryRole?=AaSecondaryRole.AUXILIARY,withIcons:Boolean=false,gmExclusive:Boolean=false,offpageStartup:Boolean=false,manualRestore:Boolean=false,replaceSelection:Boolean=false,freezePark:Int=0,replaceActivity:Boolean=false,replaceAtLookup:Boolean=false) {
+    private enum class CarPlayInlineSets { NONE, LEGACY, MATCHING }
+    private fun journey(cp:Boolean,gm:Boolean=false,role:AaSecondaryRole?=AaSecondaryRole.AUXILIARY,withIcons:Boolean=false,gmExclusive:Boolean=false,offpageStartup:Boolean=false,manualRestore:Boolean=false,replaceSelection:Boolean=false,freezePark:Int=0,replaceActivity:Boolean=false,replaceAtLookup:Boolean=false,holdCarPlayConfig:Boolean=false,carPlayInlineSets:CarPlayInlineSets=CarPlayInlineSets.NONE) {
         val oldProduct=android.os.Build.PRODUCT
         if(gmExclusive)org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build::class.java,"PRODUCT",ClusterDisplayProfiles.AEGEAN_ORANGE_239.vehicle.product)
         System.setProperty("robolectric.createActivityContexts","true")
@@ -161,6 +174,10 @@ class ClusterDirectVideoRuntimeTest {
         shadowOf(display).setFlags(Display.FLAG_PRESENTATION);shadowOf(display).setState(Display.STATE_ON)
         val descriptor=SecondaryDisplayDescriptor(SecondaryOutputId("unprofiled-target"),id,1,"Actual",1600,600,160,if(gm) SecondaryRoute.GM_HOSTED else SecondaryRoute.PUBLIC_ACTIVITY,SecondaryReason.NONE,"Unknown")
         val driver=Driver();val job=SupervisorJob();val scope=CoroutineScope(job+Dispatchers.Default)
+        if(holdCarPlayConfig) {
+            require(cp)
+            driver.firstConfigGate=java.util.concurrent.CountDownLatch(1)
+        }
         if(offpageStartup)driver.initializeGate=java.util.concurrent.CountDownLatch(1)
         val factories=AtomicInteger()
         val runtime=SecondaryOutputRuntime(app,MutableStateFlow(SecondaryInventorySnapshot(1,listOf(descriptor))),
@@ -327,14 +344,47 @@ class ClusterDirectVideoRuntimeTest {
                 aaCallback!!.onSecondaryVideoState(offer.channelId,1,3,0,1,true)
                 pump { runtime.statuses.value[descriptor.id]?.phoneSelected==true }
             }
-            fun packet(key:Boolean)=if(key) byteArrayOf(0,0,0,1,7,1,0,0,0,1,8,1,0,0,0,1,5,1) else byteArrayOf(0,0,0,1,1,1)
+            fun packet(key:Boolean):ByteArray {
+                if(!key)return byteArrayOf(0,0,0,1,1,1)
+                val idr=byteArrayOf(0,0,0,1,5,1)
+                // AA needs in-band CSD. CarPlay already supplied avcC above: its ordinary
+                // frame must not introduce another configuration while testing page retention.
+                if(!cp || carPlayInlineSets==CarPlayInlineSets.LEGACY)
+                    return byteArrayOf(0,0,0,1,7,1,0,0,0,1,8,1)+idr
+                if(carPlayInlineSets==CarPlayInlineSets.MATCHING)
+                    return byteArrayOf(0,0,0,1,0x67,0x42,0,0,0,1,0x68,0x01)+idr
+                return idr
+            }
             var activeEpoch=1L
             fun send(key:Boolean,pts:Long) {
                 if(cp) cpListener!!.onFrame(1,packet(key)) else aaCallback!!.onSecondaryVideoFrame((prepared as PreparedAaSecondaryOutputs).offers.single().channelId,packet(key),pts,activeEpoch,0)
             }
             // Subscription readiness is separate from phone selection; await the actual queue.
             if(!cp) pump { subscribed(aaSession!!) }
-            send(true,1);pump { driver.inputs.get()==1 }
+            if(holdCarPlayConfig) {
+                // Enter the actual driver only after the bridge's exact-source check. Holding
+                // here prevents queued-config supersession from hiding the first configure.
+                assertTrue("Actual first configure entered",driver.firstConfigEntered.await(2,TimeUnit.SECONDS))
+                assertEquals(1,driver.configs.get());assertEquals(0,driver.inputs.get())
+                assertArrayEquals(byteArrayOf(0,0,0,1,0x67,0x42),driver.configured.single().sps)
+                assertArrayEquals(byteArrayOf(0,0,0,1,0x68,0x01),driver.configured.single().pps)
+            }
+            send(true,1)
+            if(holdCarPlayConfig) {
+                assertEquals("First configure still held after real frame admission",1,driver.configs.get())
+                assertEquals("No frame may bypass held configure",0,driver.inputs.get())
+                driver.firstConfigGate!!.countDown()
+            }
+            pump { driver.inputs.get()==1 }
+            if(holdCarPlayConfig) {
+                val expected=if(carPlayInlineSets==CarPlayInlineSets.NONE)1 else 2
+                assertEquals("Real driver configurations after held ordering",expected,driver.configs.get())
+                if(expected==2) {
+                    val config=driver.configured[1]
+                    assertArrayEquals(if(carPlayInlineSets==CarPlayInlineSets.LEGACY)byteArrayOf(0,0,0,1,7,1) else byteArrayOf(0,0,0,1,0x67,0x42),config.sps)
+                    assertArrayEquals(if(carPlayInlineSets==CarPlayInlineSets.LEGACY)byteArrayOf(0,0,0,1,8,1) else byteArrayOf(0,0,0,1,0x68,0x01),config.pps)
+                }
+            }
             if(!offpageStartup)controller!!.pause().stop()
             pump { driver.parks.get()==1 }
             assertFalse(view!!.surfaceTextureListener!!.onSurfaceTextureDestroyed(texture!!))
@@ -421,7 +471,7 @@ class ClusterDirectVideoRuntimeTest {
                 ClusterDirectVideoLifecycleTest.Admission.front=null
             }
             send(replaceSelection,3);pump { driver.inputs.get()==3 }
-            assertEquals(if(replaceSelection)2 else 1,driver.configs.get());assertTrue(runtime.statuses.value.getValue(descriptor.id).phoneSelected)
+            assertEquals(if(replaceSelection || (cp && carPlayInlineSets!=CarPlayInlineSets.NONE))2 else 1,driver.configs.get());assertTrue(runtime.statuses.value.getValue(descriptor.id).phoneSelected)
             assertNull(shadowOf(app).nextStartedActivity)
             if(gm && !withIcons && !manualRestore) {
                 assertFalse(runtime.retainForExplicitReconnect())
@@ -450,6 +500,7 @@ class ClusterDirectVideoRuntimeTest {
         } finally {
             freezeRelease.countDown();freezeExecutor.shutdownNow();driver.parkGate?.countDown();driver.resumeGate?.countDown()
             driver.initializeGate?.countDown()
+            driver.firstConfigGate?.countDown()
             ClusterDirectVideoLifecycleTest.Admission.front=null
             closeGuidance?.invoke()
             val retired=runtime.close();pump { retired.isDone };assertTrue(retired.get())
