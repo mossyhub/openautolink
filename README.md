@@ -448,6 +448,8 @@ Reports from Polestar and other non-GM AAOS vehicles are especially welcome, fro
 - [nisargjhaveri/WirelessAndroidAutoDongle](https://github.com/nisargjhaveri/WirelessAndroidAutoDongle) — Bluetooth/Wi-Fi bootstrap reference.
 - [andreknieriem/open-headunit](https://github.com/andreknieriem/open-headunit) — receiver/protocol reference.
 
+In the car app, open **Settings → Connection → Credits & legal notices** for the CarPlay attribution.
+
 ## License
 
 OpenAutoLink is licensed under the [GNU General Public License v3.0](LICENSE). Retain the attribution and license notices for included/adapted components. Source availability does not confer rights to redistribute private accessory authentication assets.

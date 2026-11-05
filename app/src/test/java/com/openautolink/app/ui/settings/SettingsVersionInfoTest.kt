@@ -46,7 +46,7 @@ class SettingsVersionInfoTest {
     }
 
     @Test
-    @Config(sdk = [32, 34])
+    @Config(sdk = [32, 34], qualifiers = "w600dp-h320dp-mdpi")
     fun `CarPlay upstream credits are readable in narrow scrollable settings`() {
         compose.setContent {
             OpenAutoLinkTheme(oalUiScalePercent = 150) {
@@ -59,8 +59,12 @@ class SettingsVersionInfoTest {
                 }
             }
         }
+        val liviCredit = "Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)"
+        compose.onNodeWithText(liviCredit).assertDoesNotExist()
+        compose.onNodeWithTag("settingsLegalNotices").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithTag("settingsLegalNoticesDialog").assertIsDisplayed()
         val credits = listOf(
-            "Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)",
+            liviCredit,
             "CarPlay receiver adapted through shilapi/xcertplay and shihabal3amri/DiPlay. " +
                 "OpenAutoLink is licensed under GNU GPL v3; component notices and source: " +
                 "https://github.com/mossyhub/openautolink",
@@ -79,6 +83,12 @@ class SettingsVersionInfoTest {
                 assertFalse("credits must not be ellipsized", layout.isLineEllipsized(line))
             }
         }
+        compose.onNodeWithTag("settingsLegalNoticesClose").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText(liviCredit).assertDoesNotExist()
+        compose.onNodeWithTag("settingsLegalNoticesDialog").assertDoesNotExist()
+        compose.onNodeWithTag("settingsLegalNotices").performScrollTo().performClick()
+        compose.onNodeWithText(liviCredit).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("settingsLegalNoticesClose").performScrollTo().performClick()
     }
 
     private fun assertNarrowPane(percent: Int) {
