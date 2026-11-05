@@ -2918,11 +2918,16 @@ class SessionManager(
         val keyCode = GmMediaControlPolicy.keyCodeFor(command)
 
         val lifecycle = lifecycleGeneration
-        val target = synchronized(sessionStateLock) {
-            aasdkSession?.takeIf { expectedOwner==null || it===expectedOwner }?.let {
-                val generation=it.currentNativeSessionGeneration()
-                if(expectedOwner!=null && generation!=expectedGeneration) null else it to generation
-            }
+        // MediaSession calls us while MetadataHostOwnership is held. Disconnect
+        // cleanup takes sessionStateLock before clearing metadata, so taking it
+        // here would invert those monitors and can freeze Main during ignition OFF.
+        // Both ownership fields are volatile and the native generation is atomic.
+        // Capture at ingress without waiting; the queued effect revalidates the
+        // exact session/lifecycle below and native send checks its generation.
+        val snapshot = aasdkSession
+        val target = snapshot?.takeIf { expectedOwner == null || it === expectedOwner }?.let {
+            val generation = it.currentNativeSessionGeneration()
+            if (expectedOwner != null && generation != expectedGeneration) null else it to generation
         }
         if (target == null || target.second == 0L) {
             OalLog.i(
