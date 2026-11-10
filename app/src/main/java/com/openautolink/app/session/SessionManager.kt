@@ -873,6 +873,9 @@ class SessionManager(
     // Reset to null on every new phone session so the very first tick always fires.
     @Volatile private var lastKnownUiNightMode: Boolean? = bootUiNightModeSnapshot
     @Volatile private var lastSentNightMode: Boolean? = null
+    private val vehicleSensorLock = Any()
+    private var lastRawAaVehicleData: ControlMessage.VehicleData? = null
+    private var restrictUnknownAfterParkOverride = false
     @Volatile private var lastSentParkingBrake: Boolean? = null
     @Volatile private var lastSentDriving: Boolean? = null
     /**
@@ -1089,7 +1092,7 @@ class SessionManager(
         }
     }
 
-    private fun resetLatchedVehicleSensorState(reason: String) {
+    private fun resetLatchedVehicleSensorState(reason: String) = synchronized(vehicleSensorLock) {
         lastSentNightMode = null
         lastSentParkingBrake = null
         lastSentDriving = null
@@ -1097,11 +1100,40 @@ class SessionManager(
         OalLog.d(TAG, "Reset latched vehicle sensor state: $reason")
     }
 
-    /**
-     * Observe the "always in park" override. Started from [start] so it is live
-     * for the whole session; toggling mid-session re-pushes driving status so
-     * the phone reacts without a reconnect. Issue #61.
-     */
+    /** Current process samples also exist without an automotive forwarder (e.g. companion input). */
+    private fun currentRawAaVehicleData(): ControlMessage.VehicleData? =
+        lastRawAaVehicleData ?: ProcessVehicleDataRuntime.latestVehicleData()?.value
+            ?: _vehicleDataForwarder?.latestVehicleData?.value
+
+    // Called only under vehicleSensorLock: a preference transition cannot split a sensor batch.
+    private fun emitAaParkSensors(session: AasdkSession, sensors: AaParkSensors) {
+        sensors.speedKmh?.let { session.sendSpeed((it / 3.6f * 1000).toInt()) }
+        sensors.gearRaw?.let {
+            if (lastSentGearRaw != it) { lastSentGearRaw = it; session.sendGear(it) }
+        }
+        sensors.parkingBrake?.let {
+            if (lastSentParkingBrake != it) { lastSentParkingBrake = it; session.sendParkingBrake(it) }
+        }
+        sensors.driving?.let {
+            if (lastSentDriving != it) { lastSentDriving = it; session.sendDrivingStatus(it) }
+        }
+    }
+
+    private fun forwardAaParkSensors(session: AasdkSession, raw: ControlMessage.VehicleData) =
+        synchronized(vehicleSensorLock) {
+            lastRawAaVehicleData = raw
+            if (raw.driving != null) restrictUnknownAfterParkOverride = false
+            emitAaParkSensors(session, currentAaParkSensors(raw))
+        }
+
+    // Keep an explicit no-sample Off restricted across later subscriptions/empty batches.
+    private fun currentAaParkSensors(raw: ControlMessage.VehicleData?): AaParkSensors {
+        val sensors = AaParkSensors.resolve(alwaysInPark, raw)
+        return if (!alwaysInPark && restrictUnknownAfterParkOverride && sensors.driving == null)
+            sensors.copy(driving = true) else sensors
+    }
+
+    /** Observe the shared override; AA replays all four restriction sensors without reconnecting. */
     private fun observeAlwaysInPark() {
         if (alwaysInParkObserverStarted) return
         val ctx = context ?: return
@@ -1109,14 +1141,19 @@ class SessionManager(
         val prefs = AppPreferences.getInstance(ctx)
         scope.launch {
             prefs.alwaysInPark.collect { enabled ->
-                val changed = alwaysInPark != enabled
-                alwaysInPark = enabled
-                if (changed) {
-                    val real = _vehicleDataForwarder?.latestVehicleData?.value?.driving ?: false
-                    val driving = if (enabled) false else real
-                    lastSentDriving = driving
-                    aasdkSession?.sendDrivingStatus(driving)
-                    DiagnosticLog.i("vhal", "alwaysInPark=$enabled — re-pushed driving=$driving (real=$real)")
+                synchronized(vehicleSensorLock) {
+                    if (alwaysInPark != enabled) {
+                        alwaysInPark = enabled
+                        val raw = currentRawAaVehicleData()
+                        restrictUnknownAfterParkOverride = !enabled && raw?.driving == null
+                        resetLatchedVehicleSensorState("always_in_park_$enabled")
+                        aasdkSession?.let { session ->
+                            val sensors = currentAaParkSensors(raw)
+                            // Explicit Off must revoke an injected unlock when real driving is unknown.
+                            emitAaParkSensors(session, sensors.copy(driving = sensors.driving ?: true))
+                        }
+                        DiagnosticLog.i("vhal", "alwaysInPark=$enabled — re-pushed AA restriction sensors")
+                    }
                 }
             }
         }
@@ -1163,23 +1200,9 @@ class SessionManager(
                 "learnerLastUpdateMs" to learned?.lastUpdateMs,
                 "learnerAcceptedRejectedCounts" to "not_exposed_by_existing_estimator"))
         }
-        vd.speedKmh?.let { session.sendSpeed((it / 3.6f * 1000).toInt()) }
-        // Edge-trigger low-cadence properties so each transition fires once.
-        vd.gearRaw?.let {
-            if (lastSentGearRaw != it) { lastSentGearRaw = it; session.sendGear(it) }
-        }
-        vd.parkingBrake?.let {
-            if (lastSentParkingBrake != it) { lastSentParkingBrake = it; session.sendParkingBrake(it) }
-        }
+        forwardAaParkSensors(session, vd)
         vd.nightMode?.let {
             if (lastSentNightMode != it) { lastSentNightMode = it; session.sendNightMode(it) }
-        }
-        vd.driving?.let {
-            val driving = if (alwaysInPark) false else it
-            if (lastSentDriving != driving) {
-                lastSentDriving = driving
-                session.sendDrivingStatus(driving)
-            }
         }
         if (vd.fuelLevelPct != null || vd.rangeKm != null) {
             session.sendFuel(
@@ -1236,31 +1259,31 @@ class SessionManager(
             return
         }
         val session = aasdkSession ?: return
-        val vd = _vehicleDataForwarder?.latestVehicleData?.value
-        resetLatchedVehicleSensorState("sensor_subscribe_$sensorType")
-        when (sensorType) {
-            SENSOR_TYPE_DRIVING_STATUS -> {
-                // Default to "parked" when VHAL has not reported a gear yet.
-                // Being wrong here is strictly safer than silence: silence is
-                // read by the phone as fully restricted, and a real gear change
-                // corrects it within one VHAL event.
-                val driving = if (alwaysInPark) false else (vd?.driving ?: false)
-                lastSentDriving = driving
-                session.sendDrivingStatus(driving)
-                DiagnosticLog.i("vhal", "pushed driving=$driving on subscribe (gear=${vd?.gearRaw})")
-            }
-            SENSOR_TYPE_GEAR -> vd?.gearRaw?.let {
-                lastSentGearRaw = it; session.sendGear(it)
-            }
-            SENSOR_TYPE_PARKING_BRAKE -> vd?.parkingBrake?.let {
-                lastSentParkingBrake = it; session.sendParkingBrake(it)
-            }
-            SENSOR_TYPE_NIGHT_MODE -> {
-                val night = vd?.nightMode ?: lastKnownUiNightMode ?: currentUiNightMode()
-                night?.let { lastSentNightMode = it; session.sendNightMode(it) }
-            }
-            SENSOR_TYPE_SPEED -> vd?.speedKmh?.let {
-                session.sendSpeed((it / 3.6f * 1000).toInt())
+        synchronized(vehicleSensorLock) {
+            val vd = currentRawAaVehicleData()
+            val sensors = currentAaParkSensors(vd)
+            resetLatchedVehicleSensorState("sensor_subscribe_$sensorType")
+            when (sensorType) {
+                SENSOR_TYPE_DRIVING_STATUS -> {
+                    // Preserve the existing no-sample driving-status fallback outside the override.
+                    val driving = sensors.driving ?: false
+                    lastSentDriving = driving
+                    session.sendDrivingStatus(driving)
+                    DiagnosticLog.i("vhal", "pushed driving=$driving on subscribe (gear=${vd?.gearRaw})")
+                }
+                SENSOR_TYPE_GEAR -> sensors.gearRaw?.let {
+                    lastSentGearRaw = it; session.sendGear(it)
+                }
+                SENSOR_TYPE_PARKING_BRAKE -> sensors.parkingBrake?.let {
+                    lastSentParkingBrake = it; session.sendParkingBrake(it)
+                }
+                SENSOR_TYPE_NIGHT_MODE -> {
+                    val night = vd?.nightMode ?: lastKnownUiNightMode ?: currentUiNightMode()
+                    night?.let { lastSentNightMode = it; session.sendNightMode(it) }
+                }
+                SENSOR_TYPE_SPEED -> sensors.speedKmh?.let {
+                    session.sendSpeed((it / 3.6f * 1000).toInt())
+                }
             }
         }
     }
@@ -1464,6 +1487,9 @@ class SessionManager(
         // Reset edge-trigger memory so the first tick of the new session
         // unconditionally publishes nightMode / parking / driving / gear to
         // the phone — the phone has no prior state from us.
+        val savedAlwaysInPark = context?.let { AppPreferences.getInstance(it).alwaysInPark.first() }
+            ?: AppPreferences.DEFAULT_ALWAYS_IN_PARK
+        synchronized(vehicleSensorLock) { alwaysInPark = savedAlwaysInPark }
         resetLatchedVehicleSensorState("start_session")
         observeAlwaysInPark()
         ensureVehicleDataForwarder()
@@ -3197,23 +3223,9 @@ class SessionManager(
             is ControlMessage.Button -> session.sendKeyEvent(message.keycode, message.down)
             is ControlMessage.KeyframeRequest -> session.requestKeyframe()
             is ControlMessage.VehicleData -> {
-                message.speedKmh?.let { session.sendSpeed((it / 3.6f * 1000).toInt()) }
-                // Same edge-trigger discipline as the inline sendMessage path
-                // in start() — see lastSent* fields. Necessary because both
-                // paths share these state vars; without it, manual injections
-                // would force a resend even when value unchanged.
-                message.gearRaw?.let {
-                    if (lastSentGearRaw != it) { lastSentGearRaw = it; session.sendGear(it) }
-                }
-                message.parkingBrake?.let {
-                    if (lastSentParkingBrake != it) { lastSentParkingBrake = it; session.sendParkingBrake(it) }
-                }
+                forwardAaParkSensors(session, message)
                 message.nightMode?.let {
                     if (lastSentNightMode != it) { lastSentNightMode = it; session.sendNightMode(it) }
-                }
-                message.driving?.let {
-                    val drv = if (alwaysInPark) false else it
-                    if (lastSentDriving != drv) { lastSentDriving = drv; session.sendDrivingStatus(drv) }
                 }
             }
             is ControlMessage.Gnss -> {

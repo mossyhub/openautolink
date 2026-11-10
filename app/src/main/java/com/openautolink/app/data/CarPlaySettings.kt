@@ -18,7 +18,7 @@ data class CarPlaySettings(
     val connectionMode: String = "usb",
     /** Explicit next-session ordinary CarPlay limited-UI capability; no shipping build opt-in needed. */
     val drivingRestrictionsEnabled: Boolean = false,
-    /** Parked-use override only. Never changes raw VHAL gear, Android Auto, or parked video. */
+    /** Shared parked-use choice overlaid by AppPreferences; legacy JSON field retained for compatibility. */
     val alwaysInPark: Boolean = false,
     val phoneAddress: String = "",
     val peerAddress: String = "",

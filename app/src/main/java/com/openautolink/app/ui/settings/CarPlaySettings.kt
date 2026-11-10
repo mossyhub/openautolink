@@ -105,13 +105,13 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
 
     val draft = settings
     // Local echo is recreated from private ViewModel memory when returning to this tab.
-    val restrictionControl = com.openautolink.app.carplay.CarPlayRestrictionPolicy.from(draft).enabled
+    val restrictionControl = com.openautolink.app.BuildConfig.CARPLAY_DRIVING_RESTRICTIONS || draft.drivingRestrictionsEnabled
     Text("CarPlay UI restrictions", style = MaterialTheme.typography.titleMedium)
     SettingsGroup {
         SettingsToggleRow(label = "Vehicle-based UI restrictions",
             checked = restrictionControl,
             onCheckedChange = { value -> viewModel.updateCarPlayDraft {
-                    it.copy(drivingRestrictionsEnabled = value, alwaysInPark = if (value) it.alwaysInPark else false)
+                    it.copy(drivingRestrictionsEnabled = value)
                 } },
             enabled = !saving && loaded && !com.openautolink.app.BuildConfig.CARPLAY_DRIVING_RESTRICTIONS,
             controlModifier = Modifier.testTag("carPlayDrivingRestrictions"),
@@ -126,18 +126,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
     }
 
     SettingsGroup {
-        SettingsToggleRow(
-            label = "Always in Park",
-            checked = draft.alwaysInPark && restrictionControl,
-            onCheckedChange = { value -> viewModel.updateCarPlayDraft { it.copy(alwaysInPark = value) } },
-            enabled = !saving && loaded && restrictionControl,
-            controlModifier = Modifier.testTag("carPlayAlwaysInPark"),
-        ) {
-                Text("Always in Park")
-                Text("CarPlay only · parked use", style = MaterialTheme.typography.bodyMedium)
-
-        }
-        Text("Use only while safely parked. Overrides CarPlay main-screen UI restrictions even when gear is missing or not Park; it does not change actual vehicle gear, Android Auto, secondary displays or video permissions. Turn off to restore vehicle-based restrictions. Enable Vehicle-based UI restrictions above first. Save changes, then reconnect your phone.",
+        Text("Always in Park is shared with Android Auto in Input. CarPlay applies it after reconnecting your phone.",
             style = MaterialTheme.typography.bodyMedium)
     }
 

@@ -245,10 +245,14 @@ Enable it to declare keyboard/list restrictions and allow the main-screen UI onl
 valid vehicle Park information. Missing/stale gear remains restricted. This policy is not yet
 validated on every vehicle, so ordinary builds do not enable it automatically.
 
-**Always in Park** is a separate CarPlay override, also default **OFF**, available when restriction
-control is enabled. It releases main-screen keyboard/list restrictions even without Park information;
-use it only while safely parked. It does not change actual gear, Android Auto settings, secondary
-displays or video permissions. Tap **Save changes**, then reconnect your phone to apply either choice to a fresh session. Wireless reconnects automatically; for USB, unplug and reconnect.
+**Always in Park** is one shared Android Auto/CarPlay choice in **Settings → Input**, default **OFF**.
+Android Auto immediately reports Park, zero speed, parking brake on and unrestricted driving status;
+CarPlay releases main-screen keyboard/list restrictions even without Park information, enabling the
+required restriction-control capability for that session. Use only while safely parked: this disables
+driving safety restrictions. Actual vehicle data, secondary displays and video permissions are unchanged.
+CarPlay applies the saved shared choice at the next connection; reconnect your phone after changing it.
+The separate vehicle-based CarPlay choice still uses **Save changes**, then reconnect (USB: unplug and reconnect).
+Turning the shared override off preserves that saved vehicle-based choice.
 No special build flag is needed. See the [policy and validation limits](docs/carplay-driving-restriction-policy.md).
 
 ### Video and display controls

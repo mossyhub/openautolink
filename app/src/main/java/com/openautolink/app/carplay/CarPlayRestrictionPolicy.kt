@@ -7,8 +7,8 @@ import com.openautolink.app.data.CarPlaySettings
 data class CarPlayRestrictionPolicy(val enabled: Boolean, val alwaysInPark: Boolean) {
     companion object {
         fun from(settings: CarPlaySettings, buildOptIn: Boolean = BuildConfig.CARPLAY_DRIVING_RESTRICTIONS): CarPlayRestrictionPolicy {
-            val enabled = buildOptIn || settings.drivingRestrictionsEnabled
-            return CarPlayRestrictionPolicy(enabled, enabled && settings.alwaysInPark)
+            val enabled = buildOptIn || settings.drivingRestrictionsEnabled || settings.alwaysInPark
+            return CarPlayRestrictionPolicy(enabled, settings.alwaysInPark)
         }
     }
 }

@@ -44,13 +44,13 @@ class SettingsGroupingQualificationTest {
     private var oldProduct = Build.PRODUCT
     private val id = SecondaryOutputId("grouping-driver")
 
-    private fun mount(fontScale: Float = 1f, inventory: Boolean = true) {
+    private fun mount(fontScale: Float = 1f, inventory: Boolean = true, restrictions: Boolean = true) {
         RuntimeEnvironment.setFontScale(fontScale)
         oldProduct = Build.PRODUCT
         ReflectionHelpers.setStaticField(Build::class.java, "PRODUCT", ClusterDisplayProfiles.AEGEAN_ORANGE_239.vehicle.product)
         val app = RuntimeEnvironment.getApplication() as Application
         val prefs = AppPreferences.getInstance(app)
-        runBlocking { prefs.setCarPlaySettings(CarPlaySettings(enabled = true, drivingRestrictionsEnabled = true)); prefs.setClusterOutputSelection(ClusterOutputSelection(ClusterDisplayMode.MAP_VIDEO)) }
+        runBlocking { prefs.setAlwaysInPark(false); prefs.setCarPlaySettings(CarPlaySettings(enabled = true, drivingRestrictionsEnabled = restrictions)); prefs.setClusterOutputSelection(ClusterOutputSelection(ClusterDisplayMode.MAP_VIDEO)) }
         val model = SettingsViewModel(app); vm = model
         val display = SecondaryDisplayDescriptor(id, 2, 1, "Driver display", 2000, 810, 160, SecondaryRoute.PUBLIC_ACTIVITY, SecondaryReason.NONE, "Driver")
         val source = SecondaryDisplaysSource(MutableStateFlow(SecondaryInventorySnapshot(1, listOf(display))),
@@ -111,12 +111,20 @@ class SettingsGroupingQualificationTest {
 
     @Test fun disabledControlsKeepHelpersAndOneTapChangesOnlyOneDraft() {
         try {
-            mount(); tab("CONNECTION")
-            compose.onNodeWithTag("carPlayAlwaysInPark").performScrollTo()
-            val parked = compose.onNodeWithTag("carPlayAlwaysInPark")
-            val before = requireNotNull(vm).carPlaySettings.value.alwaysInPark
-            parked.performClick()
-            compose.runOnIdle { assertEquals(!before, requireNotNull(vm).carPlaySettings.value.alwaysInPark) }
+            mount(restrictions = false); tab("CONNECTION")
+            compose.onNodeWithTag("carPlayAlwaysInPark").assertDoesNotExist()
+            compose.onNodeWithTag("carPlayDrivingRestrictions").performScrollTo().assertIsOff()
+            tab("INPUT")
+            compose.onNodeWithTag("alwaysInParkToggle").performScrollTo().assertIsOff().performClick()
+            val prefs = AppPreferences.getInstance(RuntimeEnvironment.getApplication())
+            compose.waitUntil(5000) {
+                shadowOf(Looper.getMainLooper()).idle()
+                runBlocking { prefs.alwaysInPark.first() && prefs.carPlaySettings.first().alwaysInPark }
+            }
+            tab("CONNECTION")
+            compose.onNodeWithTag("carPlayAlwaysInPark").assertDoesNotExist()
+            compose.onNodeWithTag("carPlayDrivingRestrictions").performScrollTo().assertIsOff()
+            compose.onNodeWithText("Always in Park is shared with Android Auto in Input. CarPlay applies it after reconnecting your phone.").assertExists()
             tab("AUDIO")
             compose.onNodeWithTag("extraCarRingtone").performScrollTo().assertContentDescriptionEquals("Extra car ringtone")
             compose.onNodeWithTag("extraCarRingtoneHelper").assertExists()

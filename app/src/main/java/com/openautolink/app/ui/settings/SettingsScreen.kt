@@ -1489,31 +1489,6 @@ private fun DisplayTab(
 
         }
 
-        // Always in Park
-        SettingsToggleRow(
-            label = "Always in Park",
-            checked = uiState.alwaysInPark,
-            onCheckedChange = { viewModel.updateAlwaysInPark(it) },
-            controlModifier = Modifier.testTag("alwaysInParkToggle"),
-        ) {
-                Text(
-                    text = "Always in Park",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "Always tell the phone the car is parked, so Android Auto " +
-                        "keeps the on-screen keyboard and other features unlocked. " +
-                        "Off by default, which reports the car's real gear. " +
-                        "Only enable it if you are not the one driving — it disables " +
-                        "Android Auto's driving safety restrictions.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-        }
-
-
         // IMU Sensors
         SettingsToggleRow(
             label = "Send IMU Sensors",
@@ -2033,6 +2008,25 @@ private fun InputTab(viewModel: SettingsViewModel, uiState: SettingsUiState) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        SettingsToggleRow(
+            label = "Always in Park",
+            checked = uiState.alwaysInPark,
+            onCheckedChange = { viewModel.updateAlwaysInPark(it) },
+            controlModifier = Modifier.testTag("alwaysInParkToggle"),
+        ) {
+            Text("Always in Park", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = "Shared by Android Auto and CarPlay. Android Auto reports Park, zero speed, " +
+                    "parking brake on and no driving restrictions; CarPlay overrides main-screen UI restrictions. " +
+                    "CarPlay applies changes after reconnecting your phone. " +
+                    "Off by default; turn off to restore real vehicle-based behavior. " +
+                    "Only enable while safely parked — this disables driving safety restrictions. " +
+                    "Actual vehicle data, secondary displays and video permissions are unchanged.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.height(24.dp))
         SectionHeader("Key Remapping")
 
         Spacer(modifier = Modifier.height(4.dp))
