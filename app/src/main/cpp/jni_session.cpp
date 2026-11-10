@@ -13,6 +13,7 @@
 #include "gal_video_policy.h"
 #include "gal_version_policy.h"
 #include "openautolink/ev_connector_mapping.h"
+#include "openautolink/gear_mapping.h"
 
 #include <android/log.h>
 #include <cmath>
@@ -2711,10 +2712,12 @@ void JniSession::sendSpeedSensor(int speedMmPerS)
 void JniSession::sendGearSensor(int gear)
 {
     if (!streaming_ || !sensorChannel_) return;
-    ioService_->post([this, gear]() {
+    const auto aaGear = openautolink::sensors::vhalToAaGear(gear);
+    if (!aaGear) return;
+    ioService_->post([this, aaGear = *aaGear]() {
         aap_protobuf::service::sensorsource::message::SensorBatch batch;
         auto* gd = batch.add_gear_data();
-        gd->set_gear(static_cast<aap_protobuf::service::sensorsource::message::Gear>(gear));
+        gd->set_gear(aaGear);
         auto promise = aasdk::channel::SendPromise::defer(*strand_);
         promise->then([]() {}, [](const auto&) {});
         sensorChannel_->sendSensorEventIndication(batch, std::move(promise));

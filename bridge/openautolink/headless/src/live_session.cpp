@@ -6,6 +6,7 @@
 #include "openautolink/oal_log.hpp"
 #include "openautolink/aa_error_codes.hpp"
 #include "openautolink/ev_connector_mapping.h"
+#include "openautolink/gear_mapping.h"
 
 #include <cstring>
 #include <chrono>
@@ -3170,9 +3171,11 @@ void HeadlessSensorHandler::sendSpeed(int speed_mm_per_s) {
 }
 
 void HeadlessSensorHandler::sendGear(int gear) {
+    const auto aaGear = openautolink::sensors::aaGearFromOrdinal(gear);
+    if (!aaGear) return;
     aap_protobuf::service::sensorsource::message::SensorBatch indication;
     auto* gd = indication.add_gear_data();
-    gd->set_gear(static_cast<aap_protobuf::service::sensorsource::message::Gear>(gear));
+    gd->set_gear(*aaGear);
     auto promise = aasdk::channel::SendPromise::defer(strand_);
     promise->then([]() {}, [](auto) {});
     channel_->sendSensorEventIndication(indication, std::move(promise));
