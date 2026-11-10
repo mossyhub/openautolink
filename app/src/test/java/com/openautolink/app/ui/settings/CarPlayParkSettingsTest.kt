@@ -21,7 +21,7 @@ class CarPlayParkSettingsTest {
         assertTrue(CarPlaySettings.decode(CarPlaySettings.encode(CarPlaySettings(alwaysInPark=true,
             drivingRestrictionsEnabled=true))).alwaysInPark)
     }
-    @Test fun draftWaitsForGlobalSaveThenReopensIndependentlyOfAaAndDoesNotMutateRunningSnapshot() = runTest {
+    @Test fun draftSavePreservesSharedChoiceAndDoesNotMutateRunningSnapshot() = runTest {
         val directory=File("build/tmp/carplay-park-${java.util.UUID.randomUUID()}").apply {mkdirs()}
         try {
             open(directory) { prefs ->
@@ -41,7 +41,7 @@ class CarPlayParkSettingsTest {
             }
             open(directory) {prefs ->
                 val saved=prefs.carPlaySettings.first()
-                assertTrue(saved.alwaysInPark);assertTrue(saved.drivingRestrictionsEnabled)
+                assertFalse(saved.alwaysInPark);assertTrue(saved.drivingRestrictionsEnabled)
                 assertFalse(prefs.alwaysInPark.first())
                 prefs.setAlwaysInPark(true)
                 val draft=CarPlaySettingsDraft();draft.update {it.copy(alwaysInPark=false)}
@@ -49,7 +49,7 @@ class CarPlayParkSettingsTest {
                 assertTrue(prefs.alwaysInPark.first())
             }
             open(directory) {prefs ->
-                assertFalse(prefs.carPlaySettings.first().alwaysInPark)
+                assertTrue(prefs.carPlaySettings.first().alwaysInPark)
                 assertTrue(prefs.carPlaySettings.first().drivingRestrictionsEnabled)
                 assertTrue(prefs.alwaysInPark.first())
             }

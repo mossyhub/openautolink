@@ -9,7 +9,7 @@ class CarPlayRestrictionPolicyTest {
         val off=CarPlayRestrictionPolicy.from(CarPlaySettings(),false)
         assertFalse(off.enabled);assertFalse(off.alwaysInPark)
         val overrideOnly=CarPlayRestrictionPolicy.from(CarPlaySettings(alwaysInPark=true),false)
-        assertFalse(overrideOnly.enabled);assertFalse(overrideOnly.alwaysInPark)
+        assertTrue(overrideOnly.enabled);assertTrue(overrideOnly.alwaysInPark)
         val real=CarPlayRestrictionPolicy.from(CarPlaySettings(drivingRestrictionsEnabled=true),false)
         assertTrue(real.enabled);assertFalse(real.alwaysInPark)
         val user=CarPlayRestrictionPolicy.from(CarPlaySettings(drivingRestrictionsEnabled=true,alwaysInPark=true),false)

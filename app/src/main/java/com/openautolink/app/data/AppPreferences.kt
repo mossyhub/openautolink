@@ -516,7 +516,14 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         const val DEFAULT_EV_LEARNED_RATES_JSON = "{}"
     }
 
-    val carPlaySettings: Flow<CarPlaySettings> = dataStore.data.map { CarPlaySettings.decode(it[CARPLAY_SETTINGS]) }
+    /** Explicit shared choice wins; only a validated legacy CarPlay Boolean supplies migration fallback. */
+    private fun readAlwaysInPark(prefs: Preferences, legacy: CarPlaySettings = CarPlaySettings.decode(prefs[CARPLAY_SETTINGS])): Boolean =
+        prefs[ALWAYS_IN_PARK] ?: legacy.alwaysInPark
+
+    val carPlaySettings: Flow<CarPlaySettings> = dataStore.data.map { prefs ->
+        val stored = CarPlaySettings.decode(prefs[CARPLAY_SETTINGS])
+        stored.copy(alwaysInPark = readAlwaysInPark(prefs, stored))
+    }
 
     val carPlayEnabled: Flow<Boolean> = carPlaySettings.map { it.enabled }
     val carPlayConnectionMode: Flow<String> = carPlaySettings.map { it.connectionMode }
@@ -542,7 +549,9 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         beforeWrite: (CarPlaySettings) -> Unit = {},
     ) {
         dataStore.edit { prefs ->
-            val next = transform(CarPlaySettings.decode(prefs[CARPLAY_SETTINGS]))
+            val stored = CarPlaySettings.decode(prefs[CARPLAY_SETTINGS])
+            // This legacy field is format compatibility, not a second shared-toggle writer.
+            val next = transform(stored).copy(alwaysInPark = stored.alwaysInPark)
             val record = CarPlaySettings.encode(next)
             beforeWrite(next) // Validate and save an optional encrypted secret before publishing.
             prefs[CARPLAY_SETTINGS] = record
@@ -716,7 +725,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
     }
 
     val alwaysInPark: Flow<Boolean> = dataStore.data.map { prefs ->
-        prefs[ALWAYS_IN_PARK] ?: DEFAULT_ALWAYS_IN_PARK
+        readAlwaysInPark(prefs)
     }
 
     /** Coherent mode + retained previous mode from the same DataStore snapshot. */

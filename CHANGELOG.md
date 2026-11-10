@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.579 — One shared Always in Park override
+
+- Make Always in Park a single saved choice shared by Android Auto and CarPlay, with one control at the top of Input settings instead of a duplicate CarPlay-only switch.
+- While enabled, consistently present Park, zero vehicle speed, an engaged parking brake and unrestricted driving status to Android Auto, including startup, reconnect and later vehicle updates.
+- Turning the override off immediately restores available real Android Auto sensor values; when no real samples exist, restore restrictions rather than leave a synthetic parked state active.
+- Apply the same saved choice to CarPlay main-screen UI restrictions on the next connection, independently of its saved vehicle-based restriction control. Reconnect CarPlay after changing the setting.
+- Preserve an enabled legacy CarPlay choice when no shared choice has been saved. An explicit shared Off always wins, and stale CarPlay drafts cannot change the shared switch.
+- Keep the override off by default. Raw vehicle data, navigation, energy learning, secondary-display restrictions and video permissions are unchanged. Use only while safely parked.
+
 ## 0.1.578 — Correct Android Auto parked-only app access
 
 - Fix GameSnacks and the Android Auto Customize launcher action being blocked as “Not available while driving” when the vehicle is in Park.
