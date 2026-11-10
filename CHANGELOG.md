@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.578 — Correct Android Auto parked-only app access
+
+- Fix GameSnacks and the Android Auto Customize launcher action being blocked as “Not available while driving” when the vehicle is in Park.
+- Translate vehicle gear values into Android Auto’s separate gear codes instead of sending the raw vehicle value. Park, Drive, Reverse, Neutral and numbered forward gears are mapped explicitly; unknown or invalid values are not invented as Park.
+- Preserve driving restrictions and the independent Always in Park preference. This correction does not change CarPlay behavior or bypass parked-only checks while in Drive.
+- Verify parked access and Drive revocation against Android Auto, with regression coverage for valid and invalid gear values.
+- No re-pairing, settings reset or companion setup change is required.
+
 ## 0.1.577 — Android Auto wake and connection recovery
 
 - Remove a shutdown lock-order defect that can freeze the car app when a media Pause command overlaps Android Auto disconnect cleanup, preventing later automatic connections.
