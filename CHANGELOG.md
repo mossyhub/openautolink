@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.580 — Driver-display density and wireless recovery
+## 0.1.581 — Driver-display density and final wireless recovery
 
 - Add **Custom Android Auto density** under Secondary Displays, with an optional **80–320 DPI** slider for the selected driver display. Lower DPI makes phone-rendered text and cards smaller. **Automatic** preserves the previous behavior; turning the control off removes the override.
 - Keep this independent of the main AA feed, CarPlay, Cluster/Auxiliary selection, Directions area and full video window. Preserve physical-density metadata and the existing video resolution; this is UI density, not map-camera zoom.
@@ -8,7 +8,14 @@
 - Keep an active wireless Android Auto session available for its clean settings reconnect instead of stopping it through the USB handoff path first. Preserve actual protocol-switch retirement and USB/active-call deferrals.
 - Fence Companion bridge cleanup to the exact failed socket so it cannot overwrite or close a replacement connection. Do not reuse a failed constructor socket on a later Android Auto attach; retain useful prewarm and never-pumped socket recovery.
 - Leave the live-diagnostics server blank on a clean install and require explicit server setup before pairing or network delivery. Preserve explicitly configured endpoints and remembered pairings.
+- Fence Companion connection-status publication and watchdog retries to the current proxy/socket generation, so an old callback cannot overwrite its successor and an obsolete timer cannot relaunch AA or replace the successor's watchdog.
 - Install the matching Companion update for the phone-side socket fixes. No re-pairing or settings reset is required.
+
+## 0.1.580 — Wireless reconnect recovery and explicit diagnostics
+
+- Preserve an active wireless AA session for its clean settings reconnect, with USB/call deferrals retained.
+- Fence failed Companion socket cleanup and retain useful prewarm recovery.
+- Leave the diagnostic server blank on clean installs; preserve saved endpoints and pairings.
 
 ## 0.1.579 — One shared Always in Park override
 
