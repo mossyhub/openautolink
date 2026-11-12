@@ -18,6 +18,7 @@ import com.openautolink.app.transport.aasdk.GalProtocolPolicy
 import com.openautolink.app.video.SeedIdrPolicy
 import com.openautolink.app.video.SeedIdrThresholds
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -29,8 +30,36 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 class AppPreferences private constructor(private val dataStore: DataStore<Preferences>) {
     /** Optional release metadata shares the existing app store; construction performs no IO. */
     val releaseAnnouncements by lazy { com.openautolink.app.announcements.ReleaseAnnouncementStore(dataStore) }
-    /** Same transaction snapshot as legacyCluster; reading never migrates or enables outputs. */
-    val secondaryDisplayPreferences: Flow<SecondaryPreferencesSnapshot> = dataStore.data.map(::readSecondaryPreferences)
+    /** First subscription migrates atomically before observing; never enables or launches outputs.
+     * Do not edit DataStore from inside its data transform: the transaction runs before collection.
+     */
+    val secondaryDisplayPreferences: Flow<SecondaryPreferencesSnapshot> = kotlinx.coroutines.flow.flow {
+        // Resolve read failures before attempting a migration write, and avoid no-op edits
+        // on every later subscription. The transaction still rechecks the marker atomically.
+        if (dataStore.data.first()[SECONDARY_AA_CALIBRATED_DEFAULTS] != true) {
+            dataStore.edit { migrateSecondaryCalibratedDefaults(it) }
+        }
+        emitAll(dataStore.data.map(::readSecondaryPreferences))
+    }
+
+    private fun migrateSecondaryCalibratedDefaults(values: androidx.datastore.preferences.core.MutablePreferences) {
+        if (values[SECONDARY_AA_CALIBRATED_DEFAULTS] == true) return
+        val current = readSecondaryPreferences(values)
+        // Bad records remain byte-for-byte; repair can still trigger the migration later.
+        if (current.error != null) return
+        if (current.outputs.isNotEmpty()) {
+            check(current.revision < Long.MAX_VALUE) { "Secondary display revision exhausted" }
+            val next = current.copy(revision = current.revision + 1, outputs = current.outputs.mapValues { (_, value) ->
+                value.copy(aaDensityDpi = com.openautolink.app.secondary.SecondaryCalibratedDefaults.AA_DENSITY_DPI,
+                    layout = value.layout?.let { layout ->
+                        layout.copy(aaDirectSafe = com.openautolink.app.secondary.SecondaryCalibratedDefaults.directSafe)
+                    })
+            })
+            values[SECONDARY_DISPLAY_OUTPUTS] = SecondaryDisplayPreferences.encode(next)
+        }
+        // Encoding, bounds, IO and cancellation failures roll back this key with the record.
+        values[SECONDARY_AA_CALIBRATED_DEFAULTS] = true
+    }
 
     suspend fun getSecondaryDisplayPreferences(): SecondaryPreferencesSnapshot = secondaryDisplayPreferences.first()
 
@@ -42,6 +71,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         require(expectedRevision >= 0)
         val frozenEdits = LinkedHashMap(edits)
         val committed = dataStore.edit { values ->
+            migrateSecondaryCalibratedDefaults(values)
             val current = readSecondaryPreferences(values)
             check(current.error == null) { current.error ?: "Invalid secondary display record" }
             if (current.revision != expectedRevision) throw ConcurrentModificationException("Secondary display preferences changed")
@@ -61,6 +91,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
      */
     suspend fun migrateSecondaryClusterPreference(id: SecondaryOutputId): SecondaryPreferencesSnapshot {
         val committed = dataStore.edit { values ->
+            migrateSecondaryCalibratedDefaults(values)
             val current = readSecondaryPreferences(values)
             check(current.error == null) { current.error ?: "Invalid secondary display record" }
             if (id !in current.outputs) {
@@ -98,6 +129,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         }
 
         val SECONDARY_DISPLAY_OUTPUTS = stringPreferencesKey("secondary_display_outputs_v1")
+        private val SECONDARY_AA_CALIBRATED_DEFAULTS = booleanPreferencesKey("secondary_aa_calibrated_defaults_v1")
 
         private fun readSecondaryPreferences(values: Preferences): SecondaryPreferencesSnapshot =
             // Preference keys compare by name, not value type. A typed getter would cast before

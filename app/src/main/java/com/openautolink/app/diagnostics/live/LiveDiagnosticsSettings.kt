@@ -27,9 +27,10 @@ internal fun LiveDiagnosticsSettings() {
     val endpoint by LiveDiagnostics.endpoint.collectAsStateWithLifecycle()
     val ready by LiveDiagnostics.ready.collectAsStateWithLifecycle()
     val busy by LiveDiagnostics.busy.collectAsStateWithLifecycle()
-    var server by remember(endpoint,ready) { mutableStateOf(endpoint.base) }
+    var server by remember(endpoint,ready) { mutableStateOf(endpoint?.base.orEmpty()) }
     val parsed=remember(server){runCatching{LiveEndpoint.parse(server)}.getOrNull()}
     val changed=parsed!=endpoint
+    val configured=endpoint!=null && !changed
     var code by remember { mutableStateOf("") } // never saved across Activity/process restoration
     var showCode by remember { mutableStateOf(false) }
     LaunchedEffect(endpoint){code="";showCode=false}
@@ -51,7 +52,7 @@ internal fun LiveDiagnosticsSettings() {
 
     SettingsGroup {
         Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("liveDiagnosticsAutoConnect")
-            .toggleable(value=autoConnect,enabled=ready && !busy && !changed,role=Role.Switch,onValueChange={LiveDiagnostics.updateAutoConnect(context,it)}),
+            .toggleable(value=autoConnect,enabled=ready && !busy && configured,role=Role.Switch,onValueChange={LiveDiagnostics.updateAutoConnect(context,it)}),
             verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
             Text("Auto-connect on OAL launch",Modifier.weight(1f))
             Switch(checked=autoConnect,onCheckedChange=null)
@@ -67,16 +68,16 @@ internal fun LiveDiagnosticsSettings() {
 
     SettingsGroup {
         OutlinedTextField(value=code,onValueChange={if(it.length<=160){code=it;if(it.isEmpty())showCode=false}},label={Text("Five-word owner invitation (first pairing only)")},
-            enabled=ready && !busy && !changed,
+            enabled=ready && !busy && configured,
             visualTransformation=if(showCode)VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),
-            trailingIcon={IconButton(onClick={showCode=!showCode},enabled=ready && !busy && !changed,
+            trailingIcon={IconButton(onClick={showCode=!showCode},enabled=ready && !busy && configured,
                 modifier=Modifier.size(48.dp).testTag("liveDiagnosticsShowInvitation")){
                 Icon(if(showCode)Icons.Default.VisibilityOff else Icons.Default.Visibility,
                     contentDescription=if(showCode)"Hide invitation" else "Show invitation")}},
             singleLine=true,modifier=Modifier.fillMaxWidth().testTag("liveDiagnosticsPairCode"))
         Button(onClick={val invitation=code;code="";showCode=false;LiveDiagnostics.enable(context,invitation)},
-            enabled=ready && !busy && !changed,modifier=Modifier.testTag("liveDiagnosticsEnable")){Text("Enable read-only")}
+            enabled=ready && !busy && configured,modifier=Modifier.testTag("liveDiagnosticsEnable")){Text("Enable read-only")}
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick={code="";showCode=false;LiveDiagnostics.stop()},modifier=Modifier.testTag("liveDiagnosticsStop")){Text("Stop")}
             OutlinedButton(onClick={code="";showCode=false;LiveDiagnostics.revoke(context)},enabled=ready && !busy,modifier=Modifier.testTag("liveDiagnosticsRevoke")){Text("Revoke owner")}

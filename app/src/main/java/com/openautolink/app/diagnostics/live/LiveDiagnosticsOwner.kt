@@ -27,7 +27,7 @@ internal class LiveDiagnosticsOwner(
     val status=mutableStatus.asStateFlow()
     private val mutableAutoConnect=MutableStateFlow(false)
     val autoConnect=mutableAutoConnect.asStateFlow()
-    private val mutableEndpoint=MutableStateFlow(LiveEndpoint.LEGACY)
+    private val mutableEndpoint=MutableStateFlow<LiveEndpoint?>(null)
     val endpoint=mutableEndpoint.asStateFlow()
     private val mutableReady=MutableStateFlow(false)
     val ready=mutableReady.asStateFlow()
@@ -59,7 +59,7 @@ internal class LiveDiagnosticsOwner(
     private var statusJob:Job?=null
     private var preferencesJob:Job?=null
     @Volatile private var savedRevision=-1L
-    private val controller=LiveController(scope,{endpointWireFactory(mutableEndpoint.value)},{LiveSnapshot.read(context,savedRevision)},networkFactory={networkFactory?.invoke()?:AndroidLiveNetwork(context,requireValidatedInternet=mutableEndpoint.value==LiveEndpoint.LEGACY)})
+    private val controller=LiveController(scope,{endpointWireFactory(checkNotNull(mutableEndpoint.value))},{LiveSnapshot.read(context,savedRevision)},networkFactory={networkFactory?.invoke()?:AndroidLiveNetwork(context,requireValidatedInternet=mutableEndpoint.value==LiveEndpoint.LEGACY)})
     private fun current(epoch:Long)=synchronized(guard){generation==epoch}
     private fun publish(epoch:Long,text:String)=synchronized(guard){if(generation==epoch)mutableStatus.value=text}
     fun restore() {
@@ -70,7 +70,7 @@ internal class LiveDiagnosticsOwner(
                     loadEndpoint()
                     val enabled=withTimeout(5000){consent.load()}
                     synchronized(guard){if(policyRevision==policy)mutableAutoConnect.value=enabled}
-                    if(enabled && current(epoch)) {
+                    if(enabled && mutableEndpoint.value!=null && current(epoch)) {
                         val restoreJob=currentCoroutineContext()[Job]
                         synchronized(guard){if(generation!=epoch)return@withLock;job=restoreJob}
                         activate(epoch,"",false)
@@ -88,6 +88,7 @@ internal class LiveDiagnosticsOwner(
                     synchronized(guard){
                         if(policyRevision!=policy)return@withLock
                         loadEndpoint()
+                        if(enabled && mutableEndpoint.value==null){publish(epoch,"Off — Apply an HTTPS diagnostics server first");return@withLock}
                         consent.save(enabled)
                         mutableAutoConnect.value=enabled
                     }
@@ -106,7 +107,7 @@ internal class LiveDiagnosticsOwner(
         var transport:LiveWire?=null
         try {
             loadEndpoint()
-            val selected=mutableEndpoint.value
+            val selected=mutableEndpoint.value?:run{publish(epoch,"Off — Apply an HTTPS diagnostics server first");return}
             var credential=withTimeout(5000){credentials.load(selected)}
             if(!current(epoch))return
             if(credential==null) {
@@ -146,7 +147,7 @@ internal class LiveDiagnosticsOwner(
         publish(epoch,"Off — revoking owner")
         job=scope.launch {operation.withLock {
             try{loadEndpoint()}catch(_:Exception){publish(epoch,"Off — pairing storage unavailable; retry Revoke");return@withLock}
-            val selected=mutableEndpoint.value
+            val selected=mutableEndpoint.value?:run{publish(epoch,"Off — Apply an HTTPS diagnostics server first");return@withLock}
             val transport=try{endpointWireFactory(selected)}catch(_:Exception){publish(epoch,"Off — server revoke unconfirmed; retry Revoke");return@withLock}
             synchronized(guard){if(generation!=epoch){transport.close();return@withLock};wire.set(transport)}
             try {

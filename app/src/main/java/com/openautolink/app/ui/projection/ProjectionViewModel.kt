@@ -737,13 +737,18 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 clearSettingsSaveMessage()
                 val retainedClusterHost = com.openautolink.app.secondary.SecondaryOutputRuntime.get(getApplication()).retainForExplicitReconnect()
                 usbPolicyEpoch.incrementAndGet()
-                retireUsbProjection(preserveClusterHostForReconnect = retainedClusterHost)
-                unifiedUsbManager?.failedAdmission()
-                usbHandoff.release()
-                usbSwitchPolicy.clearRetired()
-                releaseUsbCaptureClaims()
-                sessionManager.externalUsbTransport = false
-                synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+                // Ordinary live AA Save must reach SessionManager.reconnect with its session/audio
+                // intact for graceful ByeBye and the minimal restart. Only a protocol switch (or
+                // no live AA owner) needs the full USB/projection retirement path first.
+                if (!aaActive || usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
+                    retireUsbProjection(preserveClusterHostForReconnect = retainedClusterHost)
+                    unifiedUsbManager?.failedAdmission()
+                    usbHandoff.release()
+                    usbSwitchPolicy.clearRetired()
+                    releaseUsbCaptureClaims()
+                    sessionManager.externalUsbTransport = false
+                    synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+                }
                 if (usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
                     if (prepareCarPlayStart(saved)) carPlayCoordinator.connectForExplicitReconnect(true, ::createCarPlayRuntime)
                 } else {

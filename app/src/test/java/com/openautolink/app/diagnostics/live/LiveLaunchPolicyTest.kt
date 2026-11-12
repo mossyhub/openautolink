@@ -17,6 +17,7 @@ class LiveLaunchPolicyTest {
     private class Consent(var value:Boolean=false):LiveConsent {
         override fun load()=value
         override fun save(enabled:Boolean){value=enabled}
+        override fun loadEndpoint()=LiveEndpoint.LEGACY
     }
     private class Credential(var value:String?="remembered"):LiveCredentials {
         override fun load()=value
@@ -28,6 +29,7 @@ class LiveLaunchPolicyTest {
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
         val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1)
         val owner=LiveDiagnosticsOwner(RuntimeEnvironment.getApplication(),scope,Credential(),object:LiveConsent {
+            override fun loadEndpoint()=LiveEndpoint.LEGACY
             override fun load():Boolean{entered.countDown();release.await(5,java.util.concurrent.TimeUnit.SECONDS);return true}
             override fun save(enabled:Boolean){}
         },{error("stopped restore cannot connect")})
@@ -37,7 +39,7 @@ class LiveLaunchPolicyTest {
         val context=RuntimeEnvironment.getApplication()
         val file=java.io.File(context.noBackupFilesDir,"oal-live-launch-consent.bin");file.delete()
         try {
-            val store=LiveConsentStore(context);assertFalse(store.load());store.save(true)
+            val store=LiveConsentStore(context);assertFalse(store.load());store.saveEndpoint(LiveEndpoint.parse("https://localhost/oal"));store.save(true)
             assertTrue(LiveConsentStore(context).load());store.save(false);assertFalse(LiveConsentStore(context).load())
             file.writeBytes(byteArrayOf(1,1));assertFalse(LiveConsentStore(context).load())
         }finally{file.delete()}
@@ -45,6 +47,7 @@ class LiveLaunchPolicyTest {
     @Test fun failedChoiceWriteRemainsOffAndDoesNotErasePairing() {
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO);val credential=Credential()
         val owner=LiveDiagnosticsOwner(RuntimeEnvironment.getApplication(),scope,credential,object:LiveConsent {
+            override fun loadEndpoint()=LiveEndpoint.LEGACY
             override fun load()=false;override fun save(enabled:Boolean){throw java.io.IOException()}
         },{error("no network")})
         try{owner.updateAutoConnect(true);await{owner.status.value.contains("not saved")};assertFalse(owner.autoConnect.value);assertEquals("remembered",credential.value)}finally{owner.stop();scope.cancel()}

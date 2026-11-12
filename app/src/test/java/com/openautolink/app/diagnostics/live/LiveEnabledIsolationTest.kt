@@ -57,6 +57,7 @@ class LiveEnabledIsolationTest {
         try {
             assertNull(SecondaryOutputRuntime.peekForDiagnostics())
             assertNull(com.openautolink.app.session.SessionManager.instanceOrNull())
+            LiveConsentStore(app).saveEndpoint(LiveEndpoint.LEGACY)
             LiveDiagnostics.initialize(app)
             assertEquals("Off",LiveDiagnostics.status.value)
             LiveDiagnostics.enable(app,"")
@@ -83,6 +84,7 @@ class LiveEnabledIsolationTest {
             JSONObject().put("token","synthetic-isolation-bearer").put("ack",if(rows==null || rows.length()==0)0L else rows.getJSONObject(rows.length()-1).getLong("seq"))
         }
         try {
+            LiveConsentStore(RuntimeEnvironment.getApplication()).saveEndpoint(LiveEndpoint.LEGACY)
             LiveDiagnostics.initialize(RuntimeEnvironment.getApplication())
             for(mode in listOf(ClusterDisplayMode.OFF,ClusterDisplayMode.NATIVE_ICONS)) {
                 LiveDiagnostics.stop()

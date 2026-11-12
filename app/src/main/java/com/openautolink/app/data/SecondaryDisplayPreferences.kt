@@ -24,13 +24,16 @@ internal object SecondaryDisplayPreferences {
             require(outputs.size <= MAX_OUTPUTS)
             val decoded = outputs.map { (key, value) ->
                 val id = SecondaryOutputId(key)
-                val fields = value.obj(setOf("enabled", "aaRole", "androidAuto", "carPlay"), setOf("layout"))
+                val fields = value.obj(setOf("enabled", "aaRole", "androidAuto", "carPlay"), setOf("layout", "aaDensityDpi"))
                 val roleValue = fields.getValue("aaRole")
                 val role = if (roleValue == JsonNull) null else AaSecondaryRole.valueOf(roleValue.text())
                 val layout = fields["layout"]?.takeUnless { it == JsonNull }?.let(::readLayout)
+                val density = fields["aaDensityDpi"]?.takeUnless { it == JsonNull }?.number()?.also {
+                    require(it in 80L..320L)
+                }?.toInt()
                 require(layout == null || layout.scope.outputId == id)
                 id to SecondaryOutputPreference(fields.getValue("enabled").bool(), role,
-                    fields.getValue("androidAuto").bool(), fields.getValue("carPlay").bool(), layout)
+                    fields.getValue("androidAuto").bool(), fields.getValue("carPlay").bool(), layout, density)
             }.toMap()
             SecondaryPreferencesSnapshot(revision, decoded, legacy)
         } catch (_: IllegalArgumentException) {
@@ -56,6 +59,7 @@ internal object SecondaryDisplayPreferences {
                         put("aaRole", value.aaRole?.let { JsonPrimitive(it.name) } ?: JsonNull)
                         put("androidAuto", value.androidAuto); put("carPlay", value.carPlay)
                         put("layout", value.layout?.let(::writeLayout) ?: JsonNull)
+                        value.aaDensityDpi?.let { put("aaDensityDpi", it) }
                     }
                 }
             }
@@ -65,7 +69,7 @@ internal object SecondaryDisplayPreferences {
     }
 
     private fun readLayout(value: JsonElement): SecondaryLayoutPreference {
-        val fields = value.obj(setOf("version", "scope", "output", "safe"), setOf("directSafe", "directSafeAutomatic"))
+        val fields = value.obj(setOf("version", "scope", "output", "safe"), setOf("directSafe", "directSafeAutomatic", "aaDirectSafe"))
         require(fields.getValue("version").number() == 1L)
         val scope = fields.getValue("scope").obj(setOf("outputId", "vehicle", "buildFingerprint", "panelWidth", "panelHeight", "densityDpi"))
         fun dimension(key: String) = scope.getValue(key).number().also { require(it in 1..Int.MAX_VALUE.toLong()) }.toInt()
@@ -73,7 +77,8 @@ internal object SecondaryDisplayPreferences {
             scope.getValue("vehicle").text(), scope.getValue("buildFingerprint").text(),
             dimension("panelWidth"), dimension("panelHeight"), dimension("densityDpi")),
             readBox(fields.getValue("output")), readBox(fields.getValue("safe")),
-            fields["directSafe"]?.takeUnless { it == JsonNull }?.let(::readBox), fields["directSafeAutomatic"]?.bool() ?: false)
+            fields["directSafe"]?.takeUnless { it == JsonNull }?.let(::readBox), fields["directSafeAutomatic"]?.bool() ?: false,
+            fields["aaDirectSafe"]?.takeUnless { it == JsonNull }?.let(::readBox))
     }
     private fun readBox(value: JsonElement): SecondaryLayoutBox {
         val fields = value.obj(setOf("left", "top", "right", "bottom"))
@@ -92,6 +97,7 @@ internal object SecondaryDisplayPreferences {
             put("panelWidth", s.panelWidth); put("panelHeight", s.panelHeight); put("densityDpi", s.densityDpi)
         }
         put("output", writeBox(layout.output)); put("safe", writeBox(layout.safe))
+        layout.aaDirectSafe?.let { put("aaDirectSafe", writeBox(it)) }
         if (layout.directSafe != null || layout.directSafeAutomatic) {
             put("directSafe", layout.directSafe?.let(::writeBox) ?: JsonNull)
             put("directSafeAutomatic", layout.directSafeAutomatic)

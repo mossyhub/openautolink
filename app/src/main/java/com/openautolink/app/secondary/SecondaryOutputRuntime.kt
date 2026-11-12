@@ -282,18 +282,19 @@ class SecondaryOutputRuntime internal constructor(
             val offer = runCatching { AasdkSecondaryVideoOffer.create(
                 channelId = if (hosted) 3 else publicChannel++, protocolDisplayId = if (hosted) 1 else publicDisplay++,
                 displayType = if (role == AaSecondaryRole.CLUSTER) 1 else 2,
-                density = output.descriptor.densityDpi,
+                density = preferences.outputs[output.descriptor.id]?.aaDensityDpi ?: SecondaryCalibratedDefaults.AA_DENSITY_DPI,
                 cropLeft = crop.left, cropTop = crop.top, cropRight = crop.right, cropBottom = crop.bottom,
                 safeLeft = safe.left, safeTop = safe.top, safeRight = safe.right, safeBottom = safe.bottom,
-                stableLeft = stable.left, stableTop = stable.top, stableRight = stable.right, stableBottom = stable.bottom) }.getOrNull()
+                stableLeft = stable.left, stableTop = stable.top, stableRight = stable.right, stableBottom = stable.bottom,
+                realDensity = output.descriptor.densityDpi) }.getOrNull()
             if (offer == null) {
                 revoke(output, SecondaryReason.HOST_UNAVAILABLE); retireOutput(output); continue
             }
             output.offer = offer
-            output.trace("aa_offer_frozen", "channel=${offer.channelId} display=${offer.protocolDisplayId} role=${offer.displayType} hostAttached=${output.bridge?.status?.value?.hostAttached == true}")
+            output.trace("aa_offer_frozen", "channel=${offer.channelId} display=${offer.protocolDisplayId} role=${offer.displayType} dpi=${offer.density} realDpi=${offer.realDensity} hostAttached=${output.bridge?.status?.value?.hostAttached == true}")
             com.openautolink.app.diagnostics.DiagnosticLog.i("secondary",
                 "AA optional offer frozen channel=${offer.channelId} display=${offer.protocolDisplayId} role=${offer.displayType} " +
-                    "codec=3 resolution=2 fps=2 density=${offer.density} crop=$crop safe=$safe stable=$stable hostAttached=${output.bridge?.status?.value?.hostAttached == true}; phone acceptance unverified")
+                    "codec=3 resolution=2 fps=2 density=${offer.density} realDpi=${offer.realDensity} crop=$crop safe=$safe stable=$stable hostAttached=${output.bridge?.status?.value?.hostAttached == true}; phone acceptance unverified")
             offers += offer
         }
         preparationTrace(projectionEpoch, token, null, "preparation_complete", "offered=${offers.size} remainingMs=${remainingBudget(deadline)}")

@@ -45,6 +45,7 @@ struct ClusterVideoOffer {
     int cropLeft=0, cropTop=0, cropRight=1280, cropBottom=720;
     int safeLeft=0, safeTop=0, safeRight=0, safeBottom=0;
     int stableLeft=0, stableTop=0, stableRight=0, stableBottom=0;
+    int realDensity=0;
     bool valid() const;
 };
 // Separate input services use highest free protocol channels, never main/fixed IDs.

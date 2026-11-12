@@ -51,17 +51,20 @@ class SecondaryStandardVideoTest {
 
     @Test fun confirmedOwnerDefaultAndResetScaleOnlyInnerSafeAcrossProtocolsAndResolutions() {
         val expected = listOf(
-            PixelSize(2000, 810) to PixelRect(558, 70, 1694, 668),
-            PixelSize(1600, 600) to PixelRect(446, 52, 1355, 495))
-        for ((panel, safe) in expected) {
+            Triple(PixelSize(2000, 810), PixelRect(558, 70, 1694, 668), PixelRect(192, 71, 1788, 660)),
+            Triple(PixelSize(1600, 600), PixelRect(446, 52, 1355, 495), PixelRect(446, 52, 1355, 495)))
+        for ((panel, fallbackSafe, aaSafe) in expected) {
             val fallback = SecondaryProjectionActivity.directDefaultSafe(panel.width, panel.height)
-            assertEquals("Owner-confirmed fallback normalized from full 2000x810 window", safe, fallback)
+            assertEquals("Owner-confirmed fallback normalized from full 2000x810 window", fallbackSafe, fallback)
             val descriptor = SecondaryDisplayDescriptor(SecondaryOutputId("no-oem-database"), 17, 1, "Unknown OEM",
                 panel.width, panel.height, 160, SecondaryRoute.PUBLIC_ACTIVITY, SecondaryReason.NONE, "Unknown")
             val scope = SecondaryLayoutScope(descriptor.id, "unknown", "build", panel.width, panel.height, 160)
             val custom = SecondaryLayoutPreference(scope, SecondaryLayoutBox(.1, .1, .9, .9),
                 SecondaryLayoutBox(.3, .3, .7, .7), directSafe = SecondaryLayoutBox(.35, .25, .65, .75))
             for (cp in listOf(false, true)) {
+                // Only AA's supported 2000x810 default/reset uses the calibrated rectangle.
+                // CarPlay and unsupported sizes retain the original direct fallback.
+                val safe = if (cp) fallbackSafe else aaSafe
                 fun target(layout: SecondaryLayoutPreference?) = SecondaryRuntimeLayouts.target(descriptor, layout,
                     panel, fallback, "unknown", "build", carPlay = cp, safeOnly = true)
                 val automatic = target(null)

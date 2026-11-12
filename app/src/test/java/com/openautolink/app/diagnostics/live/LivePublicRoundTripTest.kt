@@ -20,7 +20,7 @@ import javax.net.ssl.HttpsURLConnection
 class LivePublicRoundTripTest {
     private fun waitFor(file:File) { val end=System.nanoTime()+90_000_000_000L;while(!file.exists()&&System.nanoTime()<end)Thread.sleep(100);assertTrue("bench coordination deadline",file.exists()) }
     private fun page(token:String):JSONObject {
-        val c=URL(LiveHttps.BASE+"/v1/events?after=0").openConnection() as HttpsURLConnection
+        val c=URL(LiveEndpoint.LEGACY.base+"/v1/events?after=0").openConnection() as HttpsURLConnection
         c.connectTimeout=5000;c.readTimeout=5000;c.instanceFollowRedirects=false
         c.setRequestProperty("Authorization","Bearer $token")
         try{assertEquals(200,c.responseCode);return JSONObject(c.inputStream.bufferedReader().use{it.readText()})}finally{c.disconnect()}
@@ -29,7 +29,7 @@ class LivePublicRoundTripTest {
         val path=System.getenv("OAL_LIVE_BENCH")
         assumeTrue("explicit isolated public bench only",path!=null)
         val state=File(path!!); val dir=state.parentFile!!;val auth=JSONObject(state.readText())
-        val q=LiveBuffer(3,4096);val capture=LiveLogSink.attach(q);val wire=LiveHttps()
+        val q=LiveBuffer(3,4096);val capture=LiveLogSink.attach(q);val wire=LiveHttps(LiveEndpoint.LEGACY)
         val relay=LiveRelay(q,wire,"android-bench-process",auth.getString("deviceCredential"),
             {LiveSnapshot.read(RuntimeEnvironment.getApplication(),-1)},{true})
         try {

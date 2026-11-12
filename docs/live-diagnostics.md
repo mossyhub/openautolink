@@ -1,6 +1,10 @@
 # Owner live diagnostics
 
 While parked, open **Settings → Diagnostics → Owner live diagnostics**.
+On a clean install the server field is blank. Enter your chosen HTTPS diagnostic-server
+base URL and choose **Apply** before pairing. OAL does not select a maintainer server
+or send diagnostic traffic on your behalf. Existing explicitly saved servers and
+remembered pairings remain associated with their original endpoint.
 Enter the five-word owner invitation for first pairing, then choose **Enable read-only**.
 The device remembers the pairing encrypted in Android Keystore-backed, no-backup storage.
 Do not share invitations or credentials in logs or chat.

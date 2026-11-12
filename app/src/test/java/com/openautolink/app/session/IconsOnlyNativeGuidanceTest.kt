@@ -63,6 +63,9 @@ class IconsOnlyNativeGuidanceTest {
         assertEquals(NativeApplication::class.java, app.javaClass)
         assertFalse("this fixture must own an uninitialized observer",
             com.openautolink.app.diagnostics.live.LiveDiagnostics.ready.value)
+        // This enabled-isolation fixture explicitly selects its mocked endpoint; fresh installs stay unconfigured.
+        com.openautolink.app.diagnostics.live.LiveConsentStore(app)
+            .saveEndpoint(com.openautolink.app.diagnostics.live.LiveEndpoint.LEGACY)
         com.openautolink.app.diagnostics.live.LiveConsentStore(app).save(false)
         shadowOf(app).grantPermissions(android.Manifest.permission.RECORD_AUDIO,
             android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_NETWORK_STATE,

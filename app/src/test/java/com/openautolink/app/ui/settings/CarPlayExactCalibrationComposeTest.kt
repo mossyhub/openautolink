@@ -8,6 +8,8 @@ import androidx.compose.ui.test.*
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewModelScope
 import com.openautolink.app.data.AppPreferences
@@ -66,6 +68,10 @@ class CarPlayExactCalibrationComposeTest {
             "exact-calibration-${java.util.UUID.randomUUID()}").apply { mkdirs() }
         val store = PreferenceDataStoreFactory.create(scope = CoroutineScope(Dispatchers.IO + job),
             produceFile = { File(directory, "settings.preferences_pb") })
+        // This fixture measures writes caused by CarPlay editing, not the independently
+        // qualified one-time AA startup migration. Start from an already-migrated store
+        // before installing the counting/held-read boundary; retain every no-write assertion.
+        runBlocking { store.edit { it[booleanPreferencesKey("secondary_aa_calibrated_defaults_v1")] = true } }
         boundary = StoreBoundary(store)
         preferences = AppPreferences::class.java.getDeclaredConstructor(DataStore::class.java)
             .apply { isAccessible = true }.newInstance(boundary)

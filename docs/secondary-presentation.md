@@ -25,6 +25,8 @@ With video on, choose the phone-facing role:
 - **Cluster:** a more compact navigation layout.
 - **Auxiliary:** Google Maps adds destination and speed information. A useful starting point for larger driver displays.
 
+**Android Auto density does not affect CarPlay.** The default is **149 DPI** for Android Auto secondary displays, with physical display metadata preserved. Existing installations move to the new density once; subsequent density edits or choosing Automatic persist normally. The **Custom Android Auto density** slider covers **80–320 DPI** for the selected driver display only; it does not change the main feed. Lower DPI requests smaller phone-rendered text and cards, not a change to the map's camera zoom. Select **Save changes** and reconnect to apply (wireless reconnects automatically when safe; unplug/reconnect USB). Turn the control off to restore **Automatic · 149 DPI**.
+
 ### Apple CarPlay
 
 There is no equivalent Cluster/Auxiliary selector in OAL.
@@ -41,7 +43,7 @@ See the [Android Auto and CarPlay photos](../README.md#driver-display-maps--oal-
 4. Select **Done** to stop the preview and return the draft to Settings.
 5. Tap **Save changes**. Wireless reconnects automatically when safe. **USB: unplug and reconnect to apply.**
 
-**Done does not save.** **Restore default** restores the inner area without changing the full video window or unrelated saved geometry. Existing custom areas remain unchanged unless edited or reset. See [direct-window details](direct-cluster-window.md).
+**Done does not save.** **Restore default** restores the inner area without changing the full video window or unrelated saved geometry. The calibrated Android Auto default on the supported **2000×810** direct drawable is the important-content rectangle **(192, 71)–(1788, 660)**, while the video still fills the whole drawable. The update moves existing Android Auto directions areas to that default once; later user adjustments persist. Other drawable sizes retain their existing safe fallback. The migration does not change CarPlay geometry, display enablement, or phone-facing role. See [direct-window details](direct-cluster-window.md).
 
 ## Returning to the maps page
 

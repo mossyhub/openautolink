@@ -85,7 +85,7 @@ class SessionClusterVideoIntegrationTest {
         assertNotNull(offer)
         assertEquals(1280, f.mapping().codedSize.width)
         assertEquals(PixelRect(0,0,2000,810), f.mapping().target.output)
-        assertEquals(SecondaryProjectionActivity.directDefaultSafe(2000,810), f.mapping().target.safe)
+        assertEquals(PixelRect(192,71,1788,660), f.mapping().target.safe)
         assertEquals(selected, f.prepared!!.legacySelection)
         assertNull(f.prepared!!.hostedManager)
         assertNull(ClusterBindingState.frozenMapBinding())
@@ -117,7 +117,7 @@ class SessionClusterVideoIntegrationTest {
         ReflectionHelpers.setStaticField(Build.VERSION::class.java, "INCREMENTAL", "non-numeric")
         assertNotNull(f.offer(selected))
         assertEquals(PixelRect(0,0,2000,810),f.mapping().target.output)
-        assertEquals(SecondaryProjectionActivity.directDefaultSafe(2000,810),f.mapping().target.safe)
+        assertEquals(PixelRect(192,71,1788,660),f.mapping().target.safe)
         assertNull("Direct geometry must not claim a legacy firmware receipt",f.mapping().gmReceipt)
     }
     @Test fun threeConcurrentRetirementsShareOneFutureAndOneGpuRetirement() = fixture { f ->

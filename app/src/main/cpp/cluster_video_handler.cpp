@@ -14,7 +14,7 @@ bool ClusterVideoOffer::valid() const {
     };
     const bool identity=(channelId==3 && protocolDisplayId==1 && displayType>=1 && displayType<=2) ||
         (channelId>=19 && channelId<=254 && protocolDisplayId>=2 && protocolDisplayId<=254 && displayType>=1 && displayType<=2);
-    return identity && density>0 && density<=1000 && cropLeft>=0 && cropTop>=0 &&
+    return identity && density>0 && density<=1000 && realDensity>=0 && realDensity<=1000 && cropLeft>=0 && cropTop>=0 &&
         cropRight<=1280 && cropBottom<=720 && w>0 && h>0 &&
         cropLeft==1280-cropRight && cropTop==720-cropBottom &&
         insets(safeLeft,safeTop,safeRight,safeBottom) &&
@@ -37,7 +37,7 @@ static void appendVideoService(
     config->set_video_codec_type(media::MEDIA_CODEC_VIDEO_H264_BP);
     config->set_codec_resolution(aap_protobuf::service::media::sink::message::VIDEO_1280x720);
     config->set_frame_rate(aap_protobuf::service::media::sink::message::VIDEO_FPS_30);
-    config->set_density(offer->density);config->set_real_density(offer->density);
+    config->set_density(offer->density);config->set_real_density(offer->realDensity>0 ? offer->realDensity : offer->density);
     config->set_decoder_additional_depth(1);
     config->set_width_margin(1280-(offer->cropRight-offer->cropLeft));
     config->set_height_margin(720-(offer->cropBottom-offer->cropTop));

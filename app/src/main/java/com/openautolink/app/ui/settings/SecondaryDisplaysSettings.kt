@@ -9,6 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openautolink.app.cluster.ClusterDisplayMode
@@ -121,6 +123,32 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryRoleDescription"))
                     Text("Appearance depends on Android Auto and your navigation app. These descriptions reflect Google Maps; Waze may look the same in both modes. OAL displays the supplied video—its content may change with phone-app updates.",
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryRoleAppearanceHelp"))
+                    Text("Android Auto only. Changes text and card size on this secondary display after Save and reconnect. This control does not affect CarPlay or the main display.",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryDensityProtocolHelp"))
+                    val customDensity = row.preference.aaDensityDpi
+                    ClusterSwitch("Custom Android Auto density", customDensity != null,
+                        editable && row.usable, { custom ->
+                            row.id?.let { id -> onOutputChange(id) { current ->
+                                current.copy(aaDensityDpi = if (custom)
+                                    SecondaryCalibratedDefaults.AA_DENSITY_DPI else null)
+                            } }
+                        }, "secondaryDensityCustom") {
+                        Text(if (customDensity == null)
+                            "Automatic · ${SecondaryCalibratedDefaults.AA_DENSITY_DPI} DPI" else "$customDensity DPI",
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (customDensity != null) {
+                        Slider(value = customDensity.toFloat(),
+                            onValueChange = { value -> row.id?.let { id -> onOutputChange(id) {
+                                it.copy(aaDensityDpi = value.roundToInt().coerceIn(80, 320))
+                            } } },
+                            valueRange = 80f..320f, enabled = editable && row.usable,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .semantics { contentDescription = "Android Auto secondary density" }
+                                .testTag("secondaryDensitySlider"))
+                    }
+                    Text("Lower DPI makes text and cards smaller. Applies to this Android Auto display after Save and reconnect.",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryDensityHelp"))
                     Text("CarPlay has no equivalent Cluster/Auxiliary selector in OAL; its driver-display view is controlled by iOS and the navigation app.",
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryCarPlayRoleNote"))
                 }
@@ -170,11 +198,14 @@ internal fun SecondaryOutputLayoutEditor(display: SecondaryDisplayDescriptor, li
     val full = panel.bounds
     fun pixels(box: SecondaryLayoutBox): PixelRect = PixelRect((box.left * panel.width).roundToInt(),
         (box.top * panel.height).roundToInt(), (box.right * panel.width).roundToInt(), (box.bottom * panel.height).roundToInt())
+    val automaticSafe = if (!safeOnly) full else if (SecondaryCalibratedDefaults.supports(panel.width, panel.height))
+        pixels(SecondaryCalibratedDefaults.directSafe) else SecondaryProjectionActivity.directDefaultSafe(panel.width, panel.height)
+    val aaSafe = restored?.aaDirectSafe?.takeIf { SecondaryCalibratedDefaults.supports(panel.width, panel.height) }
     val geometry = remember(display) { runCatching { LiveGridGeometry(panel, full,
         if (safeOnly) full else restored?.output?.let(::pixels) ?: full,
-        (if (safeOnly && restored?.directSafeAutomatic == true) null else if (safeOnly) restored?.directSafe ?: restored?.safe else restored?.safe)?.let(::pixels)
-            ?: if (safeOnly) SecondaryProjectionActivity.directDefaultSafe(panel.width, panel.height) else full) }.getOrElse {
-            LiveGridGeometry(panel, full, full, if (safeOnly) SecondaryProjectionActivity.directDefaultSafe(panel.width, panel.height) else full) } }
+        (if (safeOnly) aaSafe ?: if (restored?.directSafeAutomatic == true) null else restored?.directSafe ?: restored?.safe
+            else restored?.safe)?.let(::pixels) ?: automaticSafe) }.getOrElse {
+            LiveGridGeometry(panel, full, full, automaticSafe) } }
     val editable = enabled && live == display && scope != null && (display.route == SecondaryRoute.PUBLIC_ACTIVITY || safeOnly && display.route == SecondaryRoute.GM_HOSTED)
     val currentIdle by rememberUpdatedState(projectionIdle)
     val binding = remember(context, display, live, safeOnly) { if (live == display) LiveGridWindows.binding(context, display, directionsArea = safeOnly) { currentIdle() } else null }
@@ -184,13 +215,13 @@ internal fun SecondaryOutputLayoutEditor(display: SecondaryDisplayDescriptor, li
                 r.right.toDouble() / panel.width, r.bottom.toDouble() / panel.height)
             // Preserve a legacy outer rectangle durably; direct runtime ignores it.
             if (safeOnly) onStage((restored ?: SecondaryLayoutPreference(requireNotNull(scope), fraction(full), fraction(full)))
-                .copy(directSafe = fraction(next.safe), directSafeAutomatic = false))
+                .copy(aaDirectSafe = null, directSafe = fraction(next.safe), directSafeAutomatic = false))
             else onStage(SecondaryLayoutPreference(requireNotNull(scope), fraction(next.output), fraction(next.safe)))
         } }, onReset = { if (editable) {
             if (safeOnly && restored != null) {
-                onStage(restored.copy(directSafe = null, directSafeAutomatic = true))
+                onStage(restored.copy(aaDirectSafe = null, directSafe = null, directSafeAutomatic = true))
             } else onStage(null)
         } }, onBack = onBack, automatic = LiveGridGeometry(panel, full, full,
-            if (safeOnly) SecondaryProjectionActivity.directDefaultSafe(panel.width, panel.height) else full), safeOnly = safeOnly,
+            automaticSafe), safeOnly = safeOnly,
         previewUnavailableReason = if (safeOnly && !projectionIdle()) "Disconnect your phone to preview on driver display." else null)
 }

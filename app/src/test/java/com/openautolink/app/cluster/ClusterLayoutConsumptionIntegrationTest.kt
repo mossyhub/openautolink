@@ -84,7 +84,7 @@ class ClusterLayoutConsumptionIntegrationTest {
         val reset = f.prepare(selection)
         assertEquals(ClusterLayoutFallbackReason.NO_CUSTOM_LAYOUT,legacy(f).fallbackReason)
         assertEquals(profile.panel.bounds,f.mapping().target.output)
-        assertEquals(SecondaryProjectionActivity.directDefaultSafe(2000,810),f.mapping().target.safe)
+        assertEquals(PixelRect(192,71,1788,660),f.mapping().target.safe)
         assertWire(reset.offers.single(),f.mapping())
         assertNull(f.manager.clusterVideoStatus.value.error)
         verify(exactly = 0) { f.session.forceReconnect(any()); f.session.stop() }
@@ -125,7 +125,7 @@ class ClusterLayoutConsumptionIntegrationTest {
         val stale = layout(f).let { it.copy(scope = it.scope.copy(panelHeight = 811)) }
         val initial = f.prepare(selection,stale)
         assertEquals(profile.panel.bounds,f.mapping().target.output)
-        assertEquals(SecondaryProjectionActivity.directDefaultSafe(2000,810),f.mapping().target.safe)
+        assertEquals(PixelRect(192,71,1788,660),f.mapping().target.safe)
         assertWire(initial.offers.single(),f.mapping())
         assertNull(f.manager.clusterVideoStatus.value.error)
         assertTrue(f.await(f.manager.retireClusterVideoOutput()))
@@ -137,7 +137,8 @@ class ClusterLayoutConsumptionIntegrationTest {
             val config = requireNotNull(output.configuration)
             val mapping = f.mapping()
             assertEquals(profile.panel.bounds,mapping.target.output)
-            val automatic = SecondaryProjectionActivity.directDefaultSafe(2000,810)
+            val automatic = PixelRect(558,70,1694,668)
+            assertEquals(automatic,SecondaryProjectionActivity.directDefaultSafe(2000,810))
             assertEquals(automatic.intersect(SecondaryVideoMapping.carPlayDestination(profile.panel.bounds)),mapping.target.safe)
             assertEquals(listOf(mapping.phoneSafeInsets.left,mapping.phoneSafeInsets.top,mapping.phoneSafeInsets.right,mapping.phoneSafeInsets.bottom),
                 requireNotNull(config.display.safeArea).let { listOf(it.left,it.top,it.right,it.bottom) })

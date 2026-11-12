@@ -67,7 +67,7 @@ class SecondaryDisplayPreferencesTest {
             assertEquals(ClusterDisplayMode.OFF, migrated.legacyCluster.selection.mode)
             assertEquals(ClusterDisplayMode.MAP_VIDEO, migrated.legacyCluster.lastEnabledClusterMode)
             assertEquals(migrated, prefs.migrateSecondaryClusterPreference(gm))
-            assertEquals(before, store.data.first().asMap().filterKeys { it != AppPreferences.SECONDARY_DISPLAY_OUTPUTS })
+            assertEquals(before, store.data.first().asMap().filterKeys { it != AppPreferences.SECONDARY_DISPLAY_OUTPUTS && it.name != "secondary_aa_calibrated_defaults_v1" })
             prefs.setClusterOutputEnabled(true)
             assertEquals(ClusterDisplayMode.MAP_VIDEO, prefs.getClusterOutputSelection().mode)
             val explicit = prefs.updateSecondaryDisplayPreferences(1, mapOf(gm to SecondaryOutputPreference()))

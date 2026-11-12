@@ -30,6 +30,8 @@ internal object SecondaryRuntimeLayouts {
                 requireNotNull(intersection) {
                     "Automatic CarPlay safe area does not intersect fitted video"
                 }
+            } else if (safeOnly && SecondaryCalibratedDefaults.supports(panel.width, panel.height)) {
+                PixelRect(192, 71, 1788, 660)
             } else actualSafe
             return SecondaryRenderTarget(descriptor.id, descriptor.attachmentEpoch, descriptor.displayId,
                 panel, panel.bounds, safe).also { report("automatic", reason, it) }
@@ -37,14 +39,16 @@ internal object SecondaryRuntimeLayouts {
         if (layout == null) return automatic("none")
         if (layout.scope != SecondaryLayoutScope(descriptor.id, vehicle, fingerprint,
                 descriptor.width, descriptor.height, descriptor.densityDpi)) return automatic("stale_scope")
-        if (safeOnly && layout.directSafeAutomatic) return automatic("safe_reset")
+        if (safeOnly && layout.directSafeAutomatic && (carPlay || layout.aaDirectSafe == null ||
+                !SecondaryCalibratedDefaults.supports(panel.width, panel.height))) return automatic("safe_reset")
         fun pixels(box: SecondaryLayoutBox): PixelRect = PixelRect(
             kotlin.math.ceil(box.left * panel.width).toInt(), kotlin.math.ceil(box.top * panel.height).toInt(),
             kotlin.math.floor(box.right * panel.width).toInt(), kotlin.math.floor(box.bottom * panel.height).toInt())
         val custom = try {
             // Legacy outer data stays durable, but never overrides an automatic direct window.
             val output = if (safeOnly) panel.bounds else pixels(layout.output)
-            val safe = if (safeOnly) pixels(layout.directSafe ?: layout.safe) else requireNotNull(pixels(layout.safe).intersect(actualSafe))
+            val aaSafe = if (!carPlay && SecondaryCalibratedDefaults.supports(panel.width, panel.height)) layout.aaDirectSafe else null
+            val safe = if (safeOnly) pixels(aaSafe ?: layout.directSafe ?: layout.safe) else requireNotNull(pixels(layout.safe).intersect(actualSafe))
             SecondaryRenderTarget(descriptor.id, descriptor.attachmentEpoch, descriptor.displayId, panel, output, safe)
         } catch (_: IllegalArgumentException) {
             return automatic("custom_invalid_geometry")

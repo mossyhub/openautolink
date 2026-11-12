@@ -108,8 +108,53 @@ class TcpAdvertiser(
     private var serverSocket: ServerSocket? = null
     private var identityServerSocket: ServerSocket? = null
     private var udpDiscoverySocket: java.net.DatagramSocket? = null
-    private var activeProxy: AaProxy? = null
-    private var activeCarSocket: Socket? = null
+    private val proxyOwnershipLock = Any()
+    private var runEpoch = 0L
+    private var publicationRevision = 0L
+    private var watchdogRevision = 0L
+    private data class Publication(val epoch: Long, val revision: Long, val effect: () -> Unit)
+    private val publications = java.util.ArrayDeque<Publication>()
+    private var publicationThread: Thread? = null
+    private var publicationDone: java.util.concurrent.CountDownLatch? = null
+
+    /** Reserve under ownership; dispatch in FIFO order outside every owner monitor. */
+    private fun reservePublication(effect: () -> Unit) {
+        publications.addLast(Publication(runEpoch, publicationRevision, effect))
+    }
+
+    private fun drainPublications() {
+        // Proxy operations may synchronously report events while their caller owns
+        // this monitor. That outer caller must perform the drain after releasing it.
+        if (Thread.holdsLock(proxyOwnershipLock)) return
+        val done = synchronized(proxyOwnershipLock) {
+            if (publicationThread != null || publications.isEmpty()) return
+            publicationThread = Thread.currentThread()
+            java.util.concurrent.CountDownLatch(1).also { publicationDone = it }
+        }
+        while (true) {
+            val next = synchronized(proxyOwnershipLock) {
+                while (publications.isNotEmpty() &&
+                    (!isRunning || publications.peekFirst().epoch != runEpoch ||
+                        publications.peekFirst().revision != publicationRevision)) {
+                    publications.removeFirst()
+                }
+                if (publications.isEmpty()) {
+                    publicationThread = null
+                    publicationDone = null
+                    done.countDown()
+                    null
+                } else publications.removeFirst()
+            } ?: return
+            try {
+                next.effect()
+            } catch (e: Exception) {
+                CompanionLog.e(TAG, "State publication failed: ${e.message}")
+            }
+        }
+    }
+    @Volatile private var activeProxy: AaProxy? = null
+    @Volatile private var activeCarSocket: Socket? = null
+    private var activeProxyBridge: Any? = null
     private var nsdManager: NsdManager? = null
     private var nsdRegistrationListener: NsdManager.RegistrationListener? = null
     private var aaConnectWatchdog: Job? = null
@@ -131,8 +176,11 @@ class TcpAdvertiser(
     private var aaLaunchAttempts = 0
 
     fun start() {
-        if (isRunning) return
-        isRunning = true
+        synchronized(proxyOwnershipLock) {
+            if (isRunning) return
+            runEpoch++
+            isRunning = true
+        }
         CompanionLog.i(TAG, "Starting TCP server on port $PORT")
         replaceCarFacingListeners(null)
         carNetworkMonitor = CarNetworkMonitor(
@@ -276,7 +324,6 @@ class TcpAdvertiser(
                     PhoneWppDiagnostics.record(PhoneWppStage.CAR_SOCKET)
                     val remoteIp = carSocket.inetAddress?.hostAddress ?: "unknown"
                     CompanionLog.i(TAG, "Car connected from $remoteIp")
-                    stateListener.onConnecting()
                     handleCarConnection(carSocket)
                 }
             } catch (e: Exception) {
@@ -322,22 +369,15 @@ class TcpAdvertiser(
      * connected to nothing.
      */
     private fun ensureProxyForWpp(): Int {
-        if (!isRunning) return 0
-        return try {
+      val port = synchronized(proxyOwnershipLock) {
+        if (!isRunning) return@synchronized 0
+        try {
+            publicationRevision++
+            watchdogRevision++
+            aaConnectWatchdog?.cancel()
+            aaConnectWatchdog = null
             activeProxy?.stop()
-            val proxy = AaProxy(
-                preConnectedSocket = null,
-                listener = object : AaProxy.Listener {
-                    override fun onConnected() {
-                        CompanionLog.i(TAG, "AA connected to the WPP proxy")
-                        stateListener.onProxyConnected()
-                    }
-                    override fun onDisconnected(unexpected: Boolean) {
-                        CompanionLog.i(TAG, "WPP proxy disconnected (unexpected=$unexpected)")
-                        stateListener.onProxyDisconnected()
-                    }
-                },
-            )
+            val proxy = createProxy(null)
             val port = proxy.start()
             activeProxy = proxy
             if (port > 0) PhoneWppDiagnostics.record(PhoneWppStage.WARM_PROXY_READY)
@@ -347,6 +387,9 @@ class TcpAdvertiser(
             CompanionLog.e(TAG, "Could not start a proxy for WPP: ${e.message}")
             0
         }
+      }
+      drainPublications()
+      return port
     }
 
     fun preWarmAaPipeline() {
@@ -366,48 +409,35 @@ class TcpAdvertiser(
         }
         CompanionLog.i(TAG, "preWarmAaPipeline: creating warm proxy (no car socket yet)")
         scope.launch {
-            try {
-                val proxy = AaProxy(
-                    preConnectedSocket = null,
-                    listener = object : AaProxy.Listener {
-                        override fun onConnected() {
-                            CompanionLog.i(TAG, "AA flowing through warm proxy")
-                            bridgeRelaunchAttempts = 0
-                            aaConnectWatchdog?.cancel()
-                            aaConnectWatchdog = null
-                            aaLaunchAttempts = 0
-                            stateListener.onProxyConnected()
-                        }
-                        override fun onDisconnected(unexpected: Boolean) {
-                            CompanionLog.i(TAG, "Warm proxy disconnected (unexpected=$unexpected)")
-                            stateListener.onProxyDisconnected()
-                            isLaunching = false
-                        }
-                    },
-                )
-                isLaunching = true
-                val localPort = proxy.start()
-                activeProxy = proxy
-                if (localPort > 0) PhoneWppDiagnostics.record(PhoneWppStage.WARM_PROXY_READY)
-                // Do NOT tell Android Auto to connect yet.
-                //
-                // Bluetooth connecting means "a car is nearby", not "the car can
-                // talk to us". On a cold start the telematics module has not
-                // finished serving its AP, the car has not joined, and it has not
-                // dialled us. Launching AA here puts a connection into the proxy
-                // with nothing behind it: it waits 30s and dies, repeatedly.
-                //
-                // The car's arrival is the real trigger — handleCarConnection()
-                // fires the launch once a car socket exists, so AA is only ever
-                // asked to connect to a bridge that can actually complete.
-                CompanionLog.i(TAG, "Warm proxy ready on $localPort — holding AA launch " +
-                        "until the car connects")
-                // No car-socket watchdog yet — that's started by
-                // handleCarConnection when the car arrives.
-            } catch (e: Exception) {
-                CompanionLog.e(TAG, "preWarmAaPipeline failed: ${e.message}")
-                isLaunching = false
+            synchronized(proxyOwnershipLock) {
+                if (!isRunning || activeProxy != null) return@synchronized
+                try {
+                    val proxy = createProxy(null)
+                    isLaunching = true
+                    val localPort = proxy.start()
+                    activeProxy = proxy
+                    if (localPort > 0) PhoneWppDiagnostics.record(PhoneWppStage.WARM_PROXY_READY)
+                    // Do NOT tell Android Auto to connect yet.
+                    //
+                    // Bluetooth connecting means "a car is nearby", not "the car can
+                    // talk to us". On a cold start the telematics module has not
+                    // finished serving its AP, the car has not joined, and it has not
+                    // dialled us. Launching AA here puts a connection into the proxy
+                    // with nothing behind it: it waits 30s and dies, repeatedly.
+                    //
+                    // The car's arrival is the real trigger — handleCarConnection()
+                    // fires the launch once a car socket exists, so AA is only ever
+                    // asked to connect to a bridge that can actually complete.
+                    CompanionLog.i(TAG, "Warm proxy ready on $localPort — holding AA launch " +
+                            "until the car connects")
+                    // No car-socket watchdog yet — that's started by
+                    // handleCarConnection when the car arrives.
+                } catch (e: Exception) {
+                    CompanionLog.e(TAG, "preWarmAaPipeline failed: ${e.message}")
+                    isLaunching = false
+                }
             }
+            drainPublications()
         }
     }
 
@@ -614,6 +644,10 @@ class TcpAdvertiser(
     }
 
     private fun handleCarConnection(carSocket: Socket) {
+      synchronized(proxyOwnershipLock) {
+        if (!isRunning) { carSocket.close(); return@synchronized }
+        publicationRevision++
+        reservePublication { stateListener.onConnecting() }
         val proxy = activeProxy
         // A real car socket just arrived: any pending bridge-break backoff is stale
         // (it exists only to avoid hot-looping while the car is ABSENT) and the
@@ -629,19 +663,23 @@ class TcpAdvertiser(
         // connect to that same port imminently. This is also the connection
         // point for the pre-warm path: a proxy created by preWarmAaPipeline()
         // has no car socket yet, and lands here when the car finally arrives.
-        if (proxy != null && !proxy.hasActiveBridge()) {
+        if (proxy != null && proxy.isAccepting && !proxy.hasActiveBridge()) {
             // hasActiveBridge() is false BOTH when AA hasn't connected yet AND when a
             // pre-warm bridge is parked waiting for exactly this socket. Distinguish
             // them so the pre-warm race stays visible in logs.
-            val prewarmWaiting = proxy.hasPendingBridge()
+            val prewarmWaiting = proxy.hasWaitingBridge()
             if (prewarmWaiting) {
                 CompanionLog.i(TAG, "Car connection handed to pre-warmed AA bridge on port ${proxy.localPort}")
             } else {
                 CompanionLog.i(TAG, "Car connection landing on warm proxy on port ${proxy.localPort}")
             }
-            activeCarSocket?.let { runCatching { it.close() } }
+            if (!proxy.updateCarSocket(carSocket)) {
+                runCatching { carSocket.close() }
+                return@synchronized
+            }
+            activeCarSocket?.takeIf { it !== carSocket }?.let { runCatching { it.close() } }
             activeCarSocket = carSocket
-            proxy.updateCarSocket(carSocket)
+            activeProxyBridge = null
             // Re-fire the launch intent ONLY if AA has not already attached. Re-firing at
             // a bridge that is mid-handshake makes gearhead obsolete its own session
             // (SESSION_OBSOLETE_DUE_TO_NEW_CONNECTION) and starts the relaunch storm.
@@ -650,106 +688,90 @@ class TcpAdvertiser(
             }
             // Reset the watchdog with the full budget
             startAaConnectWatchdog(carSocket)
-            return
+            return@synchronized
         }
 
         // AA was connected (bridge active) or no proxy exists — start fresh
         activeProxy?.stop()
         activeCarSocket?.let { runCatching { it.close() } }
         activeCarSocket = carSocket
+        activeProxyBridge = null
         isLaunching = false
         aaLaunchAttempts = 0
 
         launchAndroidAuto(carSocket)
+      }
+      drainPublications()
+    }
+
+    /** All construction paths receive the same exact-resource callbacks, including null-car warm/WPP. */
+    private fun createProxy(carSocket: Socket?): AaProxy {
+        lateinit var proxy: AaProxy
+        proxy = AaProxy(carSocket, object : AaProxy.Listener {
+            override fun onConnected() = Unit
+            override fun onDisconnected(unexpected: Boolean) = Unit
+            override fun onConnected(carSocket: Socket, bridge: Any) {
+                val current = synchronized(proxyOwnershipLock) {
+                    if (!isRunning || activeProxy !== proxy || activeCarSocket !== carSocket) false
+                    else {
+                        activeProxyBridge = bridge
+                        bridgeRelaunchAttempts = 0
+                        aaConnectWatchdog?.cancel()
+                        aaConnectWatchdog = null
+                        aaLaunchAttempts = 0
+                        reservePublication { stateListener.onProxyConnected() }
+                        true
+                    }
+                }
+                if (current) drainPublications()
+            }
+            override fun onDisconnected(carSocket: Socket?, bridge: Any, unexpected: Boolean, retained: Boolean) {
+                val current = synchronized(proxyOwnershipLock) {
+                    // A finalizer belongs to its proxy AND its bridge-local socket. Never look
+                    // up a mutable successor after notifying an external listener.
+                    if (carSocket == null || activeProxy !== proxy || !isRunning || activeCarSocket !== carSocket ||
+                        (activeProxyBridge != null && activeProxyBridge !== bridge)) false
+                    else {
+                        activeProxyBridge = null
+                        isLaunching = false
+                        if (!retained) {
+                            activeCarSocket = null
+                            aaConnectWatchdog?.cancel()
+                            aaConnectWatchdog = null
+                            // The consumed stream is closed by AaProxy. Wait for a fresh car
+                            // dial rather than inviting AA onto a known-dead stream.
+                            scheduleBridgeRelaunch(null)
+                        }
+                        reservePublication { stateListener.onProxyDisconnected() }
+                        true
+                    }
+                }
+                if (current) drainPublications()
+            }
+        })
+        return proxy
     }
 
     private fun launchAndroidAuto(carSocket: Socket) {
         if (isLaunching) return
         isLaunching = true
-
         scope.launch {
-            try {
-                val proxy = AaProxy(
-                    preConnectedSocket = carSocket,
-                    listener = object : AaProxy.Listener {
-                        override fun onConnected() {
-                            CompanionLog.i(TAG, "AA flowing through TCP proxy")
-                            // AA is alive — cancel the watchdog and reset retry counter.
-                            // Also clear the bridge-break backoff: a working bridge means
-                            // the previous breaks are history and the next unrelated break
-                            // deserves a fresh, fast first retry.
-                            bridgeRelaunchAttempts = 0
-                            aaConnectWatchdog?.cancel()
-                            aaConnectWatchdog = null
-                            aaLaunchAttempts = 0
-                            stateListener.onProxyConnected()
-                        }
-
-                        override fun onDisconnected(unexpected: Boolean) {
-                            CompanionLog.i(TAG, "AA TCP proxy disconnected (unexpected=$unexpected)")
-                            stateListener.onProxyDisconnected()
-                            // Re-accept next connection
-                            isLaunching = false
-                            // Root-cause recovery for the mid-drive freeze: when
-                            // gearhead drops its localhost socket mid-session the
-                            // car TCP socket is left half-open and the car sits
-                            // frozen until its ~9s ping-timeout. Proactively (a)
-                            // close the car socket so the car gets a clean reset
-                            // and its single-flight reconnect fires immediately,
-                            // and (b) re-fire the AA launch so the phone rebuilds
-                            // the bridge as soon as the car reconnects. Only on an
-                            // UNEXPECTED break (not an intentional stop / user exit
-                            // / car-driven reconnect, which manage the socket
-                            // themselves).
-                            if (unexpected && isRunning) {
-                                // A half-open socket (gearhead dropped its localhost end
-                                // mid-session, car still on the network) still reports
-                                // isConnected=true / isClosed=false, so the mid-drive
-                                // freeze recovery below still fires for that case. A car
-                                // that actually LEFT the network shows up here with
-                                // activeCarSocket already closed or null.
-                                val hadLiveCar = activeCarSocket?.let { !it.isClosed && it.isConnected } == true
-                                activeCarSocket?.let { runCatching { it.close() } }
-                                activeCarSocket = null
-                                // Only re-invite AA if the car was actually still
-                                // present. If the car has left the network (hotspot
-                                // dropped, drove out of range, ignition off) there is
-                                // nothing to bridge TO: AA reconnects to the proxy in
-                                // ~100ms, the bridge is built onto the already-dead
-                                // car socket, fails instantly with "Socket is closed",
-                                // and we relaunch again — a hot loop that burns phone
-                                // battery and spams gearhead with dead sessions.
-                                // Measured 2026-07-25 (21s hotspot-off test): 622 AA
-                                // connects / 617 "Socket is closed" from only 4 real
-                                // car sockets, peaking at 339 in a single minute.
-                                // When the car is gone we simply stop and wait — the
-                                // car re-dials on its own and handleCarConnection()
-                                // restarts the pipeline from a clean state.
-                                if (!hadLiveCar) {
-                                    CompanionLog.i(TAG,
-                                        "Unexpected bridge break — car socket already dead, " +
-                                            "NOT relaunching AA; waiting for the car to reconnect")
-                                    scheduleBridgeRelaunch(null)
-                                } else {
-                                    CompanionLog.i(TAG,
-                                        "Unexpected bridge break — resetting car socket + relaunching AA")
-                                    scheduleBridgeRelaunch(activeProxy?.localPort?.takeIf { it > 0 })
-                                }
-                            }
-                        }
-                    },
-                )
-                val localPort = proxy.start()
-                activeProxy = proxy
-                if (localPort > 0) PhoneWppDiagnostics.record(PhoneWppStage.WARM_PROXY_READY)
-
-                fireAaLaunchIntent(localPort)
-                startAaConnectWatchdog(carSocket)
-            } catch (e: Exception) {
-                CompanionLog.e(TAG, "Failed to launch AA: ${e.message}")
-                isLaunching = false
-                stateListener.onProxyDisconnected()
+            synchronized(proxyOwnershipLock) {
+                if (!isRunning || activeCarSocket !== carSocket) return@synchronized
+                try {
+                    val proxy = createProxy(carSocket)
+                    val localPort = proxy.start()
+                    activeProxy = proxy
+                    if (localPort > 0) PhoneWppDiagnostics.record(PhoneWppStage.WARM_PROXY_READY)
+                    fireAaLaunchIntent(localPort)
+                    startAaConnectWatchdog(carSocket)
+                } catch (e: Exception) {
+                    CompanionLog.e(TAG, "Failed to launch AA: ${e.message}")
+                    isLaunching = false
+                    reservePublication { stateListener.onProxyDisconnected() }
+                }
             }
+            drainPublications()
         }
     }
 
@@ -869,38 +891,56 @@ class TcpAdvertiser(
      * reconnects means the first successful AA launch connects regardless of
      * which car socket cycle it arrives on.
      */
-    private fun startAaConnectWatchdog(carSocket: Socket) {
+    private fun startAaConnectWatchdog(carSocket: Socket): Unit = synchronized(proxyOwnershipLock) {
+        val proxy = activeProxy ?: return@synchronized
+        val epoch = runEpoch
+        val revision = ++watchdogRevision
         aaConnectWatchdog?.cancel()
         aaConnectWatchdog = scope.launch {
             delay(AA_CONNECT_TIMEOUT_MS)
-            val proxy = activeProxy
-            if (proxy == null || proxy.hasActiveBridge() || !isRunning) return@launch
-            aaLaunchAttempts++
-            if (aaLaunchAttempts <= MAX_AA_LAUNCH_RETRIES) {
-                CompanionLog.w(TAG,
-                    "AA didn't connect to proxy in ${AA_CONNECT_TIMEOUT_MS}ms — retry #$aaLaunchAttempts")
-                val port = proxy.localPort
-                if (port > 0) fireAaLaunchIntent(port)
-                startAaConnectWatchdog(carSocket)
-            } else {
-                // Out of quick retries. Close the car socket so the car reconnects
-                // (which will call handleCarConnection → reuse proxy path above).
-                // Do NOT stop the proxy — AA may still be starting and will connect
-                // to the same proxy port when ready.
-                CompanionLog.w(TAG,
-                    "AA still not connected after $MAX_AA_LAUNCH_RETRIES retries — " +
-                    "cycling car socket, keeping proxy alive on port ${proxy.localPort}")
-                aaLaunchAttempts = 0
-                runCatching { carSocket.close() }
-                // activeCarSocket will be refreshed when the car reconnects.
-                // Do not null out activeProxy — we want to reuse it.
+            // Logging is advisory, never an admission to mutate the current owner.
+            val attempt = synchronized(proxyOwnershipLock) {
+                if (!isRunning || runEpoch != epoch || watchdogRevision != revision ||
+                    activeProxy !== proxy || activeCarSocket !== carSocket ||
+                    activeProxyBridge != null || proxy.hasActiveBridge()) return@launch
+                aaLaunchAttempts + 1
             }
+            CompanionLog.w(TAG,
+                if (attempt <= MAX_AA_LAUNCH_RETRIES) {
+                    "AA didn't connect to proxy in ${AA_CONNECT_TIMEOUT_MS}ms — retry #$attempt"
+                } else {
+                    "AA still not connected after $MAX_AA_LAUNCH_RETRIES retries — " +
+                        "cycling car socket, keeping proxy alive on port ${proxy.localPort}"
+                })
+            synchronized(proxyOwnershipLock) {
+                // Exact-resource admission and ALL effects share this critical section;
+                // a delayed coroutine cannot steal a successor's retry/job budget.
+                if (!isRunning || runEpoch != epoch || watchdogRevision != revision ||
+                    activeProxy !== proxy || activeCarSocket !== carSocket ||
+                    activeProxyBridge != null || proxy.hasActiveBridge()) return@synchronized
+                aaLaunchAttempts = attempt
+                if (attempt <= MAX_AA_LAUNCH_RETRIES) {
+                    val port = proxy.localPort
+                    if (port > 0) fireAaLaunchIntent(port)
+                    startAaConnectWatchdog(carSocket)
+                } else {
+                    aaLaunchAttempts = 0
+                    runCatching { carSocket.close() }
+                    // Retain the accepting proxy on its advertised port.
+                }
+            }
+            drainPublications()
         }
     }
 
     fun stop() {
+      val pending = synchronized(proxyOwnershipLock) {
         CompanionLog.i(TAG, "Stopping TCP server")
         isRunning = false
+        runEpoch++
+        publicationRevision++
+        watchdogRevision++
+        publications.clear()
         carNetworkMonitor?.stop()
         carNetworkMonitor = null
         listenerGenerations.stop()
@@ -918,6 +958,10 @@ class TcpAdvertiser(
         activeCarSocket?.let { runCatching { it.close() } }
         activeCarSocket = null
         scope.cancel()
+        if (publicationThread !== Thread.currentThread()) publicationDone else null
+      }
+      // Join already-admitted external writes before the service releases state.
+      pending?.await()
     }
 
     private fun registerNsd(network: Network?) {

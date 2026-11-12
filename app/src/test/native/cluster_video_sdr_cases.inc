@@ -109,5 +109,21 @@ int main() {
     assert(!appendSecondaryVideoServices(collision,{auxiliary}));
     assert(collision.SerializeAsString()==collisionBytes);
     std::cout << "PASS no-capability input association + channel collision + unchanged complete main SDR\n";
+    // Distinct logical/physical metadata, independent outputs and untouched main.
+    offer.density=120;
+    auto physical=[]<typename T>(T& value) { if constexpr(requires { value.realDensity; }) value.realDensity=160; };
+    physical(offer);
+    auxiliary.channelId=19;auxiliary.density=240;
+    s.sdrConfig_.secondaryOffers={offer,auxiliary};
+    Response densityWire;s.buildServiceDiscoveryResponse(densityWire);
+    Response densityParsed;assert(densityParsed.ParseFromString(densityWire.SerializeAsString()));
+    for(const auto& ch:densityParsed.channels())if(ch.id()==3 || ch.id()==19) {
+        const auto& vc=ch.media_sink_service().video_configs(0);
+        assert(vc.density()==(ch.id()==3?120:240));
+        assert(vc.real_density()==(ch.id()==3?160:240) && "logical density must not replace physical metadata");
+    }
+    removeOptional(densityParsed);Response densityMain;s.sdrConfig_.secondaryOffers.clear();s.buildServiceDiscoveryResponse(densityMain);
+    assert(densityParsed.SerializeAsString()==densityMain.SerializeAsString());
+    std::cout << "PASS custom logical/physical density + per-output fallback + unchanged main\n";
     return 0;
 }
