@@ -91,6 +91,7 @@ dependencies {
 
     // Testing
     testImplementation(libs.junit)
+    testImplementation(libs.mockk) // Test-only warning boundary for deterministic watchdog regressions.
     // Same checksum-verified host fixture version already pinned by app and carplay-lab.
     testImplementation(libs.robolectric)
 }

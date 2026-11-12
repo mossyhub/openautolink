@@ -8,7 +8,7 @@ import java.util.UUID
 import kotlin.random.Random
 
 internal class LiveController(private val scope:CoroutineScope,
-    private val wireFactory:()->LiveWire={LiveHttps()},
+    private val wireFactory:()->LiveWire,
     private val snapshot:()->JSONObject,private val statusSink:(String)->Unit={},
     private val networkFactory:()->LiveNetwork={UnknownLiveNetwork}) {
     private val lock=Any()

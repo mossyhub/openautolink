@@ -20,6 +20,14 @@ Open **Directions area** to move the green inner box or resize it using its corn
 
 The target/build/dimensions/density namespace is a persistence scope, not a calibration allowlist. Direct-safe overrides are stored separately from legacy `output` and `safe` fields. Legacy outer layouts remain stored but do not resize/reposition a direct window. Saved safe intent is revalidated against the current actual drawable and protocol fit; stale scope/invalid geometry falls back to the automatic safe area with a diagnostic reason. No settings observation changes an already serialized offer.
 
+## Android Auto UI density
+
+Under **Android Auto display mode**, enable **Custom Android Auto density** to adjust the selected secondary display from **80–320 DPI**. Lower DPI makes phone-rendered text, cards and badges smaller; higher DPI makes them larger. Start with a modest reduction and check that directions remain readable. Turning the control off restores **Automatic**, which uses the display's Android-reported DPI and preserves the previous behavior.
+
+This is a draft until **Save changes**. Wireless applies it through the normal reconnect transaction; USB requires unplugging and reconnecting. The density is frozen when the next session is prepared. Opening Settings or moving the slider does not change the active stream or start video.
+
+The setting affects only the selected Android Auto secondary display. It does not change the main AA feed, CarPlay, the AA Cluster/Auxiliary role, the Directions area, or the full output window. Logical UI density is separate from physical-density metadata. Video remains 1280×720 with the existing aspect crop; higher-resolution secondary video is not part of this control. Navigation apps may rearrange information at different densities. This is not a map-camera zoom control, and the final appearance depends on the phone and navigation app.
+
 ## Hidden and returning windows
 
 Start/stop, actual own-window visibility, Activity identity and Surface generation are separate facts. Input focus is not page visibility; the window is intentionally nonfocusable/non-touchable. Pause alone does not end projection or navigation.
@@ -46,7 +54,7 @@ Retained GM source shows that genuine AndroidX navigation publication requires `
 
 Consequently this is **not** a promise of all three: OAL direct video + OAL-fed native icons/HUD + preserved selectable native Maps. It does not register OAL as a GM map-feed provider. An OEM page change may mask an application window without delivering the callback OAL needs, or may leave it visible over the wrong page. Automatic page-following, physical instrument layering, ignition behavior and actual phone/vehicle pixels remain vehicle-validation gates. No privileged workaround or synthetic ownership claim is added.
 
-AA Cluster and Auxiliary roles are preserved literally. They select different phone-side shells/providers; information/layout can differ by app. Neither role is advertised as a speed-limit entitlement, passenger launcher or touch capability, and no unrelated hidden-UI flag or DPI policy is changed.
+AA Cluster and Auxiliary roles are preserved literally. They select different phone-side shells/providers; information/layout can differ by app. Neither role is advertised as a speed-limit entitlement, passenger launcher or touch capability. Changing the role does not change hidden-UI flags or the independent Android Auto density setting.
 
 ## Software qualification boundary
 

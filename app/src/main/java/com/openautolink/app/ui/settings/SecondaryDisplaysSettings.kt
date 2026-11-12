@@ -9,6 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openautolink.app.cluster.ClusterDisplayMode
@@ -121,6 +123,30 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryRoleDescription"))
                     Text("Appearance depends on Android Auto and your navigation app. These descriptions reflect Google Maps; Waze may look the same in both modes. OAL displays the supplied video—its content may change with phone-app updates.",
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryRoleAppearanceHelp"))
+                    val customDensity = row.preference.aaDensityDpi
+                    ClusterSwitch("Custom Android Auto density", customDensity != null,
+                        editable && row.usable, { custom ->
+                            row.id?.let { id -> onOutputChange(id) { current ->
+                                current.copy(aaDensityDpi = if (custom)
+                                    row.descriptor?.densityDpi?.coerceIn(80, 320) ?: 160 else null)
+                            } }
+                        }, "secondaryDensityCustom") {
+                        Text(if (customDensity == null)
+                            "Automatic · ${row.descriptor?.densityDpi ?: 160} DPI" else "$customDensity DPI",
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (customDensity != null) {
+                        Slider(value = customDensity.toFloat(),
+                            onValueChange = { value -> row.id?.let { id -> onOutputChange(id) {
+                                it.copy(aaDensityDpi = value.roundToInt().coerceIn(80, 320))
+                            } } },
+                            valueRange = 80f..320f, enabled = editable && row.usable,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .semantics { contentDescription = "Android Auto secondary density" }
+                                .testTag("secondaryDensitySlider"))
+                    }
+                    Text("Lower DPI makes text and cards smaller. Applies to this Android Auto display after Save and reconnect.",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryDensityHelp"))
                     Text("CarPlay has no equivalent Cluster/Auxiliary selector in OAL; its driver-display view is controlled by iOS and the navigation app.",
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryCarPlayRoleNote"))
                 }

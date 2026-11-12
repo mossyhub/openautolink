@@ -13,8 +13,7 @@ internal interface LiveWire : AutoCloseable {
 internal class LiveHttpFailure(val status: Int) : IOException("OAL observer request rejected")
 
 /** User-selected HTTPS base/typed routes; system certificate AND hostname verification; no redirects. */
-internal class LiveHttps(private val endpoint:LiveEndpoint=LiveEndpoint.LEGACY) : LiveWire {
-    companion object { const val BASE = "https://mossy-access.themosscrew.com/oal" }
+internal class LiveHttps(private val endpoint:LiveEndpoint) : LiveWire {
     private val lock = Any()
     private var active: HttpsURLConnection? = null
     private var closed = false

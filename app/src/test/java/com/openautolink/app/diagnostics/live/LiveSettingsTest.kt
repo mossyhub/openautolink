@@ -25,6 +25,7 @@ class LiveSettingsTest {
     // dispose composition before the final process teardown.
     @get:Rule val rules: org.junit.rules.TestRule=org.junit.rules.RuleChain.outerRule(process).around(compose)
     @Test fun invitationEyeIsAccessibleMaskedByDefaultAndClearedOnSubmitAtNarrowWidth() {
+        LiveConsentStore(RuntimeEnvironment.getApplication()).saveEndpoint(LiveEndpoint.parse("https://localhost/oal"))
         LiveDiagnostics.initialize(RuntimeEnvironment.getApplication());LiveDiagnostics.stop()
         compose.waitUntil(5000){LiveDiagnostics.ready.value}
         compose.setContent{MaterialTheme{androidx.compose.foundation.layout.Column(
@@ -47,6 +48,7 @@ class LiveSettingsTest {
         LiveDiagnostics.stop()
     }
     @Test fun editingServerIsDraftOnlyAndCannotEnableOrSendInvitationToDraft() {
+        LiveConsentStore(RuntimeEnvironment.getApplication()).saveEndpoint(LiveEndpoint.parse("https://localhost/oal"))
         LiveDiagnostics.initialize(RuntimeEnvironment.getApplication());LiveDiagnostics.stop()
         compose.waitUntil(5000){LiveDiagnostics.ready.value}
         val active=LiveDiagnostics.endpoint.value
@@ -69,6 +71,7 @@ class LiveSettingsTest {
         assertEquals(LaunchChoiceApplication::class.java,app.javaClass)
         assertFalse("this fixture must own an uninitialized observer",LiveDiagnostics.ready.value)
         val consent=LiveConsentStore(app)
+        consent.saveEndpoint(LiveEndpoint.parse("https://localhost/oal"))
         consent.save(false) // explicit saved choice, not an assertion about the launch default
         assertFalse(consent.load())
         LiveDiagnostics.initialize(app)
@@ -102,6 +105,7 @@ class LiveSettingsTest {
         }
     }
     @Test fun renderedOptInMissingInvitationAndStopRemainReadOnly() {
+        LiveConsentStore(RuntimeEnvironment.getApplication()).saveEndpoint(LiveEndpoint.parse("https://localhost/oal"))
         LiveDiagnostics.initialize(RuntimeEnvironment.getApplication());LiveDiagnostics.stop()
         compose.setContent{MaterialTheme{androidx.compose.foundation.layout.Column(
             androidx.compose.ui.Modifier.verticalScroll(rememberScrollState())

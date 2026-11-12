@@ -210,6 +210,55 @@ class SecondaryOutputRuntimeTest {
         } finally { cleanup(runtime) }
     }
 
+    @Test fun androidAutoDensityIsFrozenPerOutputAndResetUsesPhysicalDescriptor() {
+        val a = descriptor("A")
+        val originalB = descriptor("B")
+        ShadowDisplayManager.changeDisplay(originalB.displayId, "w800dp-h480dp-hdpi")
+        val displayB = context.getSystemService(DisplayManager::class.java).getDisplay(originalB.displayId)
+        shadowOf(displayB).setFlags(Display.FLAG_PRESENTATION)
+        shadowOf(displayB).setState(Display.STATE_ON)
+        val metricsB = android.util.DisplayMetrics().also(displayB::getRealMetrics)
+        assertEquals(240, metricsB.densityDpi)
+        val b = originalB.copy(width = metricsB.widthPixels, height = metricsB.heightPixels, densityDpi = metricsB.densityDpi)
+        val runtime = runtime(MutableStateFlow(SecondaryInventorySnapshot(1, listOf(a, b))))
+        val initial = prefs(listOf(a, b))
+        val automatic = initial.copy(outputs = initial.outputs + (b.id to initial.outputs.getValue(b.id).copy(enabled = false)))
+        val custom = automatic.copy(outputs = automatic.outputs +
+            (a.id to automatic.outputs.getValue(a.id).copy(aaDensityDpi = 120)))
+        try {
+            val first = scope.async { runtime.prepareAndroidAuto(71, custom) }
+            pump { first.isCompleted }
+            val preparedFirst = runBlocking { first.await() }
+            assertEquals("density preparation: ${runtime.statuses.value}; " +
+                com.openautolink.app.diagnostics.DiagnosticLog.localLogs.value.takeLast(24).joinToString { it.message },
+                1, preparedFirst.offers.size)
+            val frozen = preparedFirst.offers.single()
+            assertEquals(120, frozen.density)
+            assertEquals(160, frozen.realDensity)
+            val reset = custom.copy(outputs = custom.outputs +
+                (a.id to custom.outputs.getValue(a.id).copy(aaDensityDpi = null)))
+            val retired = runtime.retire("density explicit reconnect")
+            pump { retired.isDone }; assertTrue(retired.get())
+            val second = scope.async { runtime.prepareAndroidAuto(72, reset) }
+            pump { second.isCompleted }
+            val defaultOffer = runBlocking { second.await() }.offers.single()
+            assertEquals(160, defaultOffer.density)
+            assertEquals(160, defaultOffer.realDensity)
+            val other = custom.copy(outputs = custom.outputs +
+                (a.id to custom.outputs.getValue(a.id).copy(enabled = false)) +
+                (b.id to custom.outputs.getValue(b.id).copy(enabled = true)))
+            val retiredAgain = runtime.retire("choose independent display")
+            pump { retiredAgain.isDone }; assertTrue(retiredAgain.get())
+            val third = scope.async { runtime.prepareAndroidAuto(73, other) }
+            pump { third.isCompleted }
+            val otherOffer = runBlocking { third.await() }.offers.single()
+            assertEquals(240, otherOffer.density)
+            assertEquals(240, otherOffer.realDensity)
+            assertEquals(120, other.outputs.getValue(a.id).aaDensityDpi)
+            assertEquals(120, frozen.density)
+        } finally { cleanup(runtime) }
+    }
+
     @Test fun reconnectWaitsForExactRetirementBeforeAndroidAutoOffer() = heldRetirementReconnect(false)
     @Test fun reconnectWaitsForExactRetirementBeforeCarPlayConfiguration() = heldRetirementReconnect(true)
 

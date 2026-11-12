@@ -342,7 +342,7 @@ void JniSession::start(JNIEnv* env, jobject transportPipe, jobject callback, job
             if(!field || env->ExceptionCheck()){env->ExceptionClear();optionalOk=false;return 0;}
             return static_cast<int>(env->GetIntField(object,field));
         };
-        if(secondary){value.channelId=read("channelId");value.protocolDisplayId=read("protocolDisplayId");value.displayType=read("displayType");}
+        if(secondary){value.channelId=read("channelId");value.protocolDisplayId=read("protocolDisplayId");value.displayType=read("displayType");value.realDensity=read("realDensity");}
         value.density=read("density");
         value.cropLeft=read("cropLeft");value.cropTop=read("cropTop");
         value.cropRight=read("cropRight");value.cropBottom=read("cropBottom");

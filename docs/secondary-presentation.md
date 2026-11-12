@@ -25,6 +25,8 @@ With video on, choose the phone-facing role:
 - **Cluster:** a more compact navigation layout.
 - **Auxiliary:** Google Maps adds destination and speed information. A useful starting point for larger driver displays.
 
+If text and cards are too large, enable **Custom Android Auto density** and lower the DPI. The slider covers **80–320 DPI** for the selected driver display only; it does not change the main feed or CarPlay. Turn the control off to restore **Automatic**. Select **Save changes** and reconnect to apply (wireless reconnects automatically when safe; unplug/reconnect USB). This changes UI density, not the map's camera zoom.
+
 ### Apple CarPlay
 
 There is no equivalent Cluster/Auxiliary selector in OAL.

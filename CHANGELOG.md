@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.580 — Driver-display density and wireless recovery
+
+- Add **Custom Android Auto density** under Secondary Displays, with an optional **80–320 DPI** slider for the selected driver display. Lower DPI makes phone-rendered text and cards smaller. **Automatic** preserves the previous behavior; turning the control off removes the override.
+- Keep this independent of the main AA feed, CarPlay, Cluster/Auxiliary selection, Directions area and full video window. Preserve physical-density metadata and the existing video resolution; this is UI density, not map-camera zoom.
+- Apply density changes through the existing **Save changes** transaction. Wireless reconnects when safe; USB keeps its admitted session until unplug/reconnect. Preserve saved display roles, safe areas and unrelated settings.
+- Keep an active wireless Android Auto session available for its clean settings reconnect instead of stopping it through the USB handoff path first. Preserve actual protocol-switch retirement and USB/active-call deferrals.
+- Fence Companion bridge cleanup to the exact failed socket so it cannot overwrite or close a replacement connection. Do not reuse a failed constructor socket on a later Android Auto attach; retain useful prewarm and never-pumped socket recovery.
+- Leave the live-diagnostics server blank on a clean install and require explicit server setup before pairing or network delivery. Preserve explicitly configured endpoints and remembered pairings.
+- Install the matching Companion update for the phone-side socket fixes. No re-pairing or settings reset is required.
+
 ## 0.1.579 — One shared Always in Park override
 
 - Make Always in Park a single saved choice shared by Android Auto and CarPlay, with one control at the top of Input settings instead of a duplicate CarPlay-only switch.

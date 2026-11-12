@@ -205,6 +205,63 @@ class UsbSettingsSaveTransactionTest {
         assertEquals(before,runBlocking { preferences.getSecondaryDisplayPreferences() })
     }
 
+    @Test fun globalWirelessAaSaveReachesOrdinaryReconnectBeforeSessionRetirement() = assertLiveAaSave(false)
+    @Test fun globalWirelessAaSaveRetainsOptionalHostWithoutRetiringAa() = assertLiveAaSave(true)
+
+    private fun assertLiveAaSave(retainHost: Boolean) {
+        setup(configuredAa = "wpp", actualAa = "wpp")
+        val available = java.util.concurrent.atomic.AtomicBoolean(true)
+        val availableAtReconnect = java.util.concurrent.atomic.AtomicBoolean(false)
+        val durableAtReconnect = java.util.concurrent.atomic.AtomicBoolean(false)
+        coEvery { session.stop() } coAnswers { available.set(false); aaState.value = SessionState.IDLE }
+        coEvery { session.stopForExplicitReconnect() } coAnswers { available.set(false); aaState.value = SessionState.IDLE }
+        val runtime = mockk<SecondaryOutputRuntime>(relaxed = true)
+        mockkObject(SecondaryOutputRuntime.Companion)
+        every { SecondaryOutputRuntime.get(any()) } returns runtime
+        every { runtime.retainForExplicitReconnect() } returns retainHost
+        coEvery { session.reconnect(any(), any(), any(), any(), any(), any(), any(), any(), any(),
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            availableAtReconnect.set(available.get() && aaState.value == SessionState.STREAMING)
+            durableAtReconnect.set(preferences.carPlaySettings.first().ssid == "Saved receiver" &&
+                preferences.getClusterOutputSelection().mode == com.openautolink.app.cluster.ClusterDisplayMode.MAP_VIDEO &&
+                layoutCommitCount.get() == 1)
+            reconnectCount.incrementAndGet()
+            Unit
+        }
+        save(expectReconnect = true)
+        assertTrue("Global Save must reach ordinary AA reconnect with the existing session available for graceful ByeBye/minimal restart", availableAtReconnect.get())
+        assertTrue("All saved stores and optional layout commit must precede ordinary reconnect", durableAtReconnect.get())
+        coVerify(exactly = 0) { session.stop() }
+        coVerify(exactly = 0) { session.stopForExplicitReconnect() }
+        verify(exactly = 1) { runtime.retainForExplicitReconnect() }
+    }
+
+    @Test fun activeWirelessAaSaveSwitchingToCarPlayStillWaitsForRetirement() {
+        setup(configuredAa = "wpp", actualAa = "wpp", cp = CarPlaySettings(enabled = true, connectionMode = "wireless"))
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val runtime = mockk<SecondaryOutputRuntime>(relaxed = true)
+        mockkObject(SecondaryOutputRuntime.Companion)
+        every { SecondaryOutputRuntime.get(any()) } returns runtime
+        every { runtime.retainForExplicitReconnect() } returns false
+        coEvery { session.stop() } coAnswers { entered.complete(Unit); release.await() }
+        try {
+            compose.onNodeWithTag("saveAndConnectButton").performClick()
+            awaitMainOutcome(10000) { closes == 1 && entered.isCompleted }
+            assertTrue(runBlocking { preferences.carPlaySettings.first().enabled })
+            assertFalse("CarPlay must not start before AA retirement acknowledges", projection.carPlayState.value.selected)
+            assertEquals(0, reconnects)
+            release.complete(Unit)
+            // No Bluetooth consent in this fixture: the real post-retirement CarPlay admission
+            // reports guidance instead of opening native/network resources.
+            awaitMainOutcome(10000) { projection.carPlayStartupGuidance.value != null }
+            coVerify(exactly = 1) { session.stop() }
+            verify(exactly = 0) { settings.saveAndReconnect() }
+            assertEquals(0, reconnects)
+        } finally { release.complete(Unit) }
+    }
+
     @Test fun wirelessSaveAdmitsRetainedHostAfterPersistenceBeforeTransportRestart() {
         setup(configuredAa = "wpp", actualAa = "wpp")
         val retained = java.util.concurrent.atomic.AtomicInteger()

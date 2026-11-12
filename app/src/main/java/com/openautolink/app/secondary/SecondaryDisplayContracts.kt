@@ -74,7 +74,10 @@ data class SecondaryOutputPreference(
     val androidAuto: Boolean = false,
     val carPlay: Boolean = false,
     val layout: SecondaryLayoutPreference? = null,
-)
+    val aaDensityDpi: Int? = null,
+) {
+    init { require(aaDensityDpi == null || aaDensityDpi in 80..320) }
+}
 
 /** A regular value class avoids generated data-class copy bypassing defensive collection copying. */
 class SecondaryPreferencesSnapshot(

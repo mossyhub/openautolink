@@ -24,13 +24,16 @@ internal object SecondaryDisplayPreferences {
             require(outputs.size <= MAX_OUTPUTS)
             val decoded = outputs.map { (key, value) ->
                 val id = SecondaryOutputId(key)
-                val fields = value.obj(setOf("enabled", "aaRole", "androidAuto", "carPlay"), setOf("layout"))
+                val fields = value.obj(setOf("enabled", "aaRole", "androidAuto", "carPlay"), setOf("layout", "aaDensityDpi"))
                 val roleValue = fields.getValue("aaRole")
                 val role = if (roleValue == JsonNull) null else AaSecondaryRole.valueOf(roleValue.text())
                 val layout = fields["layout"]?.takeUnless { it == JsonNull }?.let(::readLayout)
+                val density = fields["aaDensityDpi"]?.takeUnless { it == JsonNull }?.number()?.also {
+                    require(it in 80L..320L)
+                }?.toInt()
                 require(layout == null || layout.scope.outputId == id)
                 id to SecondaryOutputPreference(fields.getValue("enabled").bool(), role,
-                    fields.getValue("androidAuto").bool(), fields.getValue("carPlay").bool(), layout)
+                    fields.getValue("androidAuto").bool(), fields.getValue("carPlay").bool(), layout, density)
             }.toMap()
             SecondaryPreferencesSnapshot(revision, decoded, legacy)
         } catch (_: IllegalArgumentException) {
@@ -56,6 +59,7 @@ internal object SecondaryDisplayPreferences {
                         put("aaRole", value.aaRole?.let { JsonPrimitive(it.name) } ?: JsonNull)
                         put("androidAuto", value.androidAuto); put("carPlay", value.carPlay)
                         put("layout", value.layout?.let(::writeLayout) ?: JsonNull)
+                        value.aaDensityDpi?.let { put("aaDensityDpi", it) }
                     }
                 }
             }

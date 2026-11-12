@@ -4,301 +4,180 @@ import com.openautolink.companion.diagnostics.CompanionLog
 import com.openautolink.companion.diagnostics.PhoneWppDiagnostics
 import com.openautolink.companion.diagnostics.PhoneWppStage
 import com.openautolink.companion.service.TcpAdvertiser
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Local TCP proxy that relays Android Auto protocol data between the AA
- * app on this phone (connected via localhost) and the car (connected via
- * a pre-existing TCP socket from [TcpAdvertiser]).
- *
- * Note: preConnectedSocket is used for exactly one bridge session.
- * If AA reconnects, the proxy must be recreated with a new socket.
- */
+/** Local AA endpoint. A car socket is consumed once unless setup failed before either pump started. */
 class AaProxy(
-    private val preConnectedSocket: Socket? = null,
+    preConnectedSocket: Socket? = null,
     private val listener: Listener? = null,
 ) {
     interface Listener {
         fun onConnected()
-        /**
-         * The bridge ended. [unexpected] is true when a live AA<->Car bridge
-         * broke on its own (gearhead closed its localhost socket, or a
-         * read/write failed) while the proxy was still running — i.e. NOT an
-         * intentional [stop]. The car TCP socket is then left half-open (no
-         * FIN/RST reaches the car because the WiFi L2 link is still up), so the
-         * car sits frozen until its ~9s ping-timeout. The handler should treat
-         * an unexpected break as a recovery trigger (close the car socket so the
-         * car gets a clean reset + reconnects, and relaunch AA).
-         */
         fun onDisconnected(unexpected: Boolean)
+        /** Exact bridge resource, not the advertiser's mutable current socket. */
+        fun onConnected(carSocket: Socket, bridge: Any) = onConnected()
+        fun onDisconnected(carSocket: Socket?, bridge: Any, unexpected: Boolean, retained: Boolean) = onDisconnected(unexpected)
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val ownershipLock = Any()
     private var serverSocket: ServerSocket? = null
-
-    /** Port the proxy is listening on for the local AA app. 0 if not started. */
-    @Volatile
-    var localPort: Int = 0
+    @Volatile var localPort: Int = 0
         private set
+    @Volatile private var isRunning = false
+    @Volatile private var activeCarSocket: Socket? = null
+    // The constructor seeds the same one-shot slot as updateCarSocket. It is never a fallback.
+    @Volatile private var pendingCarSocket: Socket? = preConnectedSocket
+    private var socketGeneration = 0L
+    private val aaSockets = mutableSetOf<Socket>()
+    private val activeBridges = AtomicInteger()
+    private val pumpingBridges = AtomicInteger()
+    private val waitingBridges = AtomicInteger()
+    private val waitGeneration = AtomicInteger()
+    @Volatile private var carGoneForGood = false
 
-    @Volatile
-    private var isRunning = false
-
-    @Volatile
-    private var activeCarSocket: Socket? = null
-    private val activeBridges = AtomicInteger(0)
-    private var bridgeUsed = false
-
-    /**
-     * Bridges that are actually PUMPING (car socket acquired, both pipes wired up).
-     *
-     * Deliberately distinct from [activeBridges], which is incremented the instant the
-     * bridge coroutine starts — including while it is parked in [awaitPendingCarSocket]
-     * waiting for the car. Reporting "active" during that wait made
-     * TcpAdvertiser.handleCarConnection() skip its socket-swap path and instead
-     * stop() the proxy and re-listen on a NEW socket, tearing the socket out from under
-     * the AA reader that was already attached (gearhead: "ReaderThread: end of stream
-     * received, dataReceived=false" -> FRAMER_READ_END_OF_STREAM_NO_DATA ->
-     * PROTOCOL_IO_ERROR(3)/READER_CLOSE(52)). Observed 2026-07-25.
-     */
-    private val pumpingBridges = AtomicInteger(0)
-
-    /** True only when a bridge is genuinely relaying bytes. */
     fun hasActiveBridge(): Boolean = pumpingBridges.get() > 0
-
-    /** True if a bridge coroutine exists at all, including one awaiting a car socket. */
     fun hasPendingBridge(): Boolean = activeBridges.get() > 0
+    /** Finalization is not an AA prewarm waiter and must not suppress a fresh launch. */
+    fun hasWaitingBridge(): Boolean = waitingBridges.get() > 0
 
-    @Volatile private var pendingCarSocket: Socket? = null
-
-    /**
-     * Set when the car announces it is shutting down, cleared on a fresh dial.
-     *
-     * Distinguishes "the car is powering off" from "the link glitched". The two
-     * look identical at the socket level until something times out, and the
-     * recovery for each is the opposite: a glitch wants the car socket kept for
-     * reuse, a shutdown wants everything dropped so the next ignition starts
-     * clean on a new subnet and a new phone address.
-     */
-    @Volatile private var carGoneForGood: Boolean = false
-
-    /**
-     * The car is powering down. Drop the bridge and hold nothing over.
-     */
     fun onCarShutdown() {
-        carGoneForGood = true
-        CompanionLog.i(TAG, "Car signalled shutdown — releasing the bridge")
-        runCatching { pendingCarSocket?.close() }
-        pendingCarSocket = null
-        // Retire any pre-warm waiter: Android Auto is about to disconnect anyway
-        // and a waiter left counting down would swallow the next attach.
-        waitGeneration.incrementAndGet()
+        val sockets = synchronized(ownershipLock) {
+            carGoneForGood = true
+            socketGeneration++
+            waitGeneration.incrementAndGet()
+            listOfNotNull(pendingCarSocket, activeCarSocket).also { pendingCarSocket = null }
+        }
+        sockets.forEach { runCatching { it.close() } }
     }
 
-    /**
-     * Ticket counter for pre-warm waiters, so a newer AA connection can retire an
-     * older one rather than racing it.
-     */
-    private val waitGeneration = java.util.concurrent.atomic.AtomicInteger(0)
-
-    /**
-     * Replace the car-side socket used for the next bridge session.
-     *
-     * Safe while waiting for AA to connect, and also while a pre-warm bridge is parked
-     * in [awaitPendingCarSocket] — that is how the car socket reaches a bridge AA
-     * attached to first. A no-op while a bridge is actively PUMPING, since the live
-     * session owns its socket until it completes.
-     */
-    fun updateCarSocket(newCarSocket: Socket) {
-        if (pumpingBridges.get() > 0) return  // live bridge owns its socket
+    /** Accept only while no bridge owns a car stream. Return whether this exact socket was admitted. */
+    fun updateCarSocket(newCarSocket: Socket): Boolean = synchronized(ownershipLock) {
+        if (!isRunning || pumpingBridges.get() > 0) return@synchronized false
+        socketGeneration++
+        carGoneForGood = false
+        val previous = pendingCarSocket
         pendingCarSocket = newCarSocket
+        if (previous !== newCarSocket) runCatching { previous?.close() }
         CompanionLog.d(TAG, "Car socket updated (pending AA connect)")
+        true
     }
 
-    /**
-     * True only while the local server socket is genuinely accepting.
-     *
-     * [localPort] alone is not enough: the proxy object is deliberately kept
-     * after stop() so it can be reused, so its port keeps reporting a value long
-     * after the socket has closed. Advertising that port to Android Auto sends
-     * the phone to a closed socket and the connection fails silently.
-     */
-    val isAccepting: Boolean
-        get() = isRunning && serverSocket?.isClosed == false
+    val isAccepting: Boolean get() = isRunning && serverSocket?.isClosed == false
 
-    /** Start the proxy server. Returns the stable localhost port AA connects to. */
     fun start(): Int {
         val server = WppProxySocketBinder.bind()
-        serverSocket = server
-        isRunning = true
-
-        val localPort = server.localPort
-        this.localPort = localPort
+        synchronized(ownershipLock) {
+            serverSocket = server
+            isRunning = true
+            localPort = server.localPort
+        }
         CompanionLog.i(TAG, "Proxy listening on localhost:$localPort")
-
         scope.launch {
             try {
                 while (isRunning) {
                     val aaSocket = server.accept()
+                    val ticket = synchronized(ownershipLock) {
+                        if (!isRunning) { aaSocket.close(); return@launch }
+                        aaSockets.add(aaSocket)
+                        waitGeneration.incrementAndGet()
+                    }
                     PhoneWppDiagnostics.record(PhoneWppStage.AA_SOCKET)
-                    CompanionLog.i(TAG, "Android Auto connected to proxy")
-                    launchBridge(aaSocket)
+                    launchBridge(aaSocket, ticket)
                 }
             } catch (e: Exception) {
-                if (e !is CancellationException) {
-                    CompanionLog.d(TAG, "Proxy server stopped: ${e.message}")
-                }
+                if (e !is CancellationException) CompanionLog.d(TAG, "Proxy server stopped: ${e.message}")
             }
         }
-
         return localPort
     }
 
-    private fun launchBridge(aaSocket: Socket) {
-        scope.launch {
-            var carSocket: Socket? = null
-            var counted = false
-            var bridgeAttemptId: Long? = null
-            try {
-                activeBridges.incrementAndGet()
-
-                // Use the most-recently-updated car socket (from a reconnect
-                // while waiting for AA), falling back to the original socket.
-                // Pre-warm path: if AA connected to the proxy BEFORE the car
-                // (i.e. we started the proxy proactively on BT-connect and AA
-                // came up before the car ignition's WiFi finished), no socket
-                // exists yet — wait briefly for one to arrive via
-                // updateCarSocket() rather than failing immediately.
-                //
-                // pumpingBridges is deliberately NOT incremented until the car
-                // socket is in hand: while parked below this proxy must still
-                // report "not active" so an arriving car socket is swapped in
-                // here instead of causing TcpAdvertiser to stop() us and rebind
-                // a fresh socket (which would EOF the AA reader attached above).
-                carSocket = pendingCarSocket?.also { pendingCarSocket = null }
-                    ?: preConnectedSocket
-                    ?: awaitPendingCarSocket(PREWARM_CAR_WAIT_MS)
-                    ?: throw IllegalStateException(
-                        "No car socket within ${PREWARM_CAR_WAIT_MS}ms — AA connected but no car ready"
-                    )
-                activeCarSocket = carSocket
-                pumpingBridges.incrementAndGet()
-                counted = true
-
-                val aaIn = aaSocket.getInputStream()
-                val aaOut = aaSocket.getOutputStream()
-                val carIn = carSocket.getInputStream()
-                val carOut = carSocket.getOutputStream()
-
-                CompanionLog.i(TAG, "Bridge established: AA <-> Car")
-                listener?.onConnected()
-                bridgeAttemptId = PhoneWppDiagnostics.bridgeEstablished()
-
-                val job1 = launch { pump(aaIn, carOut, "AA->Car") }
-                val job2 = launch { pump(carIn, aaOut, "Car->AA") }
-                joinAll(job1, job2)
-            } catch (e: Exception) {
-                CompanionLog.e(TAG, "Bridge error: ${e.message}")
-            } finally {
-                // "Unexpected" = the bridge ended while we were still running
-                // (gearhead dropped its socket / a pump read or write failed),
-                // as opposed to an intentional stop() which flips isRunning
-                // false first. Only an unexpected break should trigger the
-                // car-socket-reset + AA relaunch recovery on the handler side.
-                val unexpected = isRunning
-                CompanionLog.i(TAG, "Bridge closed (unexpected=$unexpected)")
-                activeCarSocket = null
-                if (counted) {
-                    PhoneWppDiagnostics.bridgeClosed(bridgeAttemptId)
-                    pumpingBridges.decrementAndGet()
-                }
-                runCatching { aaSocket.close() }
-                // Don't close carSocket here — let the TcpAdvertiser manage it via cleanup()
-                //
-                // CRITICAL (this is what broke v0.1.368): the car socket is taken out of
-                // pendingCarSocket destructively above. If this bridge never actually
-                // pumped — AA attached, took the socket, then went away before/while the
-                // bridge was set up — the socket must go BACK into the pool. Otherwise the
-                // proxy survives (correctly) but every LATER AA attach finds no car socket,
-                // parks for PREWARM_CAR_WAIT_MS and dies with "No car socket within 30000ms",
-                // repeating forever. That livelock is why v0.1.368 shipped a phone that
-                // never streamed and had to be reverted in v0.1.369.
-                //
-                // Only recycle a socket that is still usable, and only when no other bridge
-                // is pumping (which would own it).
-                if (isRunning && pumpingBridges.get() == 0 && !carGoneForGood) {
-                    carSocket?.takeIf { !it.isClosed && it.isConnected }?.let {
-                        pendingCarSocket = it
-                        CompanionLog.i(TAG, "Car socket still live — returned to pool for next AA attach")
-                    }
-                } else if (carGoneForGood) {
-                    // The car said goodbye. A TCP socket to a head unit that is
-                    // powering down still reports connected — nothing has sent a
-                    // FIN yet — so pooling it hands the next Android Auto attach
-                    // a socket to a car that no longer exists, and the bridge
-                    // sits there until something times out.
-                    runCatching { carSocket?.close() }
-                    pendingCarSocket = null
-                    CompanionLog.i(TAG, "Car has shut down — dropping its socket " +
-                            "instead of pooling it for reuse")
-                }
-                if (activeBridges.decrementAndGet() <= 0) {
-                    listener?.onDisconnected(unexpected)
-                }
-            }
-        }
+    private data class CarLease(val socket: Socket, val generation: Long)
+    private fun takePending(ticket: Int): CarLease? = synchronized(ownershipLock) {
+        if (!isRunning || carGoneForGood || waitGeneration.get() != ticket || pumpingBridges.get() > 0) return@synchronized null
+        val socket = pendingCarSocket ?: return@synchronized null
+        pendingCarSocket = null
+        activeCarSocket = socket
+        pumpingBridges.incrementAndGet()
+        CarLease(socket, socketGeneration)
     }
 
-    /**
-     * Pre-warm support: poll [pendingCarSocket] for up to [timeoutMs] in case
-     * AA has connected to the proxy before the car TCP arrived. Returns the
-     * car socket once it lands or null on timeout. Cheap polling at 50ms
-     * granularity — total cost over a full window is ~30 wakeups, negligible.
-     */
-    private suspend fun awaitPendingCarSocket(timeoutMs: Long): Socket? {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        // Each waiter takes a ticket. A newer AA connection supersedes older
-        // waiters immediately instead of leaving them to expire underneath it.
-        //
-        // Without this, toggling Bluetooth is unrecoverable: every reconnect fires
-        // "Launching AA" into a proxy that already has a waiter counting down, so
-        // the new AA connection is torn down when the OLD timer expires. That is
-        // the state where the phone says "waiting for car" and never recovers,
-        // however many times you reconnect.
-        val ticket = waitGeneration.incrementAndGet()
-        CompanionLog.i(TAG, "AA connected first (pre-warm) — waiting up to ${timeoutMs}ms for car")
-        while (System.currentTimeMillis() < deadline && isRunning) {
-            if (waitGeneration.get() != ticket) {
-                CompanionLog.i(TAG, "Newer AA connection arrived — abandoning this wait")
-                return null
-            }
-            val s = pendingCarSocket
-            if (s != null) {
-                pendingCarSocket = null
-                CompanionLog.i(TAG, "Pre-warm: car socket arrived after AA")
-                return s
-            }
-            kotlinx.coroutines.delay(50)
+    private suspend fun awaitPendingCarSocket(ticket: Int): CarLease? {
+        val deadline = System.nanoTime() + PREWARM_CAR_WAIT_MS * 1_000_000
+        while (System.nanoTime() < deadline && isRunning && waitGeneration.get() == ticket && !carGoneForGood) {
+            takePending(ticket)?.let { return it }
+            delay(50)
         }
         return null
     }
 
-    private suspend fun pump(input: InputStream, output: OutputStream, name: String) =
-        withContext(Dispatchers.IO) {
-            val buffer = ByteArray(16384)
+    private fun launchBridge(aaSocket: Socket, ticket: Int) {
+        scope.launch {
+            val bridge = Any()
+            var lease: CarLease? = null
+            var pumpsStarted = false
+            var bridgeAttemptId: Long? = null
+            activeBridges.incrementAndGet()
+            waitingBridges.incrementAndGet()
             try {
+                try {
+                    lease = takePending(ticket) ?: awaitPendingCarSocket(ticket)
+                        ?: throw IllegalStateException("No car socket available for this AA attach")
+                } finally { waitingBridges.decrementAndGet() }
+                val car = lease.socket
+                val aaIn = aaSocket.getInputStream()
+                val aaOut = aaSocket.getOutputStream()
+                val carIn = car.getInputStream()
+                val carOut = car.getOutputStream()
+                CompanionLog.i(TAG, "Bridge established: AA <-> Car")
+                listener?.onConnected(car, bridge)
+                bridgeAttemptId = PhoneWppDiagnostics.bridgeEstablished()
+                // From this point the car byte stream cannot be reused, even if a pump fails immediately.
+                pumpsStarted = true
+                val job1 = launch { pump(aaIn, carOut, "AA->Car", aaSocket, car) }
+                val job2 = launch { pump(carIn, aaOut, "Car->AA", aaSocket, car) }
+                joinAll(job1, job2)
+            } catch (e: Exception) {
+                CompanionLog.e(TAG, "Bridge error: ${e.message}")
+            } finally {
+                val car = lease?.socket
+                val unexpected = isRunning && !carGoneForGood
+                runCatching { aaSocket.close() }
+                if (lease != null) {
+                    PhoneWppDiagnostics.bridgeClosed(bridgeAttemptId)
+                    synchronized(ownershipLock) {
+                        if (activeCarSocket === car) activeCarSocket = null
+                        pumpingBridges.decrementAndGet()
+                    }
+                }
+                // The predicate may race a replacement. Revalidate the generation when publishing.
+                val eligible = !pumpsStarted && isRunning && !carGoneForGood &&
+                    car != null && !car.isClosed && car.isConnected
+                val retained = synchronized(ownershipLock) {
+                    aaSockets.remove(aaSocket)
+                    if (eligible && isRunning && !carGoneForGood && lease?.generation == socketGeneration &&
+                        pendingCarSocket == null && pumpingBridges.get() == 0) {
+                        pendingCarSocket = car
+                        true
+                    } else false
+                }
+                if (!retained) runCatching { car?.close() }
+                activeBridges.decrementAndGet()
+                CompanionLog.i(TAG, "Bridge closed (unexpected=$unexpected, retained=$retained)")
+                listener?.onDisconnected(car, bridge, unexpected, retained)
+            }
+        }
+    }
+
+    private suspend fun pump(input: InputStream, output: OutputStream, name: String, aa: Socket, car: Socket) =
+        withContext(Dispatchers.IO) {
+            try {
+                val buffer = ByteArray(16384)
                 while (isRunning) {
                     val read = input.read(buffer)
                     if (read == -1) break
@@ -307,45 +186,41 @@ class AaProxy(
                 }
             } catch (e: Exception) {
                 CompanionLog.d(TAG, "$name error: ${e.message}")
+            } finally {
+                // Coroutine cancellation cannot unblock java.net.Socket.read. Close exact endpoints
+                // on the first EOF/error so the sibling pump and finalizer can actually retire.
+                runCatching { aa.close() }
+                runCatching { car.close() }
             }
         }
 
     fun stop() {
-        val wasRunning = isRunning
-        isRunning = false
-        if (wasRunning) {
-            sendDisconnectSignal()
+        val signalSocket = synchronized(ownershipLock) { activeCarSocket.takeIf { isRunning } }
+        // Preserve the best-effort protocol disconnect, but bind it to this exact bridge.
+        signalSocket?.let { socket ->
+            Thread {
+                runCatching {
+                    socket.getOutputStream().write(ByteArray(16) { 0xFF.toByte() })
+                    socket.getOutputStream().flush()
+                }
+            }.apply { isDaemon = true; start() }
         }
-        runCatching { serverSocket?.close() }
-        serverSocket = null
-        scope.cancel()
-    }
-
-    /**
-     * Send 16 bytes of 0xFF ("magic garbage") to the car. This triggers
-     * a decryption error on the car side, which is caught as a clean
-     * disconnect signal.
-     */
-    private fun sendDisconnectSignal() {
-        val socket = activeCarSocket ?: return
-        Thread {
-            try {
-                CompanionLog.i(TAG, "Sending disconnect signal")
-                val signal = ByteArray(16) { 0xFF.toByte() }
-                socket.getOutputStream().write(signal)
-                socket.getOutputStream().flush()
-            } catch (e: Exception) {
-                CompanionLog.w(TAG, "Disconnect signal failed: ${e.message}")
+        val sockets = synchronized(ownershipLock) {
+            isRunning = false
+            socketGeneration++
+            waitGeneration.incrementAndGet()
+            runCatching { serverSocket?.close() }
+            serverSocket = null
+            (aaSockets.toList() + listOfNotNull(pendingCarSocket, activeCarSocket)).also {
+                pendingCarSocket = null
             }
-        }.start()
+        }
+        sockets.forEach { runCatching { it.close() } }
+        scope.cancel()
     }
 
     companion object {
         private const val TAG = "OAL_Proxy"
-        /** Max time the bridge waits for a car socket when AA connected first
-         *  (pre-warm path). 30s comfortably covers car-side boot + WiFi join
-         *  on most vehicles; if no car arrives in that window we fail gracefully
-         *  and AA can retry. */
         private const val PREWARM_CAR_WAIT_MS = 30_000L
     }
 }

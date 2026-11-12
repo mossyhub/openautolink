@@ -219,14 +219,17 @@ class WppStartupIntegrationPolicyTest {
         val source = projectFile(
             "companion/src/main/java/com/openautolink/companion/connection/AaProxy.kt",
         ).readText()
-        val bridgeFunction = source.substringAfter("private fun launchBridge(aaSocket: Socket)")
+        val acquisition = source.substringAfter("private fun takePending(ticket: Int)")
             .substringBefore("private suspend fun awaitPendingCarSocket")
+        val bridgeFunction = source.substringAfter("private fun launchBridge(aaSocket: Socket, ticket: Int)")
+            .substringBefore("private suspend fun pump")
 
-        val carSocketAcquired = bridgeFunction.indexOf("activeCarSocket = carSocket")
+        val carSocketAcquired = bridgeFunction.indexOf("lease = takePending(ticket)")
         val bridgeEstablished = bridgeFunction.indexOf("Bridge established: AA <-> Car")
-        val pipesReady = bridgeFunction.indexOf("val carOut = carSocket.getOutputStream()")
-        val connectedCallback = bridgeFunction.indexOf("listener?.onConnected()")
+        val pipesReady = bridgeFunction.indexOf("val carOut = car.getOutputStream()")
+        val connectedCallback = bridgeFunction.indexOf("listener?.onConnected(car, bridge)")
 
+        assertTrue(acquisition.contains("activeCarSocket = socket"))
         assertTrue(carSocketAcquired >= 0)
         assertTrue(pipesReady > carSocketAcquired)
         assertTrue(bridgeEstablished > pipesReady)

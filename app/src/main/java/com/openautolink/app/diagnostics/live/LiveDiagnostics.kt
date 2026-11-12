@@ -14,7 +14,7 @@ internal object LiveDiagnostics {
     @Volatile private var owner:LiveDiagnosticsOwner?=null
     val status:StateFlow<String> get()=owner?.status?:off
     val autoConnect:StateFlow<Boolean> get()=owner?.autoConnect?:noConsent
-    val endpoint get()=owner?.endpoint?:MutableStateFlow(LiveEndpoint.LEGACY)
+    val endpoint get()=owner?.endpoint?:MutableStateFlow<LiveEndpoint?>(null)
     val ready get()=owner?.ready?:noConsent
     val busy get()=owner?.busy?:noConsent
     fun applyEndpoint(context:Context,text:String){initialize(context);owner!!.applyEndpoint(text)}
