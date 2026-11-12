@@ -667,16 +667,18 @@ class TcpAdvertiser(
             // hasActiveBridge() is false BOTH when AA hasn't connected yet AND when a
             // pre-warm bridge is parked waiting for exactly this socket. Distinguish
             // them so the pre-warm race stays visible in logs.
-            val prewarmWaiting = proxy.hasWaitingBridge()
+            val admission = proxy.offerCarSocket(carSocket)
+            if (admission == AaProxy.CarAdmission.REJECTED) {
+                runCatching { carSocket.close() }
+                return@synchronized
+            }
+            val prewarmWaiting = admission == AaProxy.CarAdmission.WAITING
             if (prewarmWaiting) {
                 CompanionLog.i(TAG, "Car connection handed to pre-warmed AA bridge on port ${proxy.localPort}")
             } else {
                 CompanionLog.i(TAG, "Car connection landing on warm proxy on port ${proxy.localPort}")
             }
-            if (!proxy.updateCarSocket(carSocket)) {
-                runCatching { carSocket.close() }
-                return@synchronized
-            }
+
             activeCarSocket?.takeIf { it !== carSocket }?.let { runCatching { it.close() } }
             activeCarSocket = carSocket
             activeProxyBridge = null
@@ -710,6 +712,17 @@ class TcpAdvertiser(
         proxy = AaProxy(carSocket, object : AaProxy.Listener {
             override fun onConnected() = Unit
             override fun onDisconnected(unexpected: Boolean) = Unit
+            override fun onWaitingPeerClosed(carSocket: Socket, waiter: Any) {
+                synchronized(proxyOwnershipLock) {
+                    if (isRunning && activeProxy === proxy && activeCarSocket === carSocket &&
+                        proxy.isAccepting) {
+                        proxy.reinviteWaitingCar(carSocket, waiter) {
+                            fireAaLaunchIntent(proxy.localPort)
+                            startAaConnectWatchdog(carSocket)
+                        }
+                    }
+                }
+            }
             override fun onConnected(carSocket: Socket, bridge: Any) {
                 val current = synchronized(proxyOwnershipLock) {
                     if (!isRunning || activeProxy !== proxy || activeCarSocket !== carSocket) false

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.583 — Wireless Android Auto startup recovery
+
+- Retire a closed Android Auto prewarm waiter before it can consume a newly arrived car connection. Preserve live silent waiters and already received protocol bytes, with bounded read-ahead and exact socket/ticket ownership.
+- Reinvite Android Auto when the exact waiter that suppressed its launch closes before bridging, without letting stale cleanup relaunch or interfere with a successor connection.
+- Send WPP Wi-Fi credentials without first waiting for phone discovery. Start the bounded discovery opportunity after the credential exchange, keep it attached to that exact Bluetooth/session/interface/phone claim, and allow a later identity-matched Companion to activate the original bootstrap connection.
+- Keep subnet and identity validation, explicit-stop/owner-change/streaming fences, existing legacy compatibility, and the calibrated secondary-display defaults. This is not a CarPlay or Wi-Fi association-policy change.
+- Update the car and the matching **Companion APK** separately. No clearing data, re-pairing, or display-settings reset is required. The initial cause of the reported Wi-Fi loss remains unproven; software tests do not establish vehicle handoff acceptance. See [wireless startup recovery](docs/wireless-startup-recovery.md).
+
 ## 0.1.582 — Calibrated Android Auto driver-display defaults
 
 - Start Android Auto secondary displays at **149 DPI**, independently of the main infotainment display and physical display metadata. The density control now explicitly explains that it does **not** affect CarPlay.
