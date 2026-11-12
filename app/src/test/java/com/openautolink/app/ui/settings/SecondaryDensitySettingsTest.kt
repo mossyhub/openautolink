@@ -51,7 +51,7 @@ class SecondaryDensitySettingsTest {
             { id, edit -> edits += id; snapshot = snapshot.copy(outputs = snapshot.outputs +
                 (id to edit(snapshot.outputs.getValue(id)))) }) } }
         compose.onNodeWithTag("secondaryDensityCustom").performScrollTo().assertIsOff().performClick()
-        assertEquals(220, density(snapshot.outputs.getValue(first)))
+        assertEquals(149, density(snapshot.outputs.getValue(first)))
         compose.onNodeWithTag("secondaryDensitySlider").performScrollTo()
             .performSemanticsAction(SemanticsActions.SetProgress) { it(140f) }
         compose.runOnIdle {
@@ -81,7 +81,7 @@ class SecondaryDensitySettingsTest {
         compose.onNodeWithTag("secondaryDensityCustom").performClick()
         compose.runOnIdle {
             assertEquals(140, density(snapshot.outputs.getValue(first)))
-            assertEquals(220, density(snapshot.outputs.getValue(second)))
+            assertEquals(149, density(snapshot.outputs.getValue(second)))
             assertFalse(snapshot.outputs.getValue(second).enabled)
         }
     }

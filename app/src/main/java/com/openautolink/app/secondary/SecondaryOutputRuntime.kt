@@ -282,7 +282,7 @@ class SecondaryOutputRuntime internal constructor(
             val offer = runCatching { AasdkSecondaryVideoOffer.create(
                 channelId = if (hosted) 3 else publicChannel++, protocolDisplayId = if (hosted) 1 else publicDisplay++,
                 displayType = if (role == AaSecondaryRole.CLUSTER) 1 else 2,
-                density = preferences.outputs[output.descriptor.id]?.aaDensityDpi ?: output.descriptor.densityDpi,
+                density = preferences.outputs[output.descriptor.id]?.aaDensityDpi ?: SecondaryCalibratedDefaults.AA_DENSITY_DPI,
                 cropLeft = crop.left, cropTop = crop.top, cropRight = crop.right, cropBottom = crop.bottom,
                 safeLeft = safe.left, safeTop = safe.top, safeRight = safe.right, safeBottom = safe.bottom,
                 stableLeft = stable.left, stableTop = stable.top, stableRight = stable.right, stableBottom = stable.bottom,

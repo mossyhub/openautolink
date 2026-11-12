@@ -45,7 +45,7 @@ class SecondaryDensityPersistenceTest {
             assertEquals(saved, cold)
             assertEquals(140, cold.outputs.getValue(a).aaDensityDpi)
             assertEquals(other, cold.outputs.getValue(b))
-            assertEquals(unrelated, data.data.first().asMap().filterKeys { it != AppPreferences.SECONDARY_DISPLAY_OUTPUTS })
+            assertEquals(unrelated, data.data.first().asMap().filterKeys { it != AppPreferences.SECONDARY_DISPLAY_OUTPUTS && it.name != "secondary_aa_calibrated_defaults_v1" })
             val reset = reopened.updateSecondaryDisplayPreferences(cold.revision,
                 mapOf(a to cold.outputs.getValue(a).copy(aaDensityDpi = null)))
             assertEquals(custom.copy(aaDensityDpi = null), reset.outputs.getValue(a))
@@ -56,7 +56,7 @@ class SecondaryDensityPersistenceTest {
             assertEquals(reset, resetCold)
             assertNull(resetCold.outputs.getValue(a).aaDensityDpi)
             assertFalse(requireNotNull(data.data.first()[AppPreferences.SECONDARY_DISPLAY_OUTPUTS]).contains("aaDensityDpi"))
-            assertEquals(unrelated, data.data.first().asMap().filterKeys { it != AppPreferences.SECONDARY_DISPLAY_OUTPUTS })
+            assertEquals(unrelated, data.data.first().asMap().filterKeys { it != AppPreferences.SECONDARY_DISPLAY_OUTPUTS && it.name != "secondary_aa_calibrated_defaults_v1" })
         } finally { job.cancelAndJoin(); root.deleteRecursively() }
     }
 }

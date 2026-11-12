@@ -94,9 +94,12 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
         fun pixels(box: SecondaryLayoutBox) = PixelRect(kotlin.math.ceil(box.left*descriptor.width).toInt(),
             kotlin.math.ceil(box.top*descriptor.height).toInt(),kotlin.math.floor(box.right*descriptor.width).toInt(),
             kotlin.math.floor(box.bottom*descriptor.height).toInt())
-        val expectedSafe = if (saved.directSafeAutomatic) SecondaryProjectionActivity.directDefaultSafe(descriptor.width,descriptor.height)
+        val expectedCpSafe = if (saved.directSafeAutomatic) SecondaryProjectionActivity.directDefaultSafe(descriptor.width,descriptor.height)
             else pixels(saved.directSafe ?: saved.safe)
-        fun mapping(): VideoMapping = requireNotNull(runtime.mapping(descriptor.id)).also {
+        val expectedAaSafe = saved.aaDirectSafe?.takeIf { descriptor.width == 2000 && descriptor.height == 810 }?.let(::pixels)
+            ?: if (saved.directSafeAutomatic && descriptor.width == 2000 && descriptor.height == 810)
+                PixelRect(192,71,1788,660) else expectedCpSafe
+        fun mapping(expectedSafe: PixelRect = expectedAaSafe): VideoMapping = requireNotNull(runtime.mapping(descriptor.id)).also {
             assertEquals("Main map fills whole output despite legacy outer box", PixelRect(0,0,descriptor.width,descriptor.height),it.target.output)
             assertEquals(expectedSafe,it.target.safe)
             assertNull("No hosted mapping resurrected",ClusterBindingState.frozenMapBinding())
@@ -131,7 +134,7 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
         pump { carPlay.isCompleted }
         val cp = runBlocking { carPlay.await() }
         val config = requireNotNull(cp.configuration)
-        val cpMap = mapping()
+        val cpMap = mapping(expectedCpSafe)
         assertEquals(AirPlayInsets(top=cpMap.phoneSafeInsets.top,bottom=cpMap.phoneSafeInsets.bottom,
             left=cpMap.phoneSafeInsets.left,right=cpMap.phoneSafeInsets.right),config.display.safeArea)
         fun wire(cluster: AirPlayDisplayConfig?) = BplistCodec.decode(BplistCodec.encode(AirPlayInfoPlist.build(

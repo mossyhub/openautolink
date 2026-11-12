@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.582 — Calibrated Android Auto driver-display defaults
+
+- Start Android Auto secondary displays at **149 DPI**, independently of the main infotainment display and physical display metadata. The density control now explicitly explains that it does **not** affect CarPlay.
+- Use the calibrated important-content rectangle **(192, 71)–(1788, 660)** on the supported **2000×810** direct driver-display drawable, while video still fills the whole drawable. Retain the existing safe fallback for other drawable sizes and routes.
+- Move existing Android Auto density and supported directions-area settings to these defaults **once**. Later custom edits and Automatic choices persist; display enablement, Cluster/Auxiliary selection, unrelated preferences and CarPlay geometry are preserved.
+- Include the wireless settings-reconnect, Companion socket ownership/watchdog and explicit diagnostic-server setup changes from the preceding updates. Install the matching **Companion APK** on the phone as well as updating the car; the car update alone cannot deliver the phone-side fixes. No re-pairing or clearing app data is required.
+- Save changes and reconnect to apply driver-display changes. USB sessions require unplug/reconnect; active-call and protocol-switch protections remain in place. Vehicle connection recovery and navigation-app appearance still require physical confirmation.
+
 ## 0.1.581 — Driver-display density and final wireless recovery
 
 - Add **Custom Android Auto density** under Secondary Displays, with an optional **80–320 DPI** slider for the selected driver display. Lower DPI makes phone-rendered text and cards smaller. **Automatic** preserves the previous behavior; turning the control off removes the override.

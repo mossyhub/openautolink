@@ -69,7 +69,7 @@ internal object SecondaryDisplayPreferences {
     }
 
     private fun readLayout(value: JsonElement): SecondaryLayoutPreference {
-        val fields = value.obj(setOf("version", "scope", "output", "safe"), setOf("directSafe", "directSafeAutomatic"))
+        val fields = value.obj(setOf("version", "scope", "output", "safe"), setOf("directSafe", "directSafeAutomatic", "aaDirectSafe"))
         require(fields.getValue("version").number() == 1L)
         val scope = fields.getValue("scope").obj(setOf("outputId", "vehicle", "buildFingerprint", "panelWidth", "panelHeight", "densityDpi"))
         fun dimension(key: String) = scope.getValue(key).number().also { require(it in 1..Int.MAX_VALUE.toLong()) }.toInt()
@@ -77,7 +77,8 @@ internal object SecondaryDisplayPreferences {
             scope.getValue("vehicle").text(), scope.getValue("buildFingerprint").text(),
             dimension("panelWidth"), dimension("panelHeight"), dimension("densityDpi")),
             readBox(fields.getValue("output")), readBox(fields.getValue("safe")),
-            fields["directSafe"]?.takeUnless { it == JsonNull }?.let(::readBox), fields["directSafeAutomatic"]?.bool() ?: false)
+            fields["directSafe"]?.takeUnless { it == JsonNull }?.let(::readBox), fields["directSafeAutomatic"]?.bool() ?: false,
+            fields["aaDirectSafe"]?.takeUnless { it == JsonNull }?.let(::readBox))
     }
     private fun readBox(value: JsonElement): SecondaryLayoutBox {
         val fields = value.obj(setOf("left", "top", "right", "bottom"))
@@ -96,6 +97,7 @@ internal object SecondaryDisplayPreferences {
             put("panelWidth", s.panelWidth); put("panelHeight", s.panelHeight); put("densityDpi", s.densityDpi)
         }
         put("output", writeBox(layout.output)); put("safe", writeBox(layout.safe))
+        layout.aaDirectSafe?.let { put("aaDirectSafe", writeBox(it)) }
         if (layout.directSafe != null || layout.directSafeAutomatic) {
             put("directSafe", layout.directSafe?.let(::writeBox) ?: JsonNull)
             put("directSafeAutomatic", layout.directSafeAutomatic)

@@ -210,7 +210,7 @@ class SecondaryOutputRuntimeTest {
         } finally { cleanup(runtime) }
     }
 
-    @Test fun androidAutoDensityIsFrozenPerOutputAndResetUsesPhysicalDescriptor() {
+    @Test fun androidAutoDensityIsFrozenPerOutputAndResetUsesCalibratedDefault() {
         val a = descriptor("A")
         val originalB = descriptor("B")
         ShadowDisplayManager.changeDisplay(originalB.displayId, "w800dp-h480dp-hdpi")
@@ -242,7 +242,7 @@ class SecondaryOutputRuntimeTest {
             val second = scope.async { runtime.prepareAndroidAuto(72, reset) }
             pump { second.isCompleted }
             val defaultOffer = runBlocking { second.await() }.offers.single()
-            assertEquals(160, defaultOffer.density)
+            assertEquals(149, defaultOffer.density)
             assertEquals(160, defaultOffer.realDensity)
             val other = custom.copy(outputs = custom.outputs +
                 (a.id to custom.outputs.getValue(a.id).copy(enabled = false)) +
@@ -252,10 +252,34 @@ class SecondaryOutputRuntimeTest {
             val third = scope.async { runtime.prepareAndroidAuto(73, other) }
             pump { third.isCompleted }
             val otherOffer = runBlocking { third.await() }.offers.single()
-            assertEquals(240, otherOffer.density)
+            assertEquals(149, otherOffer.density)
             assertEquals(240, otherOffer.realDensity)
             assertEquals(120, other.outputs.getValue(a.id).aaDensityDpi)
             assertEquals(120, frozen.density)
+        } finally { cleanup(runtime) }
+    }
+
+    @Test fun measuredDirectDrawableKeepsPhysical220AndCalibratedAaOfferWithoutChangingCarPlay() {
+        val original = descriptor("Measured", 2000, 810)
+        val live = context.getSystemService(DisplayManager::class.java).getDisplay(original.displayId)
+        shadowOf(live).setDensityDpi(220)
+        val metrics = android.util.DisplayMetrics().also(live::getRealMetrics)
+        assertEquals(2000, metrics.widthPixels); assertEquals(810, metrics.heightPixels); assertEquals(220, metrics.densityDpi)
+        val d = original.copy(densityDpi = metrics.densityDpi)
+        var mapped: VideoMapping? = null
+        val runtime = runtime(MutableStateFlow(SecondaryInventorySnapshot(1, listOf(d)))) { mapped = it }
+        val frozen = prefs(listOf(d))
+        try {
+            val aa = scope.async { runtime.prepareAndroidAuto(80, frozen) }; pump { aa.isCompleted }
+            val offer = runBlocking { aa.await() }.offers.single()
+            assertEquals(149, offer.density); assertEquals(220, offer.realDensity)
+            assertEquals(PixelRect(0,0,2000,810), requireNotNull(mapped).target.output)
+            assertEquals(PixelRect(192,71,1788,660), requireNotNull(mapped).target.safe)
+            val retired = runtime.retire("AA to CP control"); pump { retired.isDone }; assertTrue(retired.get())
+            val cp = scope.async { runtime.prepareCarPlay(81, frozen) }; pump { cp.isCompleted }
+            assertNotNull(runBlocking { cp.await() }.configuration)
+            assertEquals(SecondaryProjectionActivity.directDefaultSafe(2000,810), requireNotNull(mapped).target.safe)
+            assertEquals(220,d.densityDpi)
         } finally { cleanup(runtime) }
     }
 

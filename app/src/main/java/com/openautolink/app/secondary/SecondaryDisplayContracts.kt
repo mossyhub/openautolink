@@ -65,7 +65,17 @@ data class SecondaryLayoutPreference(
     val safe: SecondaryLayoutBox,
     val directSafe: SecondaryLayoutBox? = null,
     val directSafeAutomatic: Boolean = false,
+    /** AA-only calibrated migration; shared directSafe remains intact for CarPlay. */
+    val aaDirectSafe: SecondaryLayoutBox? = null,
 ) { init { require(output.contains(safe)) } }
+
+internal object SecondaryCalibratedDefaults {
+    const val AA_DENSITY_DPI = 149
+    // Measured effective integer edges are authoritative, not unavailable saved floats.
+    // Quarter-pixel interior values reproduce them under both round and inward ceil/floor.
+    val directSafe = SecondaryLayoutBox(191.75 / 2000, 70.75 / 810, 1788.25 / 2000, 660.25 / 810)
+    fun supports(width: Int, height: Int) = width == 2000 && height == 810
+}
 
 data class SecondaryOutputPreference(
     val enabled: Boolean = false,
