@@ -446,7 +446,11 @@ class AaWirelessBtServer(
         val port: Int
 
         data class CarDirect(override val ip: String, override val port: Int) : Endpoint
-        data class PhoneLoopback(override val port: Int) : Endpoint {
+        data class PhoneLoopback(
+            override val port: Int,
+            internal val onAssociationReady: (() -> Unit)? = null,
+            internal val onControlClosed: (() -> Unit)? = null,
+        ) : Endpoint {
             override val ip: String get() = "127.0.0.1"
         }
     }
@@ -654,6 +658,7 @@ class AaWirelessBtServer(
                     .toByteArray(),
             )
 
+            (endpoint as? Endpoint.PhoneLoopback)?.onAssociationReady?.invoke()
             OalLog.i(TAG, "Handshake complete — phone should now associate and open the projection socket")
 
             // The protocol exchange is done, so anything waiting on it can run.
@@ -686,6 +691,7 @@ class AaWirelessBtServer(
         } catch (e: Exception) {
             OalLog.w(TAG, "Handshake failed: ${e.message}")
         } finally {
+            (endpoint as? Endpoint.PhoneLoopback)?.onControlClosed?.invoke()
             runCatching { socket.close() }
         }
     }

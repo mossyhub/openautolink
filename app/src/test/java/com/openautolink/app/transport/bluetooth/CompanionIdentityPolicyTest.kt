@@ -207,10 +207,19 @@ class CompanionIdentityPolicyTest {
             .count { it == "\"wpp\" -> startWpp()" })
         assertEquals(2, session.windowed("\"wpp\" -> startWpp(recovery = true)".length)
             .count { it == "\"wpp\" -> startWpp(recovery = true)" })
-        val matchIndex = control.indexOf("CompanionIdentityPolicy.matchBasis(")
-        val cacheIndex = control.indexOf("lastAddressByPhone[phoneBtAddress] = ip", matchIndex)
+        // Resolution now reserves loopback without probing. The asynchronous
+        // completion is the identity-checked cache/dial transaction; global
+        // textual ordering relative to the matcher declaration is not its order.
+        val completion = control.substringAfter("private fun readvertiseForNewCompanionAddress(")
+            .substringBefore("private data class BootstrapAttempt(")
+        val matchIndex = completion.indexOf("if (!probeMatchesBluetoothOwner(")
+        val cacheIndex = completion.indexOf("lastAddressByPhone[attempt.phoneBtAddress] = host")
         assertTrue(matchIndex >= 0)
         assertTrue(cacheIndex > matchIndex)
+        assertTrue(completion.substring(matchIndex, cacheIndex).contains(
+            "Ignoring late companion at ${'$'}host — identity belongs to another phone"))
+        assertTrue(completion.substring(matchIndex, cacheIndex).contains("return"))
+        assertTrue(completion.contains("onCompanionSelected?.invoke(host)"))
     }
 
     private fun projectFile(relativePath: String): File {

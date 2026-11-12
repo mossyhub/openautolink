@@ -73,8 +73,8 @@ class WppBootstrapPolicyTest {
     }
 
     @Test
-    fun `bootstrap discovery deadline fits inside companion waiter`() {
-        assertTrue(WppBootstrapPolicy.DISCOVERY_DEADLINE_MS < 30_000L)
+    fun `bootstrap startup opportunity is bounded by companion waiter duration`() {
+        assertTrue(WppBootstrapPolicy.DISCOVERY_DEADLINE_MS == 30_000L)
     }
 
     @Test
@@ -88,7 +88,7 @@ class WppBootstrapPolicyTest {
         assertTrue(source.contains("phoneBtName = phoneBtName"))
         assertTrue(
             source.contains(
-                "AaWirelessBtServer.Endpoint.PhoneLoopback(OalProtocol.WPP_PROXY_PORT)",
+                "val offeredPort = legacy?.proxyPort ?: OalProtocol.WPP_PROXY_PORT",
             ),
         )
     }
@@ -101,8 +101,8 @@ class WppBootstrapPolicyTest {
         val scanner = source.substringAfter("private fun startBootstrapCompanionDiscovery(")
             .substringBefore("private val backgroundProbeRunning")
 
-        assertTrue(scanner.contains("bootstrapAttempt.get() !== attempt"))
-        assertTrue(scanner.contains("val remainingMs = (deadline - System.currentTimeMillis())"))
+        assertTrue(scanner.contains("bootstrapAttempt.get() === attempt"))
+        assertTrue(scanner.contains("val remainingMs = (deadline - android.os.SystemClock.elapsedRealtime())"))
         assertTrue(scanner.contains("findCompanionOnSelectedInterface("))
         assertTrue(scanner.contains("selectedLocalIpv4 = selectedLocalIpv4"))
         assertTrue(scanner.contains("phoneBtAddress = attempt.phoneBtAddress"))

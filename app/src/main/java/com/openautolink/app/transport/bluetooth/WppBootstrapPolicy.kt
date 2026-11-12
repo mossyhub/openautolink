@@ -8,8 +8,13 @@ enum class LateCompanionAction {
 }
 
 object WppBootstrapPolicy {
-    /** Must finish before AaProxy's 30-second pre-warm car-socket waiter. */
-    const val DISCOVERY_DEADLINE_MS = 20_000L
+    /**
+     * One startup opportunity, measured from the actual credential handoff, not
+     * resolver/scanner launch. AaProxy waits 30s after AA attaches; attachment
+     * timing is not observable here, so this is a bounded opportunity, not proof
+     * the phone's waiter is still live. Control/attempt retirement ends it early.
+     */
+    const val DISCOVERY_DEADLINE_MS = 30_000L
 
     fun onCompanionReachable(
         bootstrapLoopbackPending: Boolean,
