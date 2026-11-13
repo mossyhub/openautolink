@@ -151,7 +151,7 @@ class CarPlayClusterReceiverTest {
                         val alt = displays[1]
                         assertEquals(1280L,alt["widthPixels"]); assertEquals(480L,alt["heightPixels"]); assertEquals(30L,alt["maxFPS"])
                         assertEquals(0L,alt["features"]); assertEquals(0L,alt["primaryInputDevice"])
-                        assertEquals("maps:/car/instrumentcluster/map",alt["initialURL"])
+                        assertEquals("maps:/car/instrumentcluster",alt["initialURL"])
                         val area = (alt["viewAreas"] as List<*>).single() as Map<*,*>
                         assertEquals(1240L,area["widthPixels"]); assertEquals(460L,area["heightPixels"])
                         assertEquals(20L,area["originXPixels"]); assertEquals(10L,area["originYPixels"])

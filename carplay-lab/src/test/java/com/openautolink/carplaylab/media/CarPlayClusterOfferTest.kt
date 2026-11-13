@@ -27,6 +27,22 @@ class CarPlayClusterOfferTest {
         assertThrows(IllegalArgumentException::class.java) { exact.copy(avcDecoderName=" ") }
         assertThrows(IllegalArgumentException::class.java) { exact.copy(hevcDecoderName="") }
     }
+    @Test fun clusterContentDefaultsToMapWithTurnCardAndOffersEveryAltScreenUrl() {
+        val default = CarPlayClusterVideoConfiguration.create(AirPlayInsets(),AirPlayInsets(5,5,50,50),exact)
+        assertEquals(CarPlayClusterContent.MAP_WITH_CARD,CarPlayClusterContent.DEFAULT)
+        assertEquals("maps:/car/instrumentcluster",default.display.initialUrl)
+        for (content in CarPlayClusterContent.entries) {
+            val config = CarPlayClusterVideoConfiguration.create(AirPlayInsets(),AirPlayInsets(5,5,50,50),exact,
+                content=content)
+            assertEquals(content.url,config.display.initialUrl)
+            assertEquals(content,CarPlayClusterContent.fromUrl(config.display.initialUrl))
+        }
+        assertEquals(CarPlayClusterVideoQualification.CLUSTER_URLS,CarPlayClusterContent.entries.map { it.url }.toSet())
+        assertNull(CarPlayClusterContent.fromUrl("maps:/car/instrumentcluster/other"))
+        assertThrows(IllegalArgumentException::class.java) {
+            CarPlayClusterVideoQualification.qualify(default.display.copy(initialUrl="maps:/car/instrumentcluster/other"),exact)
+        }
+    }
     @Test fun fullPerDisplayReceiptRejectsStaleMainSecondaryAndGlobalHevcBindings() {
         val cluster = CarPlayClusterVideoConfiguration.create(AirPlayInsets(),AirPlayInsets(5,5,50,50),exact)
         val main = CarPlayVideoSelection(1920,1080,30,"main.avc","main.hevc")
