@@ -16,6 +16,20 @@ interface CarPlayClusterVideoListener {
     fun onFrame(streamEpoch: Long, naluBytes: ByteArray)
 }
 
+/** What the iPhone draws on the cluster, as one of its advertised `altScreenURLs`. These URLs are
+ * undocumented; they come from other CarPlay receivers. The turn card appears only during guidance.
+ */
+enum class CarPlayClusterContent(val url: String) {
+    MAP("maps:/car/instrumentcluster/map"),
+    INSTRUCTION_CARD("maps:/car/instrumentcluster/instructioncard"),
+    MAP_WITH_CARD("maps:/car/instrumentcluster");
+
+    companion object {
+        val DEFAULT = MAP_WITH_CARD
+        fun fromUrl(url: String?): CarPlayClusterContent? = entries.firstOrNull { it.url == url }
+    }
+}
+
 /** Receiver-frozen encoded geometry. The caller validates vehicle/host applicability and transforms
  * its output/safe rectangles into this canvas BEFORE construction. No app, host or preference owner
  * is retained here. Exact decoder capability is not phone acceptance or simultaneous decode proof.
@@ -34,10 +48,11 @@ class CarPlayClusterVideoConfiguration private constructor(
          */
         fun create(viewArea: AirPlayInsets, safeArea: AirPlayInsets,
             videoSelection: CarPlayVideoSelection,
-            width: Int = 1280, height: Int = 480, fps: Int = 30): CarPlayClusterVideoConfiguration {
+            width: Int = 1280, height: Int = 480, fps: Int = 30,
+            content: CarPlayClusterContent = CarPlayClusterContent.DEFAULT): CarPlayClusterVideoConfiguration {
             val display = AirPlayDisplayConfig(width, height, fps = fps,
                 primaryInputDevice = 0, features = 0, viewArea = viewArea, safeArea = safeArea,
-                safeAreaDrawOutside = false, initialUrl = "maps:/car/instrumentcluster/map")
+                safeAreaDrawOutside = false, initialUrl = content.url)
             return CarPlayClusterVideoConfiguration(CarPlayClusterVideoQualification.qualify(display, videoSelection))
         }
     }
