@@ -185,13 +185,17 @@ class CarPlayClusterVideoQualification private constructor(
     fun matches(candidate: com.shilapi.xcertplay.airplay.AirPlayDisplayConfig?): Boolean = candidate == display
 
     companion object {
+        /** The iPhone's cluster `altScreenURLs`: map only, turn card only, and map with turn card. */
+        val CLUSTER_URLS = setOf("maps:/car/instrumentcluster/map",
+            "maps:/car/instrumentcluster/instructioncard", "maps:/car/instrumentcluster")
+
         fun qualify(display: com.shilapi.xcertplay.airplay.AirPlayDisplayConfig,
             selection: CarPlayVideoSelection): CarPlayClusterVideoQualification {
             require(display.widthPixels == 1280 && display.heightPixels == 480 && display.fps == 30)
             require(selection.width == display.widthPixels && selection.height == display.heightPixels &&
                 selection.fps == display.fps && !selection.hevcOffered && selection.clusterQualification == null)
             require(display.primaryInputDevice == 0 && display.features == 0 &&
-                display.initialUrl == "maps:/car/instrumentcluster/map" &&
+                display.initialUrl in CLUSTER_URLS &&
                 display.safeAreaDrawOutside == false && display.viewAreas == null && display.initialViewArea == 0)
             val view = requireNotNull(display.viewArea)
             val safe = requireNotNull(display.safeArea)

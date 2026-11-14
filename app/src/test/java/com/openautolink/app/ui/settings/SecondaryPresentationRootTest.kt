@@ -161,8 +161,13 @@ class SecondaryPresentationRootTest {
                 "Full-screen map with a compact next-turn instruction at the top.")
             compose.onNodeWithTag("secondaryRoleAppearanceHelp").performScrollTo().assertTextEquals(
                 "Appearance depends on Android Auto and your navigation app. These descriptions reflect Google Maps; Waze may look the same in both modes. OAL displays the supplied video—its content may change with phone-app updates.")
-            compose.onNodeWithTag("secondaryCarPlayRoleNote").performScrollTo().assertTextEquals(
-                "CarPlay has no equivalent Cluster/Auxiliary selector in OAL; its driver-display view is controlled by iOS and the navigation app.")
+            compose.onNodeWithTag("secondaryCarPlayContent_${first.value}_MAP_WITH_CARD").performScrollTo().assertIsSelected()
+            compose.onNodeWithTag("secondaryCarPlayContentDescription").performScrollTo().assertTextEquals(
+                "Map with the next turn shown on a card during guidance.")
+            compose.onNodeWithTag("secondaryCarPlayContent_${first.value}_MAP").performScrollTo().performClick().assertIsSelected()
+            compose.onNodeWithTag("secondaryCarPlayContentDescription").performScrollTo().assertTextEquals(
+                "Map and route without a turn card.")
+            compose.onNodeWithTag("secondaryCarPlayContent_${first.value}_MAP_WITH_CARD").performScrollTo().performClick().assertIsSelected()
             compose.onNodeWithTag("secondaryImportantContentEditor").performScrollTo().assertIsDisplayed()
             if (gm && !multipleTargets && RuntimeEnvironment.getApiLevel() == 32) {
                 compose.onNodeWithTag("clusterDisplay_MAP_VIDEO").performScrollTo()
@@ -245,14 +250,14 @@ class SecondaryPresentationRootTest {
         if (video) {
             compose.onAllNodesWithText("Directions area").assertCountEquals(1)
             compose.onNodeWithText("Usually no adjustment is needed. Edit only if directions or other non-map content are hidden or cut off. The map still fills the whole display.").assertExists()
-            compose.onNodeWithTag("secondaryCarPlayRoleNote").assertExists()
+            compose.onNodeWithTag("secondaryCarPlayContentGroup").assertExists()
             compose.onNodeWithText("Android Auto display mode").assertExists()
         } else {
             compose.onNodeWithTag("secondaryImportantContentEditor").assertDoesNotExist()
             compose.onNodeWithText("Android Auto display mode").assertDoesNotExist()
             compose.onNodeWithTag("secondaryRoleDescription").assertDoesNotExist()
             compose.onNodeWithTag("secondaryRoleAppearanceHelp").assertDoesNotExist()
-            compose.onNodeWithTag("secondaryCarPlayRoleNote").assertDoesNotExist()
+            compose.onNodeWithTag("secondaryCarPlayContentGroup").assertDoesNotExist()
             compose.onNodeWithText("Auxiliary").assertDoesNotExist()
             compose.onNodeWithText("Cluster").assertDoesNotExist()
         }

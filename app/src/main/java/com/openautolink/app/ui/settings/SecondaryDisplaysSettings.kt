@@ -20,6 +20,7 @@ import com.openautolink.app.cluster.PixelRect
 import com.openautolink.app.cluster.PixelSize
 import com.openautolink.app.displays.DiscoveredSecondaryDisplay
 import com.openautolink.app.secondary.*
+import com.openautolink.carplaylab.media.CarPlayClusterContent
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
 
@@ -149,8 +150,20 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
                     }
                     Text("Lower DPI makes text and cards smaller. Applies to this Android Auto display after Save and reconnect.",
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryDensityHelp"))
-                    Text("CarPlay has no equivalent Cluster/Auxiliary selector in OAL; its driver-display view is controlled by iOS and the navigation app.",
-                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryCarPlayRoleNote"))
+                }
+                SettingsGroup(Modifier.testTag("secondaryCarPlayContentGroup")) {
+                    Text("CarPlay display view", style = MaterialTheme.typography.titleMedium)
+                    val content = row.preference.carPlayContent ?: CarPlayClusterContent.DEFAULT
+                    Column(Modifier.selectableGroup()) {
+                        CarPlayClusterContent.entries.forEach { choice -> ClusterChoice(carPlayContentLabel(choice),
+                            "secondaryCarPlayContent_${row.id?.value}_${choice.name}", content == choice,
+                            editable && row.usable) { row.id?.let { id -> onOutputChange(id) { it.copy(carPlayContent = choice) } } }
+                        }
+                    }
+                    Text(carPlayContentDescription(content),
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryCarPlayContentDescription"))
+                    Text("CarPlay only. Applies after Save and reconnect. The turn card appears only during route guidance; iOS and the navigation app decide what it shows.",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryCarPlayContentHelp"))
                 }
 
             }
@@ -169,6 +182,18 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
         }
         Spacer(Modifier.height(16.dp))
     }
+}
+
+internal fun carPlayContentLabel(content: CarPlayClusterContent): String = when (content) {
+    CarPlayClusterContent.MAP_WITH_CARD -> "Map with turn card"
+    CarPlayClusterContent.MAP -> "Map only"
+    CarPlayClusterContent.INSTRUCTION_CARD -> "Turn card only"
+}
+
+internal fun carPlayContentDescription(content: CarPlayClusterContent): String = when (content) {
+    CarPlayClusterContent.MAP_WITH_CARD -> "Map with the next turn shown on a card during guidance."
+    CarPlayClusterContent.MAP -> "Map and route without a turn card."
+    CarPlayClusterContent.INSTRUCTION_CARD -> "Only the next-turn card, without the map."
 }
 
 @Composable

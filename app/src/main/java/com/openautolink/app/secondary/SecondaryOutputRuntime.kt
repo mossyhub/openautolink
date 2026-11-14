@@ -4,6 +4,7 @@ import android.content.Context
 import com.openautolink.app.cluster.*
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.transport.aasdk.*
+import com.openautolink.carplaylab.media.CarPlayClusterContent
 import com.openautolink.carplaylab.media.CarPlayClusterVideoConfiguration
 import com.openautolink.carplaylab.media.CarPlayClusterVideoListener
 import com.shilapi.xcertplay.airplay.AirPlayInsets
@@ -503,6 +504,8 @@ class SecondaryOutputRuntime internal constructor(
                     val finalPreference = preferences.outputs[descriptor.id]
                     owner.trace("settings_snapshot", "enabled=${finalPreference?.enabled == true} aa=${finalPreference?.androidAuto == true} cp=${finalPreference?.carPlay == true} role=${finalPreference?.aaRole} protocol=${if (carPlay) "CP" else "AA"}")
                     owner.layout = preferences.outputs[descriptor.id]?.layout
+                    owner.carPlayContent = preferences.outputs[descriptor.id]?.carPlayContent
+                        ?: CarPlayClusterContent.DEFAULT
                     owner.directWindow = true
                     owner.selection = preferences.legacyCluster.selection
                     owner.restoreAuthority.observePolicy(preferences.revision)
@@ -596,7 +599,7 @@ class SecondaryOutputRuntime internal constructor(
         val mapping = if (carPlay) ClusterVideoGeometry.carPlay(display) else ClusterVideoGeometry.androidAuto(display)
         output.trace("mapping", "protocol=${if (carPlay) "CP" else "AA"} coded=${mapping.codedSize} crop=${mapping.codecCrop} destination=${mapping.destination}")
         output.trace("safe_insets", "safe=${mapping.phoneSafeInsets} stable=${mapping.stableContentInsets}")
-        val config = if (carPlay) configuration(mapping) else null
+        val config = if (carPlay) configuration(mapping, output.carPlayContent) else null
         val decoderName = config?.videoSelection?.avcDecoderName ?: decoder(1280, 720)
         check(output.isCurrent()) { "GM preparation authority lost after decoder qualification" }
         val bridge = renderFactory(mapping, decoderName)
@@ -669,11 +672,12 @@ class SecondaryOutputRuntime internal constructor(
         check(output.isCurrent()) { "Direct host authority lost after readiness" }
     }
 
-    private fun configuration(mapping: VideoMapping): CarPlayClusterVideoConfiguration {
+    private fun configuration(mapping: VideoMapping,
+        content: CarPlayClusterContent = CarPlayClusterContent.DEFAULT): CarPlayClusterVideoConfiguration {
         val safe = mapping.phoneSafeInsets
         val video = com.shilapi.xcertplay.media.CarPlayVideoSelection(1280, 480, 30, decoder(1280, 480))
         return CarPlayClusterVideoConfiguration.create(AirPlayInsets(0, 0, 0, 0),
-            AirPlayInsets(safe.top, safe.bottom, safe.left, safe.right), video)
+            AirPlayInsets(safe.top, safe.bottom, safe.left, safe.right), video, content = content)
     }
 
     internal inner class RuntimeOutput(
@@ -689,6 +693,8 @@ class SecondaryOutputRuntime internal constructor(
         var directWindow = false
         var initialHostGeometry: SecondaryHostGeometry? = null
         var layout: SecondaryLayoutPreference? = null
+        /** Frozen per session; the CarPlay offer's initialURL comes from this. */
+        var carPlayContent: CarPlayClusterContent = CarPlayClusterContent.DEFAULT
         var layoutSelectionReason: ClusterLayoutFallbackReason? = null
         var handle: HostHandle? = null
         var manager: ClusterManager? = null
@@ -742,7 +748,7 @@ class SecondaryOutputRuntime internal constructor(
                 android.os.Build.PRODUCT, android.os.Build.FINGERPRINT, carPlay = carPlay, safeOnly = directWindow)
             val baseMapping = if (carPlay) SecondaryVideoMapping.carPlay(target) else SecondaryVideoMapping.androidAuto(target)
             val mapping = if (directWindow) RetainedWindowMapping(baseMapping) else baseMapping
-            val config = if (carPlay) configuration(mapping) else null
+            val config = if (carPlay) configuration(mapping, carPlayContent) else null
             val name = config?.videoSelection?.avcDecoderName ?: decoder(1280, 720)
             val next = renderFactory(mapping, name)
             check(next.bindLease(lease))
