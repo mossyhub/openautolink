@@ -12,6 +12,7 @@ import com.openautolink.app.transport.bluetooth.AaWirelessBtControl
 import com.openautolink.app.transport.bluetooth.AaWirelessBtServer
 import io.mockk.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.emitAll
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -32,11 +33,55 @@ class WiredOnlyOwnerAdmissionTest {
             produceFile = { java.io.File(temp.root, "wired.preferences_pb") })
         val preferences = AppPreferences::class.java.getDeclaredConstructor(DataStore::class.java)
             .apply { isAccessible = true }.newInstance(store)
-        preferences.setWiredOnly(true)
+        saveWhileServicingMain(preferences, true)
         mockkObject(AppPreferences.Companion)
         every { AppPreferences.getInstance(any()) } returns preferences
         return preferences
     }
+    /** Keep the real five-second Save deadline while servicing Robolectric's paused Main queue. */
+    private suspend fun saveWhileServicingMain(preferences: AppPreferences, enabled: Boolean) {
+        awaitWhileServicingMain(scope.async { preferences.setWiredOnly(enabled) })
+    }
+    private suspend fun awaitWhileServicingMain(write: Deferred<Unit>) {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        while (!write.isCompleted && System.nanoTime() < deadline) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            Thread.sleep(2)
+        }
+        write.await() // Preserve the actual producer exception; never substitute a loaded policy.
+    }
+
+    @Test fun mainDependentPolicyPublicationCompletesTheSamePendingDurableSave() = runBlocking {
+        val store = PreferenceDataStoreFactory.create(scope = scope,
+            produceFile = { java.io.File(temp.root, "main-boundary.preferences_pb") })
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val durable = java.util.concurrent.CountDownLatch(1)
+        // Controlled OS/fixture schedule, not attribution of the historical hosted timeout.
+        val mainBound = object : DataStore<Preferences> {
+            override val data = kotlinx.coroutines.flow.flow {
+                entered.countDown()
+                withContext(Dispatchers.Main) { Unit }
+                emitAll(store.data)
+            }
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
+                store.updateData(transform).also { durable.countDown() }
+        }
+        val preferences = AppPreferences::class.java.getDeclaredConstructor(DataStore::class.java)
+            .apply { isAccessible = true }.newInstance(mainBound)
+        val write = scope.async { preferences.setWiredOnly(true) }
+        assertTrue(entered.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        assertTrue(durable.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        assertFalse(preferences.projectionConnectionPolicy.state.value.loaded)
+        try {
+            withTimeout(50) { write.await() }
+            fail("A paused Main-dependent observer cannot acknowledge the Save")
+        } catch (_: TimeoutCancellationException) { }
+        assertFalse(write.isCompleted)
+        awaitWhileServicingMain(write)
+        assertTrue(preferences.projectionConnectionPolicy.state.value.loaded)
+        assertTrue(preferences.projectionConnectionPolicy.state.value.wiredOnly)
+    }
+
     @After fun close() = runBlocking { job.cancelAndJoin(); unmockkAll() }
 
     @Test fun actualAaSessionAndManagerRejectWirelessStartAndRecovery() = runBlocking {
