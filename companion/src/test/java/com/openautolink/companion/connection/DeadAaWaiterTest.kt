@@ -186,14 +186,23 @@ class DeadAaWaiterTest {
         val (car, peer) = f.pair()
         val before = context.broadcasts.size
         synchronized(field(a, "proxyOwnershipLock").get(a)) {
-            a.javaClass.getDeclaredMethod("handleCarConnection", Socket::class.java).apply { isAccessible = true }.invoke(a, car)
-            check(context.broadcasts.size == before)
-            old.shutdownOutput()
-            eventually("old EOF observed") { !p.hasWaitingBridge() }
-            val replacement = f.aa(p)
+            val leaseLock = field(p, "ownershipLock").get(p)
+            // Neither peer may lease the car before its FIN is visible. The advertiser
+            // lock alone delays callbacks, not AaProxy's independent lease admission.
+            synchronized(leaseLock) {
+                a.javaClass.getDeclaredMethod("handleCarConnection", Socket::class.java).apply { isAccessible = true }.invoke(a, car)
+                check(context.broadcasts.size == before)
+                old.shutdownOutput()
+                eventually("old EOF observed before releasing lease lock") { !p.hasWaitingBridge() }
+            }
+            check(!p.hasActiveBridge()) { "old waiter must not consume the offered car" }
+            synchronized(leaseLock) {
+                val replacement = f.aa(p)
+                replacement.shutdownOutput()
+            }
             eventually("newer AA ticket accepted") { (field(p, "waitGeneration").get(p) as AtomicInteger).get() > generation }
-            replacement.shutdownOutput()
-            Thread.sleep(100)
+            eventually("newer EOF observed before stale callback") { !p.hasWaitingBridge() }
+            check(!p.hasActiveBridge()) { "replacement waiter must not consume the offered car" }
             val listener = field(p, "listener").get(p)
             val callback = listener.javaClass.declaredMethods.single { it.name == "onWaitingPeerClosed" }
             callback.isAccessible = true
