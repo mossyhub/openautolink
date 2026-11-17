@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class WirelessRuntimePolicyFixture(context: Context) : AutoCloseable {
     val receiver = mockk<ProjectionReceiver>(relaxed = true)
     val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+    val lastStatus = java.util.concurrent.atomic.AtomicReference("not started")
+    val runThread = java.util.concurrent.atomic.AtomicReference<Thread?>()
     val iterations = AtomicInteger()
     val bootstrapRetired = java.util.concurrent.atomic.AtomicBoolean()
     val entered = CountDownLatch(1)
@@ -91,8 +93,9 @@ class WirelessRuntimePolicyFixture(context: Context) : AutoCloseable {
         every { channel.isClosed } returns false
         every { channel.awaitClosed(any()) } returns true
         runtime = spyk(OalCarPlayRuntime(ctx, CarPlayRuntimeConfig(device.address, "192.0.2.1", nic.name,
-            false, "fixture", "AA:BB:CC:DD:EE:20", 2412, CarPlayDisplayPreferences(), networkFamily = "ipv4"), mockk<Surface>(), {}))
+            false, "fixture", "AA:BB:CC:DD:EE:20", 2412, CarPlayDisplayPreferences(), networkFamily = "ipv4"), mockk<Surface>(), { lastStatus.set(it) }))
         every { runtime.run() } answers {
+            runThread.set(Thread.currentThread())
             try { callOriginal() } catch (problem: Throwable) { failure.set(problem); throw problem }
         }
         every { runtime.createClusterReceiver(any()) } answers {

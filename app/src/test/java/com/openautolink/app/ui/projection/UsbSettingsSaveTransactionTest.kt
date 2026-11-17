@@ -275,7 +275,14 @@ class UsbSettingsSaveTransactionTest {
             coordinator.attachSurface(mockk())
             try {
                 assertTrue(coordinator.connect(true) { fixture.runtime })
-                awaitMainOutcome(10000) { fixture.entered.count == 0L || fixture.failure.get() != null }
+                try {
+                    awaitMainOutcome(10000) { fixture.entered.count == 0L || fixture.failure.get() != null }
+                } catch (timeout: androidx.compose.ui.test.ComposeTimeoutException) {
+                    val thread = fixture.runThread.get()
+                    throw AssertionError("Runtime-loop precondition: status=${fixture.lastStatus.get()} " +
+                        "coordinator=${projection.carPlayState.value} thread=${thread?.name}/${thread?.state} " +
+                        "stack=${thread?.stackTrace?.joinToString(" | ")}", timeout)
+                }
                 assertTrue("actual runConnection reaches runtime loop: ${projection.carPlayState.value.status}; ${fixture.failure.get()}", fixture.entered.count == 0L)
                 runBlocking { preferences.setWiredOnly(true) }
                 runBlocking { assertFalse(reconcilePolicy()) }

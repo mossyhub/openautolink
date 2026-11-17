@@ -22,6 +22,43 @@ import org.robolectric.annotation.ConscryptMode
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class WiredOnlyLateDiscoveryTest {
     @get:Rule val temp = org.junit.rules.TemporaryFolder()
+
+    @Test fun stopDoesNotSnapshotAKeySetWhoseLastCleanupCanRetireDuringSizeRead() = runBlocking {
+        val policy = ProjectionConnectionPolicy().apply { observe(false) }
+        val preferences = mockk<AppPreferences>()
+        every { preferences.projectionConnectionPolicy } returns policy
+        mockkObject(AppPreferences.Companion)
+        every { AppPreferences.getInstance(any()) } returns preferences
+        val discovery = PhoneDiscovery::class.java.getDeclaredConstructor(Context::class.java)
+            .apply { isAccessible = true }.newInstance(mockk<Context>(relaxed = true))
+        val ownerScope = discovery.javaClass.getDeclaredField("sweepScope").apply { isAccessible = true }
+            .get(discovery) as CoroutineScope
+        ownerScope.coroutineContext[Job]!!.cancelAndJoin()
+        val key = Any()
+        val retired = java.util.concurrent.atomic.AtomicInteger()
+        // Force the actual CHM KeySet.size -> iterator.next race without scheduler timing.
+        val cleanups = object : java.util.concurrent.ConcurrentHashMap<Any, () -> Unit>() {
+            override val size: Int
+                get() {
+                    val observed = super.size
+                    if (observed == 1) remove(key)?.invoke()
+                    return observed
+                }
+        }
+        cleanups[key] = { retired.incrementAndGet(); Unit }
+        discovery.javaClass.getDeclaredField("resolutionCleanups").apply { isAccessible = true }
+            .set(discovery, cleanups)
+        try {
+            discovery.stop()
+            discovery.stop()
+            assertEquals("The exact cleanup runs once, even when another stop already took it", 1, retired.get())
+            assertTrue(cleanups.isEmpty())
+        } finally {
+            discovery.stop()
+            unmockkAll()
+        }
+    }
+
     @Test fun oldNsdCallbacksCannotPublishOrFallbackAfterOnOff() = runBlocking {
         val job = SupervisorJob()
         val store = PreferenceDataStoreFactory.create(scope = CoroutineScope(job + Dispatchers.IO),

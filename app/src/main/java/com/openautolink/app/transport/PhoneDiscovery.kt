@@ -315,7 +315,9 @@ class PhoneDiscovery private constructor(private val context: Context) {
     }
 
     fun stop() {
-        resolutionCleanups.keys.toList().forEach { key -> resolutionCleanups.remove(key)?.invoke() }
+        // CHM's weakly consistent traversal tolerates another stop taking the last key.
+        // Kotlin keys.toList() can observe size == 1, then throw from iterator.next().
+        resolutionCleanups.forEach { key, _ -> resolutionCleanups.remove(key)?.invoke() }
         val retiring = synchronized(lock) { discoveryListener.also { discoveryListener = null } }
         try { retiring?.let { nsdManager?.stopServiceDiscovery(it) } } catch (_: Exception) {}
         _isDiscovering.value = false
