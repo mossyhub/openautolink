@@ -37,6 +37,7 @@ class TcpConnector(
      * the TCP layer we never get an onSessionStopped to count from.
      */
     private val onConnectFailure: (() -> Unit)? = null,
+    private val admissionCheck: () -> Boolean = { true },
 ) {
     companion object {
         private const val TAG = "OAL-TcpConn"
@@ -90,7 +91,7 @@ class TcpConnector(
     private var nsdFoundPort: Int = 0
 
     fun start() {
-        if (isRunning) return
+        if (isRunning || !admissionCheck()) return
         isRunning = true
         // Fresh budget per start: start() follows a network or transport change,
         // which is exactly when a gateway that never answered might now be a
@@ -137,7 +138,7 @@ class TcpConnector(
             }
 
         connectJob = scope.launch(Dispatchers.IO) {
-            while (isActive && isRunning) {
+            while (isActive && isRunning && admissionCheck()) {
                 // Manual IP — skip all discovery, connect directly
                 if (effectiveManualHost != null) {
                     if (tryConnect(effectiveManualHost, manualPort, "manual")) return@launch
@@ -188,6 +189,7 @@ class TcpConnector(
     }
 
     private fun tryConnect(host: String, port: Int, source: String): Boolean {
+        if (!isRunning || !admissionCheck()) return false
         // Issue #48: never attempt an IPv6 literal — the companion serves IPv4
         // only on the local link, and on a hotspot a global IPv6 (2607:…) isn't
         // bridged. Reject here so every caller (manual / mDNS / gateway) is
@@ -214,7 +216,7 @@ class TcpConnector(
             // Socket.connect() is blocking and is not cancelled with connectJob.
             // A different Bluetooth phone can replace this connector while the
             // old dial is still inside connect(); never publish that late socket.
-            if (!isRunning) {
+            if (!isRunning || !admissionCheck()) {
                 OalLog.i(TAG, "Connector stopped while dialling $host — closing late socket")
                 runCatching { socket.close() }
                 return false
@@ -235,6 +237,7 @@ class TcpConnector(
             } else {
                 OalLog.i(TAG, "Connected to companion at $host:$port ($source)")
             }
+            if (!admissionCheck()) { runCatching { socket.close() }; return false }
             // A successful dial is the strongest evidence of where the companion
             // is — better than any cache or scan. Publish it so the Bluetooth
             // handshake does not go looking for an address we are already
@@ -253,6 +256,7 @@ class TcpConnector(
     }
 
     private fun startNsdDiscovery() {
+        if (!isRunning || !admissionCheck()) return
         try {
             nsdManager = context.getSystemService(Context.NSD_SERVICE) as? NsdManager
             discoveryListener = object : NsdManager.DiscoveryListener {
@@ -261,6 +265,7 @@ class TcpConnector(
                 }
 
                 override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                    if (!isRunning || !admissionCheck()) return
                     OalLog.i(TAG, "mDNS service found: ${serviceInfo.serviceName}")
                     nsdManager?.resolveService(serviceInfo, object : NsdManager.ResolveListener {
                         override fun onResolveFailed(si: NsdServiceInfo, errorCode: Int) {
@@ -268,6 +273,7 @@ class TcpConnector(
                         }
 
                         override fun onServiceResolved(si: NsdServiceInfo) {
+                            if (!isRunning || !admissionCheck()) return
                             val rawHost = si.host
                             // IPv6 link-local addresses (fe80::/10) need a
                             // scope ID (e.g. %wlan0) to connect, which NSD

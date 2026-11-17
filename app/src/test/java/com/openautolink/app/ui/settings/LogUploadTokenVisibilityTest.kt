@@ -33,6 +33,7 @@ class LogUploadTokenVisibilityTest {
         every { vm.clusterSelection } returns MutableStateFlow(com.openautolink.app.cluster.ClusterOutputSelection())
         every { vm.carPlaySettingsLoaded } returns MutableStateFlow(true)
         every { vm.carPlayApplyError } returns MutableStateFlow("")
+        every { vm.wiredOnly } returns MutableStateFlow(false)
         every { vm.carPlaySettings } returns MutableStateFlow(CarPlaySettings())
         every { vm.carPlayPhones } returns MutableStateFlow(emptyList())
         every { vm.carPlayIdentityReady } returns MutableStateFlow(false)

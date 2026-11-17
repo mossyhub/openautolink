@@ -258,6 +258,22 @@ class SettingsViewModel @JvmOverloads constructor(
 
     private val preferences = AppPreferences.getInstance(application)
     private val wppConfigServer = WppConfigBtServer(application, viewModelScope)
+    private val wiredOnlyEdit = MutableStateFlow<Boolean?>(null)
+    private var wiredOnlyChangedBySave = false
+    fun consumeWiredOnlySaveChange(): Boolean = wiredOnlyChangedBySave.also { wiredOnlyChangedBySave = false }
+    private suspend fun persistWiredOnlyDraft() {
+        val enabled = wiredOnlyEdit.value ?: return
+        val previous = preferences.wiredOnly.first()
+        preferences.setWiredOnly(enabled)
+        if (enabled) wppConfigServer.stop()
+        wiredOnlyChangedBySave = wiredOnlyChangedBySave || previous != enabled
+        wiredOnlyEdit.value = null
+    }
+    val wiredOnly = combine(preferences.wiredOnly, wiredOnlyEdit) { saved, draft -> draft ?: saved }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    fun updateWiredOnly(enabled: Boolean) {
+        if (!settingsEditsBlocked) wiredOnlyEdit.value = enabled
+    }
 
     private val _carPlayApplyError = MutableStateFlow("")
     val carPlayApplyError: StateFlow<String> = _carPlayApplyError
@@ -390,6 +406,8 @@ class SettingsViewModel @JvmOverloads constructor(
             stage = "layout"
             if (commitLayoutDraft == null) {
                 receipt.event(stage, "unavailable", "acceptedEdits=false")
+                stage = "wired-only"
+                persistWiredOnlyDraft()
                 return@withContext true
             }
             val layoutSaved = try { commitLayoutDraft() }
@@ -397,6 +415,10 @@ class SettingsViewModel @JvmOverloads constructor(
                 catch (_: Exception) { false }
             receipt.event(stage, if (layoutSaved) "success" else "failed")
             if (!layoutSaved) _carPlayApplyError.value = "Cluster layout could not be saved. Try again."
+            if (layoutSaved) {
+                stage = "wired-only"
+                persistWiredOnlyDraft()
+            }
             layoutSaved
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             _carPlayApplyError.value = "Save was interrupted. Draft retained; retry Save."
@@ -1136,7 +1158,7 @@ class SettingsViewModel @JvmOverloads constructor(
             val scalingMode = preferences.videoScalingMode.first()
             val hotspotSsid = preferences.hotspotSsid.first()
             val hotspotPassword = preferences.hotspotPassword.first()
-            val directTransport = preferences.directTransport.first()
+            val directTransport = preferences.effectiveDirectTransport.first()
             val wppInterfaceName = _wppApInterfaceOverride.value
             preferences.setWppApInterface(wppInterfaceName)
             val videoAutoNeg = preferences.videoAutoNegotiate.first()

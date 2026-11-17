@@ -57,7 +57,8 @@ internal fun rememberProductionSettingsSaveAction(
                 },
                 {
                     receipt.event("reconnect_dispatch", "requested", "source=save kind=${if (projectionViewModel.carPlayState.value.selected) "CarPlay" else "AndroidAuto"}")
-                    projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect)
+                    if (settingsViewModel.consumeWiredOnlySaveChange()) projectionViewModel.applySavedWiredOnlyPolicy()
+                    else projectionViewModel.reconnectAfterSettingsSave(settingsViewModel::saveAndReconnect)
                 },
                 { onBack(); receipt.event("close", "completed") },
             )

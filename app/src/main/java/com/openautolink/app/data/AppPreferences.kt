@@ -17,6 +17,8 @@ import com.openautolink.app.cluster.ClusterOutputSelection
 import com.openautolink.app.transport.aasdk.GalProtocolPolicy
 import com.openautolink.app.video.SeedIdrPolicy
 import com.openautolink.app.video.SeedIdrThresholds
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
@@ -28,6 +30,34 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
  * App preferences backed by DataStore.
  */
 class AppPreferences private constructor(private val dataStore: DataStore<Preferences>) {
+    /** One process-owned observer per preference store. No optimistic wireless default. */
+    val projectionConnectionPolicy = com.openautolink.app.transport.ProjectionConnectionPolicy()
+    private val connectionPolicyScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    init {
+        connectionPolicyScope.launch {
+            try {
+                dataStore.data.collect { projectionConnectionPolicy.observe(it[WIRED_ONLY] ?: false) }
+            } catch (failure: Exception) {
+                projectionConnectionPolicy.unavailable()
+            }
+        }
+    }
+    val wiredOnly: Flow<Boolean> = dataStore.data.map { it[WIRED_ONLY] ?: false }
+    suspend fun setWiredOnly(enabled: Boolean) {
+        dataStore.edit { it[WIRED_ONLY] = enabled }
+        // Save cannot return while a stale in-memory snapshot still grants wireless admission.
+        kotlinx.coroutines.withTimeout(5_000) {
+            projectionConnectionPolicy.state.first { it.loaded && it.wiredOnly == enabled }
+        }
+    }
+    val effectiveDirectTransport: Flow<String> = dataStore.data.map {
+        if (it[WIRED_ONLY] == true || it[DIRECT_TRANSPORT] == DIRECT_TRANSPORT_USB) DIRECT_TRANSPORT_USB else DIRECT_TRANSPORT_WPP
+    }
+    val effectiveCarPlaySettings: Flow<CarPlaySettings> = dataStore.data.map {
+        val stored = CarPlaySettings.decode(it[CARPLAY_SETTINGS])
+        val saved = stored.copy(alwaysInPark = readAlwaysInPark(it, stored))
+        if (it[WIRED_ONLY] == true) saved.copy(connectionMode = "usb") else saved
+    }
     /** Optional release metadata shares the existing app store; construction performs no IO. */
     val releaseAnnouncements by lazy { com.openautolink.app.announcements.ReleaseAnnouncementStore(dataStore) }
     /** First subscription migrates atomically before observing; never enables or launches outputs.
@@ -233,6 +263,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         // which case the real VHAL gear/driving state is forwarded as-is.
         // Intended for bench/diagnostic use and for head units whose VHAL never
         // reports a usable gear. See issue #61.
+        val WIRED_ONLY = booleanPreferencesKey("wired_only")
         val ALWAYS_IN_PARK = booleanPreferencesKey("always_in_park")
         val CLUSTER_NAVIGATION = booleanPreferencesKey("cluster_navigation")
         val CLUSTER_DISPLAY_MODE = stringPreferencesKey("cluster_display_mode_v1")

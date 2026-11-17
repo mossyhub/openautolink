@@ -11,6 +11,7 @@ import com.openautolink.app.transport.WppInterfacePolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -98,7 +99,16 @@ object AaWirelessBtControl {
     }
     @Volatile private var usbHandoff: UsbHandoffToken? = null
     private val advertiserRetirementMutex = kotlinx.coroutines.sync.Mutex()
-    private fun wirelessAdmissionBlocked() = com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused() || usbHandoff != null ||
+    private fun wiredPolicyAllowsWireless(): Boolean = appContext?.let {
+        com.openautolink.app.data.AppPreferences.getInstance(it).projectionConnectionPolicy.wirelessAllowed
+    } ?: true
+    @Volatile private var ownerPolicyTicket: Long? = null
+    private fun ownerPolicyCurrent(): Boolean = appContext?.let {
+        com.openautolink.app.data.AppPreferences.getInstance(it).projectionConnectionPolicy.admits(ownerPolicyTicket)
+    } ?: true
+    private fun wirelessAdmissionBlocked() = baseWirelessAdmissionBlocked() ||
+        (sessionAdmission.currentWppOwner() != null && !ownerPolicyCurrent())
+    private fun baseWirelessAdmissionBlocked() = !wiredPolicyAllowsWireless() || com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused() || usbHandoff != null ||
         com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto
 
     @Synchronized fun reserveUsbHandoff(generation: Long): UsbHandoffToken =
@@ -258,7 +268,8 @@ object AaWirelessBtControl {
         wppInterfaceName: String? = null,
     ): WppSessionAdmission.Token {
         val token = synchronized(this) {
-            check(transportMode != "wpp" || !wirelessAdmissionBlocked()) { "Wireless admission reserved" }
+            check(transportMode != "wpp" || !baseWirelessAdmissionBlocked()) { "Wireless admission reserved" }
+            ownerPolicyTicket = appContext?.let { com.openautolink.app.data.AppPreferences.getInstance(it).projectionConnectionPolicy.wirelessTicket() }
             sessionAdmission.installSession(transportMode, wppInterfaceName)
         }
         OalLog.i(TAG, "Session admission installed: generation=${token.generation} " +
@@ -502,7 +513,7 @@ object AaWirelessBtControl {
         bootstrapAttempt.get() === attempt && bootstrapContextStillOwned(attempt)
 
     private fun bootstrapContextStillOwned(attempt: BootstrapAttempt): Boolean =
-        !attempt.controlClosed && isCurrentSessionOwner(attempt.owner) && btServer === attempt.server &&
+        !wirelessAdmissionBlocked() && !attempt.controlClosed && isCurrentSessionOwner(attempt.owner) && btServer === attempt.server &&
             attempt.server.isRunning && !simulatedIgnitionOff &&
             selectedWppInterfaceName == attempt.interfaceName &&
             currentSelectedWppIpv4() == attempt.localIpv4 &&
@@ -1072,6 +1083,15 @@ object AaWirelessBtControl {
 
     fun init(context: Context) {
         appContext = context.applicationContext
+        scope.launch {
+            com.openautolink.app.data.AppPreferences.getInstance(context).projectionConnectionPolicy.state.collect { policy ->
+                if (!policy.wirelessAllowed || !ownerPolicyCurrent()) {
+                    try { awaitAdvertiserRetirement() }
+                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { OalLog.w(TAG, "Wireless advertiser retirement pending; admission remains closed") }
+                }
+            }
+        }
         restoreKnownIps(context)
         registerBtDisconnectReceiver(context)
         synchronized(this) {
@@ -1752,6 +1772,11 @@ object AaWirelessBtControl {
             check(usbHandoff === token) { "USB handoff superseded during retirement" }
             token.advertiserRetired = true
         }
+    }
+
+    suspend fun retireForWiredOnly() {
+        check(appContext == null || !wiredPolicyAllowsWireless())
+        awaitAdvertiserRetirement()
     }
 
     private suspend fun awaitAdvertiserRetirement() = advertiserRetirementMutex.withLock {

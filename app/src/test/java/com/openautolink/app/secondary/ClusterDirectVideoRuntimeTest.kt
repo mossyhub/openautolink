@@ -76,6 +76,9 @@ class ClusterDirectVideoRuntimeTest {
     @Test fun carPlayOffpageBeforeInitialAttachAckKeepsConfigurationAndDecoder()=journey(true,offpageStartup=true)
     @Test fun floatingVideoOnlyRestoreUsesNegotiatedStartupTaskAndKeepsPrimaryAudioAndVideo()=journey(false,gm=true,offpageStartup=true,manualRestore=true)
     @Test fun carPlayProductionConfigurationAndIngressSurviveDirectPageReturn()=journey(true)
+    @Test fun savedCarPlayMapOnlyReachesFrozenPhoneOffer()=journey(true,carPlayContent=com.openautolink.carplaylab.media.CarPlayClusterContent.MAP)
+    @Test fun savedCarPlayTurnCardOnlyReachesFrozenPhoneOffer()=journey(true,carPlayContent=com.openautolink.carplaylab.media.CarPlayClusterContent.INSTRUCTION_CARD)
+    @Test fun savedCarPlayCombinedViewReachesFrozenPhoneOffer()=journey(true,carPlayContent=com.openautolink.carplaylab.media.CarPlayClusterContent.MAP_WITH_CARD)
     @Test fun directGmIdentityNeverEntersAndroidxRetainedHostHandoff()=journey(false,true)
     @Test fun explicitClusterRoleRemainsClusterOnDirectPublicWindow()=journey(false,false,AaSecondaryRole.CLUSTER)
     @Test fun nonGmUnsetRoleDefaultsToClusterInTheActualDirectPhoneOffer()=journey(false,false,null)
@@ -165,7 +168,7 @@ class ClusterDirectVideoRuntimeTest {
     }
 
     private enum class CarPlayInlineSets { NONE, LEGACY, MATCHING }
-    private fun journey(cp:Boolean,gm:Boolean=false,role:AaSecondaryRole?=AaSecondaryRole.AUXILIARY,withIcons:Boolean=false,gmExclusive:Boolean=false,offpageStartup:Boolean=false,manualRestore:Boolean=false,replaceSelection:Boolean=false,freezePark:Int=0,replaceActivity:Boolean=false,replaceAtLookup:Boolean=false,holdCarPlayConfig:Boolean=false,carPlayInlineSets:CarPlayInlineSets=CarPlayInlineSets.NONE) {
+    private fun journey(cp:Boolean,gm:Boolean=false,role:AaSecondaryRole?=AaSecondaryRole.AUXILIARY,withIcons:Boolean=false,gmExclusive:Boolean=false,offpageStartup:Boolean=false,manualRestore:Boolean=false,replaceSelection:Boolean=false,freezePark:Int=0,replaceActivity:Boolean=false,replaceAtLookup:Boolean=false,holdCarPlayConfig:Boolean=false,carPlayInlineSets:CarPlayInlineSets=CarPlayInlineSets.NONE,carPlayContent:com.openautolink.carplaylab.media.CarPlayClusterContent?=null) {
         val oldProduct=android.os.Build.PRODUCT
         if(gmExclusive)org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build::class.java,"PRODUCT",ClusterDisplayProfiles.AEGEAN_ORANGE_239.vehicle.product)
         System.setProperty("robolectric.createActivityContexts","true")
@@ -197,7 +200,7 @@ class ClusterDirectVideoRuntimeTest {
         var durable=stored()
         runBlocking {
             durable.setClusterOutputSelection(selection)
-            durable.updateSecondaryDisplayPreferences(0,mapOf(descriptor.id to SecondaryOutputPreference(true,role,false,false)))
+            durable.updateSecondaryDisplayPreferences(0,mapOf(descriptor.id to SecondaryOutputPreference(true,role,false,false,carPlayContent=carPlayContent)))
             storeJob.cancelAndJoin()
         }
         storeJob=SupervisorJob();durable=stored()
@@ -316,6 +319,8 @@ class ClusterDirectVideoRuntimeTest {
             if(cp) {
                 val configured=prepared as PreparedCarPlaySecondaryOutput
                 val cfg=configured.configuration!!;cpListener=configured.listener!!
+                val expectedContent=carPlayContent ?: com.openautolink.carplaylab.media.CarPlayClusterContent.DEFAULT
+                assertEquals("Actual prepared configuration consumes the disk-restored per-output view",expectedContent.url,cfg.display.initialUrl)
                 val main=AirPlayDisplayConfig(1280,720)
                 fun wire(cluster:AirPlayDisplayConfig?):Map<*,*> {
                     val dict=AirPlayInfoPlist.build(AirPlayConfig("fixture","00:00:00:00:00:00","00:00:00:00:00:00","fixture",main,cluster=cluster,disableAudioOutput=true),availableAudioFormats=emptySet())
@@ -323,6 +328,7 @@ class ClusterDirectVideoRuntimeTest {
                 }
                 val before=wire(null)["displays"] as List<*>;val after=wire(cfg.display)["displays"] as List<*>
                 assertEquals(before.first(),after.first());assertEquals(111L,((after[1] as Map<*,*>)["type"] as Number).toLong())
+                assertEquals("Phone-facing plist preserves the saved view",expectedContent.url,(after[1] as Map<*,*>)["initialURL"])
                 cpListener!!.onStreamActive(1,true)
                 cpListener!!.onCodecConfig(1,byteArrayOf(1,66,0,30,-1,-31,0,2,0x67,0x42,1,0,2,0x68,0x01))
             } else {

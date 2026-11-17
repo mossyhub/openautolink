@@ -434,6 +434,13 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
             .verticalScroll(rememberScrollState()),
     ) {
         SettingsVersionInfo()
+        val wiredOnly by viewModel.wiredOnly.collectAsStateWithLifecycle()
+        SettingsToggleRow(label = "Wired-only projection (USB)", checked = wiredOnly,
+            onCheckedChange = viewModel::updateWiredOnly,
+            controlModifier = Modifier.testTag("wiredOnlyProjection")) {
+            Text("Wired-only projection (USB)", style = MaterialTheme.typography.titleMedium)
+            Text("Use USB for Android Auto and CarPlay. Stops OpenAutoLink automatic wireless discovery and pairing/bootstrap. Leaves the car Wi-Fi available for internet and updates. Explicit diagnostic network experiments are separate. Vehicle/OnStar prompts are controlled by the vehicle and may still appear.")
+        }
         SectionHeader("Normal connections")
         Text("Android Auto and CarPlay keep separate normal connections. A USB phone can temporarily take over after you confirm; saved modes stay unchanged.",
             style = MaterialTheme.typography.bodyMedium,
@@ -487,6 +494,7 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
                 ).forEach { (mode, label) ->
                     FilterChip(
                         selected = uiState.directTransport == mode,
+                        enabled = !wiredOnly,
                         onClick = { viewModel.updateDirectTransport(mode) },
                         label = { Text(label) },
                     )
@@ -503,7 +511,7 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
             )
         }
 
-        if (uiState.directTransport == AppPreferences.DIRECT_TRANSPORT_WPP) {
+        if (!wiredOnly && uiState.directTransport == AppPreferences.DIRECT_TRANSPORT_WPP) {
             val wppConfigBtStatus by viewModel.wppConfigBtStatus.collectAsStateWithLifecycle()
             val appliedWppConfig by viewModel.wppConfigBtAppliedConfig.collectAsStateWithLifecycle()
             Spacer(modifier = Modifier.height(8.dp))
