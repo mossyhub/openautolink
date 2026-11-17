@@ -4,6 +4,9 @@ allprojects {
     tasks.withType(Test).configureEach {
         maxHeapSize = '1024m'
         maxParallelForks = 1
+        // Bound cumulative Robolectric/MockK retention without raising the heap,
+        // omitting tests, or changing the signed application's runtime.
+        forkEvery = 40
         jvmArgs '-XX:ActiveProcessorCount=2'
         doFirst {
             logger.lifecycle("OAL CI test budget ${path}: heap=${maxHeapSize}, forks=${maxParallelForks}, processors=2")

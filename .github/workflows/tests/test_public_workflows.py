@@ -43,7 +43,7 @@ class PublicWorkflowContracts(unittest.TestCase):
         self.assertIn('-Pkotlin.compiler.execution.strategy=in-process', tasks)
         self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=2', tasks)
         budget = (WORKFLOWS / 'ci-test-memory.gradle').read_text()
-        for setting in ("maxHeapSize = '1024m'", 'maxParallelForks = 1',
+        for setting in ("maxHeapSize = '1024m'", 'maxParallelForks = 1', 'forkEvery = 40',
                         "jvmArgs '-XX:ActiveProcessorCount=2'", 'tasks.withType(Test).configureEach'):
             self.assertIn(setting, budget)
         self.assertNotIn('--init-script .github/workflows/ci-test-memory.gradle', RELEASE)
