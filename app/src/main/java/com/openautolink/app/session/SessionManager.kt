@@ -804,6 +804,31 @@ class SessionManager(
     /** True while an exact WPP session token owns the process-scoped advertiser. */
     fun hasCurrentWppOwner(): Boolean = AaWirelessBtControl.hasCurrentWppOwner()
 
+    /** Display state and WPP admission may already be cleared while native stop is unacknowledged. */
+    fun hasPendingWirelessRetirement(): Boolean = synchronized(sessionStateLock) {
+        retiringAasdkSession?.transportMode?.let { it != AppPreferences.DIRECT_TRANSPORT_USB } == true
+    }
+
+    /** Retry only retained wireless debt; a current/preparing USB owner must remain untouched. */
+    suspend fun retryPendingWirelessRetirement() {
+        startMutex.lock()
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                val retiring = synchronized(sessionStateLock) {
+                    retiringAasdkSession?.takeIf { it.transportMode != AppPreferences.DIRECT_TRANSPORT_USB }
+                } ?: return@withContext
+                if (synchronized(sessionStateLock) { aasdkSession != null } || externalUsbTransport ||
+                    _transportMode.value == AppPreferences.DIRECT_TRANSPORT_USB) {
+                    stopRetiringSession(retiring)
+                } else {
+                    // Finish the component cleanup interrupted by the first native stop failure.
+                    lifecycleGeneration += 1L
+                    stopWhileLifecycleLocked()
+                }
+            }
+        } finally { startMutex.unlock() }
+    }
+
     /**
      * Re-check wake admission inside the lifecycle owner instead of transporting
      * a suspend callback across coroutine/default-argument state machines. The
@@ -1329,6 +1354,16 @@ class SessionManager(
         else session.detachUsbTransport(pipe, retired)
     }
 
+    private fun transportPermitted(mode: String): Boolean = mode == "usb" || context?.let {
+        AppPreferences.getInstance(it).projectionConnectionPolicy.wirelessAllowed
+    } == true
+
+    /** Discovery hint only; never stops vehicle HFP or projected call audio. */
+    suspend fun stopWirelessPresence() {
+        startMutex.lock()
+        try { _hfpPresence?.stop(); _hfpPresence = null } finally { startMutex.unlock() }
+    }
+
     suspend fun start(
         codecPreference: String = "h264",
         micSourcePreference: String = "car",
@@ -1373,7 +1408,7 @@ class SessionManager(
         try { startMutex.lock() } catch (failure: Throwable) { pendingCaptureClaim.release(); throw failure }
         try {
         kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused() || !admissionCheck() || externalUsbTransport && directTransport != AppPreferences.DIRECT_TRANSPORT_USB) return@withContext
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused() || !transportPermitted(directTransport) || !admissionCheck() || externalUsbTransport && directTransport != AppPreferences.DIRECT_TRANSPORT_USB) return@withContext
         if (synchronized(sessionStateLock) { retiringAasdkSession != null }) {
             OalLog.i(TAG, "AA start declined — exact native retirement is still pending")
             return@withContext
@@ -1471,7 +1506,7 @@ class SessionManager(
         // discovery hint for the phone). Recreated per-start so it survives
         // BT adapter cycles across sleep/wake.
         _hfpPresence?.stop()
-        _hfpPresence = context?.let { ctx ->
+        _hfpPresence = context?.takeIf { AppPreferences.getInstance(it).projectionConnectionPolicy.wirelessAllowed }?.let { ctx ->
             com.openautolink.app.transport.bluetooth.HfpPresenceServer(ctx, scope)
                 .also { it.start() }
         }
@@ -1585,7 +1620,7 @@ class SessionManager(
                 // owns both registration and unregistration.
                 registerScreenReceiver()
                 if (isDebuggableBuild()) registerDebugReceiver()
-                if (!admissionCheck()) {
+                if (!transportPermitted(directTransport) || !admissionCheck()) {
                     stopWhileLifecycleLocked(cancelObserveJob = false)
                     startupOutcome.complete(Unit)
                     return@launch
@@ -1660,7 +1695,7 @@ class SessionManager(
         wppRearmSource: String? = null,
         transportStartGeneration: Long,
     ) {
-        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
+        if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused() || !transportPermitted(directTransport)) return
         if (projectionCaptureClaim == null) projectionCaptureClaim = com.shilapi.xcertplay.media.MicrophoneCaptureFence.tryProjectionClaim() ?: return
         aasdkSession?.stop()
         _transportMode.value = directTransport

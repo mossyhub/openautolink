@@ -62,6 +62,7 @@ class WppTcpServer(
     private val bindInterfaceName: String,
     /** Port to bind. Must match the port advertised in the WifiStartRequest. */
     private val port: Int = DEFAULT_PORT,
+    private val admissionCheck: () -> Boolean = { true },
 ) {
     companion object {
         private const val TAG = "OAL-WppServer"
@@ -100,7 +101,7 @@ class WppTcpServer(
 
     fun start() {
         synchronized(lifecycleLock) {
-            if (lifecycleState != LifecycleState.NEW) return
+            if (lifecycleState != LifecycleState.NEW || !admissionCheck()) { bindOutcome.complete(false); return }
             lifecycleState = LifecycleState.RUNNING
             acceptJob = scope.launch(Dispatchers.IO) { acceptLoop() }
         }
@@ -117,12 +118,13 @@ class WppTcpServer(
             if (selectedAddress == null) {
                 OalLog.i(TAG, "Waiting for selected WPP interface before binding TCP server")
             }
-            while (isRunning() && scope.isActive && selectedAddress == null &&
+            while (isRunning() && scope.isActive && admissionCheck() && selectedAddress == null &&
                 System.currentTimeMillis() < deadline
             ) {
                 delay(250)
                 selectedAddress = WppInterfacePolicy.liveIpv4(bindInterfaceName)
             }
+            if (!admissionCheck()) { stop(); return }
             val bindAddress = selectedAddress
             if (bindAddress == null) {
                 OalLog.e(TAG, "Selected WPP interface unavailable — TCP server not bound")
@@ -140,7 +142,7 @@ class WppTcpServer(
             candidate.reuseAddress = true
             candidate.bind(InetSocketAddress(bindAddress, port), BACKLOG)
             val committed = synchronized(lifecycleLock) {
-                if (lifecycleState != LifecycleState.RUNNING) {
+                if (lifecycleState != LifecycleState.RUNNING || !admissionCheck()) {
                     false
                 } else {
                     serverSocket = candidate
@@ -156,8 +158,9 @@ class WppTcpServer(
             }
 
             synchronized(lifecycleLock) {
-                if (lifecycleState != LifecycleState.RUNNING || serverSocket !== candidate) {
+                if (lifecycleState != LifecycleState.RUNNING || serverSocket !== candidate || !admissionCheck()) {
                     bindOutcome.complete(false)
+                    stop()
                     return
                 }
                 OalLog.i(TAG, "WPP selected-interface inbound listener ready on " +
@@ -178,7 +181,7 @@ class WppTcpServer(
             return
         }
 
-        while (isRunning() && scope.isActive) {
+        while (isRunning() && scope.isActive && admissionCheck()) {
             val listeningSocket = synchronized(lifecycleLock) {
                 serverSocket?.takeIf { lifecycleState == LifecycleState.RUNNING }
             } ?: break
@@ -189,6 +192,7 @@ class WppTcpServer(
                 null
             } ?: break
 
+            if (!admissionCheck()) { runCatching { socket.close() }; break }
             val remoteHost = runCatching { socket.inetAddress?.hostAddress }.getOrNull()
             val remote = runCatching { socket.remoteSocketAddress?.toString() ?: "?" }
                 .getOrDefault("?")

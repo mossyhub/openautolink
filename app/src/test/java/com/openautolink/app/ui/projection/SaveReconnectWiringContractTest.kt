@@ -48,14 +48,14 @@ class SaveReconnectWiringContractTest {
     @Test fun committedSaveReadsAuthoritativePreferencesBeforeDispatch() {
         val vm = source("ui/projection/ProjectionViewModel.kt")
         val dispatch = vm.substringAfter("fun reconnectAfterSettingsSave(").substringBefore("fun stopCarPlay()")
-        assertTrue(dispatch.indexOf("val saved = preferences.carPlaySettings.first()") < dispatch.indexOf("usbSwitchPolicy.wirelessCarPlay("))
+        assertTrue(dispatch.indexOf("val saved = preferences.effectiveCarPlaySettings.first()") < dispatch.indexOf("usbSwitchPolicy.wirelessCarPlay("))
         assertTrue(dispatch.contains("usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)"))
         assertFalse(dispatch.contains("carPlayEnabled.value"))
         assertTrue(dispatch.contains("carPlayCoordinator.connectForExplicitReconnect(true, ::createCarPlayRuntime)"))
         val retirement = dispatch.indexOf("retireUsbProjection(preserveClusterHostForReconnect = retainedClusterHost)")
         val connect = dispatch.indexOf("carPlayCoordinator.connectForExplicitReconnect(")
         assertTrue("USB retirement must precede context-aware CarPlay dispatch", retirement >= 0 && connect > retirement)
-        assertTrue(dispatch.contains("preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB"))
+        assertTrue(dispatch.contains("preferences.effectiveDirectTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB"))
         assertFalse("Global Save keeps the passive USB watcher alive", dispatch.contains("stopUnifiedUsb()"))
     }
 

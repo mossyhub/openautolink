@@ -81,7 +81,8 @@ class CompanionDialStateTest {
         val afterConnect = source.substringAfter("socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)")
             .substringBefore("onSocketReady(socket)")
 
-        assertTrue(afterConnect.contains("if (!isRunning)"))
+        assertTrue("Late socket must be closed on cancellation or revoked wireless admission",
+            afterConnect.contains("if (!isRunning || !admissionCheck())"))
         assertTrue(afterConnect.contains("socket.close()"))
     }
 

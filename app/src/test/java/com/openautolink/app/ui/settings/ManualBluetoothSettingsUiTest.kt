@@ -27,6 +27,7 @@ class ManualBluetoothSettingsUiTest {
     @Test fun singleSharedFieldRendersForUsbAndWirelessWithoutOpeningAdvanced() {
         val vm = mockk<SettingsViewModel>(relaxed = true)
         val settings = MutableStateFlow(CarPlaySettings(receiverAddress = "AA:BB:CC:DD:EE:10"))
+        every { vm.wiredOnly } returns MutableStateFlow(false)
         every { vm.carPlaySettings } returns settings
         every { vm.carPlayPhones } returns MutableStateFlow(emptyList())
         every { vm.carPlayIdentityReady } returns MutableStateFlow(false)

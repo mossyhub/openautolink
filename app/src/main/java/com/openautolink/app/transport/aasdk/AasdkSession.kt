@@ -378,7 +378,15 @@ class AasdkSession(
         }
     }
 
+    private val wirelessPolicy by lazy { com.openautolink.app.data.AppPreferences.getInstance(context).projectionConnectionPolicy }
+    private var wirelessTicket: Long? = null
+    private fun wirelessPermitted() = wirelessPolicy.admits(wirelessTicket)
+
     fun start() {
+        if (transportMode != "usb") {
+            wirelessTicket = wirelessPolicy.wirelessTicket()
+            if (!wirelessPermitted()) return
+        }
         explicitStop = false
         consecutiveReconnectFailures = 0
         _reconnectAttempt.value = 0
@@ -404,6 +412,7 @@ class AasdkSession(
      * connected socket — so this reuses [handleConnection] unchanged.
      */
     private fun startWpp(recovery: Boolean = false) {
+        if (!wirelessPermitted()) return
         // Which side dials depends on which endpoint we advertised over Bluetooth.
         //
         //   companion loopback  -> the COMPANION is the server (it listens on 5277
@@ -491,6 +500,7 @@ class AasdkSession(
                 }
             },
             bindInterfaceName = wppInterfaceName,
+            admissionCheck = ::wirelessPermitted,
         )
         _wppServer = server
         server.start()
@@ -547,6 +557,7 @@ class AasdkSession(
     private var selfInflictedTeardown = false
 
     fun dialCompanion(ip: String) {
+        if (!wirelessPermitted()) return
         // The ignition-cycle simulation holds the session down deliberately;
         // reconnecting mid-window makes the test meaningless.
         if (com.openautolink.app.transport.bluetooth.AaWirelessBtControl.simulatedIgnitionOff) {
@@ -600,6 +611,7 @@ class AasdkSession(
     }
 
     private fun startTcp(manualIp: String? = null) {
+        if (!wirelessPermitted()) return
         OalLog.i(TAG, "Starting TCP connector (hotspot or WPP companion-proxy transport)")
         synchronized(connectionStartLock) {
             // Record at the common ownership boundary. WPP restart calls startTcp()
@@ -628,6 +640,7 @@ class AasdkSession(
                         }
                     }
                 },
+                admissionCheck = ::wirelessPermitted,
                 onConnectFailure = {
                     synchronized(connectionStartLock) {
                         if (_tcpConnector === connector) {
@@ -762,6 +775,7 @@ class AasdkSession(
 
     private fun handleConnection(socket: Socket) {
         synchronized(connectionStartLock) {
+        if (!wirelessPermitted()) { runCatching { socket.close() }; return }
         _connectionState.value = ConnectionState.CONNECTING
 
         // Say goodbye to the phone before replacing a live native session.
@@ -803,7 +817,7 @@ class AasdkSession(
         // decoder-created hook never fires — and the reused decoder has no
         // surface after the old one was destroyed. Measured: video ran at 41fps
         // for 25s into a decoder with nothing to render to.
-        if (onNativeSessionStarting?.invoke() == false) {
+        if (onNativeSessionStarting?.invoke() == false || !wirelessPermitted()) {
             OalLog.i(TAG, "TCP native start rejected by session owner")
             runCatching { socket.close() }
             _connectionState.value = ConnectionState.DISCONNECTED
@@ -870,6 +884,7 @@ class AasdkSession(
      * is restarted.
      */
     fun forceReconnect(reason: String) {
+        if (transportMode != "usb" && !wirelessPermitted()) return
         if (!forceReconnectGate.tryStart()) {
             OalLog.i(TAG, "Force reconnect already in flight — ignoring duplicate: $reason")
             return

@@ -119,7 +119,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         combine(carPlayState, sessionManager.clusterVideoStatus) { carPlay, androidAuto ->
             if (carPlay.selected) carPlay.cluster.output else androidAuto
         }.stateIn(viewModelScope, SharingStarted.Eagerly, com.openautolink.app.cluster.ClusterProjectionStatus())
-    val carPlayEnabled: StateFlow<Boolean> = preferences.carPlaySettings.map { it.enabled }
+    val carPlayEnabled: StateFlow<Boolean> = preferences.effectiveCarPlaySettings.map { it.enabled }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     private val carPlaySurface = MutableStateFlow<Surface?>(null)
     private val _carPlayDisplay = MutableStateFlow(com.openautolink.carplaylab.media.CarPlayDisplayPreferences())
@@ -182,8 +182,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     /** One automatic attempt per retained ViewModel, using disk-backed preferences, not UI seeds. */
     fun startProjectionOnce() {
         viewModelScope.launch {
-            val saved = preferences.carPlaySettings.first()
-            val aaNormalTransport = preferences.directTransport.first()
+            preferences.projectionConnectionPolicy.state.first { it.loaded }
+            val saved = preferences.effectiveCarPlaySettings.first()
+            val aaNormalTransport = preferences.effectiveDirectTransport.first()
             startUnifiedUsb()
             val wirelessCarPlay = usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)
             _carPlayAutomaticResolution.value = saved.usesWindowGeometry
@@ -265,7 +266,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 consent = usbConsent,
                 onCandidate = { generation, device ->
                     viewModelScope.launch {
-                        val saved = preferences.carPlaySettings.first()
+                        val saved = preferences.effectiveCarPlaySettings.first()
                         if (dispatchEpoch != usbDispatchEpoch.get()) return@launch
                         if (device.vendorId == 0x05ac && (!saved.enabled || saved.videoError() != null)) {
                             unifiedUsbManager?.stay(generation)
@@ -324,13 +325,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                         ?: Pair({ false }, { _: android.hardware.usb.UsbDevice -> false })
                     val retired = selectedManager?.iphoneRetirementAcknowledgement(device) ?: {}
                     val permission = selectedManager?.iphonePermissionCallbacks(device) ?: Pair({ false }, { false })
-                    val saved = kotlinx.coroutines.runBlocking { preferences.carPlaySettings.first() }
+                    val saved = kotlinx.coroutines.runBlocking { preferences.effectiveCarPlaySettings.first() }
                     if (!saved.enabled || usbOverrideGeneration == null) false else {
                         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             usbDispatchMutex.lock()
                             try {
                                 if (dispatchEpoch != usbDispatchEpoch.get() || generation == null || usbOverrideGeneration != generation ||
-                                    !preferences.carPlaySettings.first().enabled) {
+                                    !preferences.effectiveCarPlaySettings.first().enabled) {
                                     retired()
                                     return@launch
                                 }
@@ -394,7 +395,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                         }
                     },
                     eligible = { protocol ->
-                        val saved = preferences.carPlaySettings.first()
+                        val saved = preferences.effectiveCarPlaySettings.first()
                         // Revalidate before claiming/retiring projection, including an old Switch dialog.
                         val blocked = manager.pendingDevice(generation)?.let(::presentBlockedUsbCarPlayFailure) == true
                         if (!blocked && automatic && usbOverrideGeneration == null && manager.pendingDevice(generation) != null && usbSwitchPolicy.shouldPrompt(
@@ -506,14 +507,15 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private suspend fun restoreNormalProjection() {
+        if (!preferences.projectionConnectionPolicy.wirelessAllowed) return
         if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
         _carPlayStartupGuidance.value = null
-        val saved = preferences.carPlaySettings.first()
+        val saved = preferences.effectiveCarPlaySettings.first()
         if (com.openautolink.app.input.IgnitionMonitor.isOffOrLocked()) return
         // Wired CarPlay enablement never suppresses normal Android Auto WPP / GM phone priority.
         if (usbSwitchPolicy.wirelessCarPlay(saved.enabled, saved.connectionMode)) {
             if (prepareCarPlayStart(saved)) carPlayCoordinator.connectWithContext(true, ::createCarPlayRuntime)
-        } else if (preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) connect()
+        } else if (preferences.effectiveDirectTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) connect()
     }
 
     /** Retry is explicit; preference collection and recomposition never spin a retry loop. */
@@ -555,8 +557,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     ): com.openautolink.app.carplay.CarPlayRuntime =
         kotlinx.coroutines.runBlocking {
             // A late factory built from an older snapshot cannot dismiss a newer successful Save.
+            val wirelessFactoryTicket = preferences.projectionConnectionPolicy.wirelessTicket()
             val noticeRevision = synchronized(settingsSaveNoticeLock) { settingsSaveNoticeRevision }
-            val saved = preferences.carPlaySettings.first()
+            val saved = preferences.effectiveCarPlaySettings.first()
             val policyInventory = com.openautolink.app.secondary.SecondaryDisplayPolicyInventory.get(getApplication())
             val gm = policyInventory.snapshots.value.displays.singleOrNull {
                 it.route == com.openautolink.app.secondary.SecondaryRoute.GM_HOSTED
@@ -613,8 +616,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 } else {
                     val config = com.openautolink.app.data.CarPlaySettingsPolicy.runtimeConfig(saved, display)
-                    check(saved.connectionMode == "wireless" && usbOverrideGeneration == null) { "Wireless CarPlay not opted in" }
+                    check(preferences.projectionConnectionPolicy.admits(wirelessFactoryTicket) && saved.connectionMode == "wireless" && usbOverrideGeneration == null) { "Wireless CarPlay not opted in" }
                     com.openautolink.app.carplay.OalCarPlayRuntime(getApplication(), config, surface, report,
+                        wirelessStartAdmission = { preferences.projectionConnectionPolicy.admits(wirelessFactoryTicket) },
                         attemptContext = attemptContext,
                         clusterOutput = clusterOutput, clusterSelection = clusterSelection,
                         onDisplayQualified = { _carPlayDisplay.value = it })
@@ -629,7 +633,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     fun reconnectCarPlay() {
         projectionLaunchPolicy.suppress()
         viewModelScope.launch {
-            val saved = preferences.carPlaySettings.first()
+            if (!reconcileWiredOnly()) return@launch
+            val saved = preferences.effectiveCarPlaySettings.first()
             if (!saved.enabled) return@launch
             if (saved.connectionMode == "usb") {
                 val usb = getApplication<Application>().getSystemService(android.hardware.usb.UsbManager::class.java)
@@ -649,6 +654,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private suspend fun prepareCarPlayStart(saved: com.openautolink.app.data.CarPlaySettings): Boolean {
+        if (!preferences.projectionConnectionPolicy.wirelessAllowed) return false
         _carPlayAutomaticResolution.value = saved.usesWindowGeometry
         val issue = saved.videoError() ?: carPlayStartupIssue(saved)
         if (issue == null) _carPlayDisplay.value = saved.displayRequest()
@@ -696,15 +702,90 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     /** Explicit overlay AA Reconnect; keep its existing minimal transport/settings restart. */
     fun reconnectAndroidAutoWithLiveHost(reconnectAndroidAuto: () -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (preferences.wiredOnly.first()) {
+                if (reconcileWiredOnly()) restartUnifiedUsb()
+                return@launch
+            }
             usbDispatchMutex.lock()
             try {
                 val active = sessionManager.sessionState.value != SessionState.IDLE
                 val wired = usbOverrideGeneration != null || sessionManager.externalUsbTransport ||
                     if (active) sessionManager.transportMode.value == AppPreferences.DIRECT_TRANSPORT_USB
-                    else preferences.directTransport.first() == AppPreferences.DIRECT_TRANSPORT_USB
+                    else preferences.effectiveDirectTransport.first() == AppPreferences.DIRECT_TRANSPORT_USB
                 if (!wired) com.openautolink.app.secondary.SecondaryOutputRuntime.get(getApplication()).retainForExplicitReconnect()
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) { reconnectAndroidAuto() }
             } finally { usbDispatchMutex.unlock() }
+        }
+    }
+
+    private var reconciledConnectionRevision = -1L
+    private var normalRearmRevision = -1L
+    @Volatile private var wiredOnlyWasApplied = false
+    /** Policy retirement precedes USB/call Save deferrals. Failed close keeps admission closed. */
+    private suspend fun reconcileWiredOnly(): Boolean {
+        val policy = preferences.projectionConnectionPolicy.state.first { it.loaded }
+        if (!policy.retirementRequired) return true
+        usbDispatchMutex.lock()
+        try {
+            if (!preferences.projectionConnectionPolicy.state.value.retirementRequired) return true
+            usbPolicyEpoch.incrementAndGet()
+            phoneDiscovery.stop()
+            sessionManager.stopWirelessPresence()
+            com.openautolink.app.transport.bluetooth.AaWirelessBtControl.retireForWiredOnly()
+            val wirelessAa = sessionManager.transportMode.value != AppPreferences.DIRECT_TRANSPORT_USB &&
+                (sessionManager.sessionState.value != SessionState.IDLE || sessionManager.hasCurrentWppOwner())
+            val wirelessCp = _carPlayState.value.selected && usbCarPlayRuntime == null
+            if ((wirelessAa || wirelessCp || sessionManager.hasPendingWirelessRetirement()) &&
+                (sessionManager.callState?.value?.let { it != com.openautolink.app.audio.CallState.IDLE } == true ||
+                 com.openautolink.carplaylab.telecom.ManagedTelecomExperiment.get(getApplication()).hasAdmittedCall)) {
+                showSettingsSaveMessage("Saved. Wireless starts are blocked. Reconnect after the call to finish wired-only mode.")
+                return false
+            }
+            if (wirelessCp) releaseCarPlayUsbOwner()
+            if (wirelessAa) {
+                sessionManager.stop()
+                synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+            }
+            // IDLE and a cleared WPP token precede native stop acknowledgement.
+            // Retry that exact retained wireless owner without stopping an admitted USB owner.
+            sessionManager.retryPendingWirelessRetirement()
+            if (usbOverrideGeneration == null && !sessionManager.externalUsbTransport && usbCarPlayRuntime == null) {
+                synchronized(connectLock) { hasConnected = false; connectInFlight = false }
+            }
+            wiredOnlyWasApplied = true
+            reconciledConnectionRevision = policy.revision
+            preferences.projectionConnectionPolicy.retired(policy.revision)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) {
+            showSettingsSaveMessage("Saved. Wireless starts are blocked. Retry Save to finish wireless retirement.")
+            return false
+        } finally { usbDispatchMutex.unlock() }
+        startUnifiedUsb()
+        return true
+    }
+
+    private suspend fun rearmNormalConnectionOnce() {
+        val policy = preferences.projectionConnectionPolicy.state.value
+        if (!policy.wirelessAllowed || !wiredOnlyWasApplied) return
+        usbDispatchMutex.lock()
+        try {
+            if (normalRearmRevision == policy.revision) return
+            normalRearmRevision = policy.revision
+            if (usbOverrideGeneration == null && !sessionManager.externalUsbTransport && usbCarPlayRuntime == null) {
+                restoreNormalProjection()
+            }
+        } finally { usbDispatchMutex.unlock() }
+    }
+
+    /** The shared real Save callback uses this only when this transaction changed the override. */
+    fun applySavedWiredOnlyPolicy() {
+        projectionLaunchPolicy.suppress()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (!reconcileWiredOnly()) return@launch
+            rearmNormalConnectionOnce()
+            showSettingsSaveMessage(if (preferences.projectionConnectionPolicy.state.value.wiredOnly)
+                "Saved. Wired-only projection is USB-ready. Reconnect USB if already attached."
+                else "Saved. Normal connections restored; an active USB connection is unchanged.")
         }
     }
 
@@ -712,9 +793,10 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     fun reconnectAfterSettingsSave(reconnectAndroidAuto: () -> Unit) {
         projectionLaunchPolicy.suppress()
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (!reconcileWiredOnly()) return@launch
             usbDispatchMutex.lock()
             try {
-                val saved = preferences.carPlaySettings.first()
+                val saved = preferences.effectiveCarPlaySettings.first()
                 // The cable can temporarily own either protocol while normal modes remain wireless.
                 // Conversely, a newly saved USB preference does not turn an active wireless session wired.
                 val aaActive = !_carPlayState.value.selected && sessionManager.sessionState.value.let {
@@ -724,7 +806,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     if (_carPlayState.value.selected) false
                     else if (aaActive) sessionManager.transportMode.value == AppPreferences.DIRECT_TRANSPORT_USB
                     else if (saved.enabled) saved.connectionMode == "usb"
-                    else preferences.directTransport.first() == AppPreferences.DIRECT_TRANSPORT_USB
+                    else preferences.effectiveDirectTransport.first() == AppPreferences.DIRECT_TRANSPORT_USB
                 if (actualUsb) {
                     showSettingsSaveMessage("Saved. Unplug and reconnect USB to apply.")
                     return@launch // Persisted intent is consumed at the next physical connection.
@@ -753,7 +835,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     if (prepareCarPlayStart(saved)) carPlayCoordinator.connectForExplicitReconnect(true, ::createCarPlayRuntime)
                 } else {
                     _carPlayStartupGuidance.value = null
-                    if (aaActive || preferences.directTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) reconnectAndroidAuto()
+                    if (aaActive || preferences.effectiveDirectTransport.first() != AppPreferences.DIRECT_TRANSPORT_USB) reconnectAndroidAuto()
                 }
                 unifiedUsbManager?.retryCandidates()
             } finally { usbDispatchMutex.unlock() }
@@ -874,7 +956,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      * that the user should verify their setup. Cleared on next select / dismiss.
      */
     /** Current AA transport; CarPlay preferences never alter this selection. */
-    val directTransport = preferences.directTransport
+    val directTransport = preferences.effectiveDirectTransport
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferences.DEFAULT_DIRECT_TRANSPORT)
 
     /**
@@ -884,7 +966,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      * Only that phone can start Android Auto, so the picker marks it rather than
      * presenting every online phone as equally usable.
      */
-    val bluetoothPhoneHost: StateFlow<String?> = preferences.directTransport
+    val bluetoothPhoneHost: StateFlow<String?> = preferences.effectiveDirectTransport
         .map { transport ->
             if (transport == AppPreferences.DIRECT_TRANSPORT_WPP) {
                 com.openautolink.app.transport.bluetooth.AaWirelessBtControl
@@ -1035,7 +1117,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
         viewModelScope.launch {
-            preferences.carPlaySettings.map { it.enabled }.distinctUntilChanged().collect { enabled ->
+            preferences.effectiveCarPlaySettings.map { it.enabled }.distinctUntilChanged().collect { enabled ->
                 if (!enabled && _carPlayState.value.selected && usbOverrideGeneration == null && usbCarPlayRuntime == null &&
                     sessionManager.callState?.value?.let { it != com.openautolink.app.audio.CallState.IDLE } != true &&
                     !com.openautolink.carplaylab.telecom.ManagedTelecomExperiment.get(getApplication()).hasAdmittedCall) {
@@ -1238,7 +1320,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     private fun connect(overrideIp: String?, wppRearmSource: String?) {
         if (com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return
         if (usbOverrideGeneration != null) return
+        if (preferences.projectionConnectionPolicy.state.value.wiredOnly) {
+            viewModelScope.launch { startUnifiedUsb() }; return
+        }
         val policyEpoch = usbPolicyEpoch.get()
+        val connectionRevision = preferences.projectionConnectionPolicy.state.value.revision
         if (com.openautolink.app.carplay.CarPlayOwnership.process.blocksAndroidAuto) return
         fun logWppRearmRejected(reason: String) {
             wppRearmSource?.let { source ->
@@ -1302,7 +1388,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     // Both USB and WPP own their own connection path — neither
                     // needs the phone chooser, because there is no discovery step
                     // to disambiguate.
-                    val transport = preferences.directTransport.first()
+                    val transport = preferences.effectiveDirectTransport.first()
                     if (wppRearmSource != null &&
                         transport != AppPreferences.DIRECT_TRANSPORT_WPP
                     ) {
@@ -1332,7 +1418,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                             return@launch
                         }
                     }
-                    doConnect(overrideIp = null, wppRearmSource = wppRearmSource, policyEpoch = policyEpoch)
+                    doConnect(overrideIp = null, wppRearmSource = wppRearmSource, policyEpoch = policyEpoch, connectionRevision = connectionRevision)
                     settle = true
                 } catch (e: Exception) {
                     wppRearmSource?.let { source ->
@@ -1370,7 +1456,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             var settle = false
             try {
-                doConnect(overrideIp, policyEpoch = policyEpoch)
+                doConnect(overrideIp, policyEpoch = policyEpoch, connectionRevision = connectionRevision)
                 settle = true
             } catch (e: Exception) {
                 OalLog.e(TAG, "connect() failed: ${e.message}")
@@ -1391,6 +1477,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         wppRearmSource: String? = null,
         usbAdmission: Boolean = false,
         policyEpoch: Long = usbPolicyEpoch.get(),
+        connectionRevision: Long = preferences.projectionConnectionPolicy.state.value.revision,
     ) {
             if (policyEpoch != usbPolicyEpoch.get() || (!usbAdmission && usbOverrideGeneration != null)) return
             val codec = preferences.videoCodec.first()
@@ -1399,7 +1486,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             val scalingMode = preferences.videoScalingMode.first()
             val hotspotSsid = preferences.hotspotSsid.first()
             val hotspotPassword = preferences.hotspotPassword.first()
-            val directTransport = if (usbAdmission) AppPreferences.DIRECT_TRANSPORT_USB else preferences.directTransport.first()
+            val directTransport = if (usbAdmission) AppPreferences.DIRECT_TRANSPORT_USB else preferences.effectiveDirectTransport.first()
+            if (!usbAdmission && directTransport == AppPreferences.DIRECT_TRANSPORT_USB) {
+                startUnifiedUsb(); return
+            }
+            val loadedPolicy = preferences.projectionConnectionPolicy.state.first { it.loaded }
+            if (!usbAdmission && loadedPolicy.revision != (if (connectionRevision == 0L) 1L else connectionRevision)) return
+            val wirelessTicket = preferences.projectionConnectionPolicy.wirelessTicket()
             val wppInterfaceName = preferences.wppApInterface.first()
             if (directTransport == AppPreferences.DIRECT_TRANSPORT_WPP) {
                 phoneDiscovery.setInterfaceConstraint(wppInterfaceName)
@@ -1535,7 +1628,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     } catch (_: Exception) { null }
                     val who = defaultName ?: "your phone"
                     val noIface = !phoneDiscovery.hasAnyIpv4Interface()
-                    val wppMode = preferences.directTransport.first() ==
+                    val wppMode = preferences.effectiveDirectTransport.first() ==
                         AppPreferences.DIRECT_TRANSPORT_WPP
                     _carHotspotChooserMessage.value = if (wppMode) {
                         // Tapping a phone still dials it — that is the recovery
@@ -1592,6 +1685,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
 
             sessionManager.start(
                 admissionCheck = { policyEpoch == usbPolicyEpoch.get() &&
+                    (usbAdmission || preferences.projectionConnectionPolicy.admits(wirelessTicket)) &&
                     (if (usbAdmission) usbOverrideGeneration != null && sessionManager.externalUsbTransport
                      else usbOverrideGeneration == null) },
                 codecPreference = codec,
@@ -1646,7 +1740,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      */
     fun reconnect() {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            if (usbOverrideGeneration != null || preferences.directTransport.first() == AppPreferences.DIRECT_TRANSPORT_USB) {
+            if (!reconcileWiredOnly()) return@launch
+            if (usbOverrideGeneration != null || preferences.effectiveDirectTransport.first() == AppPreferences.DIRECT_TRANSPORT_USB) {
                 restartUnifiedUsb()
                 return@launch
             }
@@ -1764,7 +1859,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      * looking for a phone" code path, so WPP must be included or the app burns
      * UDP broadcasts and /24 sweeps while waiting for an inbound connection.
      */
-    val usbTransportActive: StateFlow<Boolean> = preferences.directTransport
+    val usbTransportActive: StateFlow<Boolean> = preferences.effectiveDirectTransport
         .map {
             it == AppPreferences.DIRECT_TRANSPORT_USB ||
                 it == AppPreferences.DIRECT_TRANSPORT_WPP
@@ -1780,7 +1875,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      * Car Hotspot mode drives the multi-phone UX, but USB overrides it.
      */
     private val wirelessDiscoveryEnabled: Boolean
-        get() = !usbTransportActive.value &&
+        get() = preferences.projectionConnectionPolicy.wirelessAllowed && !usbTransportActive.value &&
             connectionMode.value == AppPreferences.CONNECTION_MODE_CAR_HOTSPOT
 
     /** Persistent known-phones list, surfaced for the chooser + settings. */
@@ -1872,6 +1967,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             }.collect { name -> _phoneName.value = name }
         }
 
+        viewModelScope.launch {
+            preferences.projectionConnectionPolicy.state.collect { policy ->
+                if (!policy.loaded) return@collect
+                if (policy.retirementRequired) reconcileWiredOnly()
+                else if (policy.wirelessAllowed && wiredOnlyWasApplied) rearmNormalConnectionOnce()
+            }
+        }
         // Continuously run mDNS discovery while in Car Hotspot mode. This
         // keeps `knownPhones` "online" status fresh and lets the floating
         // switcher button surface phones the moment they appear on the AP.
@@ -1902,11 +2004,13 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         // So treat "transport == wpp" itself as the trigger: start the session,
         // which binds the listener and then idles until the phone arrives.
         viewModelScope.launch {
-            preferences.directTransport
+            preferences.effectiveDirectTransport
                 .map { it == AppPreferences.DIRECT_TRANSPORT_WPP }
                 .distinctUntilChanged()
                 .collect { isWpp ->
-                    if (!isWpp) return@collect
+                    if (!isWpp || (wiredOnlyWasApplied && normalRearmRevision != preferences.projectionConnectionPolicy.state.value.revision) ||
+                        !preferences.projectionConnectionPolicy.wirelessAllowed) return@collect
+                    if (preferences.effectiveCarPlaySettings.first().let { it.enabled && it.connectionMode == "wireless" }) return@collect
                     if (sessionManager.sessionState.value != SessionState.IDLE) return@collect
                     if (connectInFlight) return@collect
                     OalLog.i(TAG, "WPP transport selected — binding inbound listener")
@@ -1982,7 +2086,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 // its listener and publishes SDP. Requiring a discovered default
                 // here produced a 78s owner-less wait in one wake and no owner at
                 // all in the next capture.
-                val wppSelected = preferences.directTransport.first() ==
+                val wppSelected = preferences.effectiveDirectTransport.first() ==
                     AppPreferences.DIRECT_TRANSPORT_WPP
                 val shouldKick = event.gapMs >= WAKE_AUTO_RECONNECT_MIN_GAP_MS &&
                     WppWakeReconnectPolicy.shouldKickWake(
@@ -2028,7 +2132,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 .collect { state ->
                     val on = state == 4 || state == 5
                     if (!on) return@collect
-                    val wppSelected = preferences.directTransport.first() ==
+                    val wppSelected = preferences.effectiveDirectTransport.first() ==
                         AppPreferences.DIRECT_TRANSPORT_WPP
                     if (!WppWakeReconnectPolicy.shouldKickIgnition(
                             wppSelected = wppSelected,
@@ -2166,7 +2270,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 _carHotspotSwitching,
                 defaultPhoneId,
                 alwaysAskPhone,
-                preferences.directTransport,
+                preferences.effectiveDirectTransport,
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 computeCarHotspotStatus(
@@ -2215,7 +2319,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                     // needs to ask for its AA proxy port. The sweep itself never
                     // dials; a later admitted Bluetooth handshake may choose the
                     // companion proxy and source-bind the car's outbound dial.
-                    val transportNow = preferences.directTransport.first()
+                    val transportNow = preferences.effectiveDirectTransport.first()
                     if (transportNow == AppPreferences.DIRECT_TRANSPORT_USB) continue
                     if (!idleAndCarHotspot) continue
                     if (askMode) continue          // user wants to pick manually
@@ -2450,7 +2554,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
      */
     private fun kickSweep() {
         viewModelScope.launch {
-            val transport = try { preferences.directTransport.first() } catch (_: Exception) { "" }
+            val transport = try { preferences.effectiveDirectTransport.first() } catch (_: Exception) { "" }
             if (transport == AppPreferences.DIRECT_TRANSPORT_WPP) {
                 val wppInterface = try {
                     preferences.wppApInterface.first()
@@ -2490,6 +2594,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
     @Volatile private var selectPhoneInFlight = false
 
     fun selectCarHotspotPhone(phone: com.openautolink.app.transport.PhoneDiscovery.DiscoveredPhone) {
+        if (!preferences.projectionConnectionPolicy.wirelessAllowed) return
         if (selectPhoneInFlight) {
             OalLog.d(TAG, "selectCarHotspotPhone ignored — another selection is in flight")
             return
@@ -2519,6 +2624,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
         phoneId: String,
         host: String,
     ) {
+            val selectionTicket = preferences.projectionConnectionPolicy.wirelessTicket() ?: return
+            if (preferences.effectiveDirectTransport.first() == AppPreferences.DIRECT_TRANSPORT_USB) return
             // Persist into the known-phones list. Auto-promote to default
             // only if there's no default set yet.
             knownPhonesStore.upsert(
@@ -2534,6 +2641,7 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 OalLog.i(TAG, "Auto-promoted ${phone.friendlyName} to default phone")
             }
 
+            if (!preferences.projectionConnectionPolicy.admits(selectionTicket)) return
             // If this phone is already the active session, do nothing.
             if (_activePhoneId.value == phoneId) {
                 OalLog.i(TAG, "Already connected to id=${phoneId.take(8)}; no switch needed")
@@ -2558,7 +2666,9 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             // the listener down repeatedly mid-attempt (observed in-vehicle:
             // "WPP TCP server stopped/listening" four times in two minutes).
             // Discovery in WPP mode exists only to learn the phone's address.
-            if (preferences.directTransport.first() == AppPreferences.DIRECT_TRANSPORT_WPP) {
+            val selectedTransport = preferences.effectiveDirectTransport.first()
+            if (!preferences.projectionConnectionPolicy.admits(selectionTicket) || selectedTransport == AppPreferences.DIRECT_TRANSPORT_USB) return
+            if (selectedTransport == AppPreferences.DIRECT_TRANSPORT_WPP) {
                 // Do not tear the session down — in WPP mode it owns the socket the
                 // phone is about to use.
                 //

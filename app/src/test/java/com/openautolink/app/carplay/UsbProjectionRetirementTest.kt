@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.After
 import org.junit.Test
@@ -38,7 +39,13 @@ class UsbProjectionRetirementTest {
 
     @Test fun fixtureCleanupRetiresProcessScopeAdvertiserBeforeLaterTestsCanReplaceMocks() = runBlocking {
         // Replay the production application's already-initialized process context deterministically.
-        field("appContext").set(AaWirelessBtControl, org.robolectric.RuntimeEnvironment.getApplication())
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        field("appContext").set(AaWirelessBtControl, app)
+        // This is an intentional positive wireless fixture: wait for actual durable admission,
+        // just as production startup does, instead of assuming an optimistic in-memory default.
+        val policy = com.openautolink.app.data.AppPreferences.getInstance(app).projectionConnectionPolicy
+        kotlinx.coroutines.withTimeout(5000) { policy.state.first { it.loaded } }
+        assertTrue(policy.wirelessAllowed)
         usbFenceRejectsHandshakeFromStillInstalledWppGeneration()
         cleanup()
         val scope = field("scope").get(AaWirelessBtControl) as kotlinx.coroutines.CoroutineScope

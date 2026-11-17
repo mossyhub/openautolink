@@ -47,7 +47,7 @@ Enable **Settings → Secondary Displays → Driver-display video**, then **Save
 
 ![Apple CarPlay maps on the driver display and main infotainment screen of a Chevrolet Blazer](docs/screenshots/carplay-driver-display.jpg)
 
-Android Auto provides Cluster and Auxiliary views; CarPlay has no equivalent selector in OAL. Usually no Directions area adjustment is needed. See [Driver-display settings](docs/secondary-presentation.md) for mode selection, the optional editor and Save/reconnect instructions.
+Android Auto provides Cluster and Auxiliary views. CarPlay offers **Map with turn card** (the default), **Map only**, and **Turn card only** under **CarPlay display view**. The turn card appears during route guidance; iOS and the navigation app determine its contents. Usually no Directions area adjustment is needed. See [Driver-display settings](docs/secondary-presentation.md) for mode selection, the optional editor and Save/reconnect instructions.
 
 ### If the driver display is black
 
@@ -76,7 +76,7 @@ Check the source revision and release notes for your installed build. USB hot-pl
 ### Shared application
 
 - One car app for Android Auto and CarPlay.
-- Draggable Settings/Stats controls. Audio/call preferences save automatically; connection, video and display changes use **Save changes**. Wireless reconnects automatically when safe. For an actual USB connection, saving persists the next-session settings without stopping projection; unplug and reconnect physically to apply.
+- One draggable OAL-logo controls menu. Audio/call preferences save automatically; connection, video and display changes use **Save changes**. Wireless reconnects automatically when safe. For an actual USB connection, saving persists the next-session settings without stopping projection; unplug and reconnect physically to apply.
 - Open the vehicle’s media view with **Settings → Audio → Both → Open OpenAutoLink in vehicle Audio**.
 - Configurable display layout, safe areas and video sizing for wide AAOS screens.
 - Built-in diagnostics, optional log upload and network/vehicle inspection tools.
@@ -177,6 +177,14 @@ Bluetooth pairing bootstraps wireless projection; Bluetooth **Phone calls** also
 4. In **Settings → Audio → Microphone → Android Auto**, leave **Assistant microphone → Car** to use the car microphone for the assistant. **Phone** changes the assistant only, not calls.
 
 You can also leave Android Auto set to Wireless and use the temporary USB switch below.
+
+### Wired-only projection
+
+For USB-only use, open **Settings → Connection**, enable **Wired-only projection (USB)** and tap **Save changes**. This overrides both protocols to USB without erasing their saved normal modes, credentials or paired phones. CarPlay must still be enabled separately. Use the usual USB permissions, and unplug/reconnect an already attached phone when instructed.
+
+OAL stops its automatic wireless projection discovery and pairing/bootstrap. The car's Wi-Fi remains available for internet, app updates and log uploads. Explicit diagnostic network experiments are separate. Turning wired-only off restores the saved normal connection choices; an active USB connection is left in place.
+
+**This is not a promise to remove vehicle/OnStar prompts.** Those dialogs are controlled by the vehicle. It does not bypass the GM USB access prompts below or turn off Bluetooth phone calls. If a call is active, OAL blocks new wireless starts and asks you to finish retirement after the call rather than interrupt it.
 
 ### GM USB prompts — Android Auto and CarPlay
 

@@ -29,7 +29,15 @@ With video on, choose the phone-facing role:
 
 ### Apple CarPlay
 
-There is no equivalent Cluster/Auxiliary selector in OAL.
+Choose **CarPlay display view** for the selected driver display:
+
+- **Map with turn card** (default): map plus the next-turn card during guidance.
+- **Map only**: the map without the turn card.
+- **Turn card only**: the next-turn card without the map.
+
+Select **Save changes** and reconnect to apply. For USB, unplug and reconnect after saving. Each display keeps its own choice; existing records without a choice use Map with turn card. iOS and the navigation app control the supplied content, including whether there is a card when no route is active. This does not change Android Auto's Cluster/Auxiliary role, density or saved Directions area.
+
+Thanks to [Mark Samberg (@mjsamberg)](https://github.com/mjsamberg) for the CarPlay view selection contribution. He reports testing it on an Equinox EV; this is not a guarantee of identical layout on every vehicle, iPhone or navigation app.
 
 See the [Android Auto and CarPlay photos](../README.md#driver-display-maps--oal-01575).
 

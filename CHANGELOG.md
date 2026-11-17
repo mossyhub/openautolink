@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.584 — USB-only connections and CarPlay driver-display views
+
+- Add **Wired-only projection (USB)** in Connection settings for Android Auto and CarPlay. Keep separate normal connection modes, credentials and paired phones; turning the override off restores those choices. CarPlay must still be enabled separately.
+- Block OAL automatic wireless discovery, pairing/bootstrap, queued wireless transport starts and recovery while wired-only is active. Retire OAL wireless helpers without turning off the car's Wi-Fi, internet, updates, uploads or Bluetooth phone calls. Preserve active USB projection and defer wireless session retirement during an admitted call. Explicit diagnostic network experiments remain separate; this does not promise to remove vehicle/OnStar or GM USB access prompts.
+- Add per-display **CarPlay display view** choices: **Map with turn card** (default), **Map only**, and **Turn card only**. Save changes and reconnect to apply; unplug/reconnect for USB. iOS and the navigation app determine the supplied content. Thanks to **Mark Samberg (@mjsamberg)** for #234 and his Equinox EV testing report.
+- Add saved-menu disk-restoration and migration regression coverage. The #229 reporter confirms the latest update retained placement; the earlier reset remains unreproduced, so no new position-reset repair is claimed.
+- Software regression coverage is separate from physical vehicle acceptance. No re-pairing, clearing data, or display-settings reset is required.
+
 ## 0.1.583 — Wireless Android Auto startup recovery
 
 - Retire a closed Android Auto prewarm waiter before it can consume a newly arrived car connection. Preserve live silent waiters and already received protocol bytes, with bounded read-ahead and exact socket/ticket ownership.

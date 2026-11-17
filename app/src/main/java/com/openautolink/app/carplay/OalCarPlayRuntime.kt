@@ -74,6 +74,7 @@ class OalCarPlayRuntime(
     private val displayOfferStore: CarPlayDisplayOfferStore = CarPlayDisplayOfferStore.PROCESS,
     private val clusterOutput: OalCarPlayClusterOutput? = null,
     private val clusterSelection: com.openautolink.app.cluster.ClusterOutputSelection? = null,
+    private val wirelessStartAdmission: () -> Boolean = { true },
 ) : CarPlayRuntime {
     private val displayOfferLease = displayOfferStore.begin()
     private val canceled = AtomicBoolean()
@@ -121,7 +122,18 @@ class OalCarPlayRuntime(
     }
     private val deadlines = Executors.newSingleThreadScheduledExecutor { Thread(it, "oal-carplay-deadline").apply { isDaemon = true } }
 
-    private fun active() { check(!canceled.get()) { "CarPlay attempt revoked" } }
+    private val wirelessPolicy by lazy { com.openautolink.app.data.AppPreferences.getInstance(context).projectionConnectionPolicy }
+    private val wirelessTicket by lazy { wirelessPolicy.wirelessTicket() }
+    private fun active() {
+        // Continued admitted runtime belongs to the call-qualified lifecycle owner.
+        check(!canceled.get()) { "CarPlay attempt revoked" }
+    }
+    private fun wirelessStartsAllowed(): Boolean =
+        !canceled.get() && wirelessStartAdmission() && wirelessPolicy.admits(wirelessTicket)
+    private fun admitWireless() {
+        active()
+        check(wirelessStartsAllowed()) { "CarPlay wireless admission revoked" }
+    }
     private fun <T : AutoCloseable> own(create: () -> T): T = synchronized(resourcesLock) {
         // Creation belongs to the installation boundary: close's canceled snapshot must not
         // race an already-created owner that has not yet reached this list.
@@ -222,7 +234,7 @@ class OalCarPlayRuntime(
     @Suppress("MissingPermission", "DEPRECATION")
     private fun runConnection() {
         connectionStage("permissions")
-        active()
+        admitWireless()
         check(context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)
         check(context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED)
         connectionStage("bluetooth")
@@ -304,33 +316,35 @@ class OalCarPlayRuntime(
             wireless = Iap2WirelessIdentification(config.receiverAddress, config.ssid),
             externalAccessoryProtocol = "com.openautolink.carplaylab",
         )
-        active()
+        admitWireless()
         adapter.cancelDiscovery()
         connectionStage("rfcomm")
         val socket = own { device.createRfcommSocketToServiceRecord(UUID.fromString(IAP2_PHONE_UUID)) }
         val timeout = deadlines.schedule({ runCatching { socket.close() } }, 20, TimeUnit.SECONDS)
         status("CarPlay RFCOMM connecting · timeout 20s")
-        active()
+        admitWireless()
         try { socket.connect() } finally { timeout.cancel(false) }
         status("CarPlay RFCOMM connected · authentication pending")
-        active()
+        admitWireless()
         val bootstrapStream = own { BluetoothRfcommDuplexStream(socket) { } }
+        admitWireless()
         val bootstrap = own { Iap2Session.openWireless(bootstrapStream) }
         connectionStage("bootstrap-identification")
         try { Iap2IdentificationClient(bootstrap, com.openautolink.carplaylab.metadata.CarPlayMetadataIdentification::bootstrap).identify(identification, 30_000) }
         catch (failure: Exception) { throw CarPlayConnectionFailure(CarPlayFailureKind.BOOTSTRAP_IDENTIFICATION, network.manualPeer != null, failure) }
-        active()
+        admitWireless()
         status("CarPlay phone identification accepted")
         connectionStage("bootstrap-authentication")
         try { Iap2MfiAuthenticationClient(auth).run(bootstrap, 30_000) { } }
         catch (failure: Exception) { throw CarPlayConnectionFailure(CarPlayFailureKind.BOOTSTRAP_AUTHENTICATION, network.manualPeer != null, failure) }
-        active()
+        admitWireless()
         status("CarPlay receiver MFi authentication accepted · phone AirPlay trust pending")
         val projection = createClusterReceiver { clusterConfiguration, clusterListener -> ProjectionReceiver(context, config.receiverAddress, surface, auth, config.display,
             clusterVideoConfiguration = clusterConfiguration,
             clusterVideoListener = clusterListener,
             captureAdmission = { !canceled.get() && attemptContext?.captureAdmission?.invoke() == true },
             trustedOnly = true, runtimeCarDataFactory = { session, send, receipt ->
+                admitWireless()
                 // Freeze truthful implemented capability flags per actual Wi-Fi link, not Bluetooth.
                 val qualifiedGps = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
                     runCatching { context.getSystemService(LocationManager::class.java)?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true }.getOrDefault(false)
@@ -342,7 +356,7 @@ class OalCarPlayRuntime(
                     restrictionPolicy = config.restrictionPolicy,
                     sendLimitedUI = session::setLimitedUIIfEventReady)
             }, runtimeMetadataFactory = { session, receipt -> own {
-                active()
+                admitWireless()
                 val metadata = OalCarPlayMetadataLink(SystemClock::elapsedRealtime, receipt,
                     OalCarPlayMetadataHost(context.applicationContext, receipt = receipt, attemptContext = attemptContext,
                         clusterSelection = clusterSelection) { index ->
@@ -365,12 +379,12 @@ class OalCarPlayRuntime(
         attemptContext?.onInputAdvertised?.invoke(projection.inputAdvertised)
         attemptContext?.onCaptureRetirement?.invoke(projection::retireMicrophoneCapture)
         // Log the actual decoder-qualified offer, not an earlier requested preset or coded viewport.
-        active()
+        admitWireless()
 
         projection.setRuntimeIdentification(identification)
-        active()
+        admitWireless()
         com.openautolink.carplaylab.metadata.CarPlayMetadataIdentification.bootstrapSubscriptions(Iap2ControlMessages.subscriptions())
-            .forEach { active(); bootstrap.send(it, 5000) }
+            .forEach { admitWireless(); bootstrap.send(it, 5000) }
         var selectedConsentRequest: Iap2Frame? = null
         var selectedTransportNotification: Iap2Frame? = null
         connectionStage("enrollment")
@@ -386,7 +400,7 @@ class OalCarPlayRuntime(
             val consent = WirelessEnrollmentConsentGate()
             val consentDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(120)
             while (selectedConsentRequest == null) {
-                active()
+                admitWireless()
                 if (System.nanoTime() >= consentDeadline)
                     throw CarPlayConnectionFailure(CarPlayFailureKind.WIRELESS_REQUEST_TIMEOUT, false)
                 val frame = bootstrap.recv(1000) ?: continue
@@ -394,7 +408,7 @@ class OalCarPlayRuntime(
                 if (consent.observe(frame)) selectedConsentRequest = frame
             }
         }
-        active()
+        admitWireless()
         projection.authorizeControllerEnrollment(120_000)
         status(if (network.manualPeer == null)
             "carplay-enrollment stage=authorized windowMs=120000 boundary=selected-bootstrap-request; first-client race remains possible"
@@ -402,6 +416,7 @@ class OalCarPlayRuntime(
         connectionStage("listener")
         // Shared IPv4 retains wildcard/auxiliary transport, with exact bounded control admission.
         try {
+            admitWireless()
             if (config.sharedWifiOverride && network.local is Inet4Address) projection.startSharedIpv4(network)
             else projection.start(network)
         } catch (failure: java.net.BindException) {
@@ -413,16 +428,17 @@ class OalCarPlayRuntime(
         val offer = EndpointOffer(config.ssid, password, channelNumber, security,
             if (config.sharedWifiOverride && network.local is Inet4Address) addresses else network.advertisedAddresses,
             projection.port, projection.pairingId, projection.publicKeyHex)
-        projection.setRuntimeReply(offer::replyTo)
+        projection.setRuntimeReply { frame -> if (wirelessStartsAllowed()) offer.replyTo(frame) else null }
         val reply = offer.newReplyChannel()
         // Constant-space retained request/transport notification, never proactive secret disclosure.
         listOfNotNull(selectedConsentRequest, selectedTransportNotification).forEach { frame ->
-            reply(frame)?.let { response -> active(); bootstrap.send(response, 5000); status("CarPlay endpoint reply id=${frame.messageId} result=sent") }
+            reply(frame)?.let { response -> admitWireless(); bootstrap.send(response, 5000); status("CarPlay endpoint reply id=${frame.messageId} result=sent") }
         }
         network.manualPeer?.let { peer ->
             val binding = if (config.sharedWifiOverride && network.local is Inet4Address) null else CarPlaySocketBinding(network.local, peer)
+            admitWireless()
             val activation = own { PhoneActivation(context, checkNotNull(peer.hostAddress), config.receiverAddress, binding, ::status) }
-            active()
+            admitWireless()
             activation.start()
         } ?: status("CarPlay network stage=activation-skipped reason=trusted-control-peer-pending; phone initiation unverified")
         status("CarPlay endpoint listening · awaiting real phone / render evidence")
@@ -462,9 +478,9 @@ class OalCarPlayRuntime(
                 retireBootstrap()
                 continue
             }
-            if (frame != null) {
+            if (frame != null && wirelessStartsAllowed()) {
                 val response = reply(frame)
-                if (response != null) { active(); bootstrap.send(response, 5000); status("CarPlay endpoint reply id=${frame.messageId} result=sent") }
+                if (response != null && wirelessStartsAllowed()) { bootstrap.send(response, 5000); status("CarPlay endpoint reply id=${frame.messageId} result=sent") }
             }
             if (bootstrap.isClosed) {
                 check(projection.runtimeReady) { "Bootstrap closed before wireless authentication" }

@@ -64,6 +64,7 @@ internal object CarPlaySettingsUiPolicy {
 /** Real OAL settings content; no BenchActivity, protocol startup, or secret instance-state storage. */
 @Composable
 fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
+    val wiredOnly by viewModel.wiredOnly.collectAsStateWithLifecycle()
     val settings by viewModel.carPlaySettings.collectAsStateWithLifecycle()
     val phones by viewModel.carPlayPhones.collectAsStateWithLifecycle()
     val identityReady by viewModel.carPlayIdentityReady.collectAsStateWithLifecycle()
@@ -91,7 +92,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
         Text("CarPlay connection", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("usb" to "USB", "wireless" to "Wireless").forEach { (mode, label) ->
-                FilterChip(selected = settings.connectionMode == mode, enabled = !saving && loaded,
+                FilterChip(selected = settings.connectionMode == mode, enabled = !saving && loaded && !wiredOnly,
                     onClick = { viewModel.updateCarPlayDraft { it.copy(connectionMode = mode) } },
                     label = { Text(label) }, modifier = Modifier.testTag("carPlayConnection_$mode"))
             }
@@ -103,7 +104,7 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
 
     AndroidBluetoothSettingsButton()
 
-    val draft = settings
+    val draft = if (wiredOnly) settings.copy(connectionMode = "usb") else settings
     // Local echo is recreated from private ViewModel memory when returning to this tab.
     val restrictionControl = com.openautolink.app.BuildConfig.CARPLAY_DRIVING_RESTRICTIONS || draft.drivingRestrictionsEnabled
     Text("CarPlay UI restrictions", style = MaterialTheme.typography.titleMedium)

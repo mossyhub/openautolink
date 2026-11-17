@@ -214,8 +214,8 @@ class WppWakeReconnectPolicyTest {
 
         assertTrue(source.contains("WppWakeReconnectPolicy.shouldKickWake("))
         assertTrue(source.contains("WppWakeReconnectPolicy.shouldKickIgnition("))
-        assertTrue(source.windowed("preferences.directTransport.first()".length)
-            .count { it == "preferences.directTransport.first()" } >= 4)
+        assertTrue(source.windowed("preferences.effectiveDirectTransport.first()".length)
+            .count { it == "preferences.effectiveDirectTransport.first()" } >= 4)
         assertTrue(source.contains("connectForWppRearm(source = \"wake\")"))
         assertTrue(source.contains("connectForWppRearm(source = \"ignition\")"))
         assertTrue(source.contains("wppRearmSource = wppRearmSource"))

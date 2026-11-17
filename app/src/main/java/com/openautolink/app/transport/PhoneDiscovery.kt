@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -174,6 +175,7 @@ class PhoneDiscovery private constructor(private val context: Context) {
         phoneId: String? = null,
         friendlyName: String? = null,
     ) {
+        if (!connectionPolicy.wirelessAllowed) return
         val bt = com.openautolink.app.transport.bluetooth.AaWirelessBtControl
         // Do not publish this host into the global dial cache before ownership is
         // proven. Nearby phones share discovery, but only the Bluetooth-owned
@@ -204,6 +206,8 @@ class PhoneDiscovery private constructor(private val context: Context) {
     private val lock = Any()
 
     private val sweepScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val connectionPolicy by lazy { com.openautolink.app.data.AppPreferences.getInstance(context).projectionConnectionPolicy }
+    private val resolutionCleanups = java.util.concurrent.ConcurrentHashMap<Any, () -> Unit>()
     private var sweepJob: Job? = null
 
     /** Global WPP constraint applied even to diagnostics/manual discovery callers. */
@@ -245,9 +249,12 @@ class PhoneDiscovery private constructor(private val context: Context) {
 
     private var nsdManager: NsdManager? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
+    @Volatile private var discoveryPolicyTicket: Long? = null
 
     fun start() {
+        val policyTicket = connectionPolicy.wirelessTicket() ?: return
         if (discoveryListener != null) return
+        discoveryPolicyTicket = policyTicket
         try {
             nsdManager = context.getSystemService(Context.NSD_SERVICE) as? NsdManager
             if (nsdManager == null) {
@@ -256,11 +263,13 @@ class PhoneDiscovery private constructor(private val context: Context) {
             }
             val listener = object : NsdManager.DiscoveryListener {
                 override fun onDiscoveryStarted(serviceType: String) {
+                    if (!connectionPolicy.admits(policyTicket)) return
                     OalLog.i(TAG, "Discovery started for $serviceType")
                     _isDiscovering.value = true
                 }
 
                 override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                    if (!connectionPolicy.admits(policyTicket)) return
                     OalLog.d(TAG, "Service found: ${serviceInfo.serviceName}")
                     addOrUpdate(
                         phoneId = null,
@@ -270,10 +279,11 @@ class PhoneDiscovery private constructor(private val context: Context) {
                         mdnsServiceName = serviceInfo.serviceName,
                         viaSource = SourceBit.MDNS,
                     )
-                    resolve(serviceInfo)
+                    resolve(serviceInfo, policyTicket)
                 }
 
                 override fun onServiceLost(serviceInfo: NsdServiceInfo) {
+                    if (!connectionPolicy.admits(policyTicket)) return
                     OalLog.d(TAG, "Service lost: ${serviceInfo.serviceName}")
                     removeMdnsEntryByServiceName(serviceInfo.serviceName)
                 }
@@ -305,10 +315,9 @@ class PhoneDiscovery private constructor(private val context: Context) {
     }
 
     fun stop() {
-        try {
-            discoveryListener?.let { nsdManager?.stopServiceDiscovery(it) }
-        } catch (_: Exception) {}
-        discoveryListener = null
+        resolutionCleanups.keys.toList().forEach { key -> resolutionCleanups.remove(key)?.invoke() }
+        val retiring = synchronized(lock) { discoveryListener.also { discoveryListener = null } }
+        try { retiring?.let { nsdManager?.stopServiceDiscovery(it) } } catch (_: Exception) {}
         _isDiscovering.value = false
         // Also cancel any in-flight sweep — leaving 254 sockets running with
         // no UI consumer is wasteful.
@@ -321,7 +330,8 @@ class PhoneDiscovery private constructor(private val context: Context) {
         publish()
     }
 
-    private fun resolve(serviceInfo: NsdServiceInfo) {
+    private fun resolve(serviceInfo: NsdServiceInfo, policyTicket: Long? = connectionPolicy.wirelessTicket()) {
+        if (!connectionPolicy.admits(policyTicket)) return
         // On API 34+ (Android 14+) we can use registerServiceInfoCallback,
         // which surfaces ALL resolved addresses (both A and AAAA records)
         // via NsdServiceInfo.hostAddresses. That lets us pick the IPv4
@@ -330,26 +340,30 @@ class PhoneDiscovery private constructor(private val context: Context) {
         // IPv6 link-local on modern Android phones). Fall back to the
         // legacy path on older platforms.
         if (Build.VERSION.SDK_INT >= 34) {
-            resolveAllAddresses(serviceInfo)
+            resolveAllAddresses(serviceInfo, policyTicket)
         } else {
-            resolveLegacy(serviceInfo)
+            resolveLegacy(serviceInfo, policyTicket)
         }
     }
 
     @androidx.annotation.RequiresApi(34)
-    private fun resolveAllAddresses(serviceInfo: NsdServiceInfo) {
+    private fun resolveAllAddresses(serviceInfo: NsdServiceInfo, policyTicket: Long?) {
+        if (!connectionPolicy.admits(policyTicket)) return
         try {
             val mgr = nsdManager ?: return
             // The callback delivers the resolved info repeatedly as records
             // update. We pick the best address on each update and unregister
             // the callback once we have a usable IPv4 host.
             var unregistered = false
+            val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+            val cleanupKey = Any()
             val callback = object : NsdManager.ServiceInfoCallback {
                 override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
                     OalLog.d(TAG, "ServiceInfoCallback register failed: $errorCode for ${serviceInfo.serviceName} — falling back to legacy resolve")
-                    resolveLegacy(serviceInfo)
+                    resolveLegacy(serviceInfo, policyTicket)
                 }
                 override fun onServiceUpdated(si: NsdServiceInfo) {
+                    if (!connectionPolicy.admits(policyTicket)) { resolutionCleanups.remove(cleanupKey)?.invoke(); return }
                     val addrs = try {
                         @Suppress("DEPRECATION") // hostAddresses is the modern API
                         si.hostAddresses
@@ -389,29 +403,33 @@ class PhoneDiscovery private constructor(private val context: Context) {
                     // alive in NsdManager.
                     if (ipv4 != null && !unregistered) {
                         unregistered = true
-                        try { mgr.unregisterServiceInfoCallback(this) } catch (_: Throwable) {}
+                        resolutionCleanups.remove(cleanupKey)?.invoke()
                     }
                 }
                 override fun onServiceLost() {
                     OalLog.d(TAG, "ServiceInfoCallback lost: ${serviceInfo.serviceName}")
                 }
                 override fun onServiceInfoCallbackUnregistered() {
-                    // expected on cleanup
+                    resolutionCleanups.remove(cleanupKey)
+                    executor.shutdownNow()
                 }
             }
-            mgr.registerServiceInfoCallback(
-                serviceInfo,
-                java.util.concurrent.Executors.newSingleThreadExecutor(),
-                callback,
-            )
+            resolutionCleanups[cleanupKey] = {
+                try { mgr.unregisterServiceInfoCallback(callback) } catch (_: Throwable) {}
+                executor.shutdownNow()
+            }
+            if (!connectionPolicy.admits(policyTicket)) { resolutionCleanups.remove(cleanupKey)?.invoke(); return }
+            try { mgr.registerServiceInfoCallback(serviceInfo, executor, callback) }
+            catch (failure: Throwable) { resolutionCleanups.remove(cleanupKey)?.invoke(); throw failure }
         } catch (e: Throwable) {
             OalLog.d(TAG, "registerServiceInfoCallback threw, falling back: ${e.message}")
-            resolveLegacy(serviceInfo)
+            resolveLegacy(serviceInfo, policyTicket)
         }
     }
 
     @Suppress("DEPRECATION")
-    private fun resolveLegacy(serviceInfo: NsdServiceInfo) {
+    private fun resolveLegacy(serviceInfo: NsdServiceInfo, policyTicket: Long? = connectionPolicy.wirelessTicket()) {
+        if (!connectionPolicy.admits(policyTicket)) return
         // NsdManager.resolveService is one-shot and on AAOS frequently
         // returns a null host on the first resolve (A record not yet
         // cached). Re-calling resolveService on the same NsdServiceInfo
@@ -425,6 +443,7 @@ class PhoneDiscovery private constructor(private val context: Context) {
                 }
 
                 override fun onServiceResolved(si: NsdServiceInfo) {
+                    if (!connectionPolicy.admits(policyTicket)) return
                     val rawHost = si.host
                     val host: String? = when {
                         rawHost == null -> null
@@ -485,6 +504,7 @@ class PhoneDiscovery private constructor(private val context: Context) {
      * two-phase sweep runs.
      */
     fun startSweep(forcedInterfaceName: String?) {
+        val policyTicket = connectionPolicy.wirelessTicket() ?: return
         if (sweepJob?.isActive == true) {
             OalLog.d(TAG, "Sweep already running; ignoring duplicate request")
             return
@@ -519,7 +539,7 @@ class PhoneDiscovery private constructor(private val context: Context) {
             sweepJob = sweepScope.launch {
                 _isSweeping.value = true
                 try {
-                    runSweepPhase("manual", match)
+                    runSweepPhase("manual", match, policyTicket)
                 } finally {
                     _isSweeping.value = false
                 }
@@ -538,11 +558,11 @@ class PhoneDiscovery private constructor(private val context: Context) {
             _isSweeping.value = true
             try {
                 val phase1Found = if (preferred.isNotEmpty()) {
-                    runSweepPhase("preferred", preferred)
+                    runSweepPhase("preferred", preferred, policyTicket)
                 } else 0
                 if (phase1Found == 0 && fallback.isNotEmpty()) {
                     OalLog.i(TAG, "Phase 1 found nothing; running fallback sweep")
-                    runSweepPhase("fallback", fallback)
+                    runSweepPhase("fallback", fallback, policyTicket)
                 }
             } finally {
                 _isSweeping.value = false
@@ -572,6 +592,7 @@ class PhoneDiscovery private constructor(private val context: Context) {
     private suspend fun runSweepPhase(
         label: String,
         candidates: List<IfaceAddress>,
+        policyTicket: Long?,
     ): Int = kotlinx.coroutines.coroutineScope {
         val plans = candidates.mapNotNull { c ->
             val parts = c.ip.split('.')
@@ -592,7 +613,9 @@ class PhoneDiscovery private constructor(private val context: Context) {
             targets.chunked(SWEEP_PARALLELISM).forEach { chunk ->
                 val deferreds = chunk.map { ip ->
                     async(Dispatchers.IO) {
+                        if (!connectionPolicy.admits(policyTicket)) return@async false
                         val ident = probeHost(ip, sourceIpv4 = plan.localIpv4)
+                        if (!connectionPolicy.admits(policyTicket)) return@async false
                         if (ident != null) {
                             // Remember where the companion lives so the Bluetooth
                             // advertiser can ask it for its AA proxy port.
@@ -663,6 +686,7 @@ class PhoneDiscovery private constructor(private val context: Context) {
         host: String,
         sourceIpv4: String,
     ): IdentityResult? = withContext(Dispatchers.IO) {
+        if (!connectionPolicy.wirelessAllowed) return@withContext null
         withTimeoutOrNull((SWEEP_CONNECT_TIMEOUT_MS + SWEEP_READ_TIMEOUT_MS + 200).toLong()) {
             val socket = Socket()
             try {
@@ -741,6 +765,7 @@ class PhoneDiscovery private constructor(private val context: Context) {
         listenWindowMs: Long = 600L,
         sourceIpv4: String? = null,
     ): Int = withContext(Dispatchers.IO) {
+        val policyTicket = connectionPolicy.wirelessTicket() ?: return@withContext 0
         val target = try {
             if (broadcastAddress != null) InetAddress.getByName(broadcastAddress)
             else InetAddress.getByName("255.255.255.255")
@@ -750,6 +775,7 @@ class PhoneDiscovery private constructor(private val context: Context) {
         }
         var socket: DatagramSocket? = null
         try {
+            if (!connectionPolicy.admits(policyTicket)) return@withContext 0
             val datagramSocket = DatagramSocket(null).apply {
                 reuseAddress = true
                 bind(
@@ -762,19 +788,21 @@ class PhoneDiscovery private constructor(private val context: Context) {
             socket = datagramSocket
             val payload = OalProtocol.IDENTITY_PROBE_REQUEST.toByteArray(Charsets.UTF_8)
             val outPacket = DatagramPacket(payload, payload.size, target, OalProtocol.UDP_DISCOVERY_PORT)
+            if (!connectionPolicy.admits(policyTicket)) return@withContext 0
             socket.send(outPacket)
             OalLog.d(TAG, "udpBroadcast: sent ${payload.size}B to ${target.hostAddress}:${OalProtocol.UDP_DISCOVERY_PORT}")
 
             val deadline = System.currentTimeMillis() + listenWindowMs
             val seenIds = HashSet<String>()
             val recvBuf = ByteArray(512)
-            while (System.currentTimeMillis() < deadline) {
+            while (System.currentTimeMillis() < deadline && connectionPolicy.admits(policyTicket)) {
                 val recvPacket = DatagramPacket(recvBuf, recvBuf.size)
                 try {
                     socket.receive(recvPacket)
                 } catch (_: java.net.SocketTimeoutException) {
                     continue
                 }
+                if (!connectionPolicy.admits(policyTicket)) break
                 val replyHost = recvPacket.address?.hostAddress ?: continue
                 if (sourceIpv4 != null &&
                     !WppInterfacePolicy.isPeerOnSelectedSubnet(sourceIpv4, replyHost)
@@ -948,6 +976,7 @@ class PhoneDiscovery private constructor(private val context: Context) {
         mdnsServiceName: String?,
         viaSource: SourceBit,
     ) {
+        if (!connectionPolicy.wirelessAllowed) return
         if (host != null && !isHostAllowed(host)) {
             OalLog.i(TAG, "Discovery rejected $host — outside selected interface constraint " +
                     "${interfaceConstraint ?: "none"}")
@@ -1047,7 +1076,14 @@ class PhoneDiscovery private constructor(private val context: Context) {
         publish()
     }
 
+    init {
+        sweepScope.launch {
+            connectionPolicy.state.collect { if (!connectionPolicy.admits(discoveryPolicyTicket)) stop() }
+        }
+    }
+
     private fun publish() {
+        if (!connectionPolicy.wirelessAllowed) return
         val snapshot = synchronized(lock) {
             byKey.values.map { it.toPublic() }
         }.sortedBy { it.friendlyName ?: it.serviceName }

@@ -9,6 +9,8 @@ import androidx.core.content.ContextCompat
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.diagnostics.OalLog
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import org.json.JSONObject
 import java.util.UUID
 
@@ -18,9 +20,12 @@ import java.util.UUID
  * Response: DataOutputStream.writeUTF("OK" or "ERR").
  */
 class WppConfigBtServer(context: Context, parentScope: CoroutineScope) {
+    private val policy = AppPreferences.getInstance(context).projectionConnectionPolicy
+    @Volatile private var listenerPolicyTicket: Long? = null
     private val receiver = WppConfigReceiver(
         parentScope = parentScope,
         listen = {
+            check(policy.admits(listenerPolicyTicket)) { "Wired-only projection blocks wireless setup" }
             check(ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
                 PackageManager.PERMISSION_GRANTED) { "BLUETOOTH_CONNECT not granted" }
             @Suppress("DEPRECATION")
@@ -47,7 +52,9 @@ class WppConfigBtServer(context: Context, parentScope: CoroutineScope) {
         },
         persist = { config, commit ->
             val preferences = AppPreferences.getInstance(context)
-            preferences.setWppConfig(config.ssid, config.bssid, commit)
+            preferences.setWppConfig(config.ssid, config.bssid) { mutation ->
+                policy.admits(listenerPolicyTicket) && commit(mutation)
+            }
         },
         onEvent = { event ->
             when (event) {
@@ -62,7 +69,12 @@ class WppConfigBtServer(context: Context, parentScope: CoroutineScope) {
 
     val status = receiver.status
     val appliedConfig = receiver.appliedConfig
-    fun start() = receiver.start()
+    init { parentScope.launch { policy.state.collect { if (!policy.admits(listenerPolicyTicket)) receiver.stop() } } }
+    fun start() {
+        val ticket = policy.wirelessTicket() ?: return
+        listenerPolicyTicket = ticket
+        receiver.start()
+    }
     fun stop() = receiver.stop()
 
     companion object {

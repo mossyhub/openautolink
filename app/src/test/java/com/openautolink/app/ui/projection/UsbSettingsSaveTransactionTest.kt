@@ -65,6 +65,7 @@ class UsbSettingsSaveTransactionTest {
             bitmap.recycle()
         }
     }
+    private val startCount = java.util.concurrent.atomic.AtomicInteger()
     private val reconnectCount = java.util.concurrent.atomic.AtomicInteger()
     private val reconnects: Int get() = reconnectCount.get()
     private var layoutSaveSuccessful = true
@@ -109,6 +110,10 @@ class UsbSettingsSaveTransactionTest {
         coEvery { session.reconnect(any(), any(), any(), any(), any(), any(), any(), any(), any(),
             any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
             any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } answers { reconnectCount.incrementAndGet(); Unit }
+        coEvery { session.start(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            if (arg<() -> Boolean>(35).invoke()) startCount.incrementAndGet()
+            Unit
+        }
         val discovery = mockk<PhoneDiscovery>(relaxed = true) {
             every { phones } returns MutableStateFlow(emptyList())
             every { isSweeping } returns MutableStateFlow(false)
@@ -146,7 +151,7 @@ class UsbSettingsSaveTransactionTest {
             else if (open || !renderProjection) SettingsScreen(clusterBindings = com.openautolink.app.ui.settings.clusterSettingsFixture(), viewModel = settings, secondarySource = secondarySource, onSaveAndConnect = saveAction)
             else ProjectionScreen(viewModel = projection)
         } }
-        compose.waitUntil(5000) { settings.carPlaySettingsLoaded.value && settings.clusterLoaded.value && settings.secondaryPreferences.value != null }
+        awaitMainOutcome(5000) { settings.carPlaySettingsLoaded.value && settings.clusterLoaded.value && settings.secondaryPreferences.value != null }
         if (renderReconnect) return@runBlocking
         compose.onNodeWithTag("settingsTab_INSTRUMENT_CLUSTER").performScrollTo().performClick()
         compose.onNodeWithTag("clusterDisplay_MAP_VIDEO").performScrollTo().performClick()
@@ -161,6 +166,7 @@ class UsbSettingsSaveTransactionTest {
     private fun awaitMainOutcome(timeoutMillis: Long, condition: () -> Boolean) {
         compose.waitUntil(timeoutMillis) {
             // DataStore/render-worker completion can leave the production continuation queued on Main.
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             compose.waitForIdle()
             condition()
         }
@@ -183,6 +189,172 @@ class UsbSettingsSaveTransactionTest {
         verify(exactly = 0) { session.externalUsbTransport = any() }
         assertEquals(SessionState.STREAMING, aaState.value)
     }
+    private suspend fun reconcilePolicy(): Boolean = kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn { continuation ->
+        val method = ProjectionViewModel::class.java.getDeclaredMethod("reconcileWiredOnly", kotlin.coroutines.Continuation::class.java)
+            .apply { isAccessible = true }
+        method.invoke(projection, continuation)
+    }
+
+    @Test fun wiredOnlyFailedExactWirelessRetirementSurvivesIdleAndOffUntilRetryAcknowledges() = runBlocking {
+        setup(configuredAa = "wpp", actualAa = "wpp", activeAa = SessionState.IDLE)
+        val ownerScope = CoroutineScope(SupervisorJob())
+        val real = SessionManager(ownerScope)
+        fun nativeField(name: String) = SessionManager::class.java.getDeclaredField(name).apply { isAccessible = true }
+        val native = mockk<com.openautolink.app.transport.aasdk.AasdkSession>(relaxed = true)
+        every { native.transportMode } returns "wpp"
+        var fail = true
+        var stops = 0
+        every { native.stop() } answers { stops++; if (fail) error("held exact native retirement") }
+        nativeField("aasdkSession").set(real, native)
+        SessionManager::class.java.getDeclaredMethod("installWirelessSessionAdmission", String::class.java, String::class.java)
+            .apply { isAccessible = true }.invoke(real, "wpp", "fixture-interface")
+        assertTrue("fixture must enter with the real process WPP owner token", real.hasCurrentWppOwner())
+        assertNotNull(nativeField("wirelessSessionAdmission").get(real))
+        @Suppress("UNCHECKED_CAST")
+        (nativeField("_transportMode").get(real) as MutableStateFlow<String>).value = "wpp"
+        @Suppress("UNCHECKED_CAST")
+        (nativeField("_sessionState").get(real) as MutableStateFlow<SessionState>).value = SessionState.STREAMING
+        ProjectionViewModel::class.java.getDeclaredField("sessionManager").apply { isAccessible = true }.set(projection, real)
+        val policy = preferences.projectionConnectionPolicy
+        try {
+            preferences.setWiredOnly(true)
+            assertFalse("first live retirement must reach the exact failing native stop: stops=$stops state=${real.sessionState.value} policy=${policy.state.value}", reconcilePolicy())
+            assertEquals(SessionState.IDLE, real.sessionState.value)
+            assertFalse(real.hasCurrentWppOwner())
+            assertNull(nativeField("wirelessSessionAdmission").get(real))
+            assertSame(native, nativeField("retiringAasdkSession").get(real))
+            preferences.setWiredOnly(false)
+            assertFalse("OFF must retry, not forgive an IDLE owner whose native stop failed", reconcilePolicy())
+            assertEquals(2, stops)
+            assertTrue(policy.state.value.retirementRequired)
+            assertFalse(policy.wirelessAllowed)
+            fail = false
+            assertTrue(reconcilePolicy())
+            assertEquals(3, stops)
+            assertNull(nativeField("retiringAasdkSession").get(real))
+            assertTrue(policy.wirelessAllowed)
+            val usb = mockk<com.openautolink.app.transport.aasdk.AasdkSession>(relaxed = true)
+            every { usb.transportMode } returns "usb"
+            nativeField("aasdkSession").set(real, usb)
+            real.externalUsbTransport = true
+            @Suppress("UNCHECKED_CAST")
+            (nativeField("_transportMode").get(real) as MutableStateFlow<String>).value = "usb"
+            @Suppress("UNCHECKED_CAST")
+            (nativeField("_sessionState").get(real) as MutableStateFlow<SessionState>).value = SessionState.STREAMING
+            preferences.setWiredOnly(true)
+            assertTrue(reconcilePolicy())
+            assertSame("actual current USB native owner must survive reconciliation", usb, nativeField("aasdkSession").get(real))
+            assertEquals(SessionState.STREAMING, real.sessionState.value)
+            verify(exactly = 0) { usb.stop() }
+        } finally {
+            fail = false; real.stop(); ownerScope.cancel()
+            (nativeField("scope").get(real) as CoroutineScope).cancel()
+        }
+    }
+
+    @Test fun wiredOnlyRevocationBeforeListenerStartRejectsActualNewWirelessResources() {
+        setup(configuredAa = "wpp", actualAa = "wpp", activeAa = SessionState.IDLE)
+        WirelessRuntimePolicyFixture(RuntimeEnvironment.getApplication()).use { fixture ->
+            every { fixture.receiver.authorizeControllerEnrollment(any()) } answers {
+                preferences.projectionConnectionPolicy.observe(true)
+            }
+            val result = runCatching { fixture.runtime.run() }
+            assertTrue("new listener must fail policy admission", result.isFailure)
+            verify(exactly = 0) { fixture.receiver.start(any<com.openautolink.carplaylab.network.CarPlayNetworkSelection>()) }
+        }
+    }
+
+    @Test fun wiredOnlyKeepsActualWirelessRuntimeLoopDuringCallAndIdleOwnerRetiresIt() {
+        setup(configuredAa = "wpp", actualAa = "wpp", activeAa = SessionState.IDLE)
+        val call = MutableStateFlow(com.openautolink.app.audio.CallState.IN_CALL)
+        every { session.callState } returns call
+        val policy = preferences.projectionConnectionPolicy
+        policy.observe(false)
+        WirelessRuntimePolicyFixture(RuntimeEnvironment.getApplication()).use { fixture ->
+            val coordinator = field("carPlayCoordinator") as CarPlayCoordinator
+            coordinator.attachSurface(mockk())
+            try {
+                assertTrue(coordinator.connect(true) { fixture.runtime })
+                awaitMainOutcome(10000) { fixture.entered.count == 0L || fixture.failure.get() != null }
+                assertTrue("actual runConnection reaches runtime loop: ${projection.carPlayState.value.status}; ${fixture.failure.get()}", fixture.entered.count == 0L)
+                runBlocking { preferences.setWiredOnly(true) }
+                runBlocking { assertFalse(reconcilePolicy()) }
+                assertTrue(projection.carPlayState.value.selected)
+                val before = fixture.iterations.get()
+                every { fixture.receiver.bluetoothHandoffRequested } returns true
+                fixture.resume.countDown()
+                awaitMainOutcome(5000) { fixture.iterations.get() >= before + 4 || fixture.failure.get() != null }
+                assertNull("policy revocation must not terminate the actual admitted runtime loop", fixture.failure.get())
+                assertTrue("actual Bluetooth bootstrap handoff must retire while wireless runtime continues", fixture.bootstrapRetired.get())
+                assertTrue("policy revocation must not independently finish an admitted call runtime", projection.carPlayState.value.selected)
+                assertTrue("the real loop must continue, not merely leave selected UI stale", fixture.iterations.get() >= before + 4)
+                call.value = com.openautolink.app.audio.CallState.IDLE
+                val retired = CoroutineScope(Dispatchers.IO).async { reconcilePolicy() }
+                awaitMainOutcome(10000) { retired.isCompleted }
+                assertTrue(runBlocking { retired.await() })
+                assertFalse(projection.carPlayState.value.selected)
+                verify(exactly = 1) { fixture.receiver.close() }
+            } finally { fixture.resume.countDown(); coordinator.close() }
+        }
+    }
+
+    @Test fun wiredOnlyRenderedSavePersistsWithoutChangingSavedNormalModesOrLiveUsb() {
+        setup(configuredAa = "wpp", actualAa = "usb", cp = CarPlaySettings(enabled = false, connectionMode = "wireless"))
+        compose.onNodeWithTag("settingsTab_CONNECTION").performScrollTo().performClick()
+        compose.onNodeWithTag("wiredOnlyProjection").performScrollTo().assertIsOff().performClick()
+        val store = preferences.javaClass.getDeclaredField("dataStore").apply { isAccessible = true }
+            .get(preferences) as androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>
+        assertNull(runBlocking { store.data.first()[androidx.datastore.preferences.core.booleanPreferencesKey("wired_only")] })
+        save()
+        assertEquals(true, runBlocking { store.data.first()[androidx.datastore.preferences.core.booleanPreferencesKey("wired_only")] })
+        assertEquals("wpp", runBlocking { preferences.directTransport.first() })
+        assertFalse(runBlocking { preferences.carPlaySettings.first().enabled })
+        assertEquals("wireless", runBlocking { preferences.carPlaySettings.first().connectionMode })
+        assertUsbUntouched()
+    }
+
+    @Test fun wiredOnlySaveRetiresLiveWirelessBeforeEnabledUsbCarPlayDeferral() {
+        setup(configuredAa = "wpp", actualAa = "wpp", cp = CarPlaySettings(enabled = true, connectionMode = "usb"))
+        coEvery { session.stop() } coAnswers { aaState.value = SessionState.IDLE }
+        compose.onNodeWithTag("settingsTab_CONNECTION").performScrollTo().performClick()
+        compose.onNodeWithTag("wiredOnlyProjection").performScrollTo().performClick()
+        save()
+        coVerify(exactly = 1) { session.stop() }
+        coVerify(exactly = 1) { session.stopWirelessPresence() }
+        assertFalse(preferences.projectionConnectionPolicy.wirelessAllowed)
+        assertEquals("wpp", runBlocking { preferences.directTransport.first() })
+        assertEquals(0, reconnects)
+    }
+
+    @Test fun wiredOnlySaveRetiresIdleButStillOwnedWppListener() {
+        setup(configuredAa = "wpp", actualAa = "wpp", activeAa = SessionState.IDLE,
+            cp = CarPlaySettings(enabled = true, connectionMode = "usb"))
+        every { session.hasCurrentWppOwner() } returns true
+        compose.onNodeWithTag("settingsTab_CONNECTION").performScrollTo().performClick()
+        compose.onNodeWithTag("wiredOnlyProjection").performScrollTo().performClick()
+        save()
+        coVerify(exactly = 1) { session.stop() }
+        assertFalse(preferences.projectionConnectionPolicy.wirelessAllowed)
+        assertEquals(0, reconnects)
+    }
+
+    @Test fun wiredOnlyOffSaveRestoresUnchangedSavedWppOnce() {
+        setup(configuredAa = "wpp", actualAa = "wpp", activeAa = SessionState.IDLE)
+        compose.onNodeWithTag("settingsTab_CONNECTION").performScrollTo().performClick()
+        compose.onNodeWithTag("wiredOnlyProjection").performScrollTo().performClick()
+        save()
+        startCount.set(0)
+        compose.onNodeWithTag("wiredOnlyProjection").performScrollTo().assertIsOn().performClick()
+        compose.onNodeWithTag("saveAndConnectButton").performClick()
+        awaitMainOutcome(10000) { closes == 2 && startCount.get() == 1 }
+        assertEquals(1, startCount.get())
+        assertEquals(0, reconnects)
+        verify(exactly = 0) { settings.saveAndReconnect() }
+        assertEquals("wpp", runBlocking { preferences.directTransport.first() })
+        assertFalse(runBlocking { preferences.wiredOnly.first() })
+        assertTrue(preferences.projectionConnectionPolicy.wirelessAllowed)
+    }
+
     @Test fun actualRenderedAaReconnectDoesNotRequireRetiredAndroidxMapRetention() {
         setup(configuredAa="wpp",actualAa="wpp",renderReconnect=true)
         val before=runBlocking { preferences.getSecondaryDisplayPreferences() }
@@ -487,14 +659,50 @@ class UsbSettingsSaveTransactionTest {
         assertNotNull(projection.settingsSaveMessage.value)
         assertUsbUntouched()
     }
+    private fun awaitFixtureJobs(jobs: List<Job>, timeoutMillis: Long = 10000): Boolean {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (jobs.any { !it.isCompleted } && System.nanoTime() < deadline) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            Thread.sleep(1)
+        }
+        return jobs.all { it.isCompleted && it.children.none() }
+    }
+
+    @Test fun fixtureCleanupDrainsMainButDoesNotAcknowledgeAHeldCancellation() {
+        val root = SupervisorJob()
+        val release = CompletableDeferred<Unit>()
+        val done = java.util.concurrent.atomic.AtomicBoolean()
+        CoroutineScope(root + Dispatchers.IO).launch(start = CoroutineStart.UNDISPATCHED) {
+            try { awaitCancellation() } finally { withContext(NonCancellable) {
+                release.await()
+                withContext(Dispatchers.Main) { done.set(true) }
+            } }
+        }
+        try {
+            root.cancel()
+            assertFalse(awaitFixtureJobs(listOf(root), 50))
+            assertFalse(done.get())
+            release.complete(Unit)
+            assertTrue(awaitFixtureJobs(listOf(root)))
+            assertTrue(done.get())
+        } finally { release.complete(Unit); root.cancel(); assertTrue(awaitFixtureJobs(listOf(root))) }
+    }
+
     @After fun cleanup() {
-        if (::settings.isInitialized) settings.viewModelScope.cancel()
+        val roots = listOfNotNull(
+            if (::settings.isInitialized) settings.viewModelScope.coroutineContext[Job] else null,
+            if (::projection.isInitialized) projection.viewModelScope.coroutineContext[Job] else null,
+        )
+        roots.forEach { it.cancel() }
         if (::projection.isInitialized) {
-            projection.viewModelScope.cancel()
             (field("unifiedUsbManager") as? com.openautolink.app.transport.usb.UsbConnectionManager)?.stop()
             (field("carPlayCoordinator") as CarPlayCoordinator).close()
         }
-        runBlocking { storeJob.cancelAndJoin() }
-        unmockkAll()
+        val viewModelsRetired = awaitFixtureJobs(roots)
+        storeJob.cancel()
+        val storeRetired = awaitFixtureJobs(listOf(storeJob))
+        if (viewModelsRetired && storeRetired) unmockkAll()
+        assertTrue("Exact Settings/Projection roots must finish before unmock", viewModelsRetired)
+        assertTrue("Exact DataStore job must finish before unmock", storeRetired)
     }
 }
