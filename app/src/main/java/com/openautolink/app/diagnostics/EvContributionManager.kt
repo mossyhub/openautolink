@@ -1,6 +1,9 @@
 package com.openautolink.app.diagnostics
 
+import com.openautolink.app.input.VehicleTelemetryFreshness
+import com.openautolink.app.navigation.VehicleEnergyForecast
 import com.openautolink.app.transport.ControlMessage
+import com.openautolink.app.transport.VehiclePropertyObservation
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -13,6 +16,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -41,23 +46,38 @@ data class EvContributionConsentBinding(
     val tokenFingerprint: String,
 ) {
     fun encode(): String = "$schemaVersion|$origin|$tokenFingerprint"
-    fun matches(url: String, token: String): Boolean = create(url, token) == this
+    val accuracy: Boolean get() = schemaVersion == ACCURACY_CONSENT_VERSION
+    val captureNamespace: String get() = if (accuracy) "accuracy-$tokenFingerprint" else tokenFingerprint
+    fun matches(url: String, token: String): Boolean =
+        (if (accuracy) createAccuracy(url, token) else create(url, token)) == this
 
     companion object {
-        const val SCHEMA_VERSION = 2
+        private const val LEGACY_CONSENT_VERSION = 2
+        private const val ACCURACY_CONSENT_VERSION = 3
         fun decode(value: String): EvContributionConsentBinding? {
             val parts = value.split('|')
             if (parts.size != 3) return null
             return EvContributionConsentBinding(parts[0].toIntOrNull() ?: return null, parts[1], parts[2])
-                .takeIf { it.schemaVersion == SCHEMA_VERSION }
+                .takeIf { it.schemaVersion == LEGACY_CONSENT_VERSION || it.accuracy }
         }
-        fun create(url: String, token: String): EvContributionConsentBinding? {
+        fun create(url: String, token: String): EvContributionConsentBinding? = create(url, token, false)
+
+        /** Only for a renewed, disclosed opt-in after qualifying this exact receiving endpoint. */
+        fun createAccuracy(url: String, token: String): EvContributionConsentBinding? = create(url, token, true)
+
+        private fun create(url: String, token: String, accuracy: Boolean): EvContributionConsentBinding? {
             if (token.isBlank()) return null
             val uri = runCatching { URI(url.trim()) }.getOrNull() ?: return null
             if (!uri.scheme.equals("https", true) || uri.host.isNullOrBlank() || uri.userInfo != null) return null
             val host = uri.host.lowercase()
             val port = if (uri.port == -1 || uri.port == 443) "" else ":${uri.port}"
-            return EvContributionConsentBinding(SCHEMA_VERSION, "https://$host$port", sha256(token.toByteArray()))
+            val origin = "https://$host$port"
+            if (!accuracy) return EvContributionConsentBinding(LEGACY_CONSENT_VERSION, origin, sha256(token.toByteArray()))
+            // v2 grants remain origin-bound; v3 must also bind the receiving path/query.
+            if (uri.rawFragment != null || uri.rawPath.isNullOrEmpty()) return null
+            val endpoint = origin + uri.rawPath + (uri.rawQuery?.let { "?$it" } ?: "")
+            return EvContributionConsentBinding(ACCURACY_CONSENT_VERSION, origin,
+                sha256("${endpoint.length}:$endpoint$token".toByteArray()))
         }
     }
 }
@@ -423,6 +443,7 @@ class EvFreshParkGate {
     @Volatile var freshParkObservedThisProcess: Boolean = false
         private set
     private var registrationGeneration: Long? = null
+    private var strictGear: ControlMessage.VehicleData? = null
     private var gearSafe = false
     private var ignitionSafe = false
     private var latestUnsafeSequence = 0L
@@ -439,6 +460,7 @@ class EvFreshParkGate {
             latestUnsafeSequence = 0L
             gearObservation = null
             ignitionObservation = null
+            strictGear = null
         }
         fun fresh(observation: com.openautolink.app.transport.VehiclePropertyObservation): Boolean {
             val sourceNanos = observation.timestampElapsedNanos ?: return false
@@ -451,6 +473,9 @@ class EvFreshParkGate {
         fun newer(candidate: com.openautolink.app.transport.VehiclePropertyObservation, prior: com.openautolink.app.transport.VehiclePropertyObservation?): Boolean =
             prior == null || candidate.receivedElapsedMs > prior.receivedElapsedMs ||
                 (candidate.receivedElapsedMs == prior.receivedElapsedMs && candidate.sequence > prior.sequence)
+        // The v3 gate follows the latest raw batch; losing gear provenance revokes it.
+        val raw = EvAccuracyCapture.observation(data, "GEAR_SELECTION", nowElapsedMs)
+        strictGear = data.takeIf { raw != null && (gearObservation == null || raw == gearObservation || newer(raw, gearObservation)) }
         data.evObservationMetadata["GEAR_SELECTION"]?.let { observation ->
             if (newer(observation, gearObservation)) {
                 gearObservation = observation
@@ -485,6 +510,14 @@ class EvFreshParkGate {
         }
     }
 
+    /** Expanded evidence never uses ignition or a synthetic gear as upload authority. */
+    @Synchronized
+    fun rawParkAuthorization(now: Long): Boolean {
+        val data = strictGear ?: return false
+        val obs = EvAccuracyCapture.observation(data, "GEAR_SELECTION", now) ?: return false
+        return data.gearRaw == 4 && obs.sequence > 0
+    }
+
     /**
      * Re-checks monotonic freshness and commits [mutation] under the same monitor
      * used by observe/clear. Callers composing this with the lifecycle gate must
@@ -497,6 +530,10 @@ class EvFreshParkGate {
         if (authorization(currentElapsedRealtime)) mutation() else null
 
     @Synchronized
+    fun <T> mutateIfRawPark(now: Long, mutation: () -> T): T? =
+        if (rawParkAuthorization(now)) mutation() else null
+
+    @Synchronized
     fun clear() {
         registrationGeneration = null
         gearSafe = false
@@ -504,6 +541,7 @@ class EvFreshParkGate {
         latestUnsafeSequence = 0L
         gearObservation = null
         ignitionObservation = null
+        strictGear = null
         freshParkObservedThisProcess = false
     }
 }
@@ -531,6 +569,193 @@ object EvContributionPolicy {
         !context.projectionActive && !context.reconnecting
 }
 
+internal enum class EvAccuracyClosure(val wire: String) {
+    INTERRUPTED("interrupted"), GAP("gap"), BOUNDARY("boundary"), LIMIT("limit")
+}
+
+/** Single worker owns the active compact window; input is the unchanged passive VHAL snapshot. */
+internal class EvAccuracyCapture(private val idFactory: () -> String) {
+    private data class Speed(val kmh: Float, val timeNanos: Long)
+    private data class Window(
+        val id: String, val kind: String, val at: Long, val wall: Long,
+        val identity: EvVehicleCalibrationIdentity, val generation: Long?, val ignition: Int?,
+        var last: Long = at, var emitted: Long? = null, var forecastAt: Long? = null,
+        var speed: Speed? = null,
+        // A sample cached before this window (or the latest source break) cannot anchor it.
+        var speedNotBeforeNanos: Long = at * NANOS_PER_MS,
+        var distanceM: Double = 0.0, var coveredNanos: Long = 0,
+    )
+    private var window: Window? = null
+
+    fun close(queue: EvContributionQueue, wall: Long, closure: EvAccuracyClosure) {
+        val old = window ?: return
+        queue.close(old.id, wall, closure)
+        window = null
+    }
+
+    fun vehicle(queue: EvContributionQueue, binding: EvContributionConsentBinding,
+        data: ControlMessage.VehicleData, now: Long, wall: Long) {
+        check(binding.accuracy)
+        val identity = if (data.fuelTypes?.toSet() == setOf(10) &&
+            observation(data, "INFO_EV_BATTERY_CAPACITY", now) != null) EvVehicleCalibrationIdentity.from(data) else null
+        val gear = data.gearRaw.takeIf { observation(data, "GEAR_SELECTION", now) != null }
+        val ignition = data.ignitionState.takeIf {
+            observation(data, "IGNITION_STATE", now, cachedIgnitionForCapture = true) != null
+        }
+        val state = observation(data, "EV_CHARGE_STATE", now)
+        val kind = when {
+            gear == 4 && state != null && data.evChargeState == 1 -> "charge"
+            gear != null && gear in nonParkGears && ignition != null && ignition in 4..5 && !(state != null && data.evChargeState == 1) -> "drive"
+            else -> null
+        }
+        window?.let { old ->
+            val closure = when {
+                now < old.last || now - old.last > GAP_MS -> EvAccuracyClosure.GAP
+                now - old.at >= MAX_WINDOW_MS -> EvAccuracyClosure.LIMIT
+                old.kind != kind || old.identity != identity || old.generation != data.vhalRegistrationGeneration ||
+                    old.ignition != ignition -> EvAccuracyClosure.BOUNDARY
+                else -> null
+            }
+            if (closure != null) close(queue, wall, closure)
+        }
+        if (identity == null || kind == null) return
+        val w = window ?: Window(idFactory(), kind, now, wall, identity, data.vhalRegistrationGeneration, ignition)
+            .also { window = it }
+        fun Float?.bounded(min: Float, max: Float) = this?.takeIf { it.isFinite() && it in min..max }
+        val speedObs = observation(data, "PERF_VEHICLE_SPEED", now, SAMPLE_MS)
+        val speed = if (speedObs != null) data.speedKmh.bounded(0f, 400f) else null
+        val speedPoint = speed?.let { Speed(it, checkNotNull(speedObs?.timestampElapsedNanos)) }
+        if (kind == "drive") {
+            val prior = w.speed
+            when {
+                speedPoint == null || (prior != null && (speedPoint.timeNanos < prior.timeNanos ||
+                    (speedPoint.timeNanos == prior.timeNanos && speedPoint.kmh != prior.kmh))) -> {
+                    // Revoke the anchor; a replay from before the break cannot restore it.
+                    w.speed = null
+                    w.speedNotBeforeNanos = maxOf(w.speedNotBeforeNanos, now * NANOS_PER_MS,
+                        (prior?.timeNanos ?: 0L) + 1)
+                }
+                // Cached speed in another property's batch is not a new speed event.
+                speedPoint.timeNanos < w.speedNotBeforeNanos || speedPoint.timeNanos == prior?.timeNanos -> Unit
+                else -> {
+                    if (prior != null) {
+                        val covered = speedPoint.timeNanos - prior.timeNanos
+                        if (covered in 1..(SAMPLE_MS * NANOS_PER_MS)) {
+                            val coveredMs = covered.toDouble() / NANOS_PER_MS
+                            w.distanceM += (speedPoint.kmh + prior.kmh) / 2.0 * coveredMs / 3600.0
+                            w.coveredNanos += covered
+                        }
+                    }
+                    w.speed = speedPoint
+                }
+            }
+        }
+        w.last = now
+        if (w.emitted?.let { now - it < SAMPLE_MS } == true) return
+        val line = buildJsonObject {
+            put("schema", EvContributionPrivacy.ACCURACY_SCHEMA)
+            put("type", kind)
+            put("elapsedMs", now - w.at)
+            put("capacityBandKwh", identity.capacityBandKwh)
+            fun scalar(field: String, property: String, number: Float?, min: Float, max: Float, ageField: String? = null) {
+                val obs = observation(data, property, now) ?: return
+                val v = number.bounded(min, max) ?: return
+                put(field, v)
+                if (ageField != null) put(ageField, now - obs.receivedElapsedMs)
+            }
+            scalar("batteryWh", "EV_BATTERY_LEVEL", data.evBatteryLevelWh, 0f, 500_000f, "batteryAgeMs")
+            if (data.evBatteryLevelWh.bounded(0f, 500_000f) != null) {
+                observation(data, "EV_BATTERY_LEVEL", now)?.timestampElapsedNanos?.let {
+                    put("batteryEventAgeMs", (now - it / 1_000_000L).coerceAtMost(MAX_WINDOW_MS))
+                }
+            }
+            scalar("rangeKm", "RANGE_REMAINING", data.rangeKm, 0f, 3000f)
+            scalar("usableCapacityWh", "EV_CURRENT_BATTERY_CAPACITY", data.evCurrentBatteryCapacityWh, 1000f, 500_000f)
+            scalar("reportedCapacityWh", "INFO_EV_BATTERY_CAPACITY", data.evBatteryCapacityWh, 1000f, 500_000f)
+            scalar("ambientTempC", "ENV_OUTSIDE_TEMPERATURE", data.ambientTempC, -80f, 100f)
+            scalar("batteryTempC", "EV_BATTERY_AVERAGE_TEMPERATURE", data.evBatteryTempC, -80f, 100f)
+            if (kind == "charge") {
+                put("chargeState", 1)
+                put("chargeAgeMs", now - checkNotNull(state).receivedElapsedMs)
+                scalar("chargeRateW", "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE", data.evChargeRateW, -1_000_000f, 1_000_000f)
+                if (observation(data, "EV_CHARGE_PORT_CONNECTED", now) != null) {
+                    data.chargePortConnected?.let { put("chargePortConnected", it) }
+                }
+            } else {
+                if (speed != null) {
+                    put("speedKmh", speed)
+                    put("speedAgeMs", now - checkNotNull(speedObs).receivedElapsedMs)
+                }
+                put("distanceM", w.distanceM.toLong())
+                put("speedCoveredMs", w.coveredNanos / NANOS_PER_MS)
+            }
+        }.toString()
+        queue.append(w.id, w.wall, line, binding.captureNamespace, identity.pseudonymousLabel)
+        w.emitted = now
+    }
+
+    fun forecast(queue: EvContributionQueue, binding: EvContributionConsentBinding, forecast: VehicleEnergyForecast) {
+        val w = window?.takeIf { it.kind == "drive" && it.emitted != null } ?: return
+        val at = forecast.receivedAtElapsedMs
+        if (at < w.at || at - w.at >= MAX_WINDOW_MS || at - w.last !in 0..SAMPLE_MS ||
+            w.forecastAt?.let { at - it < SAMPLE_MS } == true || forecast.forecastQuality !in 0..2) return
+        val wh = forecast.energyAtNextStop?.arrivalBatteryEnergyWh?.takeIf { it in 0..500_000 }
+        val meters = forecast.energyAtNextStop?.distanceMeters?.takeIf { it in 0..10_000_000 }
+        if (wh == null && meters == null) return
+        val line = buildJsonObject {
+            put("schema", EvContributionPrivacy.ACCURACY_SCHEMA)
+            put("type", "forecast")
+            put("elapsedMs", at - w.at)
+            put("forecastQuality", forecast.forecastQuality)
+            put("correlation", "uncertain") // AA has no route ID or forecast-production timestamp.
+            wh?.let { put("forecastWh", it) }
+            meters?.let { put("forecastDistanceM", it) }
+        }.toString()
+        queue.append(w.id, w.wall, line, binding.captureNamespace, w.identity.pseudonymousLabel)
+        w.forecastAt = at
+    }
+
+    companion object {
+        private const val NANOS_PER_MS = 1_000_000L
+        private const val SAMPLE_MS = 5_000L
+        private const val GAP_MS = 15_000L
+        // Even at the full row envelope and both per-kind cadences, a unit
+        // remains below the existing 8 MiB queue byte budget.
+        const val MAX_WINDOW_MS = 4 * 60 * 60 * 1000L
+        private val nonParkGears = setOf(1, 2, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
+        private val properties = mapOf(
+            "GEAR_SELECTION" to 0x11400400, "IGNITION_STATE" to 0x11400409,
+            "PERF_VEHICLE_SPEED" to 0x11600207, "EV_BATTERY_LEVEL" to 0x11600309,
+            "EV_CURRENT_BATTERY_CAPACITY" to 0x1160030D, "INFO_EV_BATTERY_CAPACITY" to 0x11600106,
+            "RANGE_REMAINING" to 0x11600308, "ENV_OUTSIDE_TEMPERATURE" to 0x11600703,
+            "EV_BATTERY_AVERAGE_TEMPERATURE" to 0x1160030E, "EV_CHARGE_STATE" to 0x11400F41,
+            "EV_CHARGE_PORT_CONNECTED" to 0x1120030B, "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE" to 0x1160030C,
+        )
+        fun observation(data: ControlMessage.VehicleData, property: String, now: Long,
+            maxAge: Long = EvFreshParkGate.MAX_OBSERVATION_AGE_MS - 1,
+            cachedIgnitionForCapture: Boolean = false): VehiclePropertyObservation? {
+            val obs = data.evObservationMetadata[property] ?: return null
+            val gen = data.vhalRegistrationGeneration ?: return null
+            val id = properties[property] ?: return null
+            val eventAt = obs.timestampElapsedNanos?.takeIf { it > 0 }?.div(1_000_000) ?: return null
+            if (gen <= 0 || obs.registrationGeneration != gen || obs.source != "vhal" || obs.status != 0 ||
+                !obs.subscriptionActive || obs.propertyId != id || eventAt > now ||
+                obs.receivedElapsedMs !in eventAt..now) return null
+            // Ignition is a capture continuity label, not a way to authorize Park.
+            if (property == "IGNITION_STATE" && cachedIgnitionForCapture && obs.changeMode == 1) return obs
+            if (now - obs.receivedElapsedMs > maxAge) return null
+            val sourceQualified = when (property) {
+                // Match the producer's narrow gear rule: only a completed exact
+                // ONCHANGE read can reconfirm an old gear event.
+                "GEAR_SELECTION" -> obs.changeMode == 1 && obs.statusReadElapsedMs == obs.receivedElapsedMs
+                "IGNITION_STATE", "PERF_VEHICLE_SPEED" -> false
+                else -> VehicleTelemetryFreshness.sourceTimeConfirmed(obs, property, now, maxAge)
+            }
+            return obs.takeIf { now - eventAt <= maxAge || sourceQualified }
+        }
+    }
+}
+
 /** Versioned, flat, typed schema. Free text and unknown enums are rejected. */
 object EvContributionPrivacy {
     private val vehicleFields = setOf(
@@ -543,12 +768,26 @@ object EvContributionPrivacy {
         "vehicleClass",
     )
 
+    const val LEGACY_SCHEMA = 2
+    const val ACCURACY_SCHEMA = 3
+
     fun requireAllowedJsonLine(line: String): String {
+        validateLine(line)
+        return line
+    }
+
+    internal fun validateLine(line: String): Int {
         val root = runCatching { Json.parseToJsonElement(line) }.getOrElse {
             throw IllegalArgumentException("compact EV record is not valid JSON", it)
         }
         require(root is JsonObject) { "compact EV record must be an object" }
-        require(root["schema"]?.asInt() == EvContributionConsentBinding.SCHEMA_VERSION) {
+        val schema = root["schema"]?.asInt()
+        if (schema == ACCURACY_SCHEMA) {
+            require(line.length <= 1024 && line == root.toString()) { "invalid compact EV row encoding" }
+            validateAccuracy(root)
+            return ACCURACY_SCHEMA
+        }
+        require(schema == LEGACY_SCHEMA) {
             "unsupported compact EV schema"
         }
         val type = root["type"]?.asString() ?: throw IllegalArgumentException("record type is required")
@@ -567,7 +806,44 @@ object EvContributionPrivacy {
             "vehicle" -> validateVehicle(root)
             "forecast" -> validateForecast(root)
         }
-        return line
+        return LEGACY_SCHEMA
+    }
+
+    private fun validateAccuracy(root: JsonObject) {
+        val type = root["type"]?.asString()
+        val common = setOf("schema", "type", "elapsedMs", "batteryWh", "batteryAgeMs", "batteryEventAgeMs", "rangeKm",
+            "usableCapacityWh", "reportedCapacityWh", "ambientTempC", "batteryTempC", "capacityBandKwh")
+        val allowed = when (type) {
+            "drive" -> common + setOf("distanceM", "speedCoveredMs", "speedKmh", "speedAgeMs")
+            "charge" -> common + setOf("chargeState", "chargeRateW", "chargeAgeMs", "chargePortConnected")
+            "forecast" -> setOf("schema", "type", "elapsedMs", "forecastWh", "forecastDistanceM", "forecastQuality", "correlation")
+            else -> throw IllegalArgumentException("unsupported EV accuracy record")
+        }
+        require(root.keys.all { it in allowed }) { "unlisted compact EV accuracy field" }
+        val elapsed = requireNotNull(root["elapsedMs"]).asLong()
+        requireRange(elapsed, 0, EvAccuracyCapture.MAX_WINDOW_MS, "elapsedMs")
+        for (age in listOf("batteryAgeMs", "speedAgeMs", "chargeAgeMs")) {
+            root[age]?.let { requireRange(it.asLong(), 0, EvFreshParkGate.MAX_OBSERVATION_AGE_MS - 1, age) }
+        }
+        root["batteryWh"]?.finiteFloat(0f, 500_000f, "batteryWh")
+        root["batteryEventAgeMs"]?.let { requireRange(it.asLong(), 0, EvAccuracyCapture.MAX_WINDOW_MS, "batteryEventAgeMs") }
+        root["rangeKm"]?.finiteFloat(0f, 3000f, "rangeKm")
+        root["usableCapacityWh"]?.finiteFloat(1000f, 500_000f, "usableCapacityWh")
+        root["reportedCapacityWh"]?.finiteFloat(1000f, 500_000f, "reportedCapacityWh")
+        root["ambientTempC"]?.finiteFloat(-80f, 100f, "ambientTempC")
+        root["batteryTempC"]?.finiteFloat(-80f, 100f, "batteryTempC")
+        root["capacityBandKwh"]?.let { requireRange(it.asLong(), 5, 500, "capacityBandKwh") }
+        root["speedKmh"]?.finiteFloat(0f, 400f, "speedKmh")
+        root["distanceM"]?.let { requireRange(it.asLong(), 0, 10_000_000L, "distanceM") }
+        root["speedCoveredMs"]?.let { requireRange(it.asLong(), 0, elapsed, "speedCoveredMs") }
+        if (type == "charge") require(root["chargeState"]?.asInt() == 1) { "active charge state required" }
+        root["chargeRateW"]?.finiteFloat(-1_000_000f, 1_000_000f, "chargeRateW")
+        root["chargePortConnected"]?.asBoolean()
+        require(root["chargePortConnected"]?.asPrimitive()?.isString != true)
+        if (type == "forecast") {
+            require(root["correlation"]?.asString() == "uncertain")
+            validateForecast(root)
+        }
     }
 
     private fun validateVehicle(root: JsonObject) {
@@ -636,6 +912,7 @@ class EvContributionQueue(
         val namespace: String = "default",
         val originalName: String = file.name,
         val vehicleLabel: String = "ev-class-unknown",
+        val payloadSchema: Int = EvContributionPrivacy.LEGACY_SCHEMA,
     )
     data class Counters(val retained: Int, val evicted: Long, val accepted: Long, val failures: Long, val quarantined: Int)
     data class DeleteResult(val files: Int, val bytes: Long, val failures: Int)
@@ -643,7 +920,7 @@ class EvContributionQueue(
     private data class Meta(
         val id: String, val startedMs: Long, val completedMs: Long, val attempts: Int,
         val nextAttemptMs: Long, val sha256: String, val namespace: String, val originalName: String,
-        val vehicleLabel: String,
+        val vehicleLabel: String, val payloadSchema: Int,
     )
     private data class StorageUnit(val primary: File, val files: List<File>, val timestampMs: Long)
 
@@ -670,17 +947,17 @@ class EvContributionQueue(
         require(id.matches(Regex("[A-Za-z0-9._-]{1,80}"))) { "invalid contribution id" }
         require(namespace.matches(Regex("[A-Za-z0-9._-]{1,120}"))) { "invalid contribution namespace" }
         require(vehicleLabel.matches(Regex("ev-class-[A-Za-z0-9._-]{4,100}"))) { "invalid vehicle label" }
-        val safe = EvContributionPrivacy.requireAllowedJsonLine(jsonLine)
+        val schema = EvContributionPrivacy.validateLine(jsonLine)
         ensureDirectory()
         check(allClosed().none { it.id == id }) { "cannot append to closed contribution" }
         val file = openFile(id, startedMs)
         val existing = if (file.exists()) readMeta(file) else null
-        check(existing == null || (existing.id == id && existing.startedMs == startedMs && existing.namespace == namespace && existing.vehicleLabel == vehicleLabel)) {
+        check(existing == null || (existing.id == id && existing.startedMs == startedMs && existing.namespace == namespace && existing.vehicleLabel == vehicleLabel && existing.payloadSchema == schema)) {
             "open contribution identity changed"
         }
-        if (!file.exists()) writeMeta(file, Meta(id, startedMs, 0, 0, 0, "", namespace, "ev-contribution.zip", vehicleLabel))
+        if (!file.exists()) writeMeta(file, Meta(id, startedMs, 0, 0, 0, "", namespace, "ev-contribution.zip", vehicleLabel, schema))
         FileOutputStream(file, true).use { out ->
-            out.write((safe + "\n").toByteArray(Charsets.UTF_8)); runCatching { out.fd.sync() }
+            out.write((jsonLine + "\n").toByteArray(Charsets.UTF_8)); runCatching { out.fd.sync() }
         }
         if (file.length() > maxBytes) {
             deleteUnit(file); evictOne()
@@ -690,7 +967,10 @@ class EvContributionQueue(
     }
 
     @Synchronized
-    fun close(id: String, completedMs: Long) {
+    fun close(id: String, completedMs: Long) = close(id, completedMs, EvAccuracyClosure.INTERRUPTED)
+
+    @Synchronized
+    internal fun close(id: String, completedMs: Long, closure: EvAccuracyClosure) {
         val entry = allOpen().firstOrNull { it.id == id } ?: return
         check(allClosed().none { it.id == id }) { "contribution already closed" }
         val zip = zipFile(entry.id, entry.startedMs)
@@ -699,14 +979,15 @@ class EvContributionQueue(
         FileOutputStream(tmp).use { fos ->
             ZipOutputStream(fos).use { out ->
                 addZip(out, "telemetry.log", logBytes)
-                val manifest = "schema=2\nvehicleClass=${entry.vehicleLabel.removePrefix("ev-class-")}\nstartedHourBucket=${entry.startedMs / 3_600_000}\ncompletedHourBucket=${completedMs / 3_600_000}\n"
+                val manifest = "schema=${entry.payloadSchema}\nvehicleClass=${entry.vehicleLabel.removePrefix("ev-class-")}\nstartedHourBucket=${entry.startedMs / 3_600_000}\ncompletedHourBucket=${completedMs / 3_600_000}\n" +
+                    if (entry.payloadSchema == EvContributionPrivacy.ACCURACY_SCHEMA) "closure=${closure.wire}\n" else ""
                 addZip(out, "manifest.log", manifest.toByteArray(Charsets.UTF_8))
             }
             runCatching { fos.fd.sync() }
         }
         atomicMove(tmp, zip)
         val digest = sha256(zip.readBytes())
-        writeMeta(zip, Meta(entry.id, entry.startedMs, completedMs, entry.attempts, entry.nextAttemptMs, digest, entry.namespace, zip.name, entry.vehicleLabel))
+        writeMeta(zip, Meta(entry.id, entry.startedMs, completedMs, entry.attempts, entry.nextAttemptMs, digest, entry.namespace, zip.name, entry.vehicleLabel, entry.payloadSchema))
         deleteUnit(entry.file)
         syncDirectory(directory)
         retainBounded(completedMs)
@@ -811,7 +1092,7 @@ class EvContributionQueue(
     )
 
     private fun Pending.toMeta(attempts: Int = this.attempts, next: Long = nextAttemptMs) =
-        Meta(id, startedMs, completedMs, attempts, next, sha256, namespace, originalName, vehicleLabel)
+        Meta(id, startedMs, completedMs, attempts, next, sha256, namespace, originalName, vehicleLabel, payloadSchema)
     private fun ensureDirectory() { check(directory.isDirectory || directory.mkdirs()) { "cannot create compact EV queue" } }
     private fun openFile(id: String, startedMs: Long) = File(directory, "%019d_%s.evc".format(startedMs, id))
     private fun zipFile(id: String, startedMs: Long) = File(directory, "%019d_%s.zip".format(startedMs, id))
@@ -831,7 +1112,7 @@ class EvContributionQueue(
         return directory.listFiles().orEmpty().asSequence().filter { it.isFile && it.name.endsWith(suffix) }
             .mapNotNull { file -> readMeta(file)?.let { meta ->
                 Pending(meta.id, meta.startedMs, meta.completedMs, meta.attempts, meta.nextAttemptMs, file,
-                    meta.sha256, meta.namespace, meta.originalName, meta.vehicleLabel)
+                    meta.sha256, meta.namespace, meta.originalName, meta.vehicleLabel, meta.payloadSchema)
             } }.toList()
     }
     private fun readMeta(file: File): Meta? = runCatching {
@@ -841,9 +1122,11 @@ class EvContributionQueue(
             p.getProperty("attempts").toInt(), p.getProperty("nextAttemptMs").toLong(), p.getProperty("sha256", ""),
             p.getProperty("namespace", "default"), p.getProperty("originalName", file.name),
             p.getProperty("vehicleLabel", "ev-class-unknown"),
+            p.getProperty("payloadSchema", "2").toInt(),
         ).takeIf {
             it.id.matches(Regex("[A-Za-z0-9._-]{1,80}")) && it.namespace.matches(Regex("[A-Za-z0-9._-]{1,120}")) &&
-                it.vehicleLabel.matches(Regex("ev-class-[A-Za-z0-9._-]{4,100}"))
+                it.vehicleLabel.matches(Regex("ev-class-[A-Za-z0-9._-]{4,100}")) &&
+                it.payloadSchema in EvContributionPrivacy.LEGACY_SCHEMA..EvContributionPrivacy.ACCURACY_SCHEMA
         }
     }.getOrNull()
     private fun writeMeta(file: File, meta: Meta) {
@@ -853,6 +1136,7 @@ class EvContributionQueue(
             setProperty("attempts", meta.attempts.toString()); setProperty("nextAttemptMs", meta.nextAttemptMs.toString())
             setProperty("sha256", meta.sha256); setProperty("namespace", meta.namespace); setProperty("originalName", meta.originalName)
             setProperty("vehicleLabel", meta.vehicleLabel)
+            if (meta.payloadSchema != EvContributionPrivacy.LEGACY_SCHEMA) setProperty("payloadSchema", meta.payloadSchema.toString())
         }.also { properties -> FileOutputStream(tmp).use { out -> properties.store(out, null); runCatching { out.fd.sync() } } }
         atomicMove(tmp, target)
         syncDirectory(directory)
@@ -968,6 +1252,7 @@ class EvContributionUploader(
     private val mayTransmit: () -> Boolean = { true },
     private val mayMutate: () -> Boolean = { true },
     private val mutateIfCurrent: ((() -> Outcome) -> Outcome?) = { action -> if (mayMutate()) action() else null },
+    private val payloadSchema: Int? = null,
     private val send: (file: File, idempotencyKey: String) -> Response,
 ) {
     data class Response(val statusCode: Int, val body: String)
@@ -975,7 +1260,8 @@ class EvContributionUploader(
     companion object { const val MAX_BACKOFF_MS = 24L * 60 * 60 * 1000; private const val BASE_BACKOFF_MS = 30_000L }
 
     fun uploadOldest(nowMs: Long, authorizedNamespace: String? = null): Outcome {
-        val entry = queue.pending().firstOrNull() ?: return Outcome.EMPTY
+        val entry = queue.pending().firstOrNull { payloadSchema == null || it.payloadSchema == payloadSchema }
+            ?: return Outcome.EMPTY
         if (authorizedNamespace != null && entry.namespace != authorizedNamespace) return Outcome.OWNER_MISMATCH
         if (nowMs < entry.nextAttemptMs) return Outcome.BACKOFF
         if (!mayTransmit()) return Outcome.CANCELLED

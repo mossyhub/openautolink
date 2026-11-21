@@ -42,8 +42,18 @@ class VehicleDataForwarderImpl(
         // Minimum interval between vehicle data sends (ms)
         private const val SEND_INTERVAL_MS = 500L
         private const val EV_STATUS_READ_INTERVAL_MS = 5_000L
-        private val CARPLAY_EV_PROPERTIES = setOf("RANGE_REMAINING", "EV_BATTERY_LEVEL", "EV_CURRENT_BATTERY_CAPACITY", "ENV_OUTSIDE_TEMPERATURE")
-        private val CARPLAY_STATUS_PROPERTIES = CARPLAY_EV_PROPERTIES + "GEAR_SELECTION"
+        private val UI_RATE_EV_PROPERTIES = setOf(
+            "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE", "EV_BATTERY_LEVEL", "RANGE_REMAINING")
+        private const val EV_CHARGE_STATE_ID = 0x11400F41
+        private const val FUEL_LEVEL_LOW_ID = 0x11200405
+        private const val CARPLAY_WARNING = "FUEL_LEVEL_LOW"
+        private const val CAR_ENERGY_PERMISSION = "android.car.permission.CAR_ENERGY"
+        private val CARPLAY_EV_PROPERTIES = setOf("FUEL_LEVEL_LOW", "RANGE_REMAINING", "EV_BATTERY_LEVEL", "EV_CURRENT_BATTERY_CAPACITY", "ENV_OUTSIDE_TEMPERATURE")
+        // CONTINUOUS sources can omit unchanged events. Requested rate is not liveness.
+        private val TELEMETRY_STATUS_PROPERTIES = CARPLAY_EV_PROPERTIES + setOf(
+            "INFO_EV_BATTERY_CAPACITY", "PERF_VEHICLE_SPEED", "EV_CHARGE_STATE",
+            "EV_CHARGE_PORT_CONNECTED", "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE", "DISTANCE_DISPLAY_UNITS")
+        private val CARPLAY_STATUS_PROPERTIES = TELEMETRY_STATUS_PROPERTIES + "GEAR_SELECTION"
 
         /** Hardcoded property IDs for GM AAOS runtimes that strip VehiclePropertyIds field names.
          *  Integer IDs are stable across all AAOS implementations (defined in HAL spec). */
@@ -62,13 +72,14 @@ class VehicleDataForwarderImpl(
             "EV_BATTERY_AVERAGE_TEMPERATURE" to 0x1160030E,
             "EV_CHARGE_PORT_OPEN" to 0x1120030A,
             "EV_CHARGE_PORT_CONNECTED" to 0x1120030B,
-            "EV_CHARGE_STATE" to 0x11400F41,
+            "EV_CHARGE_STATE" to EV_CHARGE_STATE_ID,
             "EV_CHARGE_TIME_REMAINING" to 0x11400F43,
             "EV_CHARGE_PERCENT_LIMIT" to 0x11600F40,
             "EV_CHARGE_CURRENT_DRAW_LIMIT" to 0x11600F3F,
             "EV_BRAKE_REGENERATION_LEVEL" to 0x1140040C,
             "EV_STOPPING_MODE" to 0x1140040D,
             "RANGE_REMAINING" to 0x11600308,
+            "FUEL_LEVEL_LOW" to FUEL_LEVEL_LOW_ID,
             "ENV_OUTSIDE_TEMPERATURE" to 0x11600703,
             "PERF_ENGINE_RPM" to 0x11600305,
             "PERF_ODOMETER" to 0x11600204,
@@ -103,14 +114,22 @@ class VehicleDataForwarderImpl(
     // Guarded with the forwarder monitor, alongside value updates and batch snapshots.
     private val evObservationMetadata = mutableMapOf<String, VehiclePropertyObservation>()
     private val propertyChangeModes = mutableMapOf<Int, Int>()
+    private val lastEvReadDiagnostics = mutableMapOf<String, Pair<String, Long>>()
     private val observationSequence = AtomicLong()
+    // Process-only receipt. Written and sampled under the publisher monitor so the
+    // revision cannot race ahead of, or be lost behind, the corresponding cache update.
+    internal var learnChargeStateRevision = 0L
+        private set
     private data class BufferedSafetyObservation(
         val value: Any?,
         val observation: VehiclePropertyObservation,
     )
     private val pendingSafetySubscriptions = mutableMapOf<Int, Long>()
     private val bufferedSafetyObservations = mutableMapOf<Int, BufferedSafetyObservation>()
-    private var lastSendTime = 0L
+    private var lastSendTime = -SEND_INTERVAL_MS // elapsedRealtime, never wall clock
+    private var pendingFlushJob: kotlinx.coroutines.Job? = null
+    // Bounded by CARPLAY_STATUS_PROPERTIES; callbacks never reset this read-attempt clock.
+    private val lastEvReadAttempts = mutableMapOf<Int, Long>()
 
     // HistoryProvider polling cache (Finding F.2). Refreshed every 5s on a
     // dedicated coroutine; nullable when the provider is patched or returns
@@ -168,6 +187,8 @@ class VehicleDataForwarderImpl(
     private var requestedGrants: Map<String, Boolean>? = null
     private val attemptedGrants = mutableMapOf<Int, Boolean>()
     private val subscribedNames = mutableSetOf<String>()
+    // Denial invalidates a read even if permission returns before Binder does.
+    private var warningAuthorityEpoch = 0L
 
     private fun permissionGrants(): Map<String, Boolean> = properties.mapNotNull { it.permission }
         .distinct().associateWith { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
@@ -181,6 +202,7 @@ class VehicleDataForwarderImpl(
         var restartGeneration: Long? = null
         synchronized(this) {
             if (!desiredActive) return
+            if (grants[CAR_ENERGY_PERMISSION] == false) observeEnergyPermissionDenial()
             if (requestedGrants != grants || (!startInFlight && (staticInfoMissing() || evStatusReadDue()))) {
                 // A grant epoch retries missing members of that group, including HALs
                 // that flattened an earlier permission failure to absent/rejected.
@@ -606,6 +628,7 @@ class VehicleDataForwarderImpl(
         PropDef("ENV_OUTSIDE_TEMPERATURE", "android.car.permission.CAR_EXTERIOR_ENVIRONMENT"),
         PropDef("EV_BATTERY_INSTANTANEOUS_CHARGE_RATE", "android.car.permission.CAR_ENERGY"),
         PropDef("RANGE_REMAINING", "android.car.permission.CAR_ENERGY"),
+        PropDef("FUEL_LEVEL_LOW", "android.car.permission.CAR_ENERGY"),
         PropDef("PERF_ENGINE_RPM", "android.car.permission.CAR_SPEED"),
         PropDef("EV_CHARGE_PORT_OPEN", "android.car.permission.CAR_ENERGY_PORTS"),
         PropDef("EV_CHARGE_PORT_CONNECTED", "android.car.permission.CAR_ENERGY_PORTS"),
@@ -649,9 +672,13 @@ class VehicleDataForwarderImpl(
         fun current(): Boolean = desiredActive && propertyManager === pm && callbackProxy === callback &&
             registrationGeneration == generation && lifecycleGeneration == lifecycle && startFailureGeneration != lifecycle
         val grants = permissionGrants()
-        synchronized(this) { if (requestedGrants == null) requestedGrants = grants }
-        val authorizedBefore = synchronized(this) {
-            subscribedNames.filterTo(mutableSetOf()) { _propertyStatus[it] == "subscribed" }
+        synchronized(this) {
+            if (!current()) return emptySet()
+            if (grants[CAR_ENERGY_PERMISSION] == false) observeEnergyPermissionDenial()
+            if (requestedGrants == null) requestedGrants = grants
+        }
+        val (authorizedBefore, warningBefore, warningAttemptBefore) = synchronized(this) {
+            Triple(ordinaryAuthorizedProperties(), evObservationMetadata[CARPLAY_WARNING], lastEvReadAttempts[FUEL_LEVEL_LOW_ID])
         }
         var subscribed = 0
         val registeredAdditions = mutableSetOf<String>()
@@ -664,6 +691,7 @@ class VehicleDataForwarderImpl(
                 if (!granted) {
                     _propertyStatus[prop.fieldName] = "permission_denied:${prop.permission}"
                     currentValues.remove(propId)
+                    if (prop.permission == CAR_ENERGY_PERMISSION) observeEnergyPermissionDenial()
                     evObservationMetadata.remove(prop.fieldName)
                     attemptedGrants[propId] = false
                     false
@@ -675,10 +703,20 @@ class VehicleDataForwarderImpl(
             }
             if (!candidate) continue
             if (restore) {
+                if (propId == FUEL_LEVEL_LOW_ID) {
+                    synchronized(this) {
+                        if (current() && propertyPermitted(propId)) _propertyStatus[prop.fieldName] = "subscribed"
+                    }
+                    continue // Recover through the fenced exact status-read path below.
+                }
+                synchronized(this) {
+                    if (!current()) return emptySet()
+                    if (prop.fieldName in CARPLAY_STATUS_PROPERTIES) lastEvReadAttempts[propId] = SystemClock.elapsedRealtime()
+                }
                 val pv = runCatching {
                     pmClass.getMethod("getProperty", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
                         .invoke(pm, propId, 0)
-                }.getOrNull()
+                }.getOrNull()?.takeIf { validInitialStatusValue(prop.fieldName, propId, it) }
                 synchronized(this) {
                     if (current() && propertyPermitted(propId)) {
                         // A concurrently delivered callback outranks this recovery read.
@@ -704,14 +742,19 @@ class VehicleDataForwarderImpl(
                 else propertyChangeModes[propId] = changeMode
             }
             // Initial values remain private until this exact subscription succeeds.
+            val warningEpochAtRead = synchronized(this) {
+                if (!current()) return emptySet()
+                if (prop.fieldName in CARPLAY_STATUS_PROPERTIES) lastEvReadAttempts[propId] = SystemClock.elapsedRealtime()
+                warningAuthorityEpoch
+            }
             val initial = runCatching {
                 pmClass.getMethod("getProperty", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
                     .invoke(pm, propId, 0)
-            }.getOrNull()
+            }.getOrNull()?.takeIf { validInitialStatusValue(prop.fieldName, propId, it) }
             val reserved = synchronized(this) {
                 if (!current()) false else {
                     beginSafetySubscription(propId, generation)
-                    initial?.let {
+                    initial?.takeIf { propId != FUEL_LEVEL_LOW_ID || warningEpochAtRead == warningAuthorityEpoch }?.let {
                         val value = runCatching { it.javaClass.getMethod("getValue").invoke(it) }.getOrNull()
                         bufferedSafetyObservations[propId] = BufferedSafetyObservation(value,
                             observationFrom(it, propId, authoritative = false))
@@ -720,10 +763,12 @@ class VehicleDataForwarderImpl(
                 }
             }
             if (!reserved) break
-            val ok = subscribe(pm, callbackInterface, callback, propId, prop.rateField)
+            val sampleRate = requestedSampleRate(prop, config, changeMode)
+            val ok = subscribe(pm, callbackInterface, callback, propId, sampleRate)
             synchronized(this) {
                 if (!current()) return@synchronized
                 val stillGranted = prop.permission == null || context.checkSelfPermission(prop.permission) == PackageManager.PERMISSION_GRANTED
+                if (!stillGranted && prop.permission == CAR_ENERGY_PERMISSION) observeEnergyPermissionDenial()
                 if (ok) {
                     trackedPropertyIds.add(propId)
                     subscribedNames += prop.fieldName
@@ -763,12 +808,15 @@ class VehicleDataForwarderImpl(
                         attemptedGrants[id] = false
                     }
                 }
-                val authorized = subscribedNames.filterTo(mutableSetOf()) { _propertyStatus[it] == "subscribed" }
+                val authorized = ordinaryAuthorizedProperties()
                 // Missing static INFO stays retryable, but an unchanged recovery pass
                 // is not a new raw observation for the process learner/recorder.
                 // Keep startup and authorization transitions even without a value;
                 // real observations (including equal values) differ by metadata.
-                if (!isActive || authorized != authorizedBefore || buildVehicleData() != _latestVehicleData.value) {
+                val warningWork = evObservationMetadata[CARPLAY_WARNING] != warningBefore ||
+                    lastEvReadAttempts[FUEL_LEVEL_LOW_ID] != warningAttemptBefore ||
+                    (grants[CAR_ENERGY_PERMISSION] == false && FUEL_LEVEL_LOW_ID in trackedPropertyIds)
+                if (!isActive || authorized != authorizedBefore || hasOrdinaryRefreshUpdate(warningWork)) {
                     publishImmediate()
                 }
                 DiagnosticLog.i("vhal", "VHAL refresh completed generation=$generation registeredAdded=$registeredAdditions total=${trackedPropertyIds.size} authorized=${subscribedNames.filter { _propertyStatus[it] == "subscribed" }} staticMissing=${staticInfoMissing()}")
@@ -777,39 +825,75 @@ class VehicleDataForwarderImpl(
         }
     }
 
+    private fun ordinaryAuthorizedProperties(): Set<String> =
+        subscribedNames.filterTo(mutableSetOf()) { it != CARPLAY_WARNING && _propertyStatus[it] == "subscribed" }
+
+    private fun hasOrdinaryRefreshUpdate(warningWork: Boolean): Boolean {
+        val next = buildVehicleData()
+        val published = _latestVehicleData.value
+        if (next == published) return false
+        if (!warningWork || pendingFlushJob == null) return true
+        // A warning refresh cannot use a queued callback's unpublished values
+        // as a reason to drain it. Real ordinary status reads publish directly,
+        // ordinary authorization changes are checked by the caller, and static
+        // INFO recovery (read before registration) still publishes here.
+        return next.carMake != published.carMake || next.carModel != published.carModel ||
+            next.carYear != published.carYear || next.fuelTypes != published.fuelTypes ||
+            next.evConnectorTypes != published.evConnectorTypes
+    }
+
     /** AVAILABLE on-change callbacks are not a status heartbeat: Car API may omit status-only events. */
     private fun evStatusReadDue(): Boolean = CARPLAY_STATUS_PROPERTIES.any { name ->
         val id = VEHICLE_PROPERTY_ID_FALLBACK.getValue(name)
         val observation = evObservationMetadata[name]
-        id in trackedPropertyIds && propertyChangeModes[id] in setOf(0, 1) &&
-            (observation == null || SystemClock.elapsedRealtime() - observation.receivedElapsedMs >= EV_STATUS_READ_INTERVAL_MS)
+        id in trackedPropertyIds && statusReadModeAllowed(name, id) &&
+            evStatusReadDue(name, id, observation)
+    }
+
+    private fun evStatusReadDue(name: String, id: Int, observation: VehiclePropertyObservation?): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        val receiptDue = observation == null || now - observation.receivedElapsedMs >= EV_STATUS_READ_INTERVAL_MS
+        if (name !in TELEMETRY_STATUS_PROPERTIES) return receiptDue // Legacy gear policy, unchanged.
+        val attempted = lastEvReadAttempts[id]
+        if (attempted != null && now - attempted < EV_STATUS_READ_INTERVAL_MS) return false
+        // Fresh callbacks with old source time cannot indefinitely defer a real read.
+        // Fresh source events still avoid redundant reads; mode is discovered, not inferred.
+        val sourceMs = observation?.timestampElapsedNanos?.takeIf { it > 0 }?.div(1_000_000L)
+        return receiptDue || (propertyChangeModes[id] !in setOf(0, 1) &&
+            (sourceMs == null || now - sourceMs !in 0 until EV_STATUS_READ_INTERVAL_MS))
     }
 
     /** Called only on the serialized start/refresh lane. Never hold the monitor across Binder. */
     private fun refreshEvStatusReads(manager: Any, generation: Long, lifecycle: Long) {
         for (name in CARPLAY_STATUS_PROPERTIES) {
             val id = VEHICLE_PROPERTY_ID_FALLBACK.getValue(name)
-            val sequence = synchronized(this) {
+            val (sequence, warningEpochAtRead) = synchronized(this) {
                 if (!isStartCurrent(lifecycle) || propertyManager !== manager || registrationGeneration != generation ||
-                    id !in trackedPropertyIds || !propertyPermitted(id) || propertyChangeModes[id] !in setOf(0, 1)) return@synchronized null
+                    id !in trackedPropertyIds || !propertyPermitted(id) || !statusReadModeAllowed(name, id)) return@synchronized null
                 val previous = evObservationMetadata[name]
-                if (previous != null && SystemClock.elapsedRealtime() - previous.receivedElapsedMs < EV_STATUS_READ_INTERVAL_MS) return@synchronized null
-                previous?.sequence ?: -1L
+                if (!evStatusReadDue(name, id, previous)) return@synchronized null
+                lastEvReadAttempts[id] = SystemClock.elapsedRealtime() // Charge failures and callback-lost races too.
+                (previous?.sequence ?: -1L) to warningAuthorityEpoch
             } ?: continue
-            val read = runCatching {
+            val returned = runCatching {
                 manager.javaClass.getMethod("getProperty", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
                     .invoke(manager, id, 0)
-            }.getOrNull()?.takeIf { value ->
-                // A Park-confirming read must identify the requested global property itself.
-                // Never relabel a mismatched Binder result with the requested gear property ID.
-                name != "GEAR_SELECTION" || runCatching {
-                    value.javaClass.getMethod("getPropertyId").invoke(value) == id &&
-                        value.javaClass.getMethod("getAreaId").invoke(value) == 0
-                }.getOrDefault(false)
-            }
+            }.getOrNull()
+            val result = returned?.let { statusValueResult(id, it) } ?: "read_failed"
+            val read = returned?.takeIf { result == "available" || result == "unavailable" }
             synchronized(this) {
                 if (!isStartCurrent(lifecycle) || propertyManager !== manager || registrationGeneration != generation ||
-                    id !in trackedPropertyIds || !propertyPermitted(id) || (evObservationMetadata[name]?.sequence ?: -1L) != sequence) return@synchronized
+                    id !in trackedPropertyIds || !propertyPermitted(id) ||
+                    (id == FUEL_LEVEL_LOW_ID && warningEpochAtRead != warningAuthorityEpoch) ||
+                    (evObservationMetadata[name]?.sequence ?: -1L) != sequence) return@synchronized
+                // A failed read of a never-observed, uncached field is not a new sensor
+                // observation. Registration's final publication still announces authorization.
+                // Never suppress revocation of any cached or previously published observation.
+                if (read == null && sequence == -1L && !currentValues.containsKey(id) &&
+                    !_latestVehicleData.value.evObservationMetadata.containsKey(name)) {
+                    reportEvStatusRead(name, propertyChangeModes[id], result, SystemClock.elapsedRealtime())
+                    return@synchronized
+                }
                 // A newer callback/error always outranks an in-flight read, including read failure.
                 val observation = if (read != null) observationFrom(read, id, authoritative = true).let {
                     // This exact completed read has one receipt/authority sample. A second clock
@@ -821,11 +905,43 @@ class VehicleDataForwarderImpl(
                         sequence = observationSequence.incrementAndGet(), changeMode = propertyChangeModes[id])
                 val value = read?.let { runCatching { it.javaClass.getMethod("getValue").invoke(it) }.getOrNull() }
                 applySafetyObservation(id, value, observation)
+                reportEvStatusRead(name, propertyChangeModes[id], result, observation.receivedElapsedMs)
                 // Publish this observation before the next Binder read can block. In particular,
                 // a known unavailable status must not leave the previous AVAILABLE StateFlow live.
-                publishImmediate()
+                publishObservation(id)
             }
         }
+    }
+
+    // Telemetry refresh must not broaden actual Park authority to continuous/unknown gear.
+    private fun statusReadModeAllowed(name: String, id: Int): Boolean =
+        name in TELEMETRY_STATUS_PROPERTIES || propertyChangeModes[id] in setOf(0, 1)
+
+    private fun validInitialStatusValue(name: String, id: Int, value: Any): Boolean =
+        name !in CARPLAY_STATUS_PROPERTIES || statusValueResult(id, value) in setOf("available", "unavailable")
+
+    private fun statusValueResult(id: Int, value: Any): String {
+        fun field(name: String) = runCatching { value.javaClass.getMethod(name).invoke(value) }.getOrNull()
+        if (field("getPropertyId") != id || field("getAreaId") != 0) return "identity_mismatch"
+        val status = field("getStatus") as? Int ?: return "metadata_invalid"
+        if (status !in 0..2) return "metadata_invalid"
+        if (status != 0) return "unavailable"
+        val raw = field("getValue")
+        val typed = when (id and 0x00FF0000) {
+            0x00200000 -> raw is Boolean
+            0x00400000 -> raw is Int
+            0x00600000 -> raw is Float
+            else -> false
+        }
+        return if (typed) "available" else "type_mismatch"
+    }
+
+    private fun reportEvStatusRead(name: String, mode: Int?, result: String, now: Long) {
+        val key = "$mode:$result"
+        val old = lastEvReadDiagnostics[name]
+        if (old?.first == key && now - old.second in 0 until 30_000L) return
+        lastEvReadDiagnostics[name] = key to now
+        DiagnosticLog.i("vhal", "EV status read property=$name changeMode=${mode ?: "unknown"} result=$result")
     }
 
     /** Create ONE shared callback proxy for all properties (app_v1 pattern). */
@@ -833,6 +949,7 @@ class VehicleDataForwarderImpl(
 
     @Synchronized
     private fun createCallbackProxy(callbackInterface: Class<*>): Any {
+        cancelPendingFlush()
         val generation = ++registrationGeneration
         return java.lang.reflect.Proxy.newProxyInstance(
             callbackInterface.classLoader,
@@ -863,6 +980,20 @@ class VehicleDataForwarderImpl(
         }
     }
 
+    private fun requestedSampleRate(prop: PropDef, config: Any, changeMode: Int?): Float {
+        if (prop.fieldName !in UI_RATE_EV_PROPERTIES) return resolveFloatConstant(
+            "android.car.hardware.property.CarPropertyManager", prop.rateField) ?: 0f
+        if (changeMode != 2) return 0f
+        fun rate(getter: String) = runCatching {
+            config.javaClass.getMethod(getter).invoke(config) as? Float
+        }.getOrNull()?.takeIf { it.isFinite() }
+        val min = rate("getMinSampleRate")?.takeIf { it >= 0f }
+        val max = rate("getMaxSampleRate")?.takeIf { it > 0f }
+        if (min != null && max != null && min > max) return 5f // Inconsistent limits.
+        // Honor each usable bound; missing/invalid metadata never disables CONTINUOUS.
+        return 5f.coerceAtLeast(min ?: 0f).coerceAtMost(max ?: Float.MAX_VALUE)
+    }
+
     /** Subscribe to a property — tries API 34+ subscribePropertyEvents first,
      *  falls back to registerCallback. Exactly mirrors app_v1's subscribe(). */
     private fun subscribe(
@@ -870,7 +1001,7 @@ class VehicleDataForwarderImpl(
         callbackInterface: Class<*>,
         callback: Any,
         propertyId: Int,
-        rateField: String,
+        sampleRate: Float,
     ): Boolean {
         val managerClass = manager.javaClass
 
@@ -891,10 +1022,8 @@ class VehicleDataForwarderImpl(
                 m.parameterTypes[2] == Float::class.javaPrimitiveType
         }
 
-        // Resolve sample rate from CarPropertyManager constants (app_v1 pattern)
-        val sampleRate = resolveFloatConstant(
-            "android.car.hardware.property.CarPropertyManager", rateField
-        ) ?: 0.0f
+        // A requested rate is not an observed/accepted callback rate. One record per attempt.
+        DiagnosticLog.i("vhal", "Subscription request property=0x${propertyId.toString(16)} requestedRateHz=$sampleRate request_only=true")
 
         return try {
             when {
@@ -975,7 +1104,7 @@ class VehicleDataForwarderImpl(
         } ?: return
         applySafetyObservation(propertyId, newest.value, newest.observation.copy(
             registrationGeneration = generation, subscriptionActive = true))
-        if (isSafetyProperty(propertyId)) publishImmediate()
+        if (isSafetyProperty(propertyId) || propertyId == FUEL_LEVEL_LOW_ID) publishObservation(propertyId)
     }
 
     @Synchronized
@@ -983,6 +1112,21 @@ class VehicleDataForwarderImpl(
         val propertyId = runCatching {
             propertyValue.javaClass.getMethod("getPropertyId").invoke(propertyValue) as? Int
         }.getOrNull() ?: return
+        if (propertyId == EV_CHARGE_STATE_ID && chargeStateTrackedOrPending()) {
+            // Record the break before pending-subscription buffering or the ordinary
+            // cache can overwrite it. This must not publish, clear values, or touch cadence.
+            val state = runCatching { propertyValue.javaClass.getMethod("getValue").invoke(propertyValue) }.getOrNull()
+            val eventMs = runCatching { propertyValue.javaClass.getMethod("getTimestamp").invoke(propertyValue) as? Long }
+                .getOrNull()?.div(1_000_000L)
+            if ((state != 2 && state != 3) || statusValueResult(propertyId, propertyValue) != "available" ||
+                eventMs == null || eventMs !in 1..SystemClock.elapsedRealtime()
+            ) learnChargeStateRevision++
+        }
+        if (propertyId == FUEL_LEVEL_LOW_ID && !propertyPermitted(propertyId)) return
+        if (propertyId == FUEL_LEVEL_LOW_ID && statusValueResult(propertyId, propertyValue) != "available") {
+            handleCallbackError(generation, propertyId)
+            return
+        }
         if (pendingSafetySubscriptions[propertyId] == generation) {
             val value = runCatching { propertyValue.javaClass.getMethod("getValue").invoke(propertyValue) }.getOrNull()
             val observation = observationFrom(propertyValue, propertyId, authoritative = true)
@@ -993,18 +1137,23 @@ class VehicleDataForwarderImpl(
             }
             return
         }
-        if (propertyPermitted(propertyId)) handleChangeEvent(propertyValue)
+        if (propertyId == FUEL_LEVEL_LOW_ID || propertyPermitted(propertyId)) handleChangeEvent(propertyValue)
     }
 
+    @Synchronized
     private fun propertyPermitted(propertyId: Int): Boolean {
         val permission = properties.firstOrNull {
             VEHICLE_PROPERTY_ID_FALLBACK[it.fieldName] == propertyId
         }?.permission ?: return true
-        return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        val granted = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        if (!granted && permission == CAR_ENERGY_PERMISSION) observeEnergyPermissionDenial()
+        return granted
     }
 
     @Synchronized
     private fun handleCallbackError(generation: Long, propertyId: Int) {
+        if (propertyId == EV_CHARGE_STATE_ID && chargeStateTrackedOrPending()) learnChargeStateRevision++
+        if (propertyId == FUEL_LEVEL_LOW_ID && !propertyPermitted(propertyId)) return
         if (pendingSafetySubscriptions[propertyId] == generation) {
             val observation = VehiclePropertyObservation(
                 timestampElapsedNanos = SystemClock.elapsedRealtimeNanos(),
@@ -1021,7 +1170,7 @@ class VehicleDataForwarderImpl(
             }
             return
         }
-        if (propertyPermitted(propertyId)) handleErrorEvent(propertyId)
+        if (propertyId == FUEL_LEVEL_LOW_ID || propertyPermitted(propertyId)) handleErrorEvent(propertyId)
     }
 
     @Synchronized
@@ -1058,6 +1207,11 @@ class VehicleDataForwarderImpl(
             // Safety values are fail-closed and published immediately.
             val value = runCatching { propertyValue.javaClass.getMethod("getValue").invoke(propertyValue) }.getOrNull()
             val observation = observationFrom(propertyValue, propertyId, authoritative = true)
+            if (propertyId == FUEL_LEVEL_LOW_ID) {
+                applySafetyObservation(propertyId, value, observation)
+                publishCarPlayWarning()
+                return
+            }
             if (isSafetyProperty(propertyId)) {
                 applySafetyObservation(propertyId, value, observation)
                 if (value != null && observation.status == 0) {
@@ -1112,10 +1266,43 @@ class VehicleDataForwarderImpl(
 
     @Synchronized
     private fun publishImmediate() {
-        lastSendTime = System.currentTimeMillis()
+        cancelPendingFlush()
+        lastSendTime = SystemClock.elapsedRealtime()
         val data = buildVehicleData()
         _latestVehicleData.value = data
         sendMessage(data)
+    }
+
+    private fun publishObservation(propertyId: Int) {
+        if (propertyId == FUEL_LEVEL_LOW_ID) publishCarPlayWarning() else publishImmediate()
+    }
+
+    // Called with the publisher monitor held. Never sample pending ordinary
+    // values, touch the batch clock/job, or invoke the ordinary fan-out here.
+    private fun publishCarPlayWarning() {
+        val latest = _latestVehicleData.value
+        if (latest.vhalRegistrationGeneration != registrationGeneration) return
+        val observation = evObservationMetadata[CARPLAY_WARNING]
+        val observations = if (observation == null) latest.evObservationMetadata - CARPLAY_WARNING
+            else latest.evObservationMetadata + (CARPLAY_WARNING to observation)
+        _latestVehicleData.value = latest.copy(
+            evLowRangeWarning = currentValues[FUEL_LEVEL_LOW_ID] as? Boolean,
+            evObservationMetadata = java.util.Collections.unmodifiableMap(observations),
+        )
+    }
+
+    private fun chargeStateTrackedOrPending() = EV_CHARGE_STATE_ID in trackedPropertyIds ||
+        pendingSafetySubscriptions[EV_CHARGE_STATE_ID] == registrationGeneration
+
+    @Synchronized
+    private fun observeEnergyPermissionDenial() {
+        if (chargeStateTrackedOrPending()) learnChargeStateRevision++
+        warningAuthorityEpoch++
+        currentValues.remove(FUEL_LEVEL_LOW_ID)
+        evObservationMetadata.remove(CARPLAY_WARNING)
+        bufferedSafetyObservations.remove(FUEL_LEVEL_LOW_ID)
+        lastEvReadAttempts.remove(FUEL_LEVEL_LOW_ID)
+        publishCarPlayWarning()
     }
 
     @Synchronized
@@ -1132,10 +1319,7 @@ class VehicleDataForwarderImpl(
             subscriptionActive = true,
             sequence = observationSequence.incrementAndGet(),
         )
-        if (isSafetyProperty(propertyId)) publishImmediate() else {
-            lastSendTime = 0L
-            throttledSend()
-        }
+        publishObservation(propertyId)
     }
 
     /**
@@ -1198,10 +1382,51 @@ class VehicleDataForwarderImpl(
         }
     }
 
+    // All accesses share the existing publisher monitor; no independent delivery lane.
+    private fun cancelPendingFlush() {
+        val old = pendingFlushJob
+        pendingFlushJob = null
+        old?.cancel()
+    }
+
+    private fun schedulePendingFlush(deadline: Long) {
+        if (pendingFlushJob != null || !desiredActive) return
+        val lifecycle = lifecycleGeneration
+        val generation = registrationGeneration
+        val manager = propertyManager ?: return
+        val callback = callbackProxy ?: return
+        lateinit var job: kotlinx.coroutines.Job
+        job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            delay((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
+            val grants = runCatching { permissionGrants() }.getOrNull() // Outside the publisher monitor.
+            synchronized(this@VehicleDataForwarderImpl) {
+                // A cancelled predecessor must never clear a successor's owned slot.
+                if (pendingFlushJob !== job) return@synchronized
+                pendingFlushJob = null
+                if (grants == null || !desiredActive || lifecycleGeneration != lifecycle || registrationGeneration != generation ||
+                    propertyManager !== manager || callbackProxy !== callback || startFailureGeneration == lifecycle) return@synchronized
+                // No refresh is needed to veto publication after permission loss. The normal
+                // refresh path still owns authorization changes and cache revocation.
+                if (grants[CAR_ENERGY_PERMISSION] == false) observeEnergyPermissionDenial()
+                if (evObservationMetadata.keys.any { name ->
+                    val permission = properties.firstOrNull { it.fieldName == name }?.permission
+                    permission != null && grants[permission] != true
+                }) return@synchronized
+                publishImmediate() // Cached values and original observation metadata, unchanged.
+            }
+        }
+        pendingFlushJob = job
+        job.start()
+    }
+
     @Synchronized
     private fun throttledSend() {
-        val now = System.currentTimeMillis()
-        if (now - lastSendTime < SEND_INTERVAL_MS) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSendTime < SEND_INTERVAL_MS) {
+            schedulePendingFlush(lastSendTime + SEND_INTERVAL_MS)
+            return
+        }
+        cancelPendingFlush()
         lastSendTime = now
 
         val data = buildVehicleData()
@@ -1296,6 +1521,8 @@ class VehicleDataForwarderImpl(
         // Derive driving status: in a drive gear (not P/N/Unknown)
         val driving = gearInt != null && gearInt !in listOf(0, 1, 4)
 
+        // Observe denial before copying the warning metadata into an ordinary publication.
+        if (evObservationMetadata.containsKey(CARPLAY_WARNING)) propertyPermitted(FUEL_LEVEL_LOW_ID)
         val observations = HashMap(evObservationMetadata)
         motorPowerSnapshot?.observation?.let {
             observations.putAll(mapOf(EvLearnedRateEstimator.MOTOR_POWER_OBSERVATION to it))
@@ -1348,6 +1575,8 @@ class VehicleDataForwarderImpl(
             evMotorTorqueNm = motorTorqueNm,
             evObservationMetadata = java.util.Collections.unmodifiableMap(observations),
             vhalRegistrationGeneration = registrationGeneration,
+            evLowRangeWarning = (currentValues[FUEL_LEVEL_LOW_ID] as? Boolean)
+                .takeIf { FUEL_LEVEL_LOW_ID in trackedPropertyIds },
         )
     }
 
@@ -1436,6 +1665,8 @@ class VehicleDataForwarderImpl(
             _propertyStatus.clear()
             evObservationMetadata.clear()
             propertyChangeModes.clear()
+            lastEvReadDiagnostics.clear()
+            lastEvReadAttempts.clear()
             callbackProxy = null
             carLifecycleProxy = null
             carObject = null

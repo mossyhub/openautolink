@@ -28,6 +28,13 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
 
+// MediaFormat construction must use Android shadows, not Gradle's null-returning stubs.
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(
+    sdk = [32, 34], manifest = org.robolectric.annotation.Config.NONE,
+    application = android.app.Application::class
+)
+@org.robolectric.annotation.ConscryptMode(org.robolectric.annotation.ConscryptMode.Mode.OFF)
 class CarPlayClusterAppTest {
     @After fun cleanup() = unmockkAll()
     private val selection = ClusterOutputSelection(ClusterDisplayMode.MAP_VIDEO)

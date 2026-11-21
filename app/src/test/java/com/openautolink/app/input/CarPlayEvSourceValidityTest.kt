@@ -17,6 +17,7 @@ class CarPlayEvSourceValidityTest {
     class Config(private val mode: Int) { fun getChangeMode() = mode }
     class Value(private val id: Int, private val value: Float?, private val time: Long, private val status: Int = 0) {
         fun getPropertyId() = id
+        fun getAreaId() = 0
         fun getValue() = value
         fun getTimestamp() = time
         fun getStatus() = status
@@ -146,16 +147,22 @@ class CarPlayEvSourceValidityTest {
         }
     }
 
-    @Test fun continuousAndUnknownConfigsDoNotGetAnOnChangeAgeExemption() {
+    @Test fun continuousAndUnknownConfigsRequireAnExactReadNotAnOnChangeAgeExemption() {
         mockkStatic(SystemClock::class)
         try {
             for (config in listOf(Config(2), Config(99), Any())) {
                 val f = Fixture(); f.manager.config = config; f.register()
-                assertNull(f.adapter.snapshot()!!.rangeKm)
+                assertNull("Initial receipt alone does not exempt an old continuous/unknown event", f.adapter.snapshot()!!.rangeKm)
+                val before=f.forwarder.latestVehicleData.value.evObservationMetadata.getValue("RANGE_REMAINING")
                 val reads = f.manager.reads.size
                 f.now = 90001; f.register()
-                assertNull(f.adapter.snapshot())
-                assertEquals("do not poll continuous or unknown modes as on-change", reads, f.manager.reads.size)
+                assertEquals(200,f.adapter.snapshot()!!.rangeKm)
+                val after=f.forwarder.latestVehicleData.value.evObservationMetadata.getValue("RANGE_REMAINING")
+                assertEquals(before.timestampElapsedNanos,after.timestampElapsedNanos)
+                assertEquals(90001L,after.statusReadElapsedMs)
+                assertEquals("Only actual serialized reads grant receipt authority",reads+2,f.manager.reads.size)
+                f.now=120002
+                assertNull("A completed read does not grant indefinite liveness",f.adapter.snapshot())
             }
         } finally { unmockkStatic(SystemClock::class) }
     }

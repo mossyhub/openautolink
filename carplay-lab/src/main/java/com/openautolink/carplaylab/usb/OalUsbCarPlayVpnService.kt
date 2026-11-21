@@ -6,6 +6,7 @@ import android.net.VpnService
 import android.os.Binder
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.system.OsConstants
 
 /** Wired-only TUN. Does not replace owners or host a second AirPlay receiver. */
 class OalUsbCarPlayVpnService : VpnService() {
@@ -18,6 +19,8 @@ class OalUsbCarPlayVpnService : VpnService() {
         check(owner == null) { "USB VPN already owned" }
         require(java.net.InetAddress.getByName(address).isLinkLocalAddress)
         val fd = Builder().addAddress(address, 64).addRoute("fe80::", 64)
+            // Without this, Android blocks OAL's IPv4 rather than letting it use the normal uplink.
+            .allowFamily(OsConstants.AF_INET)
             .addAllowedApplication(packageName).setSession("OpenAutoLink USB")
             .setMtu(1500).setBlocking(true).establish() ?: error("USB VPN consent unavailable")
         descriptor = fd; owner = token

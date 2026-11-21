@@ -23,7 +23,8 @@ fun CarPlaySafeEditor(viewModel: SettingsViewModel, onBack: () -> Unit) {
         SafeAreaEditorScreen(settings.safeTop, settings.safeBottom, settings.safeLeft, settings.safeRight,
             // Parent excluded chrome once. Even the editor toolbar must not add bars a second time.
             displayMode = "fullscreen_immersive", coordinateWidth = 10000, coordinateHeight = 10000,
-            maximumInset = 4999, title = "CarPlay safe area · 100 units = 1%", doneLabel = "Use calibration",
+            maximumInset = 4999, title = "CarPlay control area · 100 units = 1%",
+            instructions = "Drag the edges to keep controls visible. After Done, tap Save changes.",
             onDone = { top, bottom, left, right ->
                 viewModel.updateCarPlayDraft { it.copy(safeTop = top, safeBottom = bottom, safeLeft = left, safeRight = right) }
                 onBack()

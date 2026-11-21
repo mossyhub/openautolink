@@ -80,6 +80,11 @@ object AirPlayInfoPlist {
         // No evidence establishes a separate vocoder control endpoint requirement.
         info["extendedFeatures"] = listOf("vocoderInfo", "enhancedRequestCarUI")
         info["displays"] = displays
+        if (config.cluster != null) {
+            val urls = com.openautolink.carplaylab.media.CarPlayClusterContent.entries.map { it.url }
+            info["altScreenURLs"] = urls
+            info["altScreenSuggestUIURLs"] = urls
+        }
         info["hidDevices"] = listOf(
             AirPlayHid.touchHidDevice(config.main.widthPixels, config.main.heightPixels, MAIN_UUID),
             AirPlayHid.knobHidDevice(MAIN_UUID),
@@ -102,6 +107,19 @@ object AirPlayInfoPlist {
         // With the mainBuffered session feature the iPhone requires this key; an empty dictionary is accepted.
         if (config.bufferedAudioOutputEnabled) info["mainBufferedInfo"] = emptyMap<String, Any?>()
         return info
+    }
+
+    /** Finite observation of the actual /info object; never export raw URL/query text. */
+    internal fun clusterOfferDiagnostic(info: Map<String, Any?>): String {
+        val urls = com.openautolink.carplaylab.media.CarPlayClusterContent.entries.map { it.url }
+        val alternate = (info["displays"] as? List<*>)?.take(2)?.mapNotNull { it as? Map<*, *> }
+            ?.singleOrNull { (it["type"] as? Number)?.toInt() == STREAM_TYPE_ALT_SCREEN }
+        val url = alternate?.get("initialURL") as? String
+        val content = com.openautolink.carplaylab.media.CarPlayClusterContent.fromUrl(url)?.name
+            ?: if (url == null) "absent" else "other"
+        return "BENCH_DIAG clusterOffer content=$content supported=${info["altScreenURLs"] == urls} " +
+            "suggested=${info["altScreenSuggestUIURLs"] == urls} instruments=${alternate?.get("showsInstruments") == true} " +
+            "uuidMatch=${alternate?.get("uuid") == ALT_UUID}"
     }
 
     private fun resource(resourceId: Int): Map<String, Any?> = linkedMapOf(
@@ -193,6 +211,7 @@ object AirPlayInfoPlist {
         entry["initialViewArea"] = if (areas == null) 0 else display.initialViewArea.coerceIn(0, areas.lastIndex)
         if (areas != null && areas.size > 1) entry["viewAreaTransitionControl"] = true
         if (display.initialUrl != null) entry["initialURL"] = display.initialUrl
+        if (type == STREAM_TYPE_ALT_SCREEN) entry["showsInstruments"] = true
         return entry
     }
 

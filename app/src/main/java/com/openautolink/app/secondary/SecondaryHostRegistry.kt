@@ -43,11 +43,13 @@ class HostHandle internal constructor(
     val ready: CompletableFuture<SecondaryHostReceipt>,
     private val retireOwner: () -> CompletableFuture<Boolean>,
     private val preparationReady: () -> CompletableFuture<Boolean>,
+    private val currentOfferReady: () -> CompletableFuture<Boolean>,
     private val restoreWindow: (RestoreAuthority.Identity?) -> CompletableFuture<DriverVideoRestoreResult>,
 ) {
     fun retire(): CompletableFuture<Boolean> = retireOwner()
     /** Negotiation readiness is not page visibility: a positively parked renderer is ready too. */
     internal fun readyForOffer(): CompletableFuture<Boolean> = preparationReady()
+    internal fun readyForReuse(): CompletableFuture<Boolean> = currentOfferReady()
     internal fun restoreVideo(identity:RestoreAuthority.Identity?=null): CompletableFuture<DriverVideoRestoreResult> = restoreWindow(identity)
 }
 
@@ -307,7 +309,9 @@ class SecondaryHostRegistry(
         }
     }
     private class Entry(val registry: SecondaryHostRegistry, val owner: SecondaryHostOwner, val token: String,
-        val retainedWindow: Boolean, val restoreAllowed:suspend () -> Boolean, val restoreCurrent:() -> Boolean, val restoreAuthority:RestoreAuthority) {
+        val retainedWindow: Boolean, val restoreAllowed:suspend () -> Boolean, val restoreCurrent:() -> Boolean, val restoreAuthority:RestoreAuthority,
+        val driveCardEnabled: Boolean, val driveCardCarPlay: Boolean,
+        val driveCardLayout: com.openautolink.app.drivecard.DriveCardLayout?) {
         val ready = CompletableFuture<SecondaryHostReceipt>()
         @Volatile var activity: SecondaryProjectionActivity? = null
         @Volatile var receipt: SecondaryHostReceipt? = null
@@ -333,9 +337,11 @@ class SecondaryHostRegistry(
     /** Caller supplies explicitly enabled frozen preference intent; discovery never calls this. */
     fun create(context: Context, descriptor: SecondaryDisplayDescriptor, projectionEpoch: Long,
         retainedWindow: Boolean = false, allowNativeGuidance: Boolean = false, restoreAllowed:suspend () -> Boolean = { false },
-        restoreCurrent:() -> Boolean = { false }, restoreAuthority:RestoreAuthority=RestoreAuthority()): HostHandle {
+        restoreCurrent:() -> Boolean = { false }, restoreAuthority:RestoreAuthority=RestoreAuthority(),
+        driveCardEnabled: Boolean = false, driveCardCarPlay: Boolean = false,
+        driveCardLayout: com.openautolink.app.drivecard.DriveCardLayout? = null): HostHandle {
         val token = ByteArray(32).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
-        val entry = Entry(this, SecondaryHostOwner(descriptor, projectionEpoch), token, retainedWindow,restoreAllowed,restoreCurrent,restoreAuthority)
+        val entry = Entry(this, SecondaryHostOwner(descriptor, projectionEpoch), token, retainedWindow,restoreAllowed,restoreCurrent,restoreAuthority,driveCardEnabled,driveCardCarPlay,driveCardLayout)
         val handle = HostHandle(entry.owner, entry.ready, retireOwner = {
             synchronized(entry.restoreAuthority.monitor) { entry.restoreAuthority.invalidate();entry.owner.revoke() } // exact write-admission fence
             val result = CompletableFuture<Boolean>()
@@ -343,7 +349,9 @@ class SecondaryHostRegistry(
                 if (error != null) result.completeExceptionally(error) else result.complete(ok)
             } }
             result
-        }, preparationReady = { offerReady(entry) }, restoreWindow = { restoreVideo(entry,it) })
+        }, preparationReady = { offerReady(entry) }, currentOfferReady = {
+            CompletableFuture<Boolean>().also { result -> onMain { result.complete(offerReadyNow(entry)) } }
+        }, restoreWindow = { restoreVideo(entry,it) })
         onMain {
             // Process-wide reservation includes live, attaching and failed-withdraw owners.
             // Every access is on Main, just like the per-registry lifecycle effects.
@@ -489,6 +497,11 @@ class SecondaryHostRegistry(
             } else {
                 entry.parkedReceipt = null
                 trace(entry, "host_ready", "actual=${activity.display?.displayId} ${windowFields(entry)}")
+                if (entry.driveCardEnabled) activity.showDriveCard(geometry, entry.driveCardCarPlay, entry.owner.descriptor, entry.driveCardLayout) {
+                    current(entry) && entry.activity === activity && !entry.suspended && !entry.withdrawing &&
+                        entry.receipt === receipt && !activity.isDestroyed && !activity.isFinishing &&
+                        activity.display?.displayId == entry.owner.descriptor.displayId
+                }
                 entry.ready.complete(receipt)
                 entry.restoreTicket?.let { ticket ->
                     val exact=synchronized(entry.restoreAuthority.monitor) {
@@ -506,6 +519,7 @@ class SecondaryHostRegistry(
     }
     /** Page-away retains the phone contract and decoder; never launches an Activity. */
     private fun suspendWindow(entry: Entry): CompletableFuture<Boolean> {
+        entry.activity?.hideDriveCard()
         entry.suspension?.let { return it }
         val result = CompletableFuture<Boolean>()
         entry.suspension = result
@@ -550,6 +564,7 @@ class SecondaryHostRegistry(
     }
     private fun retire(entry: Entry, reason: String, replacement: SecondaryHostGeometry? = null,
         attachFailure: String? = null): CompletableFuture<Boolean> {
+        entry.activity?.hideDriveCard()
         if (!entry.terminal) {
             val wasCurrent = entry.owner.isCurrent
             synchronized(entry.restoreAuthority.monitor) {
@@ -655,14 +670,16 @@ class SecondaryHostRegistry(
                     if (error != null || ok != true) result.complete(false)
                     else offerReady(entry).whenComplete { ready, failure -> result.complete(failure == null && ready == true) }
                 }
-            } else result.complete(current(entry) && entry.activity != null &&
-                !entry.attaching && !entry.withdrawing && entry.suspension == null &&
-                entry.pending == null && entry.releases.isEmpty() && entry.retirement == null &&
-                ((!entry.suspended && entry.receipt != null) ||
-                    (entry.retainedWindow && entry.suspended && entry.parkedReceipt != null && entry.receipt == null)))
+            } else result.complete(offerReadyNow(entry))
         }
         return result
     }
+    private fun offerReadyNow(entry: Entry): Boolean = current(entry) && entry.activity != null &&
+        !entry.attaching && !entry.withdrawing && entry.suspension == null &&
+        entry.pending == null && entry.releases.isEmpty() && entry.retirement == null &&
+        ((!entry.suspended && entry.receipt != null) ||
+            (entry.retainedWindow && entry.suspended && entry.parkedReceipt != null && entry.receipt == null))
+
     private fun onMain(block: () -> Unit) {
         if (Looper.myLooper() == main.looper) block() else main.post(block)
     }

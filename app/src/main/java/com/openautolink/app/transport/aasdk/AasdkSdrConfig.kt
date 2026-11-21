@@ -133,6 +133,24 @@ class AasdkSdrConfig(
     internal fun frozenSecondaryOffers(): List<AasdkSecondaryVideoOffer> =
         if (secondaryOffers.isNotEmpty()) AasdkSecondaryVideoOffer.validated(secondaryOffers.copyOf().toList())
         else listOfNotNull(clusterOffer?.let(AasdkSecondaryVideoOffer::fromLegacy))
+
+    /** Replace only the optional block at a new native start, never in an in-flight SDR. */
+    internal fun withSecondaryOffers(offers: List<AasdkSecondaryVideoOffer>): AasdkSdrConfig {
+        if (clusterOffer == null && secondaryOffers.toList() == offers) return this
+        return AasdkSdrConfig(
+            videoWidth = videoWidth, videoHeight = videoHeight, videoFps = videoFps, videoDpi = videoDpi,
+            marginWidth = marginWidth, marginHeight = marginHeight, autoMargins = autoMargins,
+            pixelAspectE4 = pixelAspectE4, btMacAddress = btMacAddress, vehicleMake = vehicleMake,
+            vehicleModel = vehicleModel, vehicleYear = vehicleYear, driverPosition = driverPosition,
+            hideClock = hideClock, hideSignal = hideSignal, hideBattery = hideBattery, gpsForwarding = gpsForwarding,
+            autoNegotiate = autoNegotiate, videoCodec = videoCodec, galVersion = galVersion, realDensity = realDensity,
+            safeAreaTop = safeAreaTop, safeAreaBottom = safeAreaBottom, safeAreaLeft = safeAreaLeft, safeAreaRight = safeAreaRight,
+            targetLayoutWidthDp = targetLayoutWidthDp, fuelTypes = fuelTypes, evConnectorTypes = evConnectorTypes,
+            viewingDistanceMm = viewingDistanceMm, decoderAdditionalDepth = decoderAdditionalDepth,
+            panelWidth = panelWidth, panelHeight = panelHeight, secondaryOffers = offers.toTypedArray(),
+        )
+    }
+
     private val galPolicy = GalProtocolPolicy.forVersion(galVersion)
 
     /** Materialized policy fields consumed directly by JNI; do not re-derive natively. */

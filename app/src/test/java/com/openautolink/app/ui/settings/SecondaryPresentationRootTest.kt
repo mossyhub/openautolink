@@ -163,7 +163,7 @@ class SecondaryPresentationRootTest {
                 "Appearance depends on Android Auto and your navigation app. These descriptions reflect Google Maps; Waze may look the same in both modes. OAL displays the supplied video—its content may change with phone-app updates.")
             compose.onNodeWithTag("secondaryCarPlayContent_${first.value}_MAP_WITH_CARD").performScrollTo().assertIsSelected()
             compose.onNodeWithTag("secondaryCarPlayContentDescription").performScrollTo().assertTextEquals(
-                "Map with the next turn shown on a card during guidance.")
+                "Requests Apple's cluster view. iOS and the navigation app choose its layout; a map with a turn card, camera following and 3D are not guaranteed.")
             compose.onNodeWithTag("secondaryCarPlayContent_${first.value}_MAP").performScrollTo().performClick().assertIsSelected()
             compose.onNodeWithTag("secondaryCarPlayContentDescription").performScrollTo().assertTextEquals(
                 "Map and route without a turn card.")
@@ -249,7 +249,7 @@ class SecondaryPresentationRootTest {
         compose.onNodeWithText("Off").assertDoesNotExist()
         if (video) {
             compose.onAllNodesWithText("Directions area").assertCountEquals(1)
-            compose.onNodeWithText("Usually no adjustment is needed. Edit only if directions or other non-map content are hidden or cut off. The map still fills the whole display.").assertExists()
+            compose.onNodeWithText("Try the Directions area editor. The default may not fit your car’s screen shape or layout.").assertExists()
             compose.onNodeWithTag("secondaryCarPlayContentGroup").assertExists()
             compose.onNodeWithText("Android Auto display mode").assertExists()
         } else {

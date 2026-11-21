@@ -93,15 +93,21 @@ class WiredOnlyLateDiscoveryTest {
             discovery.stop()
             if (Build.VERSION.SDK_INT >= 34) {
                 verify(exactly = 1) { nsd.unregisterServiceInfoCallback(modern.captured) }
-                assertTrue((executor.captured as java.util.concurrent.ExecutorService).isShutdown)
+                assertFalse("Unregister request must leave terminal dispatch possible",
+                    (executor.captured as java.util.concurrent.ExecutorService).isShutdown)
             }
             val beforeLateCallback = discovery.phones.value
             preferences.setWiredOnly(false)
             preferences.projectionConnectionPolicy.retired(preferences.projectionConnectionPolicy.state.value.revision)
             listener.captured.onServiceFound(info)
             if (Build.VERSION.SDK_INT >= 34) {
-                modern.captured.onServiceUpdated(info)
-                modern.captured.onServiceInfoCallbackRegistrationFailed(1)
+                val pool = executor.captured as java.util.concurrent.ExecutorService
+                pool.submit { modern.captured.onServiceUpdated(info) }.get(5, java.util.concurrent.TimeUnit.SECONDS)
+                // Unregister success and registration failure are distinct terminal outcomes.
+                // The separate lifecycle fixture covers revoked registration failure.
+                pool.submit { modern.captured.onServiceInfoCallbackUnregistered() }
+                    .get(5, java.util.concurrent.TimeUnit.SECONDS)
+                assertTrue(pool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS))
                 verify(exactly = 0) { nsd.resolveService(any(), any()) }
                 verify(exactly = 1) { nsd.registerServiceInfoCallback(any(), any(), any()) }
             } else {

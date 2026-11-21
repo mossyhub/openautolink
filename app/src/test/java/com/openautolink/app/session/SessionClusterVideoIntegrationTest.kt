@@ -182,6 +182,7 @@ class SessionClusterVideoIntegrationTest {
         every { f.session.audioFrames } returns audio
         every { f.session.controlMessages } returns emptyFlow()
         every { f.session.evTelemetryToken } returns "cluster-fixture"
+        every { f.session.sdrConfig } returns com.openautolink.app.transport.aasdk.AasdkSdrConfig(secondaryOffers = arrayOf(offer))
         every { f.session.reconnectAttempt } returns MutableStateFlow(0)
         every { f.session.vehicleEnergyForecast } returns MutableStateFlow(null)
         every { f.session.negotiatedCodecType } returns MutableStateFlow(0)

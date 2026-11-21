@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openautolink.app.cluster.ClusterDisplayMode
+import com.openautolink.app.cluster.ClusterProjectionProtocol
 import com.openautolink.app.cluster.ClusterOutputPolicy
 import com.openautolink.app.cluster.ClusterOutputSelection
 import com.openautolink.app.cluster.PixelRect
@@ -62,6 +63,7 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
     onVideoChange: (Boolean) -> Unit = {},
     onTargetSelected: (SecondaryDisplayDescriptor?) -> Unit = {},
     initialTargetId: String? = null,
+    onAdjustDriveCard: (SecondaryDisplayDescriptor) -> Unit = {},
 ) {
     val inventory by source.inventory.collectAsStateWithLifecycle()
     val raw by source.rawDisplays.collectAsStateWithLifecycle()
@@ -109,6 +111,18 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
                 }
             }
             selected?.let { row ->
+                ClusterSwitch("Drive Card", row.preference.driveCardEnabled, editable && row.usable, { checked ->
+                    row.id?.let { id -> onOutputChange(id) { it.copy(driveCardEnabled = checked) } }
+                }, "secondaryDriveCard") {
+                    Text("Android Auto and CarPlay · Adds efficiency and supported arrival estimates over video.",
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+                if (row.preference.driveCardEnabled) OutlinedButton(
+                    onClick = { row.descriptor?.let(onAdjustDriveCard) },
+                    enabled = editable && row.usable,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("secondaryAdjustDriveCard")) {
+                    Text("Adjust Drive Card")
+                }
                 SettingsGroup(Modifier.testTag("secondaryRoleGroup")) {
                     Text("Android Auto display mode", style = MaterialTheme.typography.titleMedium)
                     Column(Modifier.selectableGroup()) {
@@ -173,7 +187,7 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
                     modifier = Modifier.heightIn(min = 48.dp).testTag("secondaryImportantContentEditor")) {
                     Text("Directions area")
                 }
-                Text("Usually no adjustment is needed. Edit only if directions or other non-map content are hidden or cut off. The map still fills the whole display.",
+                Text("Try the Directions area editor. The default may not fit your car’s screen shape or layout.",
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryDirectionsHelp"))
                 if (selected?.usable != true) Text("Connect or choose a display to configure video.",
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryEditorUnavailable"))
@@ -185,13 +199,13 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
 }
 
 internal fun carPlayContentLabel(content: CarPlayClusterContent): String = when (content) {
-    CarPlayClusterContent.MAP_WITH_CARD -> "Map with turn card"
+    CarPlayClusterContent.MAP_WITH_CARD -> "Apple's cluster view"
     CarPlayClusterContent.MAP -> "Map only"
     CarPlayClusterContent.INSTRUCTION_CARD -> "Turn card only"
 }
 
 internal fun carPlayContentDescription(content: CarPlayClusterContent): String = when (content) {
-    CarPlayClusterContent.MAP_WITH_CARD -> "Map with the next turn shown on a card during guidance."
+    CarPlayClusterContent.MAP_WITH_CARD -> "Requests Apple's cluster view. iOS and the navigation app choose its layout; a map with a turn card, camera following and 3D are not guaranteed."
     CarPlayClusterContent.MAP -> "Map and route without a turn card."
     CarPlayClusterContent.INSTRUCTION_CARD -> "Only the next-turn card, without the map."
 }
@@ -211,11 +225,21 @@ internal fun secondaryLayoutScope(display: SecondaryDisplayDescriptor): Secondar
     SecondaryLayoutScope(display.id, android.os.Build.PRODUCT, android.os.Build.FINGERPRINT, display.width, display.height, display.densityDpi)
 }.getOrNull()
 
+/** Read-only context captured when the one shared editor opens; never persisted. */
+internal data class DirectionsPreviewContext(
+    val protocol: ClusterProjectionProtocol,
+    val currentConnection: Boolean,
+) {
+    val label: String get() = "${if (protocol == ClusterProjectionProtocol.CARPLAY) "CarPlay" else "Android Auto"} · " +
+        if (currentConnection) "current connection" else "next connection (USB choice may differ)"
+}
+
 /** Same persisted output scope; no synthetic GM identity or video/host ownership. */
 @Composable
 internal fun SecondaryOutputLayoutEditor(display: SecondaryDisplayDescriptor, live: SecondaryDisplayDescriptor?,
     saved: SecondaryLayoutPreference?, enabled: Boolean, onStage: (SecondaryLayoutPreference?) -> Unit,
-    onBack: () -> Unit, projectionIdle: () -> Boolean = { false }, safeOnly: Boolean = false) {
+    onBack: () -> Unit, projectionIdle: () -> Boolean = { false }, safeOnly: Boolean = false,
+    previewContext: DirectionsPreviewContext = DirectionsPreviewContext(ClusterProjectionProtocol.ANDROID_AUTO, false)) {
     val context = LocalContext.current
     val scope = remember(display) { secondaryLayoutScope(display) }
     val restored = saved?.takeIf { it.scope == scope }
@@ -223,17 +247,23 @@ internal fun SecondaryOutputLayoutEditor(display: SecondaryDisplayDescriptor, li
     val full = panel.bounds
     fun pixels(box: SecondaryLayoutBox): PixelRect = PixelRect((box.left * panel.width).roundToInt(),
         (box.top * panel.height).roundToInt(), (box.right * panel.width).roundToInt(), (box.bottom * panel.height).roundToInt())
-    val automaticSafe = if (!safeOnly) full else if (SecondaryCalibratedDefaults.supports(panel.width, panel.height))
-        pixels(SecondaryCalibratedDefaults.directSafe) else SecondaryProjectionActivity.directDefaultSafe(panel.width, panel.height)
-    val aaSafe = restored?.aaDirectSafe?.takeIf { SecondaryCalibratedDefaults.supports(panel.width, panel.height) }
-    val geometry = remember(display) { runCatching { LiveGridGeometry(panel, full,
+    // Settings owns no measured window or decoder receipt. Estimate the full descriptor canvas
+    // explicitly, using exactly the runtime's protocol precedence and inward-edge policy.
+    // A valid shared custom rectangle is never intersected with this Automatic fallback.
+    fun directionsTarget(layout: SecondaryLayoutPreference?) = SecondaryRuntimeLayouts.target(
+        display, layout, panel, SecondaryProjectionActivity.directDefaultSafe(panel.width, panel.height),
+        android.os.Build.PRODUCT, android.os.Build.FINGERPRINT,
+        carPlay = previewContext.protocol == ClusterProjectionProtocol.CARPLAY, safeOnly = true,
+        carPlayCodedSize = panel)
+    val automaticSafe = remember(display, previewContext, safeOnly) { if (safeOnly) directionsTarget(null).safe else full }
+    val geometry = remember(display, previewContext, safeOnly) { runCatching { LiveGridGeometry(panel, full,
         if (safeOnly) full else restored?.output?.let(::pixels) ?: full,
-        (if (safeOnly) aaSafe ?: if (restored?.directSafeAutomatic == true) null else restored?.directSafe ?: restored?.safe
-            else restored?.safe)?.let(::pixels) ?: automaticSafe) }.getOrElse {
+        if (safeOnly) directionsTarget(restored).safe else restored?.safe?.let(::pixels) ?: automaticSafe) }.getOrElse {
             LiveGridGeometry(panel, full, full, automaticSafe) } }
     val editable = enabled && live == display && scope != null && (display.route == SecondaryRoute.PUBLIC_ACTIVITY || safeOnly && display.route == SecondaryRoute.GM_HOSTED)
     val currentIdle by rememberUpdatedState(projectionIdle)
     val binding = remember(context, display, live, safeOnly) { if (live == display) LiveGridWindows.binding(context, display, directionsArea = safeOnly) { currentIdle() } else null }
+    key(display, previewContext) {
     LiveGridEditor(if (safeOnly) "Directions area" else "Layout · ${display.name}", geometry, editable, binding,
         onStage = { next -> if (editable) {
             fun fraction(r: PixelRect) = SecondaryLayoutBox(r.left.toDouble() / panel.width, r.top.toDouble() / panel.height,
@@ -248,5 +278,8 @@ internal fun SecondaryOutputLayoutEditor(display: SecondaryDisplayDescriptor, li
             } else onStage(null)
         } }, onBack = onBack, automatic = LiveGridGeometry(panel, full, full,
             automaticSafe), safeOnly = safeOnly,
-        previewUnavailableReason = if (safeOnly && !projectionIdle()) "Disconnect your phone to preview on driver display." else null)
+        previewUnavailableReason = if (safeOnly && !projectionIdle()) "Disconnect your phone to preview on driver display." else null,
+        directionsContextLabel = if (safeOnly) "${previewContext.label}\n" +
+            "Edits apply to Android Auto and CarPlay. Automatic uses an estimated area." else null)
+    }
 }

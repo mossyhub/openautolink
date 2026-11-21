@@ -13,6 +13,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 class VehiclePermissionRefreshTest {
     class Value(private val id: Int, private val value: Any?, private val timestamp: Long = 100, private val status: Int = 0) {
         fun getPropertyId() = id
+        fun getAreaId() = 0
         fun getValue() = value
         fun getTimestamp() = timestamp
         fun getStatus() = status

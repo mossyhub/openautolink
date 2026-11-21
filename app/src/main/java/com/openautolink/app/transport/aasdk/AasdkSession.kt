@@ -82,17 +82,48 @@ class AasdkSession(
         private set
     @Volatile var lastPrimaryPictureAtMs = 0L
         private set
-    private data class NativeOutputOwner(val generation: Long, val owner: String, val legacyOwner: String)
+    private data class NativeOutputOwner(
+        val generation: Long, val owner: String, val legacyOwner: String, val offers: List<AasdkSecondaryVideoOffer>,
+    )
     @Volatile private var secondaryNativeOwner: NativeOutputOwner? = null
+    private val secondaryStartLock = Any()
+    private class SecondaryStart(val generation: Long, val selected: List<AasdkSecondaryVideoOffer>) {
+        val retired = mutableSetOf<Int>()
+        var committed = selected
+        var owner: NativeOutputOwner? = null
+    }
+    private var secondaryStart: SecondaryStart? = null // protected by secondaryStartLock
+    internal class WirelessSecondaryAdmission(
+        val ready: () -> List<AasdkSecondaryVideoOffer>,
+        val isCurrent: (AasdkSecondaryVideoOffer) -> Boolean,
+    )
+    internal var wirelessSecondaryAdmission: WirelessSecondaryAdmission? = null
     val secondaryVideoSelections: StateFlow<Map<Int, AasdkSecondaryVideoSelection>> = secondaryVideo.selections
     val secondaryVideoFrames: Flow<AasdkSecondaryVideoFrame> = secondaryVideo.frames
     fun isCurrentSecondaryVideo(frame: AasdkSecondaryVideoFrame) = secondaryVideo.isCurrent(frame)
-    fun retireSecondaryVideo(channelId: Int) {
-        val authority = secondaryNativeOwner ?: return
-        val (generation, owner) = authority
-        secondaryVideo.retire(channelId, expectedOwner = owner)
+    fun retireSecondaryVideo(channelId: Int) = retireSecondaryVideo(channelId, null)
+    internal fun retireSecondaryVideo(offer: AasdkSecondaryVideoOffer) = retireSecondaryVideo(offer.channelId, offer)
+
+    private fun retireSecondaryVideo(channelId: Int, offer: AasdkSecondaryVideoOffer?) {
+        val (authority, sendNative) = synchronized(secondaryStartLock) {
+            val starting = secondaryStart
+            if (starting != null) {
+                if (starting.committed.none { it.channelId == channelId && (offer == null || it === offer) } ||
+                    !starting.retired.add(channelId)) return
+                (starting.owner ?: return) to false
+            } else {
+                val active = secondaryNativeOwner ?: return
+                if (offer != null && active.offers.none { it === offer }) return
+                active to true
+            }
+        }
+        retireManagedSecondary(channelId, authority)
+        if (sendNative && authority.generation > 0) AasdkNative.nativeRetireSecondaryVideo(channelId, authority.generation)
+    }
+
+    private fun retireManagedSecondary(channelId: Int, authority: NativeOutputOwner) {
+        secondaryVideo.retire(channelId, expectedOwner = authority.owner)
         if (channelId == 3) clusterVideo.retire(authority.legacyOwner)
-        if (generation > 0) AasdkNative.nativeRetireSecondaryVideo(channelId, generation)
     }
     val clusterVideoSelection: StateFlow<AasdkClusterVideoSelection?> = clusterVideo.selection
     val clusterVideoFrames: Flow<AasdkClusterVideoFrame> = clusterVideo.frames
@@ -131,17 +162,24 @@ class AasdkSession(
         selectedVideoGeometry = null
         videoGeometryEpoch++
     }
-    private fun telemetryCallback(): AasdkSessionCallback {
+    private fun telemetryCallback(): AasdkSessionCallback = telemetryCallback(sdrConfig)
+
+    private fun telemetryCallback(config: AasdkSdrConfig, start: SecondaryStart? = null): AasdkSessionCallback {
         val owner = evTelemetryToken
         val geometryEpoch = synchronized(evReceiptLock) { videoGeometryEpoch }
         lastProtocolPongAtMs = 0L
         lastPrimaryPictureAtMs = 0L
-        val frozenOffers = sdrConfig.frozenSecondaryOffers()
-        val clusterOwner = clusterVideo.begin(sdrConfig.clusterOffer?.takeIf { frozenOffers.any { offer -> offer.channelId == 3 } })
+        val frozenOffers = config.frozenSecondaryOffers()
+        val clusterOwner = clusterVideo.begin(config.clusterOffer?.takeIf { frozenOffers.any { offer -> offer.channelId == 3 } })
         secondaryVideo.configure(frozenOffers)
         val secondaryOwner = secondaryVideo.begin()
-        secondaryNativeOwner = NativeOutputOwner(nativeSessionGeneration.get(), secondaryOwner, clusterOwner)
+        secondaryNativeOwner = NativeOutputOwner(nativeSessionGeneration.get(), secondaryOwner, clusterOwner, frozenOffers)
         return object : AasdkSessionCallback by this {
+            override fun onSessionStarted() {
+                // Native emits this after discovery and after creating the optional handlers.
+                start?.let(::secondaryHandlersStarted)
+                this@AasdkSession.onSessionStarted()
+            }
             override fun onVideoFrame(data: ByteArray, timestampUs: Long, width: Int, height: Int, flags: Int) {
                 synchronized(evReceiptLock) {
                     if (owner == evTelemetryToken && geometryEpoch == videoGeometryEpoch) {
@@ -183,6 +221,7 @@ class AasdkSession(
                 }
             }
             override fun onSessionStopped(reason: String) {
+                synchronized(secondaryStartLock) { if (secondaryStart === start) secondaryStart = null }
                 secondaryVideo.retire(expectedOwner = secondaryOwner)
                 clusterVideo.retire(clusterOwner)
                 synchronized(evReceiptLock) {
@@ -830,7 +869,7 @@ class AasdkSession(
             resetSelectedVideoGeometry()
             nativeSessionGeneration.set(AasdkNative.nativeCreateSession())
             primeDesiredHeadUnitMuteOnNativeSession()
-            AasdkNative.nativeStartSession(transportPipe!!, telemetryCallback(), sdrConfig)
+            startWirelessNative(transportPipe!!)
         } catch (e: Exception) {
             OalLog.e(TAG, "Native session start failed: ${e.message}")
             transportPipe?.close()
@@ -838,6 +877,52 @@ class AasdkSession(
             _connectionState.value = ConnectionState.DISCONNECTED
         }
         }
+    }
+
+    private fun startWirelessNative(pipe: AasdkTransportPipe) {
+        val admission = wirelessSecondaryAdmission.also { wirelessSecondaryAdmission = null }
+        val selected = sdrConfig
+        synchronized(secondaryStartLock) { secondaryStart = null }
+        if (admission == null || selected.secondaryOffers.isEmpty()) {
+            AasdkNative.nativeStartSession(pipe, telemetryCallback(selected), selected)
+            return
+        }
+        // Native create may have waited for the old session. Reserve this exact replacement
+        // before sampling host readiness, so revocations cannot disappear between sampling
+        // the owner and installing the managed callbacks for the new native generation.
+        val start = SecondaryStart(nativeSessionGeneration.get(), selected.secondaryOffers.toList())
+        synchronized(secondaryStartLock) { secondaryStart = start }
+        var started = false
+        try {
+            val ready = admission.ready()
+            val committed = synchronized(secondaryStartLock) {
+                start.committed = start.selected.filter { offer ->
+                    offer.channelId !in start.retired && ready.any { it === offer } && admission.isCurrent(offer)
+                }
+                selected.withSecondaryOffers(start.committed)
+            }
+            sdrConfig = committed
+            val callback = telemetryCallback(committed, start)
+            val owner = checkNotNull(secondaryNativeOwner)
+            val revokedBeforeCallback = synchronized(secondaryStartLock) {
+                start.owner = owner
+                start.committed.map { it.channelId }.filter { it in start.retired }
+            }
+            revokedBeforeCallback.forEach { retireManagedSecondary(it, owner) }
+            AasdkNative.nativeStartSession(pipe, callback, committed)
+            started = true
+        } finally {
+            if (!started) synchronized(secondaryStartLock) { if (secondaryStart === start) secondaryStart = null }
+        }
+    }
+
+    private fun secondaryHandlersStarted(start: SecondaryStart) {
+        val retired = synchronized(secondaryStartLock) {
+            if (secondaryStart !== start) return
+            secondaryStart = null
+            start.committed.map { it.channelId }.filter { it in start.retired }
+        }
+        if (start.generation > 0) retired.forEach { AasdkNative.nativeRetireSecondaryVideo(it, start.generation) }
     }
 
     /**

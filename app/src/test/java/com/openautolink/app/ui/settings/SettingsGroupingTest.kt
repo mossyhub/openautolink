@@ -92,8 +92,9 @@ class SettingsGroupingTest {
     fun renderNarrowLargeTextAssociatedControls() {
         try {
             mount(1.3f)
-            for ((tab, tag) in listOf("INSTRUMENT_CLUSTER" to "clusterDisplay_MAP_VIDEO", "AUDIO" to "callSetup", "DISPLAY" to "gpsForwardingToggle", "EV" to "evUseEpaBaseline")) {
-                tab(tab); compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed(); capture("narrow-large-$tab")
+            for ((tab, tag) in listOf("INSTRUMENT_CLUSTER" to "clusterDisplay_MAP_VIDEO", "AUDIO" to "callSetup", "DISPLAY" to "gpsForwardingToggle", "EV" to "carPlayEvData")) {
+                tab(tab)
+                compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed(); capture("narrow-large-$tab")
             }
         } finally { finish() }
     }

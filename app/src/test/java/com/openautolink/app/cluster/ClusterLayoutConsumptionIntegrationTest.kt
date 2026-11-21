@@ -94,7 +94,7 @@ class ClusterLayoutConsumptionIntegrationTest {
     @Test fun carPlayProductionConfigurationReceivesPixelInsetsAndFreezesUntilReset() = runBlocking {
         val f = HostedSecondaryRuntimeFixture()
         mockkObject(CarPlayVideoQualification)
-        every { CarPlayVideoQualification.select(1280,480,30,false) } returns CarPlayVideoSelection(1280,480,30,"exact.avc")
+        every { CarPlayVideoQualification.selectCluster(any(),any(),false,any()) } returns CarPlayVideoSelection(1280,480,30,"exact.avc")
         fun await(result: CompletableFuture<Boolean>) { assertTrue(HostedSecondaryRuntimeFixture.await(result)) }
         try {
             f.preferences.saveClusterLayout(custom)

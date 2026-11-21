@@ -4,6 +4,8 @@ import android.app.Application
 import android.os.Environment
 import android.util.Log
 import com.openautolink.app.diagnostics.DiagnosticLog
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -23,6 +25,9 @@ import java.util.Locale
  * so they appear in the diagnostics screen without ADB access.
  */
 class OalApplication : Application() {
+    private val evEvaluationScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+    )
     private val carBluetoothObservationScope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate,
     )
@@ -67,11 +72,15 @@ class OalApplication : Application() {
         // One process-owned VHAL source feeds shadow learning and compact capture
         // even when projection has never started. Sessions only borrow its latest
         // state and optional AASDK consumer; they never own its subscriptions.
-        val learnedEstimator = com.openautolink.app.data.EvLearnedRateEstimator.getInstance(
-            com.openautolink.app.data.AppPreferences.getInstance(this),
-        )
+        val preferences = com.openautolink.app.data.AppPreferences.getInstance(this)
+        val learnedEstimator = com.openautolink.app.data.EvLearnedRateEstimator.getInstance(preferences)
         com.openautolink.app.session.SessionManager.installEvLearnedEstimator(learnedEstimator)
-        com.openautolink.app.input.ProcessVehicleDataRuntime.initialize(this, learnedEstimator)
+        com.openautolink.app.input.ProcessVehicleDataRuntime.initialize(
+            this, learnedEstimator,
+            learnQualificationEnabled = preferences.evLearnEvaluationEnabled.stateIn(
+                evEvaluationScope, SharingStarted.Eagerly, false,
+            ),
+        )
 
         // Passive, process-scope pre-wake diagnostics. This must be initialized
         // after the VHAL observer and before Bluetooth advertising so it can
@@ -134,6 +143,7 @@ class OalApplication : Application() {
         com.openautolink.app.diagnostics.BluetoothReconnectService.close()
         carBluetoothConnectionObserver?.close()
         carBluetoothObservationScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        evEvaluationScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
         super.onTerminate()
     }
 

@@ -47,7 +47,7 @@ Enable **Settings → Secondary Displays → Driver-display video**, then **Save
 
 ![Apple CarPlay maps on the driver display and main infotainment screen of a Chevrolet Blazer](docs/screenshots/carplay-driver-display.jpg)
 
-Android Auto provides Cluster and Auxiliary views. CarPlay offers **Map with turn card** (the default), **Map only**, and **Turn card only** under **CarPlay display view**. The turn card appears during route guidance; iOS and the navigation app determine its contents. Usually no Directions area adjustment is needed. See [Driver-display settings](docs/secondary-presentation.md) for mode selection, the optional editor and Save/reconnect instructions.
+Android Auto provides Cluster and Auxiliary views. CarPlay offers **Map with turn card** (the default), **Map only**, and **Turn card only** under **CarPlay display view**. The turn card appears during route guidance; iOS and the navigation app determine its contents. We strongly recommend trying **Directions area** to fit your car’s screen. It changes where the directions card can be drawn, not the size of the map video. Tap **Done**, then **Save changes** and reconnect. During Apple Maps guidance, open **CarPlay Home** (the app grid) to see the card on the driver display; Google Maps on Android Auto shows it during guidance without leaving Maps. See [how to check the result](docs/secondary-presentation.md#check-the-result-after-saving).
 
 ### If the driver display is black
 

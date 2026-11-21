@@ -438,6 +438,7 @@ class SessionManager(
     private fun bindSessionCollectors(session: AasdkSession) {
         sessionCollectors?.cancel()
         val telemetryToken = session.evTelemetryToken
+        val secondaryOutput = preparedOutputsFor(session)
         EvTelemetryRecorder.instance.session(telemetryToken)
         sessionCollectors = scope.launch {
             launch {
@@ -493,7 +494,7 @@ class SessionManager(
                     } else null
                 }
             }
-            preparedSecondaryOutputs?.collect(this, session)
+            secondaryOutput?.collect(this, session)
             launch {
                 secondaryOutputStatuses.collect { outputs ->
                     if (aasdkSession === session) {
@@ -932,12 +933,12 @@ class SessionManager(
         return retireClusterOutput("projection source switch")
     }
     private fun retireClusterOutput(reason: String): CompletableFuture<Boolean> {
-        secondaryPreparationEpoch.incrementAndGet()
         val output: PreparedAaSecondaryOutputs?
         val preparing: Boolean
         val icons: ClusterManager?
         val result: CompletableFuture<Boolean>
         synchronized(sessionStateLock) {
+            secondaryPreparationEpoch.incrementAndGet()
             secondaryRetirement?.let { return it }
             result = CompletableFuture<Boolean>().also { secondaryRetirement = it }
             output = preparedSecondaryOutputs
@@ -949,8 +950,9 @@ class SessionManager(
         }
         try {
             icons?.release()
-            val retiring = output?.retire(reason) ?: (if (preparing) secondaryRuntime?.retire(reason) else null)
-                ?: CompletableFuture.completedFuture(true)
+            val installed = output?.retire(reason) ?: CompletableFuture.completedFuture(true)
+            val inFlight = if (preparing) secondaryRuntime?.retire(reason) else null
+            val retiring = inFlight?.let { installed.thenCombine(it) { a, b -> a && b } } ?: installed
             retiring.whenComplete { success, failure -> result.complete(failure == null && success == true) }
         } catch (_: Exception) { result.complete(false) }
         return result
@@ -1003,6 +1005,46 @@ class SessionManager(
                 throw kotlinx.coroutines.CancellationException("AA optional preparation cancelled")
             }
             prepared
+        }
+    }
+
+    private fun requalifyWarmAaSecondary(session: AasdkSession) {
+        val previous = preparedSecondaryOutputs ?: return
+        if (previous.currentOffers().isNotEmpty()) return
+        val ticket = synchronized(sessionStateLock) {
+            if (aasdkSession !== session || preparedSecondaryOutputs !== previous || secondaryPreparing || secondaryRetirement != null) return
+            secondaryPreparing = true
+            secondaryPreparationEpoch.get()
+        }
+        val authority = { aasdkSession === session && secondaryPreparationEpoch.get() == ticket }
+        var replacement: PreparedAaSecondaryOutputs? = null
+        var installed = false
+        try {
+            // WPP invokes the native-start hook on its transport worker. Preserve the existing
+            // bounded runtime preparation; never wait under the manager ownership monitor.
+            replacement = kotlinx.coroutines.runBlocking {
+                previous.requalifyForWarmStart(clusterEpoch.incrementAndGet(), authority)
+            }
+        } finally {
+            synchronized(sessionStateLock) {
+                if (secondaryPreparationEpoch.get() == ticket && preparedSecondaryOutputs === previous) {
+                    secondaryPreparing = false
+                    if (authority() && replacement != null) {
+                        preparedSecondaryOutputs = replacement
+                        _clusterLayoutSelectionReason.value = replacement.layoutSelectionReason
+                        installed = true
+                    }
+                }
+            }
+            if (!installed) replacement?.retire("warm AA preparation superseded")
+        }
+    }
+
+    private fun preparedOutputsFor(session: AasdkSession): PreparedAaSecondaryOutputs? {
+        val advertised = session.sdrConfig.secondaryOffers
+        return preparedSecondaryOutputs?.takeIf { prepared ->
+            advertised.isNotEmpty() && prepared.offers.size == advertised.size &&
+                advertised.indices.all { prepared.offers[it] === advertised[it] }
         }
     }
 
@@ -2135,9 +2177,12 @@ class SessionManager(
     }
 
     private fun prepareNativeSessionStart(session: AasdkSession): Boolean {
+        val isWpp = session.transportMode == AppPreferences.DIRECT_TRANSPORT_WPP
         val admitted = synchronized(sessionStateLock) {
             if (retiringAasdkSession != null) {
                 false
+            } else if (isWpp && aasdkSession != null && aasdkSession !== session) {
+                false // an old WPP callback must not re-adopt over a successor's prepared outputs
             } else if (projectionCaptureClaim == null || com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) {
                 false // no late native adoption after diagnostic Stop/lease retirement
             } else {
@@ -2161,7 +2206,27 @@ class SessionManager(
         ensureVideoDecoder()
         ensureAudioPlayer()
         session.beginEvTelemetryGeneration()
-        preparedSecondaryOutputs?.bind(session)
+        if (isWpp) {
+            session.wirelessSecondaryAdmission = null
+            requalifyWarmAaSecondary(session)
+            val exact = preparedSecondaryOutputs
+            val selected = exact?.reusableOffers().orEmpty()
+            synchronized(sessionStateLock) {
+                if (aasdkSession !== session || retiringAasdkSession != null || projectionCaptureClaim == null ||
+                    com.shilapi.xcertplay.media.MicrophoneCaptureFence.projectionPaused()) return false
+                session.sdrConfig = session.sdrConfig.withSecondaryOffers(selected.takeIf { preparedSecondaryOutputs === exact }.orEmpty())
+            }
+            if (exact != null && selected.isNotEmpty()) {
+                session.wirelessSecondaryAdmission = AasdkSession.WirelessSecondaryAdmission(
+                    ready = exact::reusableOffers,
+                    isCurrent = { offer ->
+                        aasdkSession === session && preparedSecondaryOutputs === exact &&
+                            exact.currentOffers().any { it === offer }
+                    },
+                )
+            }
+        }
+        preparedOutputsFor(session)?.bind(session)
         bindSessionCollectors(session)
         OalLog.i(TAG, "Native session dependencies ready: " +
                 "decoder=${_videoDecoder != null} surface=${lastKnownSurface != null} " +

@@ -1,8 +1,11 @@
 package com.openautolink.app.ui.settings
 
+import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -83,7 +87,8 @@ fun SafeAreaEditorScreen(
     coordinateHeight: Int = VIDEO_H,
     maximumInset: Int = MAX_INSET,
     title: String = "",
-    doneLabel: String = "Save",
+    doneLabel: String = "Done",
+    instructions: String? = null,
 ) {
     var insetTop by remember { mutableIntStateOf(initialTop.coerceIn(0, maximumInset)) }
     var insetBottom by remember { mutableIntStateOf(initialBottom.coerceIn(0, maximumInset)) }
@@ -92,7 +97,7 @@ fun SafeAreaEditorScreen(
     var showManualInput by remember { mutableStateOf(false) }
 
     val label = if (insetTop == 0 && insetBottom == 0 && insetLeft == 0 && insetRight == 0) {
-        "No safe area set"
+        "No custom edges"
     } else {
         "T:$insetTop  B:$insetBottom  L:$insetLeft  R:$insetRight"
     }
@@ -413,7 +418,7 @@ fun SafeAreaEditorScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "Save",
+                    contentDescription = null,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
@@ -439,19 +444,29 @@ fun SafeAreaEditorScreen(
                     onDismiss = { showManualInput = false },
                 )
             } else {
-                Text(
-                    text = if (title.isEmpty()) label else "$title · $label",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xCC1E1E1E))
-                        .clickable { showManualInput = true }
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .testTag("dimensionLabel"),
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (instructions != null) Text(
+                        instructions,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.widthIn(max = 440.dp)
+                            .background(Color(0xE61E1E1E), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                    Text(
+                        text = if (title.isEmpty()) label else "$title · $label",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xCC1E1E1E))
+                            .clickable { showManualInput = true }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .testTag("dimensionLabel"),
+                    )
+                }
             }
         }
 
@@ -512,6 +527,33 @@ fun SafeAreaEditorScreen(
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             )
         }
+    }
+}
+
+/** Settings overlay; only Done stages a change, and no editor action reconnects. */
+@Composable
+internal fun AndroidAutoControlAreaEditor(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val state by viewModel.settingsState.collectAsStateWithLifecycle()
+    BackHandler(onBack = onBack)
+    // Retain projection underneath, but never let inert preview regions hit its controls.
+    Box(Modifier.fillMaxSize().pointerInput(Unit) {
+        detectTapGestures(onTap = {})
+    }) {
+        SafeAreaEditorScreen(
+            state.safeAreaTop, state.safeAreaBottom, state.safeAreaLeft, state.safeAreaRight,
+            title = "Main control area",
+            instructions = "Drag the edges to keep controls visible. After Done, tap Save changes.",
+            onDone = { top, bottom, left, right ->
+                // Opening and accepting an unchanged area is not an edit.
+                if (top != state.safeAreaTop.coerceIn(0, MAX_INSET) ||
+                    bottom != state.safeAreaBottom.coerceIn(0, MAX_INSET) ||
+                    left != state.safeAreaLeft.coerceIn(0, MAX_INSET) ||
+                    right != state.safeAreaRight.coerceIn(0, MAX_INSET)
+                ) viewModel.updateSafeAreaInsets(top, bottom, left, right)
+                onBack()
+            },
+            onBack = onBack,
+        )
     }
 }
 

@@ -103,7 +103,9 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
                 if (bodySize > MAX_BODY) break
                 val body = readFully(input, bodySize) ?: break
                 stats.received(HEADER_LEN + bodySize)
-                onMessage(header, body, stats)
+                // Header-only messages carry neither codec configuration nor authenticated
+                // video. Drain them without dispatch or nonce advancement, as the receiver does.
+                if (bodySize != 0) onMessage(header, body, stats)
                 stats.processed()
             }
         } catch (error: Exception) {

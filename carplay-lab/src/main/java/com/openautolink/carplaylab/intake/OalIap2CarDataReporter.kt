@@ -11,9 +11,16 @@ data class OalCarDataCapabilities(
     val maximumEnergy: Boolean = false,
     /** Frozen, source-qualified display label; not an accessory or energy-model identifier. */
     val vehicleDisplayName: String? = null,
-    /** Bit per supported iAP2 connector ordinal. Immutable; no powers or adapter inference. */
+    /** Bit per source-reported iAP2 connector ordinal, frozen for the link. */
     val chargingConnectorMask: Int = 0,
     val outsideTemperature: Boolean = false,
+    /** Stable per-link pilot configuration; source admission is rechecked on every snapshot. */
+    val evRoutingModel: OalEvRoutingModel? = null,
+    val maximumRange: Boolean = false,
+    val electricRangeWarning: Boolean = false,
+    /** Rated connector limits, not instantaneous power or charging-model arguments. */
+    val maximumDcChargePowerWatts: Int? = null,
+    val maximumAcChargePowerWatts: Int? = null,
 )
 
 /**
@@ -110,10 +117,16 @@ class OalIap2CarDataReporter(
     }
 
     private fun parseEv(frame: Iap2Frame): Set<Int> {
-        val body = checkedBody(frame,mapOf(3 to 0,4 to 0,11 to 0,21 to 0))
+        // MaxRangeInfo is advertised as capability 30 and may be echoed empty by the
+        // phone. Tolerate that known element without selecting a new status group.
+        val widths = mapOf(3 to 0,4 to 0,11 to 0,21 to 0,30 to 0)
+        val body = checkedBody(frame, if (capabilities.range && capabilities.electricRangeWarning) widths + (15 to 0) else widths)
         val ids = body.list().map { it.id }
         val supported = buildSet {
-            if (capabilities.range) { add(3); add(11) }
+            if (capabilities.range) {
+                add(3); add(11)
+                if (capabilities.electricRangeWarning) add(15)
+            }
             if (capabilities.outsideTemperature) add(4)
             if (capabilities.currentEnergy || capabilities.maximumEnergy) add(21)
         }
@@ -174,21 +187,31 @@ class OalIap2CarDataReporter(
         if (evActive && due(now,lastEvAttempt,30_000)) {
             lastEvAttempt = now
             val snapshot = try { latestEv() } catch (_: Exception) { null }
+            // The ordinary phone start selects electric range (11), not its warning separately.
+            val electricWarning = capabilities.range && capabilities.electricRangeWarning && (11 in evGroups || 15 in evGroups)
             val frame = snapshot?.let {
                 OalCarDataCodec.vehicle(OalEvSnapshot(
-                    it.rangeKm.takeIf { capabilities.range && (3 in evGroups || 11 in evGroups) },
+                    it.rangeKm.takeIf { capabilities.range && (3 in evGroups || 11 in evGroups || electricWarning) },
                     it.currentChargeWh.takeIf { capabilities.currentEnergy && 21 in evGroups },
                     it.maxChargeWh.takeIf { capabilities.maximumEnergy && 21 in evGroups },
                     it.outsideTemperatureC.takeIf { capabilities.outsideTemperature && 4 in evGroups },
+                    it.routingModel?.takeIf { model ->
+                        capabilities.currentEnergy && 21 in evGroups && model === capabilities.evRoutingModel
+                    },
+                    minimumChargeWh = it.minimumChargeWh.takeIf { capabilities.maximumEnergy && 21 in evGroups },
+                    chargePercentMilli = it.chargePercentMilli.takeIf { capabilities.currentEnergy && capabilities.maximumEnergy && 21 in evGroups },
+                    charging = it.charging.takeIf { capabilities.currentEnergy && 21 in evGroups },
+                    electricRangeWarning = it.electricRangeWarning.takeIf { electricWarning },
+                    fullRangeKm = it.fullRangeKm.takeIf { capabilities.maximumRange && capabilities.range && capabilities.currentEnergy && capabilities.maximumEnergy && 21 in evGroups && (3 in evGroups || 11 in evGroups) },
                 ))
             }?.let { encoded ->
                 Iap2Messages.buildRaw(0xA101) {
                     Iap2BodyReader.of(encoded).list().filter {
-                        when (it.id) { 3,4,11 -> it.id in evGroups; 22,23 -> 21 in evGroups; else -> false }
+                        when (it.id) { 3,4,11 -> it.id in evGroups; 15 -> electricWarning; 21,22,23,24,25,26,27,30 -> 21 in evGroups; else -> false }
                     }.forEach { raw(it.id,it.payload) }
                 }
             }
-            if (frame == null) log(0xA101,"source_absent") else transmit(frame)
+            if (frame == null || (electricWarning && frame.payload.isEmpty())) log(0xA101,"source_absent") else transmit(frame)
         }
         if (retired || requested.isEmpty()) return
         val dueSentences = locationIntervals.filter { (selector,interval) -> due(now,lastLocationAttempts[selector],interval) }.keys
@@ -216,7 +239,7 @@ class OalIap2CarDataReporter(
             send(frame)
             transmissionCount = (transmissionCount + 1).coerceAtMost(Long.MAX_VALUE - 1)
             val presence = frame.body().asList().fold(0) { mask, parameter ->
-                mask or when (parameter.id) { 0 -> 1; 3 -> 2; 11 -> 4; 22 -> 8; 23 -> 16; 4 -> 32; else -> 0 }
+                mask or when (parameter.id) { 0 -> 1; 3 -> 2; 11 -> 4; 22 -> 8; 23 -> 16; 4 -> 32; 26 -> 64; 27 -> 128; 21 -> 256; 24 -> 512; 25 -> 1024; 30 -> 2048; else -> 0 }
             }
             log(frame.messageId,"transmitted",presence)
         } catch (_: Exception) {

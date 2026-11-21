@@ -23,8 +23,8 @@ internal class ClusterGlPlan private constructor(
     val clearRect: PixelRect, val vertices: FloatArray, val textureCoordinates: FloatArray,
 ) {
     companion object {
-        fun create(mapping: VideoMapping, decoderVisible: PixelRect): ClusterGlPlan {
-            require(mapping.codedSize.bounds.contains(decoderVisible))
+        fun create(mapping: VideoMapping, decoderVisible: PixelRect, bufferSize: PixelSize = mapping.codedSize): ClusterGlPlan {
+            require(bufferSize.bounds.contains(decoderVisible))
             val crop = mapping.codecCrop
             require(decoderVisible.contains(crop)) { "Decoder output omits required cluster source pixels" }
             val size = mapping.target.panel
@@ -72,6 +72,7 @@ internal class ClusterEglVideoDriver(private var host: Surface, private val mapp
     private var malformedFormats = 0L
     private var lastOutputPts = -1L
     private var nextStatsNs = System.nanoTime() + 5_000_000_000L
+    private var decoderSize = mapping.codedSize
     private var outputVisible = mapping.codedSize.bounds
 
     override fun initialize() {
@@ -126,25 +127,34 @@ internal class ClusterEglVideoDriver(private var host: Surface, private val mapp
             callbackHandler = Handler(requireNotNull(callbackThread!!.looper))
         }
         texture = SurfaceTexture(textureId).also {
-            it.setDefaultBufferSize(config.codedSize.width, config.codedSize.height)
+            it.setDefaultBufferSize(config.decoderCodedSize.width, config.decoderCodedSize.height)
             it.setOnFrameAvailableListener({ signal.set(true) }, callbackHandler)
         }
         input = Surface(texture)
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, config.codedSize.width, config.codedSize.height)
-        format.setByteBuffer("csd-0", ByteBuffer.wrap(config.sps))
-        format.setByteBuffer("csd-1", ByteBuffer.wrap(config.pps))
-        format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, ClusterEncodedFrame.MAX_BYTES)
+        val format = config.mediaFormat()
+        decoderSize = config.decoderCodedSize
+        outputVisible = decoderSize.bounds
         // A qualified name is authority, not a preference: failure stays local, never by-type retry.
         trace?.event("codec_create", "decoder=${OptionalOutputDiagnostics.codecName(config.decoderName)} coded=${config.codedSize}")
         codec = if (config.decoderName != null) MediaCodec.createByCodecName(config.decoderName)
-            else MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-        try { codec!!.configure(format, input, null, 0) }
+            else MediaCodec.createDecoderByType(config.mime)
+        try {
+            // Legacy AA retains its AVC factory. Parsed CarPlay formats must still be supported
+            // by this exact named instance, including actual padded size, profile, tier and rate.
+            if (config.profile != null) {
+                val caps = codec!!.codecInfo.getCapabilitiesForType(config.mime)
+                require(com.shilapi.xcertplay.media.CarPlayVideoQualification.supports(caps, format, config.framesPerSecond)) {
+                    "Incoming cluster format unsupported by exact decoder"
+                }
+            }
+            codec!!.configure(format, input, null, 0)
+        }
         catch (failure: Exception) { trace?.failure("codec_configure", failure); throw failure }
         try { codec!!.start() }
         catch (failure: Exception) { trace?.failure("codec_start", failure); throw failure }
         trace?.event("codec_configured", "decoder=${OptionalOutputDiagnostics.codecName(codec!!.name)} coded=${config.codedSize} crop=${mapping.codecCrop}")
         trace?.event("scaling", "destination=${mapping.destination} safe=${mapping.phoneSafeInsets} stable=${mapping.stableContentInsets}")
-        plan = ClusterGlPlan.create(mapping, mapping.codedSize.bounds)
+        plan = ClusterGlPlan.create(mapping, decoderSize.bounds, decoderSize)
     }
 
     override fun submit(frame: ClusterEncodedFrame): Boolean {
@@ -170,13 +180,13 @@ internal class ClusterEglVideoDriver(private var host: Surface, private val mapp
                     val f = decoder.outputFormat
                     try {
                     trace?.event("output_format", "width=${f.getInteger(MediaFormat.KEY_WIDTH)} height=${f.getInteger(MediaFormat.KEY_HEIGHT)} cropPresent=${f.containsKey("crop-left")},${f.containsKey("crop-top")},${f.containsKey("crop-right")},${f.containsKey("crop-bottom")}")
-                    require(f.getInteger(MediaFormat.KEY_WIDTH) == mapping.codedSize.width &&
-                        f.getInteger(MediaFormat.KEY_HEIGHT) == mapping.codedSize.height) { "Unexpected cluster decoder dimensions" }
+                    require(f.getInteger(MediaFormat.KEY_WIDTH) == decoderSize.width &&
+                        f.getInteger(MediaFormat.KEY_HEIGHT) == decoderSize.height) { "Unexpected cluster decoder dimensions" }
                     fun edge(key: String, fallback: Int) = if (f.containsKey(key)) f.getInteger(key) else fallback
                     outputVisible = PixelRect(edge("crop-left", 0), edge("crop-top", 0),
-                        edge("crop-right", mapping.codedSize.width - 1) + 1, edge("crop-bottom", mapping.codedSize.height - 1) + 1)
+                        edge("crop-right", decoderSize.width - 1) + 1, edge("crop-bottom", decoderSize.height - 1) + 1)
                     trace?.event("decoder_crop", "visible=$outputVisible required=${mapping.codecCrop}")
-                    plan = ClusterGlPlan.create(mapping, outputVisible)
+                    plan = ClusterGlPlan.create(mapping, outputVisible, decoderSize)
                     } catch (failure: Exception) { malformedFormats++; trace?.failure("output_format", failure); throw failure }
                 }
                 else -> if (index >= 0) {

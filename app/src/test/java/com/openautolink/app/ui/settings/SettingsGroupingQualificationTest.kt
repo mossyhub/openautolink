@@ -129,8 +129,11 @@ class SettingsGroupingQualificationTest {
             compose.onNodeWithTag("extraCarRingtone").performScrollTo().assertContentDescriptionEquals("Extra car ringtone")
             compose.onNodeWithTag("extraCarRingtoneHelper").assertExists()
             tab("EV")
-            compose.onNodeWithTag("evUseEpaBaseline").performScrollTo().assertIsNotEnabled()
-            compose.onNodeWithText("No matching profile bundled. Try refreshing below.").assertIsDisplayed()
+            compose.onNodeWithTag("carPlayEvData").performScrollTo().assertIsOn()
+                .assertContentDescriptionEquals("CarPlay EV data")
+            compose.onNodeWithText("Shares EV data for Apple Maps routing on supported vehicles. Estimates are experimental; check the car’s battery gauge.")
+                .performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("evUseEpaBaseline").assertDoesNotExist()
         } finally { finish() }
     }
 
@@ -152,7 +155,7 @@ class SettingsGroupingQualificationTest {
             for ((destination, control) in listOf(
                 "CONNECTION" to "carPlayEnabled", "DISPLAY" to "oalUiScale_125",
                 "INSTRUMENT_CLUSTER" to "clusterDisplay_MAP_VIDEO", "VIDEO" to "carPlayFitToWindow",
-                "AUDIO" to "micSource_car", "INPUT" to "keyMap_85", "EV" to "evMasterToggle",
+                "AUDIO" to "micSource_car", "INPUT" to "keyMap_85", "EV" to "carPlayEvData",
                 "DIAGNOSTICS" to "liveDiagnosticsServer")) {
                 tab(destination)
                 compose.onNodeWithTag(control).performScrollTo().assertIsDisplayed()

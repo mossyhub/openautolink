@@ -33,6 +33,10 @@ object CarPlayAudioDiagnostics {
     private const val scaleDecimal = "[0-9]{1,5}(\\.[0-9]{1,20})?"
     private const val scaleReason = "(manual|hardware_estimate|missing_viewport|invalid_geometry|nonfinite_metrics|metric_range|baseline_alias|logical_alias|axis_disagreement|physical_bounds)"
     private val schemas = listOf(
+        "BENCH_DIAG clusterPrepared content=(MAP|INSTRUCTION_CARD|MAP_WITH_CARD|absent|other) offered=$bool",
+        "BENCH_DIAG clusterOffer content=(MAP|INSTRUCTION_CARD|MAP_WITH_CARD|absent|other) supported=$bool suggested=$bool instruments=$bool uuidMatch=$bool owner=[1-9][0-9]{0,18}",
+        "BENCH_DIAG clusterSetup epoch=[1-9][0-9]{0,9} requestUuid=(absent|match|mismatch) target=alt owner=[1-9][0-9]{0,18}",
+        "BENCH_DIAG clusterSelection epoch=[1-9][0-9]{0,9} content=(MAP|INSTRUCTION_CARD|MAP_WITH_CARD|other) showWritten=$bool keyframeWritten=$bool owner=[1-9][0-9]{0,18}",
         "BENCH_DIAG displayScaleV2 mode=(manual|auto) reason=$scaleReason reference=[0-9]{1,4} physical=[0-9]{1,4}x[0-9]{1,4} viewport=[0-9]{1,5}x[0-9]{1,5} display=[0-9]{1,5}x[0-9]{1,5} fitted=${scaleDecimal}x$scaleDecimal coded=[0-9]{1,5}x[0-9]{1,5} fps=[0-9]{1,3} xdpi=$scaleDecimal ydpi=$scaleDecimal logical=[0-9]{1,4}",
         "carplay-artwork result=(accepted|reference|unauthenticated|retired|size|limit) size=(empty|small|medium|large|oversized)",
         "media stage=host-media event=apply active=false mode=inactive result=ok lost=$number",
@@ -107,10 +111,12 @@ object CarPlayAudioDiagnostics {
         "media stage=video-recovery reason=(presentation|config-change|queue-reset|unanchored|input-timeout|input-size|decoder-failed) receipt=$number count=$number",
         "media stage=runtime-control-failed type=$failure",
         "media stage=(runtime-message-received|runtime-subscriptions-sent|video-first-frame-confirmed) count=$number",
-        "carplay-car-data id=(0|65530|65531|65532|41216|41217|41218) reason=(authenticated|retired|unauthenticated|started|stopped|disabled|unsupported_request|source_absent|transmitted|send_failed) count=$number fields=([0-9]|[1-5][0-9]|6[0-3]) suppressed=$number",
+        "carplay-car-data id=(0|65530|65531|65532|41216|41217|41218) reason=(authenticated|retired|unauthenticated|started|stopped|disabled|unsupported_request|source_absent|transmitted|send_failed) count=$number fields=([0-9]|[1-9][0-9]{1,2}|[1-3][0-9]{3}|40[0-8][0-9]|409[0-5]) suppressed=$number",
         "carplay-car-data-offer location=$bool range=$bool current=$bool maximum=$bool( temperature=true)?",
         "carplay-car-data-request id=(65530|41216) bytes=[0-9]{1,5} result=(accepted|disabled|malformed|oversized|duplicate|unsupported_id|width|interval_bounds|orphan_interval|no_supported_groups) parameter=[0-9]{1,5} length=[0-9]{1,3} groups=([0-9]|1[0-5]) ggaMs=[0-9]{1,5} rmcMs=[0-9]{1,5}",
-        "carplay-car-data-source property=(range|current|maximum|temperature) reason=(available|absent|fuel|metadata|generation|source|inactive|status|timestamp|source_age|receipt_age|bounds|inconsistent) status=(-1|[0-9]) active=$bool generation=$bool sourceAgeMs=(-1|[0-9]{1,8}) receiptAgeMs=(-1|[0-9]{1,8})",
+        "carplay-car-data-source property=(range|current|maximum|temperature|reported_capacity) reason=(available|absent|fuel|metadata|generation|source|inactive|status|property|timestamp|source_age|receipt_age|bounds|inconsistent) status=(-1|[0-9]) active=$bool generation=$bool sourceAgeMs=(-1|[0-9]{1,8}) receiptAgeMs=(-1|[0-9]{1,8})( changeMode=(0|1|2|unknown) statusReadAgeMs=(-1|[0-9]{1,8}))?",
+        "carplay-ev-pilot readiness=(configuration_unavailable|disabled|charging_profile_required|unsupported_profile|invalid_configuration|source_unavailable|source_identity|source_range|capacity_required|model_invalid|ready) enabled=$bool basis=(usable|reported|manual|absent) frozen=true model=$bool",
+        "carplay-ev-admission wireBasis=(usable|reported|absent) socBasis=(usable|reported|absent) modelBasis=(usable|reported|manual|absent) model=(admitted|not_frozen|source|owner|scale|current|range) fullRange=(available|absent) charging=(available|absent)",
         "carplay-car-data-bootstrap id=(65530|65532|41216|41218) result=(deferred|oversized|retired)",
         "carplay-appearance reason=(transmitted|send_failed) count=$number",
         "carplay-restriction reason=(absent|metadata|source|generation|inactive|status|timestamp|stale|not_park|actual_park|user_override) limited=$bool result=(transmitted|send_failed) count=$number",

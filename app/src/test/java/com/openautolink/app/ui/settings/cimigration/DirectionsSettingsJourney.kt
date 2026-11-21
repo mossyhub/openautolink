@@ -34,7 +34,8 @@ import java.io.File
  * Legacy resolver/adapter coverage is separate from the public safe-only editor journey. */
 internal class DirectionsSettingsJourney(private val compose: ComposeContentTestRule) {
     fun run(destination: Boolean = false, reset: Boolean = false, edit: Boolean = false,
-        hostLoss: Boolean = false, failure: String? = null, cancel: Boolean = false, staleTarget: Boolean = false) = runBlocking<Unit> {
+        hostLoss: Boolean = false, failure: String? = null, cancel: Boolean = false, staleTarget: Boolean = false,
+        cpPreviewCase: String? = null) = runBlocking<Unit> {
         val app = RuntimeEnvironment.getApplication() as Application
         val product = Build.PRODUCT
         val activityContexts = System.getProperty("robolectric.createActivityContexts")
@@ -57,7 +58,8 @@ internal class DirectionsSettingsJourney(private val compose: ComposeContentTest
         val legacy = SavedClusterLayout(layoutScope, profile.output, profile.output, PixelRect(636,150,1471,661))
         val outputLayout = SecondaryLayoutPreference(requireNotNull(secondaryLayoutScope(descriptor)),
             SecondaryLayoutBox(.1,.1,.9,.9), SecondaryLayoutBox(.3,.3,.7,.7),
-            directSafe = SecondaryLayoutBox(.31,.20,.73,.75))
+            directSafe = if (cpPreviewCase != null) SecondaryLayoutBox(0.0,71.0/810,1875.0/2000,653.0/810) else SecondaryLayoutBox(.31,.20,.73,.75),
+            aaDirectSafe = if (cpPreviewCase != null) SecondaryCalibratedDefaults.directSafe else null)
         val file = File(app.filesDir, "directions-${java.util.UUID.randomUUID()}.preferences_pb")
         val storeJob = SupervisorJob()
         fun newPrefs(job: Job): AppPreferences {
@@ -67,7 +69,7 @@ internal class DirectionsSettingsJourney(private val compose: ComposeContentTest
                 .apply { isAccessible = true }.newInstance(store)
         }
         val preferences = spyk(newPrefs(storeJob))
-        preferences.setCarPlaySettings(CarPlaySettings(enabled = false)); preferences.setDirectTransport("usb")
+        preferences.setCarPlaySettings(CarPlaySettings(enabled = cpPreviewCase != null, connectionMode = "usb")); preferences.setDirectTransport("usb")
         preferences.setClusterOutputSelection(ClusterOutputSelection(ClusterDisplayMode.MAP_VIDEO))
         preferences.saveClusterLayout(legacy)
         val initialOutput = SecondaryOutputPreference(true, AaSecondaryRole.AUXILIARY, false, false, outputLayout)
@@ -176,8 +178,43 @@ internal class DirectionsSettingsJourney(private val compose: ComposeContentTest
             await { created && settings.clusterLoaded.value && settings.carPlaySettingsLoaded.value &&
                 settings.secondaryPreferences.value != null && bindings?.layout != null }
             openSettings(); openEditor()
+            // EXISTING ROOT API: AppNavHost + loaded shared CP intent, real IDLE; no new
+            // protocol parameter and no reflection into a fabricated future state/API.
+            fun assertRenderedSafe(expected: PixelRect) {
+                val canvas = compose.onNodeWithTag("liveGridCanvas").fetchSemanticsNode().boundsInRoot
+                val move = compose.onNodeWithTag("directions_MOVE").fetchSemanticsNode().boundsInRoot
+                val corner = compose.onNodeWithTag("directions_BOTTOM_RIGHT").fetchSemanticsNode().boundsInRoot
+                assertEquals("root preview center X vs current CP runtime", canvas.left + canvas.width * (expected.left + expected.right) / 4000f, move.center.x, 1.1f)
+                assertEquals("root preview center Y vs current CP runtime", canvas.top + canvas.height * (expected.top + expected.bottom) / 1620f, move.center.y, 1.1f)
+                // Corner semantics describe a clamped 48dp touch target, not the
+                // painted green vertex. Keep exact geometry expectations and apply
+                // the existing editor's documented accessibility-target clamping.
+                assertTrue(canvas.width >= corner.width && canvas.height >= corner.height)
+                val right = canvas.left + canvas.width * expected.right / 2000f
+                val bottom = canvas.top + canvas.height * expected.bottom / 810f
+                assertEquals("root preview right handle vs current CP runtime",
+                    right.coerceIn(canvas.left + corner.width / 2, canvas.right - corner.width / 2), corner.center.x, 1.1f)
+                assertEquals("root preview bottom handle vs current CP runtime",
+                    bottom.coerceIn(canvas.top + corner.height / 2, canvas.bottom - corner.height / 2), corner.center.y, 1.1f)
+            }
+            fun currentCpSafe(layout: SecondaryLayoutPreference?) = SecondaryRuntimeLayouts.target(descriptor,
+                layout, PixelSize(2000,810), PixelRect(558,70,1694,668), Build.PRODUCT, Build.FINGERPRINT,
+                carPlay = true, safeOnly = true).safe
+            if (cpPreviewCase == "entry") {
+                assertTrue(settings.carPlaySettings.value.enabled)
+                assertEquals(SessionState.IDLE, sessionState.value)
+                assertFalse(projection.carPlayState.value.selected)
+                assertRenderedSafe(currentCpSafe(outputLayout)) // expected current 0,71,1875,653; not AA 192.
+                return@runBlocking
+            }
             val first = startGrid()
-            if (reset) compose.onNodeWithTag("liveGridReset").performClick()
+            if (reset) {
+                compose.onNodeWithTag("liveGridReset").performClick()
+                if (cpPreviewCase == "reset") {
+                    val resetLayout = outputLayout.copy(aaDirectSafe=null,directSafe=null,directSafeAutomatic=true)
+                    assertRenderedSafe(currentCpSafe(resetLayout)) // expected fallback 558,70,1694,668; not AA 192.
+                }
+            }
             if (edit) {
                 compose.onNodeWithContentDescription("Move directions area").performTouchInput {
                     down(center); moveBy(Offset(20f,0f)); moveBy(Offset(10f,0f)); up()
@@ -281,6 +318,21 @@ internal class DirectionsSettingsJourney(private val compose: ComposeContentTest
             assertTrue("Reconnect dispatch must follow every store acknowledgment: $chain", reconnectIndex > previousAck)
             // USB Save persists/closes but never restarts the physical connection.
             coVerify(exactly = 0) { session.stop() }
+            if (cpPreviewCase != null) {
+                // The actual global production Save above awaited every existing store.
+                // No USB live mutation/restart. Next prepare is exercised through the existing
+                // real direct-host fixture (which also checks AA independently).
+                if (!edit && !reset) assertEquals(outputLayout, saved)
+                protocols.verify(durable, hostLoss) { receipts.toList() }
+                assertEquals(durable, preferences.getSecondaryDisplayPreferences())
+                compose.runOnIdle { mounted = false }; compose.waitForIdle()
+                settings.viewModelScope.cancel(); projection.viewModelScope.cancel(); storeJob.cancelAndJoin()
+                coldJob = SupervisorJob()
+                val cold = newPrefs(requireNotNull(coldJob))
+                assertEquals(durable, cold.getSecondaryDisplayPreferences())
+                assertEquals(legacy, cold.getClusterLayout(layoutScope, legacy.canvas).custom)
+                return@runBlocking
+            }
             preferences.setDirectTransport("hotspot")
             every { session.transportMode } returns MutableStateFlow("hotspot")
             compose.runOnIdle { sessionState.value = SessionState.STREAMING }

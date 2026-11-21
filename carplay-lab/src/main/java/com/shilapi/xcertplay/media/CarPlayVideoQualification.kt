@@ -10,8 +10,58 @@ import android.media.MediaFormat
 /** Exact size/rate/profile request. Android capability evidence is not configure/start proof. */
 data class VideoDecoderRequest(val codec: VideoCodec, val width: Int, val height: Int, val fps: Int)
 fun interface VideoDecoderProbe { fun decoderFor(request: VideoDecoderRequest): String? }
+/** null = metadata unavailable, false = known insufficient, true = reported instance allowance.
+ * Neither true nor maxSupportedInstances is a physical configure/start or shared-hardware proof. */
+fun interface VideoDecoderBudgetProbe {
+    fun supports(codec: VideoCodec, mainDecoder: String, secondaryDecoder: String): Boolean?
+}
 
 object CarPlayVideoQualification {
+    /** A measured alternate canvas, never an OEM display-ID catalog. Keep the output aspect and
+     * bound axes/area; do not substitute a main-screen 720p receipt for the legacy 1280x480 fallback.
+     * HEVC is an explicit experiment. Preflight its conservative 16-pixel padded buffer; the actual
+     * SPS coded dimensions/profile are checked again by the exact named decoder before configure. */
+    fun selectCluster(outputWidth: Int, outputHeight: Int, experimentalHevc: Boolean = false,
+        probe: VideoDecoderProbe = androidProbe()): CarPlayVideoSelection {
+        fun decoder(codec: VideoCodec, w: Int, h: Int) = runCatching {
+            probe.decoderFor(VideoDecoderRequest(codec,w,h,30))?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+        val candidates = linkedSetOf<Pair<Int,Int>>()
+        if (outputWidth in 2..16384 && outputHeight in 2..16384) {
+            val scale = minOf(1.0,4096.0/outputWidth,4096.0/outputHeight,
+                kotlin.math.sqrt(2560.0*1440/(outputWidth.toDouble()*outputHeight)))
+            for (s in listOf(scale, minOf(scale,1280.0/outputWidth))) {
+                val w=(outputWidth*s/2).toInt()*2; val h=(outputHeight*s/2).toInt()*2
+                if (w >= 2 && h >= 2) candidates += w to h
+            }
+        }
+        candidates += 1280 to 480
+        for ((w,h) in candidates) {
+            val avc=decoder(VideoCodec.H264,(w+15)/16*16,(h+15)/16*16) ?: continue
+            val hevc=if (experimentalHevc) decoder(VideoCodec.H265,(w+15)/16*16,(h+15)/16*16) else null
+            return CarPlayVideoSelection(w,h,30,avc,hevc,
+                usedFallback=w!=outputWidth || h!=outputHeight,
+                selectionReason=if(w==outputWidth && h==outputHeight) "cluster_measured_exact" else "cluster_bounded_fallback")
+        }
+        throw IllegalStateException("No qualified optional cluster AVC decoder")
+    }
+
+    /** Read regular decoder instance metadata, including aliases of the same canonical component.
+     * Android exposes no reliable global cross-codec hardware-pool/configure guarantee. Unknown
+     * metadata therefore cannot enable experimental global HEVC. Runtime failure stays optional. */
+    fun androidBudgetProbe(): VideoDecoderBudgetProbe {
+        val codecs=runCatching { MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.toList() }
+            .getOrDefault(emptyList()).filter { !it.isEncoder }
+        return VideoDecoderBudgetProbe { codec, main, secondary -> runCatching {
+            val first=codecs.singleOrNull { it.name==main } ?: return@runCatching null
+            val second=codecs.singleOrNull { it.name==secondary } ?: return@runCatching null
+            val mime=mime(codec)
+            val a=first.getCapabilitiesForType(mime).maxSupportedInstances
+            val b=second.getCapabilitiesForType(mime).maxSupportedInstances
+            val shared=first.name==second.name || (android.os.Build.VERSION.SDK_INT>=29 && first.canonicalName==second.canonicalName)
+            if(shared) minOf(a,b)>=2 else a>=1 && b>=1
+        }.getOrNull() }
+    }
     /** Local bounded ranking, never a protocol display catalog. Prefer 1440-class detail even
      * when Android lays the app out below native panel resolution. Exact AVC remains mandatory.
      */
@@ -147,7 +197,7 @@ object CarPlayVideoQualification {
         return format
     }
 
-    internal fun supports(caps: MediaCodecInfo.CodecCapabilities, format: MediaFormat, fps: Int): Boolean {
+    fun supports(caps: MediaCodecInfo.CodecCapabilities, format: MediaFormat, fps: Int): Boolean {
         val video = caps.videoCapabilities ?: return false
         val w = format.getInteger(MediaFormat.KEY_WIDTH); val h = format.getInteger(MediaFormat.KEY_HEIGHT)
         return w % video.widthAlignment == 0 && h % video.heightAlignment == 0 &&
@@ -164,15 +214,24 @@ data class CarPlayVideoSelection(val width: Int, val height: Int, val fps: Int,
         require(hevcDecoderName == null || hevcDecoderName.isNotBlank()) }
     val hevcOffered: Boolean get() = hevcDecoderName != null
     fun matches(config: AirPlayConfig): Boolean = width == config.main.widthPixels &&
-        height == config.main.heightPixels && fps == config.main.fps &&
-        (clusterQualification?.let { !config.hevc && !hevcOffered && it.matches(config.cluster) }
-            ?: (config.cluster == null))
-    /** Global HEVC is intentionally disabled for BOTH screens in this bounded AVC pilot. */
+        height == config.main.heightPixels && fps == config.main.fps && (!config.hevc || hevcOffered) &&
+        (clusterQualification?.let { it.matches(config.cluster) } ?: (config.cluster == null))
+    /** Global HEVC is an intersection, never a per-screen wish. Bound aggregate pixel-rate policy
+     * as well as reported instance metadata; neither establishes physical simultaneous decoding. */
     fun withCluster(display: com.shilapi.xcertplay.airplay.AirPlayDisplayConfig,
-        selection: CarPlayVideoSelection): CarPlayVideoSelection {
+        selection: CarPlayVideoSelection): CarPlayVideoSelection =
+        withCluster(display,selection,CarPlayVideoQualification.androidBudgetProbe())
+    fun withCluster(display: com.shilapi.xcertplay.airplay.AirPlayDisplayConfig,
+        selection: CarPlayVideoSelection, budget: VideoDecoderBudgetProbe): CarPlayVideoSelection {
         require(clusterQualification == null) { "Main receipt already bound" }
-        return copy(hevcDecoderName = null,
-            clusterQualification = CarPlayClusterVideoQualification.qualify(display, selection))
+        val aggregate = width.toLong()*height*fps + selection.width.toLong()*selection.height*selection.fps
+        val hevc = hevcDecoderName?.takeIf { main -> selection.hevcDecoderName?.let { alternate ->
+            aggregate <= 2560L*1440*60 && runCatching { budget.supports(VideoCodec.H265,main,alternate) == true &&
+                budget.supports(VideoCodec.H264,avcDecoderName,selection.avcDecoderName) != false }.getOrDefault(false)
+        } == true }
+        val alternate = if(hevc == null) selection.copy(hevcDecoderName=null) else selection
+        return copy(hevcDecoderName = hevc,
+            clusterQualification = CarPlayClusterVideoQualification.qualify(display, alternate))
     }
     fun decoderName(codec: VideoCodec): String? = if (codec == VideoCodec.H264) avcDecoderName else hevcDecoderName
 }
@@ -191,9 +250,11 @@ class CarPlayClusterVideoQualification private constructor(
 
         fun qualify(display: com.shilapi.xcertplay.airplay.AirPlayDisplayConfig,
             selection: CarPlayVideoSelection): CarPlayClusterVideoQualification {
-            require(display.widthPixels == 1280 && display.heightPixels == 480 && display.fps == 30)
+            require(display.widthPixels in 2..4096 && display.heightPixels in 2..4096 &&
+                display.widthPixels % 2 == 0 && display.heightPixels % 2 == 0 &&
+                display.widthPixels.toLong() * display.heightPixels <= 2560L * 1440 && display.fps == 30)
             require(selection.width == display.widthPixels && selection.height == display.heightPixels &&
-                selection.fps == display.fps && !selection.hevcOffered && selection.clusterQualification == null)
+                selection.fps == display.fps && selection.clusterQualification == null)
             require(display.primaryInputDevice == 0 && display.features == 0 &&
                 display.initialUrl in CLUSTER_URLS &&
                 display.safeAreaDrawOutside == false && display.viewAreas == null && display.initialViewArea == 0)

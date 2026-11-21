@@ -2,10 +2,12 @@ package com.openautolink.app.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.openautolink.app.secondary.SecondaryOutputId
@@ -18,13 +20,28 @@ import com.openautolink.app.transport.aasdk.GalProtocolPolicy
 import com.openautolink.app.video.SeedIdrPolicy
 import com.openautolink.app.video.SeedIdrThresholds
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+
+// Not a data class: do not generate a credential-bearing toString().
+internal class EvContributionScope(
+    val url: String, val token: String, val enabled: Boolean, val binding: String, val revision: Long = 0L,
+) {
+    fun sameAs(other: EvContributionScope): Boolean = revision == other.revision &&
+        url == other.url && token == other.token && enabled == other.enabled && binding == other.binding
+}
+
+internal enum class EvGrantDecision { GRANTED, SUPERSEDED, NOT_PARKED }
+internal enum class EvReceiverField { OFF, URL, TOKEN }
+internal class EvReceiverWrite(val field: EvReceiverField, val value: String)
 
 /**
  * App preferences backed by DataStore.
@@ -328,6 +345,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         // Existing upload credentials and LOG_UPLOAD_ENABLED never migrate into consent.
         val EV_CONTRIBUTION_CONSENT = booleanPreferencesKey("ev_contribution_consent_v1")
         val EV_CONTRIBUTION_BINDING = stringPreferencesKey("ev_contribution_binding_v2")
+        private val EV_RECEIVER_REVISION = longPreferencesKey("ev_contribution_receiver_revision")
 
         // Floating "simulate ignition cycle" button. OFF by default, maintainer
         // tool. Reproduces the shutdown -> Bluetooth loss -> republish ->
@@ -404,6 +422,7 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         // are ignored and we send today's hardcoded VEM values.
         // EV_DRIVING_MODE: "derived" | "manual" | "multiplier"
         val EV_TUNING_ENABLED = booleanPreferencesKey("ev_tuning_enabled")
+        val EV_LEARN_EVALUATION_ENABLED = booleanPreferencesKey("ev_learn_evaluation_enabled")
         val EV_DRIVING_MODE = stringPreferencesKey("ev_driving_mode")
         val EV_DRIVING_WH_PER_KM = intPreferencesKey("ev_driving_wh_per_km")
         val EV_DRIVING_MULTIPLIER_PCT = intPreferencesKey("ev_driving_multiplier_pct")
@@ -849,6 +868,18 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         prefs[EV_CONTRIBUTION_BINDING] ?: ""
     }
 
+    // Sample all authority-bearing preferences from one DataStore record, never separate flows.
+    internal val evContributionScope: Flow<EvContributionScope> = dataStore.data.map { it.evScope() }
+        .distinctUntilChanged { previous, current -> previous.sameAs(current) }
+
+    private fun Preferences.evScope() = EvContributionScope(
+        this[LOG_UPLOAD_URL] ?: DEFAULT_LOG_UPLOAD_URL,
+        this[LOG_UPLOAD_TOKEN] ?: DEFAULT_LOG_UPLOAD_TOKEN,
+        this[EV_CONTRIBUTION_CONSENT] ?: DEFAULT_EV_CONTRIBUTION_CONSENT,
+        this[EV_CONTRIBUTION_BINDING] ?: "",
+        this[EV_RECEIVER_REVISION] ?: 0L,
+    )
+
     val simulateIgnitionButton: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[SIMULATE_IGNITION_BUTTON] ?: DEFAULT_SIMULATE_IGNITION_BUTTON
     }
@@ -995,12 +1026,123 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         dataStore.edit { it[LOG_UPLOAD_ENABLED] = value }
     }
 
-    suspend fun setEvContributionConsent(value: Boolean, binding: String? = null) {
-        dataStore.edit {
-            it[EV_CONTRIBUTION_CONSENT] = value
-            if (value && !binding.isNullOrBlank()) it[EV_CONTRIBUTION_BINDING] = binding
-            if (!value) it.remove(EV_CONTRIBUTION_BINDING)
+    // The monitor orders intent and transform admission only. Never hold it across
+    // DataStore suspension, disk I/O, network I/O, or flow publication.
+    private val evConsentLock = Any()
+    private var evConsentGeneration = 0L
+    private val evReceiverWrites = mutableMapOf<EvReceiverField, EvReceiverWrite>()
+    private var evRequiredRevision: Long? = null
+
+    internal fun beginEvContributionRenewal(): Long? = synchronized(evConsentLock) {
+        if (evReceiverWrites.isEmpty()) ++evConsentGeneration else null
+    }
+
+    internal fun isEvRenewalCurrent(generation: Long): Boolean = synchronized(evConsentLock) {
+        generation == evConsentGeneration && evReceiverWrites.isEmpty()
+    }
+
+    internal suspend fun grantExpandedEvContribution(
+        generation: Long,
+        expected: EvContributionScope,
+        encoded: String,
+        rawParkCurrent: () -> Boolean,
+    ): EvGrantDecision {
+        val caller = currentCoroutineContext()
+        var decision = EvGrantDecision.SUPERSEDED
+        dataStore.edit { prefs ->
+            synchronized(evConsentLock) {
+                caller.ensureActive()
+                decision = when {
+                    generation != evConsentGeneration || evReceiverWrites.isNotEmpty() ||
+                        !expected.sameAs(prefs.evScope()) -> EvGrantDecision.SUPERSEDED
+                    !rawParkCurrent() -> EvGrantDecision.NOT_PARKED
+                    else -> {
+                        caller.ensureActive()
+                        prefs[EV_CONTRIBUTION_CONSENT] = true
+                        prefs[EV_CONTRIBUTION_BINDING] = encoded
+                        prefs[EV_RECEIVER_REVISION] = expected.revision + 1L
+                        EvGrantDecision.GRANTED
+                    }
+                }
+            }
         }
+        return decision
+    }
+
+    internal fun reserveEvReceiverWrite(field: EvReceiverField, value: String = ""): EvReceiverWrite =
+        synchronized(evConsentLock) {
+            ++evConsentGeneration
+            EvReceiverWrite(field, value.trim()).also { evReceiverWrites[field] = it }
+        }
+
+    internal fun finishEvReceiverWrite(write: EvReceiverWrite) {
+        synchronized(evConsentLock) {
+            if (evReceiverWrites[write.field] === write) evReceiverWrites.remove(write.field)
+        }
+    }
+
+    internal suspend fun applyEvReceiverWrite(write: EvReceiverWrite) {
+        val caller = currentCoroutineContext()
+        dataStore.edit { prefs ->
+            synchronized(evConsentLock) {
+                caller.ensureActive()
+                if (evReceiverWrites[write.field] !== write) return@synchronized
+                when (write.field) {
+                    EvReceiverField.OFF -> {
+                        prefs.clearEvConsent()
+                    }
+                    EvReceiverField.URL -> prefs[LOG_UPLOAD_URL] = write.value
+                    EvReceiverField.TOKEN -> prefs[LOG_UPLOAD_TOKEN] = write.value
+                }
+                prefs.advanceEvReceiverFence()
+            }
+        }
+    }
+
+    // A cached service snapshot must not re-admit work after an intent but before
+    // the corresponding DataStore record is observed. Pending writes are not deletion authority.
+    internal fun isEvCaptureScopeCurrent(revision: Long): Boolean = synchronized(evConsentLock) {
+        evReceiverWrites.isEmpty() && (evRequiredRevision?.let { revision >= it } ?: true)
+    }
+
+    // An unauthorized response is only authority to clear the exact committed grant it used.
+    internal suspend fun clearEvContributionIfCurrent(expected: EvContributionScope) {
+        val caller = currentCoroutineContext()
+        dataStore.edit { prefs ->
+            synchronized(evConsentLock) {
+                caller.ensureActive()
+                if (evReceiverWrites.isEmpty() && expected.enabled && expected.sameAs(prefs.evScope())) {
+                    ++evConsentGeneration
+                    prefs.clearEvConsent()
+                    prefs.advanceEvReceiverFence()
+                }
+            }
+        }
+    }
+
+    private fun MutablePreferences.advanceEvReceiverFence() {
+        val revision = (this[EV_RECEIVER_REVISION] ?: 0L) + 1L
+        this[EV_RECEIVER_REVISION] = revision
+        evRequiredRevision = revision
+    }
+
+    private fun MutablePreferences.clearEvConsent() {
+        this[EV_CONTRIBUTION_CONSENT] = false
+        remove(EV_CONTRIBUTION_BINDING)
+    }
+
+    private suspend fun writeEvReceiver(field: EvReceiverField, value: String = "") {
+        val write = reserveEvReceiverWrite(field, value)
+        try {
+            applyEvReceiverWrite(write)
+        } finally {
+            finishEvReceiverWrite(write)
+        }
+    }
+
+    suspend fun setEvContributionConsent(value: Boolean) {
+        require(!value) { "Expanded EV consent requires a guarded renewal" }
+        writeEvReceiver(EvReceiverField.OFF)
     }
 
     suspend fun setSimulateIgnitionButton(value: Boolean) {
@@ -1012,11 +1154,11 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
     }
 
     suspend fun setLogUploadUrl(value: String) {
-        dataStore.edit { it[LOG_UPLOAD_URL] = value.trim() }
+        writeEvReceiver(EvReceiverField.URL, value)
     }
 
     suspend fun setLogUploadToken(value: String) {
-        dataStore.edit { it[LOG_UPLOAD_TOKEN] = value.trim() }
+        writeEvReceiver(EvReceiverField.TOKEN, value)
     }
 
     suspend fun setLogUploadDeviceLabel(value: String) {
@@ -1206,6 +1348,16 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
         dataStore.edit { it[LOG_PERSIST_ENABLED] = enabled }
     }
 
+    /** Persist the four legacy control-area values as one record update, without rescaling. */
+    suspend fun setSafeAreaInsets(top: Int, bottom: Int, left: Int, right: Int) {
+        dataStore.edit { prefs ->
+            prefs[SAFE_AREA_TOP] = top
+            prefs[SAFE_AREA_BOTTOM] = bottom
+            prefs[SAFE_AREA_LEFT] = left
+            prefs[SAFE_AREA_RIGHT] = right
+        }
+    }
+
     suspend fun setSafeAreaTop(value: Int) {
         dataStore.edit { it[SAFE_AREA_TOP] = value }
     }
@@ -1332,6 +1484,15 @@ class AppPreferences private constructor(private val dataStore: DataStore<Prefer
 
     val evTuningEnabled: Flow<Boolean> = dataStore.data.map { p ->
         p[EV_TUNING_ENABLED] ?: DEFAULT_EV_TUNING_ENABLED
+    }
+
+    /** Local comparison only; never migrated from wire tuning or upload consent. */
+    val evLearnEvaluationEnabled: Flow<Boolean> = dataStore.data.map { p ->
+        p[EV_LEARN_EVALUATION_ENABLED] == true
+    }
+
+    suspend fun setEvLearnEvaluationEnabled(enabled: Boolean) {
+        dataStore.edit { it[EV_LEARN_EVALUATION_ENABLED] = enabled }
     }
 
     suspend fun setEvTuningEnabled(enabled: Boolean) {

@@ -61,6 +61,9 @@ class ClusterDirectVideoSafeEditorTest {
         prefs.updateSecondaryDisplayPreferences(0,mapOf(descriptor.id to SecondaryOutputPreference(true,AaSecondaryRole.CLUSTER,true,true,legacy), otherId to untouched))
         mockkObject(AppPreferences.Companion);every { AppPreferences.getInstance(any()) } answers { prefs }
         var vm=SettingsViewModel(app);var mounted by mutableStateOf(true);var mountEpoch by mutableIntStateOf(0)
+        // Direct Settings fixtures must model caller-owned preview admission;
+        // omitted/unknown authority is conservatively denied by production.
+        var previewIdle by mutableStateOf(false)
         val saveJob=SupervisorJob();val saves=CoroutineScope(saveJob+Dispatchers.Main.immediate);var saved=0
         var grid:ActivityController<LiveGridWindowActivity>?=null
         fun loaded() { compose.waitUntil(5000) { shadowOf(Looper.getMainLooper()).idle();vm.clusterLoaded.value&&vm.carPlaySettingsLoaded.value } }
@@ -71,9 +74,13 @@ class ClusterDirectVideoSafeEditorTest {
         }
         try {
             compose.setContent { if(mounted) key(mountEpoch) { MaterialTheme { SettingsScreen(clusterBindings=null,viewModel=vm,secondarySource=source,
+                directionsPreviewIdle=previewIdle,
                 onSaveAndConnect={ saves.launch { assertTrue(vm.commitSettings(null));saved++ } }) } } }
             loaded();openEditor()
-            compose.onNodeWithTag("liveGridStart").performClick()
+            compose.onNodeWithTag("liveGridStart").assertIsNotEnabled()
+            assertNull("Unknown caller admission must not launch preview",shadowOf(app).nextStartedActivity)
+            compose.runOnIdle { previewIdle=true };compose.waitForIdle()
+            compose.onNodeWithTag("liveGridStart").assertIsEnabled().performClick()
             val launched=shadowOf(app).nextStartedActivity
             if(launched==null) throw AssertionError("Preview launch missing: captured=$descriptor; current=${inventory.snapshots.value}; UI="+
                 compose.onRoot(useUnmergedTree=true).printToString())

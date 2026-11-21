@@ -8,6 +8,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
+import com.openautolink.app.carplay.CarPlayEvPilotConfiguration
 import com.openautolink.carplaylab.media.CarPlayDockPosition
 
 /** One atomic, non-secret next-session configuration. Never a connection/admission lease. */
@@ -59,6 +61,14 @@ data class CarPlaySettings(
     /** Next-connection status-bar placement, independent of physical UI size and transport. */
     val dockPosition: String = "automatic",
     @kotlinx.serialization.Transient val physicalWidthDraft: String? = null,
+    /** Default-off owner calibration, committed with the same atomic next-session record. */
+    val evRoutingPilot: CarPlayEvPilotConfiguration = CarPlayEvPilotConfiguration(),
+    /** Retired pilot flag: qualified cluster HEVC follows ordinary Automatic/H.264 policy. */
+    val clusterHevcEnabled: Boolean = true,
+    /** Next-session sharing of eligible CarPlay EV data, not upload consent. */
+    val evDataEnabled: Boolean = true,
+    /** Manual battery-side DC estimate. Blank selects Automatic. */
+    val evAverageDcChargeKw: String = "",
 ) {
     /** Strict path shared by UI qualification, Save and runtime; no corrupt-storage fallback. */
     fun displayRequest(): com.openautolink.carplaylab.media.CarPlayDisplayPreferences {
@@ -127,6 +137,11 @@ data class CarPlaySettings(
             "Custom width and height must be positive even integers in Video."
         else -> null
     }
+    fun evAverageDcChargeError(): String? =
+        if (evAverageDcChargeKw.isNotEmpty() && CarPlayEvPilotConfiguration.averageDcWatts(evAverageDcChargeKw) == null)
+            "Enter an average from 1 to 1000 kW (up to three decimal places), or use Automatic."
+        else null
+
     companion object {
         private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
         fun decode(record: String?): CarPlaySettings =
@@ -142,8 +157,30 @@ data class CarPlaySettings(
                 // optional field has a wrong JSON type; interactive drafts never enter this path.
                 val dock = CarPlayDockPosition.fromStored((fields["dockPosition"] as? JsonPrimitive)
                     ?.takeIf { value -> value.isString }?.content)
+                // A malformed optional pilot never disables otherwise valid projection settings.
+                // In particular a quoted Boolean must not manufacture explicit model consent.
+                val pilot = runCatching {
+                    val raw = fields["evRoutingPilot"] ?: JsonObject(emptyMap())
+                    raw.jsonObject["enabled"]?.let { value ->
+                        require(value is JsonPrimitive && !value.isString && value.booleanOrNull != null)
+                    }
+                    json.decodeFromJsonElement<CarPlayEvPilotConfiguration>(raw)
+                }.getOrDefault(CarPlayEvPilotConfiguration())
+                // Only absence defaults On. Legacy calibration supplies neither sharing nor estimate authority.
+                val evDataEnabled = "evDataEnabled" !in fields || (fields["evDataEnabled"] as? JsonPrimitive)
+                    ?.takeIf { field -> !field.isString }?.booleanOrNull == true
+                val average = (fields["evAverageDcChargeKw"] as? JsonPrimitive)
+                    ?.takeIf { field -> field.isString }?.content
+                    ?.takeIf { raw -> CarPlayEvPilotConfiguration.averageDcWatts(raw) != null }.orEmpty()
                 json.decodeFromJsonElement<CarPlaySettings>(JsonObject(fields.toMutableMap().apply {
+                    put("evDataEnabled", JsonPrimitive(evDataEnabled))
+                    put("evAverageDcChargeKw", JsonPrimitive(average))
                     put("dockPosition", JsonPrimitive(dock.id))
+                    put("evRoutingPilot", json.encodeToJsonElement(pilot))
+                    // 587 stored its temporary default-Off pilot flag in every record. It is not
+                    // a permanent codec opt-out: explicit H.264 remains in videoCodec and the final
+                    // main/cluster decoder intersection still withholds unsupported HEVC.
+                    put("clusterHevcEnabled", JsonPrimitive(true))
                 }))
             }.getOrNull() }
                 ?.let { stored ->
@@ -160,7 +197,7 @@ data class CarPlaySettings(
                         resolution = display.resolution.id, fps = display.fps,
                         widthPhysicalMm = display.widthPhysicalMm,
                         videoCodec = stored.videoCodec.takeIf { it in setOf("h264", "hevc") } ?: "h264")
-                } ?: CarPlaySettings(enabled = record == null)
+                } ?: CarPlaySettings(enabled = record == null, evDataEnabled = record == null)
         fun encode(settings: CarPlaySettings): String {
             require(settings.connectionMode in setOf("usb", "wireless"))
             return json.encodeToString(settings)

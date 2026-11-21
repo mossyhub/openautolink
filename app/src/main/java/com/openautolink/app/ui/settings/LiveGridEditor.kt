@@ -67,6 +67,7 @@ internal fun LiveGridEditor(
     automatic: LiveGridGeometry = initial,
     safeOnly: Boolean = false,
     previewUnavailableReason: String? = null,
+    directionsContextLabel: String? = null,
 ) {
     var geometry by remember(external?.owner, initial.panel, initial.canvas) { mutableStateOf(initial) }
     var safeTarget by remember(safeOnly) { mutableStateOf(safeOnly) }
@@ -92,7 +93,7 @@ internal fun LiveGridEditor(
     LaunchedEffect(enabled) { if (!enabled) stopExact() }
     LaunchedEffect(previewUnavailableReason) { if (safeOnly && previewUnavailableReason != null) stopExact() }
     val currentStage by rememberUpdatedState<(LiveGridGeometry) -> Unit> { next ->
-        if (enabled) {
+        if (enabled && (!safeOnly || next != geometry)) {
             geometry = next; onStage(next)
             if (active) {
                 try {
@@ -104,6 +105,11 @@ internal fun LiveGridEditor(
     }
     val latest by rememberUpdatedState(geometry)
     if (safeOnly) {
+        Column(Modifier.fillMaxSize()) {
+        directionsContextLabel?.let { label -> Text(label, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                .testTag("directionsPreviewContext")) }
+        Box(Modifier.weight(1f)) {
         DirectionsAreaEditor(geometry = geometry, enabled = enabled, active = active,
             unavailableReason = when {
                 !enabled -> "Display disconnected. Return to settings and choose a display."
@@ -133,6 +139,8 @@ internal fun LiveGridEditor(
                     } catch (failure: Exception) { stopExact(); error = failure.message ?: "Preview unavailable. Check the display and try again." }
                 }
             }, onDone = { stopExact(); onBack() })
+        }
+        }
         return
     }
     Surface(Modifier.fillMaxSize()) {

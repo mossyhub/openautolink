@@ -21,3 +21,20 @@ individual components' licenses or relicense files marked GPL-3.0-only.
 See LICENSE for OpenAutoLink's GNU GPL v3 license and README.md for additional
 project acknowledgments. These credits do not grant rights to private accessory
 authentication credentials or Apple/OEM assets.
+
+Community EV routing and driver-display references
+
+The optional GM-inspired Drive Card and CarPlay EV-routing contract work were
+informed by wasidremin/ocbm_equinoxev (The Unlicense), revision
+ab1df04c959133800029bfce22d812f9cde9f0da:
+https://github.com/wasidremin/ocbm_equinoxev
+
+The accessory charging/consumption model identifiers and parameter contracts
+were cross-checked against isaacwisdom/egmp-carplay-ev-routing (GPL-3.0-or-later),
+which credits augard/evmaps for its parameter dictionaries and reference material:
+https://github.com/isaacwisdom/egmp-carplay-ev-routing
+https://github.com/augard/evmaps
+
+These references do not establish an OEM-calibrated profile, vehicle-wide
+compatibility, Apple endorsement, or measured arrival-prediction accuracy.
+Existing component licenses and notices remain applicable.

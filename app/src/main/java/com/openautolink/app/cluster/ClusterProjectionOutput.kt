@@ -157,10 +157,12 @@ class ClusterProjectionOutput internal constructor(
     fun configure(exact: ClusterOutputLease, source: ClusterProjectionStream, config: ClusterCodecConfig): Boolean =
         mutate { configureLocked(exact, source, config) }
     private fun configureLocked(exact: ClusterOutputLease, source: ClusterProjectionStream, config: ClusterCodecConfig): Boolean {
+        val avc = config.codec == com.shilapi.xcertplay.airplay.VideoCodec.H264
         if (!current(exact, source) || config.codedSize != mapping.codedSize ||
-            (avcDecoderName != null && config.decoderName != null && config.decoderName != avcDecoderName)) return false
-        val selectedConfig = if (avcDecoderName != null && config.decoderName == null)
-            ClusterCodecConfig(config.codedSize, config.sps, config.pps, avcDecoderName) else config
+            (avc && avcDecoderName != null && config.decoderName != null && config.decoderName != avcDecoderName)) return false
+        val selectedConfig = if (avc && avcDecoderName != null && config.decoderName == null)
+            ClusterCodecConfig(config.codedSize, config.sps, config.pps, avcDecoderName,
+                config.codec, config.decoderCodedSize, config.profile, config.level, config.framesPerSecond) else config
         val previous = configuration
         configuration = selectedConfig
         val admitted = renderer.configure(source.epoch, selectedConfig)
@@ -184,6 +186,40 @@ class ClusterProjectionOutput internal constructor(
     private fun annexBLocked(exact: ClusterOutputLease, source: ClusterProjectionStream, bytes: ByteArray, timestampUs: Long): Boolean {
         if (!current(exact, source) || bytes.isEmpty() || bytes.size > ClusterEncodedFrame.MAX_BYTES || timestampUs < 0 ||
             NalParser.findStartCode(bytes) != 0) return false
+        if (configuration?.codec == com.shilapi.xcertplay.airplay.VideoCodec.H265) {
+            var position = 0
+            var slices = false
+            var keyframe = false
+            var units = 0
+            while (position < bytes.size) {
+                if (++units > 1024) return false
+                val payload = position + NalParser.startCodeLength(bytes, position)
+                val next = NalParser.findStartCode(bytes, payload + 2).let { if (it < 0) bytes.size else it }
+                if (payload + 2 > next || bytes[payload].toInt() and 128 != 0 || bytes[payload + 1].toInt() and 7 == 0) return false
+                val type = (bytes[payload].toInt() ushr 1) and 63
+                if(type in 32..34) {
+                    // In-band parameter sets cannot silently change the offered dimensions/profile.
+                    val csd = requireNotNull(configuration).sps
+                    var known=0
+                    var matched=false
+                    while(known < csd.size) {
+                        val start=known+NalParser.startCodeLength(csd,known)
+                        val end=NalParser.findStartCode(csd,start+2).let { if(it<0) csd.size else it }
+                        if(end-start==next-payload && (start until end).all { csd[it]==bytes[payload+it-start] }) matched=true
+                        known=end
+                    }
+                    if(!matched) return false
+                }
+                if (type in 0..31) {
+                    if (type !in 0..9 && type !in 16..21) return false
+                    slices = true
+                    keyframe = keyframe || type in 16..21
+                }
+                position = next
+            }
+            return if (!slices) admittedConfig else frameLocked(exact, source,
+                ClusterEncodedFrame(source.epoch, bytes, timestampUs, keyframe))
+        }
         var position = 0
         var hasSlice = false
         var idr = false

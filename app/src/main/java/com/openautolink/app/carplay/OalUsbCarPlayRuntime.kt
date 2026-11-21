@@ -360,7 +360,7 @@ class OalUsbCarPlayRuntime(
         val local=Inet6Address.getByAddress(null,InetAddress.getByName(address).address,exactNic.index)
         val gps=context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED &&
             runCatching { context.getSystemService(LocationManager::class.java)?.isProviderEnabled(LocationManager.GPS_PROVIDER)==true }.getOrDefault(false)
-        val vehicle=OalCarPlayVehicleSnapshotAdapter()
+        val vehicle=OalCarPlayVehicleSnapshotAdapter.forContext(context)
         val capabilities=vehicle.capabilities(gps,::status)
         val vehicleBootstrap=own { com.openautolink.carplaylab.intake.OalCarDataBootstrap(capabilities,SystemClock::elapsedRealtime,::status) }
         val identification=Iap2IdentificationConfig("OpenAutoLink","OAL-native-CarPlay","OpenAutoLink",

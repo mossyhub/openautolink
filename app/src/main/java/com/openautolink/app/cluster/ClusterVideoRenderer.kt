@@ -16,16 +16,56 @@ class ClusterEncodedFrame(val streamEpoch: Long, bytes: ByteArray, val presentat
     companion object { const val MAX_BYTES = 2 * 1024 * 1024 }
 }
 
-/** AVC-only pilot; SPS/PPS include Annex-B start codes. Coded dimensions must match the mapping.
- * A named decoder is an exact qualification receipt, not a hint or fallback preference.
- */
-class ClusterCodecConfig(val codedSize: PixelSize, sps: ByteArray, pps: ByteArray, val decoderName: String? = null) {
+/** Immutable negotiated canvas plus actual decoder buffer dimensions. AVC constructor compatibility
+ * is retained for AA. HEVC always carries a named decoder, parsed profile/level and one VPS/SPS/PPS
+ * CSD buffer; visible height 810 may legitimately require a coded 816-line decoder buffer. */
+class ClusterCodecConfig(val codedSize: PixelSize, sps: ByteArray, pps: ByteArray, val decoderName: String? = null,
+    val codec: com.shilapi.xcertplay.airplay.VideoCodec = com.shilapi.xcertplay.airplay.VideoCodec.H264,
+    val decoderCodedSize: PixelSize = codedSize, val profile: Int? = null, val level: Int? = null,
+    val framesPerSecond: Int = 30) {
     internal val sps: ByteArray
     internal val pps: ByteArray
+    val mime: String get() = com.shilapi.xcertplay.media.CarPlayVideoQualification.mime(codec)
     init {
         require(decoderName == null || (decoderName.isNotBlank() && decoderName.length <= 256))
-        require(sps.isNotEmpty() && pps.isNotEmpty() && sps.size <= 65536 && pps.size <= 65536)
+        require(sps.isNotEmpty() && sps.size <= 65536 && pps.size <= 65536)
+        require(framesPerSecond in 1..30 && decoderCodedSize.width in codedSize.width..4096 &&
+            decoderCodedSize.height in codedSize.height..4096 &&
+            decoderCodedSize.width - codedSize.width <= 16 && decoderCodedSize.height - codedSize.height <= 16)
+        if (codec == com.shilapi.xcertplay.airplay.VideoCodec.H264) require(pps.isNotEmpty())
+        else require(pps.isEmpty() && decoderName != null && profile != null && level != null)
         this.sps = sps.copyOf(); this.pps = pps.copyOf()
+    }
+    fun mediaFormat(): android.media.MediaFormat = android.media.MediaFormat.createVideoFormat(mime,
+        decoderCodedSize.width, decoderCodedSize.height).apply {
+        setInteger(android.media.MediaFormat.KEY_FRAME_RATE, framesPerSecond)
+        setInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE, ClusterEncodedFrame.MAX_BYTES)
+        profile?.let { setInteger(android.media.MediaFormat.KEY_PROFILE, it) }
+        level?.let { setInteger(android.media.MediaFormat.KEY_LEVEL, it) }
+        setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(sps.copyOf()))
+        if (pps.isNotEmpty()) setByteBuffer("csd-1", java.nio.ByteBuffer.wrap(pps.copyOf()))
+    }
+    companion object {
+        /** Unoffered codecs, inconsistent HEVC hvcC/SPS, and different visible canvases fail closed.
+         * Platform capability is rechecked on the actual named instance just before configure. */
+        fun carPlay(bytes: ByteArray, selection: com.shilapi.xcertplay.media.CarPlayVideoSelection): ClusterCodecConfig {
+            val (codec, record) = com.shilapi.xcertplay.airplay.ScreenCodec.detectConfig(bytes)
+            val name = requireNotNull(selection.decoderName(codec)) { "Cluster codec was not offered" }
+            val format = com.shilapi.xcertplay.media.CarPlayVideoQualification.mediaFormat(codec, record, selection)
+            fun csd(key: String) = format.getByteBuffer(key)?.duplicate()?.let { b -> ByteArray(b.remaining()).also { b.get(it) } } ?: byteArrayOf()
+            // Keep the negotiated visible canvas stable when AVC also carries macroblock padding.
+            // This does not change AA's existing constructor/parser path.
+            if(codec == com.shilapi.xcertplay.airplay.VideoCodec.H264) {
+                com.openautolink.app.video.NalParser.parseSpsResolution(csd("csd-0"))?.let { (w,h) ->
+                    require(w in selection.width..selection.width+16 && h in selection.height..selection.height+16)
+                    format.setInteger(android.media.MediaFormat.KEY_WIDTH,w)
+                    format.setInteger(android.media.MediaFormat.KEY_HEIGHT,h)
+                }
+            }
+            return ClusterCodecConfig(PixelSize(selection.width, selection.height), csd("csd-0"), csd("csd-1"), name,
+                codec, PixelSize(format.getInteger(android.media.MediaFormat.KEY_WIDTH), format.getInteger(android.media.MediaFormat.KEY_HEIGHT)),
+                format.getInteger(android.media.MediaFormat.KEY_PROFILE), format.getInteger(android.media.MediaFormat.KEY_LEVEL), selection.fps)
+        }
     }
 }
 

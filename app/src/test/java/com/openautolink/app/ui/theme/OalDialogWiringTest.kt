@@ -8,7 +8,7 @@ import org.junit.Test
 class OalDialogWiringTest {
     @Test fun `every native alert uses the shared dialog without changing callback owners`() {
         val sites = mapOf(
-            "settings/SettingsScreen.kt" to listOf("Assign key to:"),
+            "settings/SettingsScreen.kt" to listOf("Assign key to:", "Share expanded EV observations?"),
             "diagnostics/DiagnosticsScreen.kt" to listOf("Enable ADB via RDMS?"),
             "settings/CarPlaySettings.kt" to listOf("Import authentication identity"),
             "projection/ProjectionScreen.kt" to listOf("USB phone connected", "USB switch paused", "CarPlay connection failed"),

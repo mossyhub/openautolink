@@ -348,7 +348,7 @@ class OalCarPlayRuntime(
                 // Freeze truthful implemented capability flags per actual Wi-Fi link, not Bluetooth.
                 val qualifiedGps = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
                     runCatching { context.getSystemService(LocationManager::class.java)?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true }.getOrDefault(false)
-                OalCarPlayIntakeLink(qualifiedGps, OalCarPlayVehicleSnapshotAdapter(),
+                OalCarPlayIntakeLink(qualifiedGps, OalCarPlayVehicleSnapshotAdapter.forContext(context),
                     OalCarPlayGnssSnapshotAdapter(SystemClock::elapsedRealtime, requireSourceTime = true) { sink ->
                         GnssForwarderImpl(context.applicationContext, sink, true)
                     }, SystemClock::elapsedRealtime, CarPlayAppearanceBridge(),

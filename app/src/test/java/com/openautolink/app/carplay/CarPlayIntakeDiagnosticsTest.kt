@@ -11,6 +11,9 @@ class CarPlayIntakeDiagnosticsTest {
             "carplay-car-data-request id=41216 bytes=12 result=accepted parameter=0 length=0 groups=7 ggaMs=0 rmcMs=0",
             "carplay-car-data-source property=range reason=source_age status=0 active=true generation=true sourceAgeMs=60000 receiptAgeMs=1000",
             "carplay-car-data-bootstrap id=41216 result=deferred",
+            "carplay-car-data-source property=reported_capacity reason=available status=0 active=true generation=true sourceAgeMs=60000 receiptAgeMs=0 changeMode=2 statusReadAgeMs=0",
+            "carplay-ev-pilot readiness=ready enabled=true basis=reported frozen=true model=true",
+            "carplay-ev-pilot readiness=charging_profile_required enabled=true basis=reported frozen=true model=false",
         )
         val exported = mutableListOf<String>()
         val reporter = CarPlayAudioDiagnosticReporter(1, {1_000_000_000L}, exported::add)
@@ -42,7 +45,7 @@ class CarPlayIntakeDiagnosticsTest {
         assertNotNull(CarPlayAudioDiagnostics.sanitize(1,"carplay-enrollment stage=authorized windowMs=120000 boundary=selected-bootstrap-request; first-client race remains possible"))
         assertNull(CarPlayAudioDiagnostics.sanitize(1,"carplay-enrollment stage=commit accepted=true controller=private"))
         for (bad in listOf(line + " lat=123", line + "\nprivate", line.replace("transmitted","raw"),
-            line.replace("65531","99999"), line.replace("fields=1","fields=999"), "x".repeat(500)))
+            line.replace("65531","99999"), line.replace("fields=1","fields=4096"), "x".repeat(500)))
             assertNull(CarPlayAudioDiagnostics.sanitize(1,bad))
     }
 }

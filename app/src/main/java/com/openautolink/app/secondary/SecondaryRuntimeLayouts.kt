@@ -6,7 +6,10 @@ import com.openautolink.app.cluster.PixelSize
 internal object SecondaryRuntimeLayouts {
     fun target(descriptor: SecondaryDisplayDescriptor, layout: SecondaryLayoutPreference?,
         panel: PixelSize, actualSafe: PixelRect, vehicle: String, fingerprint: String,
-        carPlay: Boolean = false, safeOnly: Boolean = false): SecondaryRenderTarget {
+        carPlay: Boolean = false, safeOnly: Boolean = false,
+        // Direct-window geometry defaults to its full canvas for presentation-only callers.
+        // Runtime MUST supply the single actual decoder selection (including a fallback).
+        carPlayCodedSize: PixelSize = if (safeOnly) panel else PixelSize(1280, 480)): SecondaryRenderTarget {
         fun rect(value: PixelRect) = "${value.left},${value.top},${value.right},${value.bottom}"
         fun report(mode: String, fallback: String, target: SecondaryRenderTarget) {
             runCatching { com.openautolink.app.diagnostics.DiagnosticLog.i("secondary",
@@ -14,11 +17,11 @@ internal object SecondaryRuntimeLayouts {
                     "protocol=${if (carPlay) "carplay" else "aa"} mode=$mode fallback=$fallback " +
                     "panel=${panel.width}x${panel.height} actualSafe=${rect(actualSafe)} " +
                     "output=${rect(target.output)} safe=${rect(target.safe)}" +
-                    if (carPlay) " fitted=${rect(SecondaryVideoMapping.carPlayDestination(target.output))}" else "") }
+                    if (carPlay) " coded=${carPlayCodedSize.width}x${carPlayCodedSize.height} fitted=${rect(SecondaryVideoMapping.carPlayDestination(target.output, carPlayCodedSize))}" else "") }
         }
         fun automatic(reason: String): SecondaryRenderTarget {
             val safe = if (carPlay) {
-                val fitted = SecondaryVideoMapping.carPlayDestination(panel.bounds)
+                val fitted = SecondaryVideoMapping.carPlayDestination(panel.bounds, carPlayCodedSize)
                 val intersection = actualSafe.intersect(fitted)
                 if (intersection == null) {
                     runCatching { com.openautolink.app.diagnostics.DiagnosticLog.w("secondary",
@@ -56,7 +59,7 @@ internal object SecondaryRuntimeLayouts {
         // Preserve valid saved intent. An invalid custom safe rectangle triggers whole-layout
         // Automatic fallback; it is not silently cropped or written back into preferences.
         if (carPlay) {
-            val fitted = try { SecondaryVideoMapping.carPlayDestination(custom.output) }
+            val fitted = try { SecondaryVideoMapping.carPlayDestination(custom.output, carPlayCodedSize) }
             catch (_: IllegalArgumentException) { return automatic("custom_empty_fitted_video") }
             if (!fitted.contains(custom.safe)) return automatic("custom_outside_fitted_video")
         }

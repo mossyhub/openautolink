@@ -54,6 +54,8 @@ internal class DirectSessionRuntimeFixture {
     val detached = AtomicInteger()
     val initialized = AtomicInteger()
     var initializeGate: java.util.concurrent.CountDownLatch? = null
+    val parkEntered = java.util.concurrent.CountDownLatch(1)
+    var parkResult: CompletableFuture<Boolean>? = null
     var retirementAck: CompletableFuture<Boolean>? = null
     val bridges = java.util.concurrent.CopyOnWriteArrayList<ClusterProjectionOutput>()
     private val controlledBridges = mutableListOf<ClusterProjectionOutput>()
@@ -84,7 +86,10 @@ internal class DirectSessionRuntimeFixture {
                 override fun stopDecoder() = Unit
                 override fun clearOutput() = Unit
                 override fun detach() = true.also { detached.incrementAndGet() }
-                override fun parkWindow() = true
+                override fun parkWindow(): Boolean {
+                    parkEntered.countDown()
+                    return parkResult?.get(10, TimeUnit.SECONDS) ?: true
+                }
                 override fun resumeWindow(surface: Surface) = true
             }
             ClusterProjectionOutput(mapping,ClusterRenderDriverFactory { _,_ -> driver },name).also { bridges += it }

@@ -592,7 +592,8 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
             DiagnosticLog.i("carplay", "CarPlay scale: $scaleBasis widthMm=${size.widthMm} heightMm=${size.heightMm}; next-session snapshot")
             report("CarPlay scale · $scaleBasis · ${size.widthMm} × ${size.heightMm} mm")
             val preparedOutput = com.openautolink.app.secondary.SecondaryOutputRuntime.get(getApplication())
-                .prepareCarPlay(System.nanoTime().coerceAtLeast(0), secondaryPreferences)
+                .prepareCarPlay(System.nanoTime().coerceAtLeast(0), secondaryPreferences,
+                    experimentalHevc = saved.clusterHevcEnabled)
             val clusterSelection = preparedOutput.legacySelection // effective GM opt-outs from the same frozen snapshot
             val clusterOutput = com.openautolink.app.carplay.OalCarPlayClusterOutput.fromPrepared(preparedOutput)
             try {
@@ -799,9 +800,11 @@ class ProjectionViewModel(application: Application) : AndroidViewModel(applicati
                 val saved = preferences.effectiveCarPlaySettings.first()
                 // The cable can temporarily own either protocol while normal modes remain wireless.
                 // Conversely, a newly saved USB preference does not turn an active wireless session wired.
-                val aaActive = !_carPlayState.value.selected && sessionManager.sessionState.value.let {
+                // Native WPP recovery can be IDLE while retaining the actual AA owner.
+                // A configured next USB mode must not replace that transport's authority.
+                val aaActive = !_carPlayState.value.selected && (sessionManager.sessionState.value.let {
                     it == SessionState.CONNECTING || it == SessionState.CONNECTED || it == SessionState.STREAMING
-                }
+                } || sessionManager.hasCurrentWppOwner())
                 val actualUsb = usbOverrideGeneration != null || sessionManager.externalUsbTransport || usbCarPlayRuntime != null ||
                     if (_carPlayState.value.selected) false
                     else if (aaActive) sessionManager.transportMode.value == AppPreferences.DIRECT_TRANSPORT_USB
