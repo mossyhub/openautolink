@@ -92,7 +92,7 @@ On the **dedicated Android Automotive OS Internal testing** track:
 
 ## 8. Finish permissions and phone setup
 
-1. While parked, open **Settings → Apps → OpenAutoLink → Permissions** on the car. Grant supported microphone and car-data permissions needed for your features, then return to OAL.
+1. While parked, open OpenAutoLink and allow the permissions needed for your features. For EV data, allow **Car information** when prompted. If the prompt doesn’t appear, go to **car Settings → Apps → OpenAutoLink → Permissions → Car information → Allow**, then return to OAL.
 2. Follow the setup for your phone: [wireless Android Auto with the companion](wireless-wpp.md), [USB Android Auto](../README.md#android-auto-setup), or [CarPlay](../README.md#carplay-setup). USB needs no companion; CarPlay requires your authorized authentication pair in the build.
 
 <details>
