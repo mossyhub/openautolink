@@ -481,22 +481,27 @@ class CarPlayExplicitPermissionRetryTest {
 
     @Test fun selectionRetiredWhileRealFactoryWaitsForSurfaceCannotAuthorizeLateRuntime() {
         setup()
+        val lateSurface = mockk<Surface> { every { isValid } returns true }
+        val surfaceFlow = field("carPlaySurface") as MutableStateFlow<*>
         vm.onCarPlaySurfaceDestroyed(surface)
+        assertNull(surfaceFlow.value)
+        assertEquals("No earlier factory may still be waiting for Surface", 0, surfaceFlow.subscriptionCount.value)
         select()
         await("Actual coordinator must admit the selection before Surface becomes available") {
             vm.carPlayState.value.selected && vm.carPlayState.value.busy
         }
+        // The factory's first { it?.isValid == true } is the flow's only collector.
+        // A parked factory stack could also be waiting on one of the earlier preference reads.
         await("Real ViewModel factory must actually be blocked on its missing Surface") {
-            Thread.getAllStackTraces().any { (thread, stack) ->
-                thread.name == "oal-carplay-owner" && stack.any {
-                    it.className == ProjectionViewModel::class.java.name &&
-                        it.methodName == "createProjectionCarPlayRuntime"
-                }
-            }
+            surfaceFlow.value == null && surfaceFlow.subscriptionCount.value == 1
         }
+        val (ownsPermission, _) = manager.iphonePermissionCallbacks(apple)
+        assertTrue("The exact USB selection must own permission before stop", ownsPermission())
         manager.stop()
-        vm.onCarPlaySurfaceAvailable(surface)
+        assertFalse("Stop must revoke that selection before delivering the late Surface", ownsPermission())
+        vm.onCarPlaySurfaceAvailable(lateSurface)
         await("Late factory/owner must retire without requesting permission") { !vm.carPlayState.value.selected }
+        verify(atLeast = 1) { lateSurface.isValid } // Retirement alone could mean the factory simply timed out.
         assertEquals(1, requests)
         verify(exactly = 0) { usb.openDevice(any()) }
     }
