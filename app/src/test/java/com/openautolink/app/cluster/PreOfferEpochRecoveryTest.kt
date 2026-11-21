@@ -81,6 +81,7 @@ class PreOfferEpochRecoveryTest {
         val release=java.util.concurrent.CountDownLatch(1)
         val consumerExited=java.util.concurrent.CountDownLatch(1)
         val drained=java.util.concurrent.CountDownLatch(1)
+        val rejectFirstDrainOffer=java.util.concurrent.atomic.AtomicBoolean(true)
         every { com.openautolink.app.diagnostics.DiagnosticLog.i(any(),any()) } answers {
             val line=secondArg<String>()
             if(line.contains(marker)) {
@@ -92,6 +93,7 @@ class PreOfferEpochRecoveryTest {
         }
         mockkObject(PageReturnDiagnostics)
         every { PageReturnDiagnostics.tryOffer(any()) } answers {
+            if (firstArg<String>() == drainedMarker && rejectFirstDrainOffer.getAndSet(false)) return@answers false
             // Cancellation is an ingress decision, not an asynchronous persistence receipt.
             if(firstArg<String>().contains("stage=preoffer_epoch_retry_wait"))authority.set(false)
             callOriginal()
@@ -120,8 +122,17 @@ class PreOfferEpochRecoveryTest {
             try {
                 try {
                     if(holdConsumer) {
-                        assertTrue(PageReturnDiagnostics.tryOffer(drainedMarker))
-                        assertTrue("Exact held consumer drained before mock removal",drained.await(2,TimeUnit.SECONDS))
+                        // Admission is best-effort. Retry only the test fence, within the
+                        // same cleanup budget; once accepted, wait for that exact marker.
+                        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+                        var admitted = PageReturnDiagnostics.tryOffer(drainedMarker)
+                        while (!admitted && System.nanoTime() < deadline) {
+                            Thread.sleep(1)
+                            admitted = PageReturnDiagnostics.tryOffer(drainedMarker)
+                        }
+                        assertTrue("Cleanup marker must be admitted", admitted)
+                        assertTrue("Exact held consumer drained before mock removal",
+                            drained.await((deadline - System.nanoTime()).coerceAtLeast(0), TimeUnit.NANOSECONDS))
                     }
                 } finally { f.close() }
             } finally { unmockkObject(PageReturnDiagnostics) }
