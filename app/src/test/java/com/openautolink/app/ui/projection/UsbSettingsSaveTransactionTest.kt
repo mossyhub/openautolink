@@ -164,11 +164,26 @@ class UsbSettingsSaveTransactionTest {
         awaitSave(expectReconnect)
     }
     private fun awaitMainOutcome(timeoutMillis: Long, condition: () -> Boolean) {
-        compose.waitUntil(timeoutMillis) {
-            // DataStore/render-worker completion can leave the production continuation queued on Main.
-            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-            compose.waitForIdle()
-            condition()
+        try {
+            compose.waitUntil(timeoutMillis) {
+                // DataStore/render-worker completion can leave the production continuation queued on Main.
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                compose.waitForIdle()
+                condition()
+            }
+        } catch (timeout: androidx.compose.ui.test.ComposeTimeoutException) {
+            // Snapshot before teardown, without draining Main or starting new DataStore reads.
+            val policy = preferences.projectionConnectionPolicy.state.value
+            timeout.addSuppressed(AssertionError(
+                "Save checkpoint: layoutCommits=${layoutCommitCount.get()}, closes=$closes, " +
+                    "reconnects=$reconnects, starts=${startCount.get()}, " +
+                    "saving=${settings.carPlaySettingsSaving.value}, " +
+                    "applyErrorPresent=${settings.carPlayApplyError.value.isNotEmpty()}, " +
+                    "noticePresent=${projection.settingsSaveMessage.value != null}, " +
+                    "policyLoaded=${policy.loaded}, wiredOnly=${policy.wiredOnly}, " +
+                    "policyRevision=${policy.revision}, retirementRequired=${policy.retirementRequired}"
+            ))
+            throw timeout
         }
     }
     private fun awaitSave(expectReconnect: Boolean) {
