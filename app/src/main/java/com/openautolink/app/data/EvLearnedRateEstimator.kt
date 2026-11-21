@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
@@ -307,6 +308,10 @@ class EvLearnedRateEstimator private constructor(
     /** Mutable per-vehicle state, owned by the command actor. The volatile
      * fields also support direct pure-math tests and immutable UI snapshots. */
     internal class VehicleState {
+        // In-memory proof attached to the existing EMA, never persisted or used by its math.
+        var qualificationInput: QualificationInput? = null
+        var qualifiedWindow = false
+        var qualificationScope: EvLearnQualification.Scope? = null
         @Volatile var whPerKm: Float = 0f          // 0 = no data yet
         @Volatile var sampleKm: Float = 0f
         @Volatile var lastUpdateMs: Long = 0L
@@ -323,6 +328,8 @@ class EvLearnedRateEstimator private constructor(
         internal var windowMotorPowerFullyCovered: Boolean = true
 
         internal fun resetTransient() {
+            qualificationInput = null
+            qualifiedWindow = false
             lastBatteryWh = 0
             lastTickElapsedMs = 0L
             lastSpeedKmh = 0f
@@ -350,6 +357,13 @@ class EvLearnedRateEstimator private constructor(
     private val droppedCommands = AtomicLong(0)
     private val continuityGeneration = AtomicLong(0)
     private val tickAdmissionLock = Any()
+    private val resetRevision = AtomicLong(0)
+    private val _qualificationResetRevision = MutableStateFlow(0L)
+    internal val qualificationResetRevision = _qualificationResetRevision.asStateFlow()
+    internal fun currentQualificationResetRevision(): Long = resetRevision.get()
+    internal data class QualificationInput(val scope: EvLearnQualification.Scope, val speedNs: Long, val packNs: Long)
+    private data class QualifiedRate(val key: String, val prior: EvLearnQualification.Prior, val admittedAt: Long, val revision: Long)
+    @Volatile private var qualifiedRate: QualifiedRate? = null
     private val persistFailures = AtomicLong(0)
     private val stateEntryCount = AtomicInteger(0)
     @Volatile private var dirty = false
@@ -364,6 +378,8 @@ class EvLearnedRateEstimator private constructor(
             val data: ControlMessage.VehicleData,
             val elapsedMs: Long,
             val continuityGeneration: Long,
+            val qualificationInput: QualificationInput?,
+            val resetRevision: Long,
         ) : Command
         data class Reset(val key: String?, val done: CompletableDeferred<ResetResult>) : Command
         data class Barrier(val done: CompletableDeferred<Unit>) : Command
@@ -391,7 +407,7 @@ class EvLearnedRateEstimator private constructor(
                         states.values.forEach(VehicleState::resetTransient)
                         actorContinuityGeneration = command.continuityGeneration
                     }
-                    onVehicleTickLoaded(command.data, command.elapsedMs)
+                    onVehicleTickLoaded(command)
                 }
                 is Command.Reset -> command.done.complete(resetLoaded(command.key))
                 is Command.Persist -> persistDirty()
@@ -444,14 +460,21 @@ class EvLearnedRateEstimator private constructor(
      * Feed one VHAL tick. No-op when the data is too thin to learn from.
      * `nowElapsedMs` should be `SystemClock.elapsedRealtime()` (monotonic).
      */
-    fun onVehicleTick(vd: ControlMessage.VehicleData, nowElapsedMs: Long): Boolean {
+    fun onVehicleTick(vd: ControlMessage.VehicleData, nowElapsedMs: Long): Boolean =
+        onProcessVehicleTick(vd, nowElapsedMs, null, -1)
+
+    internal fun onProcessVehicleTick(
+        vd: ControlMessage.VehicleData, nowElapsedMs: Long, input: QualificationInput?, expectedResetRevision: Long,
+    ): Boolean {
         if (!accepting.get()) return rejectAdmission()
         admissionInFlight.incrementAndGet()
         return try {
             if (!accepting.get()) return rejectAdmission()
             val accepted = synchronized(tickAdmissionLock) {
+                val revision = resetRevision.get()
                 val admitted = commands.trySend(
-                    Command.Tick(vd, nowElapsedMs, continuityGeneration.get()),
+                    Command.Tick(vd, nowElapsedMs, continuityGeneration.get(),
+                        input?.takeIf { expectedResetRevision == revision }, revision),
                 ).isSuccess
                 if (!admitted) continuityGeneration.incrementAndGet()
                 admitted
@@ -469,9 +492,11 @@ class EvLearnedRateEstimator private constructor(
     }
 
 
-    private fun onVehicleTickLoaded(vd: ControlMessage.VehicleData, nowElapsedMs: Long) {
+    private fun onVehicleTickLoaded(tick: Command.Tick) {
+        val vd = tick.data
         val key = keyOf(vd)
         if (key == null) {
+            qualifiedRate = null
             activeKey?.let { states[it]?.resetTransient() }
             activeKey = null
             publishRuntimeState()
@@ -490,7 +515,32 @@ class EvLearnedRateEstimator private constructor(
         val s = states.getOrPut(key) { VehicleState() }
         s.lastObservedSequence = ++observationSequence
         val evicted = enforceEntryLimit()
-        val status = applyTick(s, vd, nowElapsedMs)
+        val input = tick.qualificationInput
+        val previous = s.qualificationInput
+        val previousRate = s.whPerKm
+        val proven = input != null && previous != null && input.scope == previous.scope &&
+            s.qualifiedWindow && input.speedNs >= previous.speedNs && input.packNs >= previous.packNs &&
+            tick.elapsedMs - s.lastTickElapsedMs in 1..10_000
+        val status = applyTick(s, vd, tick.elapsedMs)
+        s.qualificationInput = input
+        if (status.startsWith("ok:")) {
+            // Battery delta only: HistoryProvider power has different provenance. A persisted
+            // or mixed EMA can never gain exact proof just by accepting another sample.
+            s.qualificationScope = input?.scope?.takeIf {
+                proven && status.startsWith("ok:bd ") && (previousRate <= 0f || s.qualificationScope == it)
+            }
+            qualifiedRate = if (input != null && s.qualificationScope != null && s.sampleKm >= MIN_USABLE_KM) {
+                QualifiedRate(key, EvLearnQualification.Prior(input.scope,
+                    maxOf(input.speedNs, input.packNs) / 1_000_000L, s.whPerKm.toDouble()), tick.elapsedMs, tick.resetRevision)
+            } else null
+        }
+        s.qualifiedWindow = when {
+            input == null || s.lastTickElapsedMs != tick.elapsedMs -> false
+            status == "init" || status.startsWith("ok:") || status.startsWith("skip:gap=") ||
+                status.startsWith("skip:regen(") || status.startsWith("skip:outlier(") ||
+                status.startsWith("skip:charging") -> true // applyTick opened a new anchor
+            else -> proven
+        }
         if (evicted || status.startsWith("ok:")) markDirty()
         publishActive(key, s, status)
         publishRuntimeState()
@@ -531,6 +581,12 @@ class EvLearnedRateEstimator private constructor(
         return publishedStates[key] ?: Snapshot()
     }
 
+    internal fun qualificationPrior(data: ControlMessage.VehicleData, scope: EvLearnQualification.Scope,
+        openingMs: Long, expectedResetRevision: Long): EvLearnQualification.Prior? = qualifiedRate?.takeIf {
+        it.revision == expectedResetRevision && it.revision == resetRevision.get() && it.key == keyOf(data) &&
+            it.prior.scope == scope && it.prior.trainedThroughElapsedMs < openingMs && it.admittedAt < openingMs
+    }?.prior
+
     /** Breaks delta continuity at producer lifecycle boundaries without erasing learning.
      * Reset and tick admission share one lock, giving callers a linearized boundary:
      * every tick is wholly admitted before the reset or observes its new generation. */
@@ -547,11 +603,15 @@ class EvLearnedRateEstimator private constructor(
         try {
             if (!accepting.get()) return ResetResult.REJECTED_STOPPING
             val done = CompletableDeferred<ResetResult>()
-            if (!commands.trySend(Command.Reset(key, done)).isSuccess) {
+            val revision = synchronized(tickAdmissionLock) {
+                if (commands.trySend(Command.Reset(key, done)).isSuccess) resetRevision.incrementAndGet() else null
+            }
+            if (revision == null) {
                 droppedCommands.incrementAndGet()
                 publishRuntimeState()
                 return ResetResult.REJECTED_BUSY
             }
+            _qualificationResetRevision.update { maxOf(it, revision) }
             return done.await()
         } finally {
             admissionInFlight.decrementAndGet()
@@ -559,6 +619,7 @@ class EvLearnedRateEstimator private constructor(
     }
 
     private suspend fun resetLoaded(key: String?): ResetResult {
+        qualifiedRate = null
         if (key == null) states.clear() else states.remove(key)
         if (key == null || activeKey == key) activeKey = null
         _activeSnapshot.value = Snapshot(key = key, lastTickStatus = "reset")

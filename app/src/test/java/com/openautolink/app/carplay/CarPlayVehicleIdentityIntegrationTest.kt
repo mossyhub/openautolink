@@ -45,7 +45,8 @@ class CarPlayVehicleIdentityIntegrationTest {
     }
 
     @Test fun absentMalformedAndNonElectricIdentityNeverBecomesAGuessedVehicle() {
-        val source = MutableStateFlow(ControlMessage.VehicleData(fuelTypes = listOf(10), carYear = "2024"))
+        val source = MutableStateFlow(ControlMessage.VehicleData(fuelTypes = listOf(10), carYear = "2024",
+            vhalRegistrationGeneration = 1))
         val adapter = OalCarPlayVehicleSnapshotAdapter({ source }, { 1000L })
         assertNull(adapter.capabilities(false).vehicleDisplayName)
         for (bad in listOf("", "   ", "unknown", "null", "n/a", "bad\u0000name", "bad\nname", "é".repeat(41))) {

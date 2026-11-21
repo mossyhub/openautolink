@@ -23,6 +23,14 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
     private val inventory: kotlinx.coroutines.flow.MutableStateFlow<SecondaryInventorySnapshot>) {
     private val job = SupervisorJob()
     private val scope = CoroutineScope(job + Dispatchers.Default)
+    // Decoding two real plists creates distinct ByteArray instances. Compare every
+    // byte and nested field rather than JVM array identity.
+    private fun metadataValue(value: Any?): Any? = when (value) {
+        is ByteArray -> value.toList()
+        is Map<*, *> -> value.mapValues { metadataValue(it.value) }
+        is List<*> -> value.map { metadataValue(it) }
+        else -> value
+    }
     private class Driver: ClusterRenderDriver {
         override fun initialize() = Unit
         override fun configure(config: ClusterCodecConfig) = Unit
@@ -41,6 +49,21 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
     private var view: TextureView? = null
     private var texture: SurfaceTexture? = null
     private var surfaceBoundaryInstalled = false
+    private class StagedSurfaceBoundary(val texture: SurfaceTexture) {
+        val ready = java.util.concurrent.atomic.AtomicBoolean(false)
+    }
+    private var stagedSurfaceBoundary: StagedSurfaceBoundary? = null
+    private fun stageSurfaceBoundary() {
+        check(stagedSurfaceBoundary == null)
+        val boundary = StagedSurfaceBoundary(SurfaceTexture(0))
+        // Own the unused texture before fallible OS-boundary stubbing.
+        stagedSurfaceBoundary = boundary
+        every { constructedWith<Surface>(EqMatcher(boundary.texture)).isValid } answers { boundary.ready.get() }
+        every { constructedWith<Surface>(EqMatcher(boundary.texture)).release() } answers {
+            boundary.ready.set(false)
+            callOriginal()
+        }
+    }
     private fun pump(predicate: () -> Boolean) = compose.waitUntil(5000) {
         shadowOf(Looper.getMainLooper()).idle()
         val intent = shadowOf(app).nextStartedActivity
@@ -58,16 +81,11 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
                 View.MeasureSpec.makeMeasureSpec(descriptor.height, View.MeasureSpec.EXACTLY))
             root.layout(0,0,descriptor.width,descriptor.height); v.layout(0,0,descriptor.width,descriptor.height)
             ClusterDirectVideoLifecycleTest.showOrdinaryWindow(v)
-            texture = SurfaceTexture(0)
+            val boundary = requireNotNull(stagedSurfaceBoundary)
+            stagedSurfaceBoundary = null
+            texture = boundary.texture
+            val surfaceReady = boundary.ready
             ClusterDirectVideoLifecycleTest.TextureBoundary.textures[v] = requireNotNull(texture)
-            // NativeGraphics has no real GL producer for this synthetic TextureView texture.
-            // Model only its exact OS Surface, never all Surfaces or registry/GPU acknowledgments.
-            val surfaceReady = java.util.concurrent.atomic.AtomicBoolean(false)
-            every { constructedWith<Surface>(EqMatcher(requireNotNull(texture))).isValid } answers { surfaceReady.get() }
-            every { constructedWith<Surface>(EqMatcher(requireNotNull(texture))).release() } answers {
-                surfaceReady.set(false)
-                callOriginal()
-            }
             v.surfaceTextureListener!!.onSurfaceTextureAvailable(requireNotNull(texture),descriptor.width,descriptor.height)
             assertFalse("An invalid exact OS surface cannot complete preparation", predicate())
             surfaceReady.set(true)
@@ -86,7 +104,7 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
     }
     fun verify(preferences: SecondaryPreferencesSnapshot, hostLoss: Boolean = false,
         diagnostics: () -> List<String> = { emptyList() }) {
-        // Instrument before starting the original preparation budget, not while it is running.
+        // Stage each exact synthetic texture/matcher boundary before its own preparation budget.
         mockkConstructor(Surface::class)
         surfaceBoundaryInstalled = true
         val saved = requireNotNull(preferences.outputs.getValue(descriptor.id).layout)
@@ -104,6 +122,7 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
             assertEquals(expectedSafe,it.target.safe)
             assertNull("No hosted mapping resurrected",ClusterBindingState.frozenMapBinding())
         }
+        stageSurfaceBoundary()
         val pending = scope.async { runtime.prepareAndroidAuto(601, preferences) }
         pump { pending.isCompleted }
         val aa = runBlocking { pending.await() }
@@ -121,6 +140,7 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
         assertEquals(map.stableContentInsets.right,offer.stableRight); assertEquals(map.stableContentInsets.bottom,offer.stableBottom)
         val retired = aa.retire("Directions fixture explicit reconnect")
         pump { retired.isDone }; assertTrue(retired.get()); destroyActivity()
+        stageSurfaceBoundary()
         val next = scope.async { runtime.prepareAndroidAuto(602, preferences) }
         pump { next.isCompleted }
         val successor = runBlocking { next.await() }
@@ -130,6 +150,7 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
         mapping()
         val successorRetired = successor.retire("Directions fixture protocol switch")
         pump { successorRetired.isDone }; assertTrue(successorRetired.get()); destroyActivity()
+        stageSurfaceBoundary()
         val carPlay = scope.async { runtime.prepareCarPlay(603, preferences) }
         pump { carPlay.isCompleted }
         val cp = runBlocking { carPlay.await() }
@@ -146,6 +167,25 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
         assertEquals("Main /info descriptor stays byte-model identical",before.first(),after.first())
         assertEquals(2,after.size)
         assertEquals(111L,((after[1] as Map<*,*>)["type"] as Number).toLong())
+        val allBefore = wire(null); val allAfter = wire(config.display)
+        // Independent main/audio/HID top-level entries may not drift with safe-only edits.
+        // Advertising ALT intentionally adds these two URL catalogs; all existing
+        // main/audio/HID metadata and the exact remaining key set stay unchanged.
+        assertEquals("/info keys with ALT catalogs",
+            allBefore.keys + setOf("altScreenURLs", "altScreenSuggestUIURLs"), allAfter.keys)
+        for (key in allBefore.keys.filter { it != "displays" }) {
+            assertEquals("unchanged /info $key", metadataValue(allBefore[key]), metadataValue(allAfter[key]))
+        }
+        val alt = after[1] as Map<*,*>
+        assertEquals(config.display.initialUrl, alt["initialURL"])
+        val area = ((alt["viewAreas"] as List<*>).single() as Map<*,*>)
+        val safeWire = area["safeArea"] as Map<*,*>
+        fun number(key: String) = (safeWire[key] as Number).toInt()
+        assertEquals(cpMap.safeInDrawable.left,number("originXPixels"))
+        assertEquals(cpMap.safeInDrawable.top,number("originYPixels"))
+        assertEquals(cpMap.safeInDrawable.width,number("widthPixels"))
+        assertEquals(cpMap.safeInDrawable.height,number("heightPixels"))
+        assertEquals(false,safeWire["drawUIOutsideSafeArea"])
         if (hostLoss) {
             inventory.value = SecondaryInventorySnapshot(inventory.value.revision + 1, emptyList())
             pump { cp.configuration == null }
@@ -158,7 +198,9 @@ internal class DirectSavedDirectionsProtocols(private val compose: ComposeConten
     fun close() {
         val retired = runtime.close()
         pump { retired.isDone }; assertTrue(retired.get())
-        destroyActivity(); job.cancel()
+        destroyActivity()
+        stagedSurfaceBoundary?.texture?.release(); stagedSurfaceBoundary = null
+        job.cancel()
         if (surfaceBoundaryInstalled) { unmockkConstructor(Surface::class); surfaceBoundaryInstalled = false }
     }
 }

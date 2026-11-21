@@ -22,7 +22,8 @@ class CarPlayClusterOfferTest {
         rejected(view=AirPlayInsets(left=100),safe=AirPlayInsets(left=99))
         rejected(width=0); rejected(width=1278); rejected(height=720); rejected(fps=60)
         rejected(selection=exact.copy(width=1282)); rejected(selection=exact.copy(fps=29))
-        rejected(selection=exact.copy(hevcDecoderName="cluster.hevc"))
+        assertTrue(CarPlayClusterVideoConfiguration.create(AirPlayInsets(),AirPlayInsets(),
+            exact.copy(hevcDecoderName="cluster.hevc")).videoSelection.hevcOffered)
         rejected(selection=CarPlayVideoSelection(1280,720,30,"baseline.avc",usedFallback=true))
         assertThrows(IllegalArgumentException::class.java) { exact.copy(avcDecoderName=" ") }
         assertThrows(IllegalArgumentException::class.java) { exact.copy(hevcDecoderName="") }
@@ -68,7 +69,7 @@ class CarPlayClusterOfferTest {
             initialUrl="maps:/car/instrumentcluster/map")
         val config = AirPlayConfig("test","test","test","950.7.1",AirPlayDisplayConfig(1280,720,fps=30),cluster=display)
         assertFalse("an unbound receipt cannot authorize a second display",main.matches(config))
-        val bind = main.javaClass.methods.firstOrNull { it.name == "withCluster" }
+        val bind = main.javaClass.methods.firstOrNull { it.name == "withCluster" && it.parameterCount == 2 }
         assertNotNull("qualified per-display binding is required",bind)
         val bound = bind!!.invoke(main,display,CarPlayVideoSelection(1280,480,30,"cluster.avc")) as CarPlayVideoSelection
         assertTrue("exact main and secondary receipts must match their serialized offer",bound.matches(config))

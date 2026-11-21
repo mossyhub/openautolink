@@ -33,7 +33,7 @@ class CarPlayClusterConstructorTest {
         mockkConstructor(ClusterManager::class)
         try {
             every { ClusterProjectionOutput.qualifiedInitialDisplay(app) } returns display
-            every { com.shilapi.xcertplay.media.CarPlayVideoQualification.select(1280, 480, 30, false) } returns qualified
+            every { com.shilapi.xcertplay.media.CarPlayVideoQualification.selectCluster(any(), any(), false, any()) } returns qualified
             // Reject host admission after inspecting the real bridge. No host/GPU ownership is invented.
             every { anyConstructed<ClusterManager>().beginMapOutput(any(), any(), any(), any(), capture(captured), any()) } returns null
             val output = OalCarPlayClusterOutput.prepare(app, ClusterOutputSelection(ClusterDisplayMode.MAP_VIDEO))

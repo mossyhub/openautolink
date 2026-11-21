@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class VehiclePermissionEnergyDeliveryTest {
     class Value(private val id: Int, private val value: Any?) {
         fun getPropertyId() = id
+        fun getAreaId() = 0
         fun getValue() = value
         fun getTimestamp() = 100L
         fun getStatus() = 0

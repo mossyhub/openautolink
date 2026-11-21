@@ -21,16 +21,16 @@ import com.openautolink.app.ui.projection.ProjectionViewModel
 import com.openautolink.app.ui.projection.ProjectionViewport
 import com.openautolink.app.ui.settings.SettingsScreen
 import com.openautolink.app.ui.settings.SettingsViewModel
-import com.openautolink.app.ui.settings.SafeAreaEditorScreen
 import com.openautolink.app.ui.settings.CarPlaySafeEditor
 import com.openautolink.app.ui.settings.applySettingsAndRestart
+import com.openautolink.app.cluster.ClusterProjectionProtocol
+import com.openautolink.app.session.SessionState
 import kotlinx.coroutines.launch
 
 object AppDestinations {
     const val PROJECTION = "projection"
     const val SETTINGS = "settings"
     const val DIAGNOSTICS = "diagnostics"
-    const val SAFE_AREA_EDITOR = "safe_area_editor"
 }
 
 /** The exact callback shared by overlay and destination; persistence precedes every runtime action. */
@@ -146,13 +146,29 @@ fun AppNavHost(
         onDispose { microphoneBinding.close() }
     }
 
+    // Both Settings roots observe the same typed owner/admission facts. Display prose is not
+    // protocol intent, and a busy/selected CarPlay owner must never admit a physical grid.
+    val projectionUiState by projectionViewModel.uiState.collectAsStateWithLifecycle()
+    val carPlayState by projectionViewModel.carPlayState.collectAsStateWithLifecycle()
+    val directionsProtocol = when {
+        carPlayState.selected -> ClusterProjectionProtocol.CARPLAY
+        projectionUiState.sessionState in setOf(SessionState.CONNECTING, SessionState.CONNECTED, SessionState.STREAMING) ->
+            ClusterProjectionProtocol.ANDROID_AUTO
+        else -> null
+    }
+    val directionsPreviewIdle = projectionUiState.sessionState == SessionState.IDLE &&
+        !carPlayState.selected && !carPlayState.busy
+    val activeProtocolStatus = if (carPlayState.selected) when {
+        carPlayState.evidence.videoRendered && carPlayState.evidence.runtimeAuthenticated -> "CarPlay · video active"
+        carPlayState.busy -> "CarPlay · connecting"
+        else -> "CarPlay · stopped"
+    } else null
+
     NavHost(
         navController = navController,
         startDestination = AppDestinations.PROJECTION
     ) {
         composable(AppDestinations.PROJECTION) {
-            val projectionUiState by projectionViewModel.uiState.collectAsStateWithLifecycle()
-            val carPlayState by projectionViewModel.carPlayState.collectAsStateWithLifecycle()
             val reconnectProjection = rememberProductionProjectionReconnectAction(settingsViewModel, projectionViewModel)
 
             var announcementSettings by remember { mutableStateOf(false) }
@@ -177,18 +193,13 @@ fun AppNavHost(
                         viewModel = settingsViewModel,
                         audioBindings = audioBindings,
                         sessionState = projectionUiState.sessionState,
-                        activeProtocolStatus = if (carPlayState.selected) when {
-                            carPlayState.evidence.videoRendered && carPlayState.evidence.runtimeAuthenticated -> "CarPlay · video active"
-                            carPlayState.busy -> "CarPlay · connecting"
-                            else -> "CarPlay · stopped"
-                        } else null,
+                        activeProtocolStatus = activeProtocolStatus,
+                        activeDirectionsProtocol = directionsProtocol,
+                        directionsPreviewIdle = directionsPreviewIdle,
                         onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel, clusterBindings?.commitLayoutDraft, onBack),
                         onBack = onBack,
                         onNavigateToDiagnostics = onShowDiagnostics,
                         onNavigateToCarPlaySafeAreaEditor = onCarPlaySafeEditor,
-                        onNavigateToSafeAreaEditor = {
-                            navController.navigate(AppDestinations.SAFE_AREA_EDITOR)
-                        },
                     )
                 },
                 diagnosticsOverlay = { onBack ->
@@ -211,12 +222,15 @@ fun AppNavHost(
                         secondarySource = secondarySource,
                     viewModel = settingsViewModel,
                     audioBindings = audioBindings,
+                    sessionState = projectionUiState.sessionState,
+                    activeProtocolStatus = activeProtocolStatus,
+                    activeDirectionsProtocol = directionsProtocol,
+                    directionsPreviewIdle = directionsPreviewIdle,
                     onBack = { navController.popBackStack() },
                     onSaveAndConnect = rememberProductionSettingsSaveAction(settingsViewModel, projectionViewModel, clusterBindings?.commitLayoutDraft) {
                         navController.popBackStack()
                     },
                     onNavigateToDiagnostics = { navController.navigate(AppDestinations.DIAGNOSTICS) },
-                    onNavigateToSafeAreaEditor = { navController.navigate(AppDestinations.SAFE_AREA_EDITOR) },
                     onNavigateToCarPlaySafeAreaEditor = { showCarPlaySafeEditor = true },
                 )
                 if (showCarPlaySafeEditor) ProjectionViewport(uiState.displayMode) {
@@ -226,21 +240,6 @@ fun AppNavHost(
         }
         composable(AppDestinations.DIAGNOSTICS) {
             DiagnosticsScreen(onBack = { navController.popBackStack() }, microphoneController = microphoneBinding.controller, mediaViewModel = mediaDiagnosticsViewModel)
-        }
-        composable(AppDestinations.SAFE_AREA_EDITOR) {
-            val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
-            SafeAreaEditorScreen(
-                initialTop = uiState.safeAreaTop,
-                initialBottom = uiState.safeAreaBottom,
-                initialLeft = uiState.safeAreaLeft,
-                initialRight = uiState.safeAreaRight,
-                displayMode = uiState.displayMode,
-                onDone = { top, bottom, left, right ->
-                    settingsViewModel.updateSafeAreaInsets(top, bottom, left, right)
-                    navController.popBackStack()
-                },
-                onBack = { navController.popBackStack() },
-            )
         }
     }
 }

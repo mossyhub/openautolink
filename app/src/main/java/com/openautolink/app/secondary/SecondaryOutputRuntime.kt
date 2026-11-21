@@ -24,12 +24,17 @@ class SecondaryOutputRuntime internal constructor(
     private val inventory: StateFlow<SecondaryInventorySnapshot>,
     private val renderFactory: (VideoMapping, String) -> ClusterProjectionOutput,
     private val decoder: (Int, Int) -> String,
+    private val videoDecoderProbe: () -> com.shilapi.xcertplay.media.VideoDecoderProbe = {
+        com.shilapi.xcertplay.media.VideoDecoderProbe { request ->
+            if(request.codec == com.shilapi.xcertplay.airplay.VideoCodec.H264) decoder(request.width,request.height) else null
+        }
+    },
 ) {
     constructor(context: Context, inventory: StateFlow<SecondaryInventorySnapshot>) : this(context, inventory,
         { mapping, name -> ClusterProjectionOutput(mapping, avcDecoderName = name) },
         { width, height -> requireNotNull(CarPlayVideoQualification.androidProbe().decoderFor(
             com.shilapi.xcertplay.media.VideoDecoderRequest(com.shilapi.xcertplay.airplay.VideoCodec.H264, width, height, 30))) {
-            "No qualified AVC decoder" } })
+            "No qualified AVC decoder" } }, { CarPlayVideoQualification.androidProbe() })
     private val context = context.applicationContext
     private val lock = Any()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -205,13 +210,13 @@ class SecondaryOutputRuntime internal constructor(
         publishStatus(snapshot)
     }
 
-    private fun begin(authority: () -> Boolean = { true }): Pair<Long, SecondaryOutputReservation<RuntimeOutput>>? {
+    private fun begin(authority: () -> Boolean = { true }, predecessorToken: Long? = null): Pair<Long, SecondaryOutputReservation<RuntimeOutput>>? {
         val previous: SecondaryOutputReservation<RuntimeOutput>?
         val next: SecondaryOutputReservation<RuntimeOutput>
         val token: Long
         synchronized(lock) {
             // Caller supplies an atomic connection ticket, not a blocking/locking callback.
-            if (!authority()) return null
+            if (!authority() || (predecessorToken != null && generation != predecessorToken)) return null
             previous = reservation
             token = ++generation
             next = SecondaryOutputReservation({ revoke(it, SecondaryReason.DISABLED) }, ::retireOutput)
@@ -226,27 +231,42 @@ class SecondaryOutputRuntime internal constructor(
         prepareAndroidAuto(projectionEpoch, preferences) { true }
 
     internal suspend fun prepareAndroidAuto(projectionEpoch: Long, frozenPreferences: SecondaryPreferencesSnapshot,
-        authority: () -> Boolean): PreparedAaSecondaryOutputs {
+        authority: () -> Boolean): PreparedAaSecondaryOutputs = prepareAndroidAuto(projectionEpoch, frozenPreferences, null, authority)
+
+    internal fun warmAaTarget(previous: SecondaryDisplayDescriptor): SecondaryDisplayDescriptor? =
+        inventory.value.displays.singleOrNull { it.id == previous.id }?.takeIf {
+            it.copy(attachmentEpoch = previous.attachmentEpoch) == previous
+        }
+
+    internal class WarmAaStart(val token: Long, val target: SecondaryDisplayDescriptor, val legacy: ClusterOutputSelection)
+
+    internal suspend fun prepareAndroidAuto(projectionEpoch: Long, frozenPreferences: SecondaryPreferencesSnapshot,
+        warm: WarmAaStart?, authority: () -> Boolean): PreparedAaSecondaryOutputs {
         val deadline = System.nanoTime() + PREPARATION_BUDGET_MS * 1_000_000
-        val preferences = frozenAndroidAutoIntent(withDefaultRoles(frozenPreferences), inventory.value)
-        val (token, pending) = begin(authority) ?: return PreparedAaSecondaryOutputs(this, Long.MIN_VALUE,
-            SecondaryOutputReservation({ revoke(it, SecondaryReason.DISABLED) }, ::retireOutput), emptyList(), emptyList(), preferences.legacyCluster.selection)
+        val preferences = if (warm == null) frozenAndroidAutoIntent(withDefaultRoles(frozenPreferences), inventory.value) else frozenPreferences
+        val (token, pending) = begin(authority, warm?.token) ?: return PreparedAaSecondaryOutputs(this, Long.MIN_VALUE,
+            SecondaryOutputReservation({ revoke(it, SecondaryReason.DISABLED) }, ::retireOutput), emptyList(), emptyList(), preferences.legacyCluster.selection, preferences)
         val retainedAtStart = synchronized(lock) { retainedOutput?.takeIf { generation == token } }
         val frozenInventory = try {
-            val live = awaitAndroidAutoInventory(projectionEpoch, token, preferences, deadline, authority)
-            val gm = live.displays.singleOrNull { it.route == SecondaryRoute.GM_HOSTED }
-            if (preferences.legacyCluster.selection.mode == ClusterDisplayMode.MAP_VIDEO &&
-                gm != null && preferences.outputs[gm.id]?.enabled == true && gm.id !in frozenPreferences.outputs && current(token) && authority() &&
-                ClusterDriverDisplayReceipt.QUALIFIED_GM.resolveCandidate(context, gm.displayId, "readiness_migration") != null) {
-                // Durable migration merges current storage, but its returned Save/latest state
-                // must NEVER replace this attempt's pre-wait frozen intent.
-                val migrated = withTimeoutOrNull(remainingBudget(deadline)) {
-                    AppPreferences.getInstance(context).migrateSecondaryClusterPreference(gm.id)
-                    true
-                } == true
-                if (!migrated) live.copy(displays = live.displays.map { if (it.id == gm.id) it.copy(
-                    route = SecondaryRoute.INVENTORY_ONLY, reason = SecondaryReason.DISCONNECTED) else it }) else live
-            } else live
+            if (warm != null) {
+                val live = inventory.value
+                live.copy(displays = listOfNotNull(live.displays.singleOrNull { it.id == warm.target.id }?.takeIf { it == warm.target }))
+            } else {
+                val live = awaitAndroidAutoInventory(projectionEpoch, token, preferences, deadline, authority)
+                val gm = live.displays.singleOrNull { it.route == SecondaryRoute.GM_HOSTED }
+                if (preferences.legacyCluster.selection.mode == ClusterDisplayMode.MAP_VIDEO &&
+                    gm != null && preferences.outputs[gm.id]?.enabled == true && gm.id !in frozenPreferences.outputs && current(token) && authority() &&
+                    ClusterDriverDisplayReceipt.QUALIFIED_GM.resolveCandidate(context, gm.displayId, "readiness_migration") != null) {
+                    // Durable migration merges current storage, but its returned Save/latest state
+                    // must NEVER replace this attempt's pre-wait frozen intent.
+                    val migrated = withTimeoutOrNull(remainingBudget(deadline)) {
+                        AppPreferences.getInstance(context).migrateSecondaryClusterPreference(gm.id)
+                        true
+                    } == true
+                    if (!migrated) live.copy(displays = live.displays.map { if (it.id == gm.id) it.copy(
+                        route = SecondaryRoute.INVENTORY_ONLY, reason = SecondaryReason.DISCONNECTED) else it }) else live
+                } else live
+            }
         } catch (cancelled: CancellationException) {
             pending.retire()
             preparationTrace(projectionEpoch, token, null, "readiness_cancelled")
@@ -254,7 +274,7 @@ class SecondaryOutputRuntime internal constructor(
         }
         val selected = if (current(token) && authority()) candidates(preferences, frozenInventory, carPlay = false) else emptyList()
         traceSettings(projectionEpoch, token, preferences, frozenInventory, false)
-        val retainedRetirement = if (selected.none { it.route == SecondaryRoute.GM_HOSTED } && current(token) && authority())
+        val retainedRetirement = if (warm == null && selected.none { it.route == SecondaryRoute.GM_HOSTED } && current(token) && authority())
             retainedAtStart?.let { cancelRetainedHost(it) } ?: CompletableFuture.completedFuture(true)
             else CompletableFuture.completedFuture(true)
         val prepared = prepare(selected, projectionEpoch, token, pending, preferences, false, authority, deadline)
@@ -300,8 +320,9 @@ class SecondaryOutputRuntime internal constructor(
         }
         preparationTrace(projectionEpoch, token, null, "preparation_complete", "offered=${offers.size} remainingMs=${remainingBudget(deadline)}")
         return PreparedAaSecondaryOutputs(this, token, pending, prepared.filter { it.offer != null }, offers.toList(),
-            nativeSelectionAfterRetirement(effectiveLegacySelection(preferences, frozenInventory, ClusterProjectionProtocol.ANDROID_AUTO),
-                ClusterProjectionProtocol.ANDROID_AUTO, projectionEpoch, token, deadline, authority, retainedRetirement))
+            warm?.legacy ?: nativeSelectionAfterRetirement(effectiveLegacySelection(preferences, frozenInventory, ClusterProjectionProtocol.ANDROID_AUTO),
+                ClusterProjectionProtocol.ANDROID_AUTO, projectionEpoch, token, deadline, authority, retainedRetirement),
+            preferences, warm?.target ?: selected.singleOrNull()?.takeIf { it.route == SecondaryRoute.GM_HOSTED })
     }
 
     /** Resolve only unset presentation roles inside this frozen attempt; never rewrite storage. */
@@ -372,7 +393,8 @@ class SecondaryOutputRuntime internal constructor(
         })
     }
 
-    suspend fun prepareCarPlay(projectionEpoch: Long, preferences: SecondaryPreferencesSnapshot): PreparedCarPlaySecondaryOutput {
+    suspend fun prepareCarPlay(projectionEpoch: Long, preferences: SecondaryPreferencesSnapshot,
+        experimentalHevc: Boolean = false): PreparedCarPlaySecondaryOutput {
         val deadline = System.nanoTime() + PREPARATION_BUDGET_MS * 1_000_000
         val intent = withDefaultRoles(preferences)
         val (token, pending) = requireNotNull(begin())
@@ -386,7 +408,7 @@ class SecondaryOutputRuntime internal constructor(
         }
         val retainedRetirement = if (choices.none { it.route == SecondaryRoute.GM_HOSTED }) cancelRetainedHost()
             else CompletableFuture.completedFuture(true)
-        val prepared = prepare(choices, projectionEpoch, token, pending, intent, true, deadline = deadline)
+        val prepared = prepare(choices, projectionEpoch, token, pending, intent, true, deadline = deadline, experimentalHevc = experimentalHevc)
         val candidate=prepared.singleOrNull()
         val accepted=try {
             candidate?.takeIf { output ->
@@ -396,6 +418,8 @@ class SecondaryOutputRuntime internal constructor(
             }
         } catch(cancelled:CancellationException) { pending.retire();throw cancelled }
         if(candidate!=null && accepted==null) { revoke(candidate,SecondaryReason.HOST_UNAVAILABLE);retireOutput(candidate) }
+        preparationTrace(projectionEpoch, token, null, "carplay_content_prepared",
+            "content=${CarPlayClusterContent.fromUrl(accepted?.configuration?.display?.initialUrl)?.name ?: "absent"} offered=${accepted?.configuration != null}")
         return PreparedCarPlaySecondaryOutput(this, pending, accepted,
             nativeSelectionAfterRetirement(legacy, ClusterProjectionProtocol.CARPLAY, projectionEpoch, token, deadline, { true }, retainedRetirement))
     }
@@ -490,6 +514,7 @@ class SecondaryOutputRuntime internal constructor(
         pending: SecondaryOutputReservation<RuntimeOutput>, preferences: SecondaryPreferencesSnapshot, carPlay: Boolean,
         authority: () -> Boolean = { true },
         deadline: Long = System.nanoTime() + PREPARATION_BUDGET_MS * 1_000_000,
+        experimentalHevc: Boolean = false,
     ): List<RuntimeOutput> = supervisorScope {
         val attempts = selected.map { initialDescriptor -> scope.async(Dispatchers.IO) {
             var descriptor = initialDescriptor
@@ -501,11 +526,16 @@ class SecondaryOutputRuntime internal constructor(
                     if (!current(token)) return@async null
                     val owner = RuntimeOutput(descriptor, token, projectionEpoch, authority)
                     output = owner
+                    owner.experimentalHevc = carPlay && experimentalHevc
                     val finalPreference = preferences.outputs[descriptor.id]
+                    owner.driveCardEnabled = finalPreference?.driveCardEnabled == true
+                    owner.driveCardLayout = finalPreference?.driveCardLayout
                     owner.trace("settings_snapshot", "enabled=${finalPreference?.enabled == true} aa=${finalPreference?.androidAuto == true} cp=${finalPreference?.carPlay == true} role=${finalPreference?.aaRole} protocol=${if (carPlay) "CP" else "AA"}")
                     owner.layout = preferences.outputs[descriptor.id]?.layout
                     owner.carPlayContent = preferences.outputs[descriptor.id]?.carPlayContent
                         ?: CarPlayClusterContent.DEFAULT
+                    if (carPlay) owner.trace("carplay_content_snapshot",
+                        "content=${owner.carPlayContent.name} source=${if (finalPreference?.carPlayContent == null) "default" else "stored"}")
                     owner.directWindow = true
                     owner.selection = preferences.legacyCluster.selection
                     owner.restoreAuthority.observePolicy(preferences.revision)
@@ -596,10 +626,12 @@ class SecondaryOutputRuntime internal constructor(
         output.layoutSelectionReason = resolution.fallbackReason
         output.trace("layout_decision", "mode=${if (resolution.fallbackReason == null) "Custom" else "Auto"} fallback=${resolution.fallbackReason ?: "none"} role=${display.profile.role} panel=${display.profile.panel}")
         output.trace("layout_applied_next_session", "canvas=${display.host.visible.intersect(display.host.stable)} output=${display.effectiveOutput} safe=${display.safe}")
-        val mapping = if (carPlay) ClusterVideoGeometry.carPlay(display) else ClusterVideoGeometry.androidAuto(display)
+        val video = if (carPlay) CarPlayVideoQualification.selectCluster(display.effectiveOutput.width,
+            display.effectiveOutput.height,output.experimentalHevc,videoDecoderProbe()) else null
+        val mapping = if (carPlay) ClusterVideoGeometry.carPlay(display,PixelSize(video!!.width,video.height)) else ClusterVideoGeometry.androidAuto(display)
         output.trace("mapping", "protocol=${if (carPlay) "CP" else "AA"} coded=${mapping.codedSize} crop=${mapping.codecCrop} destination=${mapping.destination}")
         output.trace("safe_insets", "safe=${mapping.phoneSafeInsets} stable=${mapping.stableContentInsets}")
-        val config = if (carPlay) configuration(mapping, output.carPlayContent) else null
+        val config = if (carPlay) configuration(mapping, output.carPlayContent, requireNotNull(video)) else null
         val decoderName = config?.videoSelection?.avcDecoderName ?: decoder(1280, 720)
         check(output.isCurrent()) { "GM preparation authority lost after decoder qualification" }
         val bridge = renderFactory(mapping, decoderName)
@@ -661,7 +693,7 @@ class SecondaryOutputRuntime internal constructor(
             }, restoreAuthority = output.restoreAuthority, restoreCurrent = { synchronized(output.guard) {
                 output.directWindow && output.isCurrent() && output.selected!=null && output.stream!=null && output.retirement==null &&
                     (output.carPlay || output.session?.secondaryVideoSelections?.value?.get(output.offer?.channelId)===output.selected)
-            } })
+            } }, driveCardEnabled = output.driveCardEnabled, driveCardCarPlay = carPlay, driveCardLayout = output.driveCardLayout)
         synchronized(lock) {
             output.handle = handle
             hostOwners[handle.owner] = output
@@ -672,10 +704,9 @@ class SecondaryOutputRuntime internal constructor(
         check(output.isCurrent()) { "Direct host authority lost after readiness" }
     }
 
-    private fun configuration(mapping: VideoMapping,
-        content: CarPlayClusterContent = CarPlayClusterContent.DEFAULT): CarPlayClusterVideoConfiguration {
+    private fun configuration(mapping: VideoMapping, content: CarPlayClusterContent,
+        video: com.shilapi.xcertplay.media.CarPlayVideoSelection): CarPlayClusterVideoConfiguration {
         val safe = mapping.phoneSafeInsets
-        val video = com.shilapi.xcertplay.media.CarPlayVideoSelection(1280, 480, 30, decoder(1280, 480))
         return CarPlayClusterVideoConfiguration.create(AirPlayInsets(0, 0, 0, 0),
             AirPlayInsets(safe.top, safe.bottom, safe.left, safe.right), video, content = content)
     }
@@ -690,6 +721,10 @@ class SecondaryOutputRuntime internal constructor(
         var preparedAtNanos = Long.MAX_VALUE
         var advertised = false
         var carPlay = false
+        var driveCardEnabled = false
+        var driveCardLayout: com.openautolink.app.drivecard.DriveCardLayout? = null
+        /** Explicit caller opt-in, frozen before readiness; never inferred from main HEVC defaults. */
+        var experimentalHevc = false
         var directWindow = false
         var initialHostGeometry: SecondaryHostGeometry? = null
         var layout: SecondaryLayoutPreference? = null
@@ -744,11 +779,21 @@ class SecondaryOutputRuntime internal constructor(
                     return CompletableFuture.completedFuture(false)
                 return existing.attach(lease, receipt.surface, target)
             }
+            // Qualify ONCE before CarPlay fit validation. A legacy 1280x480 estimate must not
+            // reject a custom rectangle that fits the actually selected full-height canvas.
+            val video = if (carPlay) {
+                val output = if (directWindow) panel.bounds else SecondaryRuntimeLayouts.target(
+                    descriptor, layout, panel, measured.safe, android.os.Build.PRODUCT,
+                    android.os.Build.FINGERPRINT).output
+                CarPlayVideoQualification.selectCluster(output.width, output.height,
+                    experimentalHevc, videoDecoderProbe())
+            } else null
             val target = SecondaryRuntimeLayouts.target(descriptor, layout, panel, measured.safe,
-                android.os.Build.PRODUCT, android.os.Build.FINGERPRINT, carPlay = carPlay, safeOnly = directWindow)
-            val baseMapping = if (carPlay) SecondaryVideoMapping.carPlay(target) else SecondaryVideoMapping.androidAuto(target)
+                android.os.Build.PRODUCT, android.os.Build.FINGERPRINT, carPlay = carPlay, safeOnly = directWindow,
+                carPlayCodedSize = video?.let { PixelSize(it.width, it.height) } ?: panel)
+            val baseMapping = if (carPlay) SecondaryVideoMapping.carPlay(target,PixelSize(video!!.width,video.height)) else SecondaryVideoMapping.androidAuto(target)
             val mapping = if (directWindow) RetainedWindowMapping(baseMapping) else baseMapping
-            val config = if (carPlay) configuration(mapping, carPlayContent) else null
+            val config = if (carPlay) configuration(mapping, carPlayContent, requireNotNull(video)) else null
             val name = config?.videoSelection?.avcDecoderName ?: decoder(1280, 720)
             val next = renderFactory(mapping, name)
             check(next.bindLease(lease))
@@ -772,7 +817,7 @@ class SecondaryOutputRuntime internal constructor(
         }
         output.startupSummary("retired_without_present")
         output.trace("revoke", "reason=$reason phoneReason=unknown received=${output.bridge?.status?.value?.received ?: 0} decoded=${output.bridge?.status?.value?.decoded ?: 0} presented=${output.bridge?.status?.value?.presented ?: 0}")
-        output.offer?.let { output.session?.retireSecondaryVideo(it.channelId) }
+        output.offer?.let { output.session?.retireSecondaryVideo(it) }
         publish(output, reason)
     }
 
@@ -848,8 +893,8 @@ class SecondaryOutputRuntime internal constructor(
             synchronized(output.guard) {
             if (output.session !== session) return@forEach
             if (output.revoked) {
-                output.offer?.channelId?.let { channel ->
-                    if (session.secondaryVideoSelections.value.containsKey(channel)) session.retireSecondaryVideo(channel)
+                output.offer?.let { offer ->
+                    if (session.secondaryVideoSelections.value.containsKey(offer.channelId)) session.retireSecondaryVideo(offer)
                 }
                 return@forEach
             }
@@ -904,18 +949,24 @@ class SecondaryOutputRuntime internal constructor(
             if(changed)restoreChanged()
             publish(output, if (output.stream != null) SecondaryReason.NONE else SecondaryReason.PHONE_NOT_SELECTED)
         }
-        override fun onCodecConfig(streamEpoch: Long, codecData: ByteArray) = synchronized(output.guard) {
-            output.trace("cp_config", "wireEpoch=$streamEpoch validSize=${codecData.size in 7..65536} current=${!output.revoked && output.cpWireEpoch == streamEpoch}")
-            if (output.revoked || output.cpWireEpoch != streamEpoch || codecData.size !in 7..65536) return@synchronized
-            val stream = output.stream ?: return@synchronized
-            runCatching {
-                val (sps, pps) = MediaCodecSupport.avcParameterSets(codecData)
-                if (sps.isNotEmpty() && pps.isNotEmpty()) output.bridge?.let { bridge ->
-                    bridge.configure(output.lease, stream, ClusterCodecConfig(bridge.mapping.codedSize,
-                        START + sps, START + pps, output.configuration?.videoSelection?.avcDecoderName))
+        override fun onCodecConfig(streamEpoch: Long, codecData: ByteArray) {
+            var rejected=false
+            synchronized(output.guard) {
+                output.trace("cp_config", "wireEpoch=$streamEpoch validSize=${codecData.size in 7..65536} current=${!output.revoked && output.cpWireEpoch == streamEpoch}")
+                if (output.revoked || output.cpWireEpoch != streamEpoch) return@synchronized
+                val stream = output.stream ?: return@synchronized
+                runCatching {
+                    val config = ClusterCodecConfig.carPlay(codecData, requireNotNull(output.configuration).videoSelection)
+                    check(output.bridge?.configure(output.lease, stream, config) == true)
+                }.onFailure {
+                    output.bridge?.endStream(output.lease,stream)
+                    output.stream=null;output.selected=null
+                    output.restoreAuthority.install(output,null,null,null)
+                    output.trace("cp_config_rejected","wireEpoch=$streamEpoch optionalOnly=true")
+                    rejected=true
                 }
             }
-            Unit
+            if(rejected) { restoreChanged();publish(output,SecondaryReason.PHONE_NOT_SELECTED) }
         }
         override fun onFrame(streamEpoch: Long, naluBytes: ByteArray) = synchronized(output.guard) {
             if (output.revoked || output.cpWireEpoch != streamEpoch) return@synchronized
@@ -970,10 +1021,37 @@ class PreparedAaSecondaryOutputs internal constructor(
     private val outputs: List<SecondaryOutputRuntime.RuntimeOutput>,
     val offers: List<AasdkSecondaryVideoOffer>,
     internal val legacySelection: ClusterOutputSelection,
+    private val preferences: SecondaryPreferencesSnapshot,
+    private val warmTarget: SecondaryDisplayDescriptor? = null,
 ) {
     internal val hostedManager: ClusterManager? get() = runtime.hostedManager(outputs)
     internal val layoutSelectionReason: ClusterLayoutFallbackReason? get() = runtime.hostedLayoutSelectionReason()
     private var collection: Job? = null
+    internal fun currentOffers(): List<AasdkSecondaryVideoOffer> = outputs.mapNotNull { output ->
+        output.offer?.takeIf { output.isCurrent() }
+    }
+
+    internal fun reusableOffers(): List<AasdkSecondaryVideoOffer> = outputs.mapNotNull { output ->
+        val offer = output.offer ?: return@mapNotNull null
+        if (!output.isCurrent()) return@mapNotNull null
+        // Sample Main-confined state, but never wait for pending GPU/Surface cleanup.
+        val ready = runBlocking {
+            withTimeoutOrNull(250) { output.handle?.let { SecondaryOutputRuntime.await(it.readyForReuse()) } }
+        }
+        offer.takeIf { ready == true && output.isCurrent() }
+    }
+
+    internal suspend fun requalifyForWarmStart(projectionEpoch: Long, authority: () -> Boolean): PreparedAaSecondaryOutputs? {
+        // AA currently admits one secondary. A retained attempt can only replace that
+        // output, not select a different display, resample Save, or hot-add a channel.
+        val previous = outputs.singleOrNull()?.descriptor ?: warmTarget ?: return null
+        val target = runtime.warmAaTarget(previous) ?: return null
+        // Do not wait on pending/failed cleanup while holding the transport start lane.
+        // Keep this attempt as the retry target until exact retirement is acknowledged.
+        if (!authority() || !retire("warm AA predecessor").getNow(false)) return null
+        return runtime.prepareAndroidAuto(projectionEpoch, preferences,
+            SecondaryOutputRuntime.WarmAaStart(token, target, legacySelection), authority).takeUnless { it.token == Long.MIN_VALUE }
+    }
     fun bind(session: AasdkSession) { runtime.bind(token, outputs, session) }
     /** One collector per transport generation; caller owns its lifecycle. */
     internal fun collect(scope: CoroutineScope, session: AasdkSession) {

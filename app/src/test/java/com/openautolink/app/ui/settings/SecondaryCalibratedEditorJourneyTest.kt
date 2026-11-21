@@ -65,6 +65,9 @@ class SecondaryCalibratedEditorJourneyTest {
     @Test fun migratedEditorCustomAndAutomaticSurviveGlobalSaveAndColdReopen() = runBlocking<Unit> {
         var data = store()
         var prefs = preferences(data)
+        // This journey qualifies Android Auto migration, not the default CarPlay
+        // connection. Persist its real normal-mode intent before mounting Settings.
+        prefs.setCarPlayEnabled(false)
         prefs.setClusterOutputSelection(ClusterOutputSelection(ClusterDisplayMode.MAP_VIDEO))
         val original = SecondaryLayoutPreference(requireNotNull(secondaryLayoutScope(display)),
             SecondaryLayoutBox(.1,.1,.9,.9), SecondaryLayoutBox(.3,.2,.7,.7),
@@ -94,7 +97,10 @@ class SecondaryCalibratedEditorJourneyTest {
                     assertTrue(model.carPlayApplyError.value, model.commitSettings { true }); saves++
                 } }) }
         } }
-        fun loaded() = await { model.clusterLoaded.value && model.carPlaySettingsLoaded.value && model.secondaryPreferences.value != null }
+        fun loaded() {
+            await { model.clusterLoaded.value && model.carPlaySettingsLoaded.value && model.secondaryPreferences.value != null }
+            assertFalse("AA calibration journey retains AA next-connection intent", model.carPlaySettings.value.enabled)
+        }
         fun tab() { compose.onNodeWithTag("settingsTab_INSTRUMENT_CLUSTER").performScrollTo().performClick() }
         fun editor() { compose.onNodeWithTag("secondaryImportantContentEditor").performScrollTo().performClick() }
         fun done() { compose.onNodeWithTag("liveGridBack").performClick() }

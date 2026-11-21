@@ -1,9 +1,11 @@
 package com.openautolink.app.ui.settings
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openautolink.app.data.AppPreferences
+import com.openautolink.app.data.EvReceiverField
 import com.openautolink.app.data.ClusterOutputPreferences
 import com.openautolink.app.cluster.ClusterDisplayMode
 import com.openautolink.app.cluster.ClusterOutputSelection
@@ -16,6 +18,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.openautolink.app.transport.bluetooth.WppConfigBtServer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +28,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.IOException
 
 data class SettingsUiState(
     val directTransport: String = AppPreferences.DEFAULT_DIRECT_TRANSPORT,
@@ -198,7 +202,15 @@ internal class CarPlaySettingsDraft {
         val (pendingEdits, pendingPassword, revision) = synchronized(this) { Triple(edits.toList(), password, passwordRevision) }
         if (pendingEdits.isEmpty() && pendingPassword == null) return true
         return try {
-            persist({ latest -> pendingEdits.fold(latest) { value, edit -> edit(value) } }, pendingPassword)
+            persist({ latest ->
+                val next = pendingEdits.fold(latest) { value, edit -> edit(value) }
+                // The ordinary UI no longer edits legacy calibration. Only validate a changed
+                // calibration so an old unusable record cannot block the new EV switch or Save.
+                if (next.evRoutingPilot != latest.evRoutingPilot) {
+                    require(next.evRoutingPilot.validationError() == null)
+                }
+                next
+            }, pendingPassword)
             synchronized(this) {
                 edits.subList(0, pendingEdits.size).clear()
                 if (passwordRevision == revision) password = null
@@ -245,7 +257,7 @@ internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
     settings.widthPhysicalMm !in com.openautolink.carplaylab.media.CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM ||
         settings.physicalWidthDraft?.let { it != settings.widthPhysicalMm.toString() } == true ->
         "Enter a whole number from 100 to 400 for UI calibration in Display."
-    else -> null
+    else -> settings.evAverageDcChargeError()
 }
 
 class SettingsViewModel @JvmOverloads constructor(
@@ -258,6 +270,15 @@ class SettingsViewModel @JvmOverloads constructor(
 
     private val preferences = AppPreferences.getInstance(application)
     private val wppConfigServer = WppConfigBtServer(application, viewModelScope)
+    private data class SafeAreaDraft(val top: Int, val bottom: Int, val left: Int, val right: Int)
+    private val safeAreaDraft = MutableStateFlow<SafeAreaDraft?>(null)
+
+    private suspend fun persistSafeAreaDraft() {
+        val draft = safeAreaDraft.value ?: return
+        preferences.setSafeAreaInsets(draft.top, draft.bottom, draft.left, draft.right)
+        safeAreaDraft.compareAndSet(draft, null)
+    }
+
     private val wiredOnlyEdit = MutableStateFlow<Boolean?>(null)
     private var wiredOnlyChangedBySave = false
     fun consumeWiredOnlySaveChange(): Boolean = wiredOnlyChangedBySave.also { wiredOnlyChangedBySave = false }
@@ -408,6 +429,9 @@ class SettingsViewModel @JvmOverloads constructor(
                 receipt.event(stage, "unavailable", "acceptedEdits=false")
                 stage = "wired-only"
                 persistWiredOnlyDraft()
+                stage = "safe-area"
+                persistSafeAreaDraft()
+                receipt.event(stage, "success")
                 return@withContext true
             }
             val layoutSaved = try { commitLayoutDraft() }
@@ -418,6 +442,9 @@ class SettingsViewModel @JvmOverloads constructor(
             if (layoutSaved) {
                 stage = "wired-only"
                 persistWiredOnlyDraft()
+                stage = "safe-area"
+                persistSafeAreaDraft()
+                receipt.event(stage, "success")
             }
             layoutSaved
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -745,9 +772,15 @@ class SettingsViewModel @JvmOverloads constructor(
         _wppChannelMhzOverride,
         galVersion,
         seedIdrThresholds,
+        safeAreaDraft,
     ) { arr ->
         val state = arr[0] as SettingsUiState
+        val controlArea = arr[9] as SafeAreaDraft?
         state.copy(
+            safeAreaTop = controlArea?.top ?: state.safeAreaTop,
+            safeAreaBottom = controlArea?.bottom ?: state.safeAreaBottom,
+            safeAreaLeft = controlArea?.left ?: state.safeAreaLeft,
+            safeAreaRight = controlArea?.right ?: state.safeAreaRight,
             hotspotSsid = arr[1] as String, hotspotPassword = arr[2] as String,
             directTransport = arr[3] as String, wppBssid = arr[4] as String,
             wppApInterface = arr[5] as String,
@@ -1033,21 +1066,35 @@ class SettingsViewModel @JvmOverloads constructor(
         viewModelScope.launch { preferences.setLogUploadEnabled(enabled) }
     }
 
-    fun updateEvContributionConsent(enabled: Boolean) {
-        viewModelScope.launch {
-            val binding = if (enabled) {
-                com.openautolink.app.diagnostics.EvContributionConsentBinding.create(
-                    uiState.value.logUploadUrl,
-                    uiState.value.logUploadToken,
-                )?.encode() ?: run {
-                    com.openautolink.app.diagnostics.EvContributionService.reportConsentInvalid(
-                        "A valid HTTPS upload URL and non-empty token are required",
-                    )
-                    return@launch
-                }
-            } else null
-            preferences.setEvContributionConsent(enabled, binding)
-        }
+    private val evRenewal = EvContributionRenewal(
+        preferences = preferences,
+        rawParkCurrent = {
+            val data = com.openautolink.app.input.ProcessVehicleDataRuntime.latestVehicleData()?.value
+            data != null && com.openautolink.app.diagnostics.EvFreshParkGate().run {
+                val now = SystemClock.elapsedRealtime()
+                observe(data, now)
+                rawParkAuthorization(now)
+            }
+        },
+        supportsAccuracy = EvReceiverCapability()::supportsAccuracy,
+    )
+
+    /** Called only by the explicit confirmation, in the lifetime of the Diagnostics pane. */
+    internal suspend fun updateEvContributionConsent(): EvRenewalResult = try {
+        evRenewal.renew()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: IOException) {
+        EvRenewalResult.SAVE_FAILED
+    }
+
+    fun disableEvContributionConsent() = mutateEvReceiverSettings(EvReceiverField.OFF)
+
+    private fun mutateEvReceiverSettings(field: EvReceiverField, value: String = "") {
+        // All Settings entry points reserve against the shared store before dispatch.
+        val write = preferences.reserveEvReceiverWrite(field, value)
+        viewModelScope.launch { preferences.applyEvReceiverWrite(write) }
+            .invokeOnCompletion { preferences.finishEvReceiverWrite(write) }
     }
 
     fun deletePendingEvContributions() {
@@ -1060,13 +1107,9 @@ class SettingsViewModel @JvmOverloads constructor(
         viewModelScope.launch { preferences.setSimulateIgnitionButton(enabled) }
     }
 
-    fun updateLogUploadUrl(url: String) {
-        viewModelScope.launch { preferences.setLogUploadUrl(url) }
-    }
+    fun updateLogUploadUrl(url: String) = mutateEvReceiverSettings(EvReceiverField.URL, url)
 
-    fun updateLogUploadToken(token: String) {
-        viewModelScope.launch { preferences.setLogUploadToken(token) }
-    }
+    fun updateLogUploadToken(token: String) = mutateEvReceiverSettings(EvReceiverField.TOKEN, token)
 
     fun updateLogUploadDeviceLabel(label: String) {
         viewModelScope.launch { preferences.setLogUploadDeviceLabel(label) }
@@ -1099,13 +1142,10 @@ class SettingsViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Editor Done stages next-session control-area values; only shared Save persists them. */
     fun updateSafeAreaInsets(top: Int, bottom: Int, left: Int, right: Int) {
-        viewModelScope.launch {
-            preferences.setSafeAreaTop(top)
-            preferences.setSafeAreaBottom(bottom)
-            preferences.setSafeAreaLeft(left)
-            preferences.setSafeAreaRight(right)
-        }
+        if (settingsEditsBlocked) return
+        safeAreaDraft.value = SafeAreaDraft(top, bottom, left, right)
     }
 
     fun updateKeyRemap(json: String) {

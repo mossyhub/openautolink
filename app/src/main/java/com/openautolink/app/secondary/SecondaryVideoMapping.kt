@@ -48,9 +48,9 @@ class SecondaryVideoMapping(
     companion object {
         private val CARPLAY_CODED_SIZE = PixelSize(1280, 480)
 
-        /** Exact current alternate fit, rounded inward so essential pixels never occupy bars. */
-        internal fun carPlayDestination(output: PixelRect): PixelRect =
-            ClusterVideoTransform.aspectFit(CARPLAY_CODED_SIZE.bounds, output).destination.inward()
+        /** Fit the selected alternate canvas inward; the default is the legacy fallback only. */
+        internal fun carPlayDestination(output: PixelRect, coded: PixelSize = CARPLAY_CODED_SIZE): PixelRect =
+            ClusterVideoTransform.aspectFit(coded.bounds, output).destination.inward()
 
         fun androidAuto(target: SecondaryRenderTarget): SecondaryVideoMapping {
             val coded = PixelSize(1280, 720)
@@ -70,8 +70,7 @@ class SecondaryVideoMapping(
         }
 
         /** Current qualified alternate AVC format only; caller supplies exact named decoder receipt. */
-        fun carPlay(target: SecondaryRenderTarget): SecondaryVideoMapping {
-            val coded = CARPLAY_CODED_SIZE
+        fun carPlay(target: SecondaryRenderTarget, coded: PixelSize = CARPLAY_CODED_SIZE): SecondaryVideoMapping {
             return SecondaryVideoMapping(target, coded, coded.bounds, 30)
         }
     }

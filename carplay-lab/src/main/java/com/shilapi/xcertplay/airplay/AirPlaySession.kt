@@ -112,6 +112,7 @@ class AirPlaySession @JvmOverloads constructor(
     @Volatile var clusterStream = 0
         private set
     private var clusterStreamSetups = 0
+    private val clusterDiagnosticOwner = clusterDiagnosticOwners.incrementAndGet()
     @Volatile private var mainScreenToken: Any? = null
 
     private val closed = AtomicBoolean(false)
@@ -223,30 +224,21 @@ class AirPlaySession @JvmOverloads constructor(
             if (closed.get() || clusterStream <= 0) return false
             val content = synchronized(clusterContentLock) { clusterContent } ?: return false
             if (!shown) {
-                val sent = sendCommand(mapOf("type" to "stopUI",
-                    "params" to mapOf("uuid" to AirPlayInfoPlist.ALT_UUID)))
-                return synchronized(clusterContentLock) {
-                    val current = clusterContent ?: return false
-                    if (closed.get() || current.stream != content.stream) {
-                        if (sent) clusterContent = current.copy(displayed = null, shown = false, token = Any())
-                        return false
-                    }
-                    if (sent) clusterContent = current.copy(shown = false)
-                    sent
-                }
+                return writeClusterContent(content, null)
             }
             return showClusterUrl(content, content.requested ?: return false)
         }
     }
 
     private data class ClusterContent(val stream: Int, val requested: String?, val displayed: String?,
-        val shown: Boolean = true, val token: Any = Any())
+        val shown: Boolean = true, val token: Any = Any(), val setupReplied: Boolean = false,
+        val initialSelectionAttempted: Boolean = false)
     private val clusterContentLock = Any()
     private val clusterCommandLock = Any()
     @Volatile private var clusterContent: ClusterContent? = null
     private var requestedClusterUrl = config.cluster?.initialUrl // guarded by clusterContentLock
 
-    /** Last delivered content for this stream. Pending selections never grant wheel zoom eligibility. */
+    /** Last locally written content, not phone acknowledgment. Pending selections never grant zoom. */
     fun clusterUrl(): String? = clusterContentRoute()?.second
 
     /** One immutable snapshot keeps content and generation checks consistent without locking keys. */
@@ -258,7 +250,7 @@ class AirPlaySession @JvmOverloads constructor(
 
     /**
      * Switches the dashboard to another of the iPhone's `altScreenURLs` without reconnecting: `showUI`
-     * with that URL and a keyframe (on a Tang this switches map, turn card and both at once). With [send]
+     * with that URL and a keyframe. The bare URL selects Apple's cluster view, not a promised layout. With [send]
      * false (the map is paused) the URL is only kept for the next `showUI`. False without a cluster stream.
      */
     fun setClusterUrl(url: String, send: Boolean): Boolean {
@@ -285,28 +277,55 @@ class AirPlaySession @JvmOverloads constructor(
     }
 
     private fun showClusterUrl(content: ClusterContent, url: String): Boolean {
-        if (closed.get() || clusterStream != content.stream) return false
-        val uuid = AirPlayInfoPlist.ALT_UUID
-        val uiSent = sendCommand(mapOf("type" to "showUI", "params" to mapOf("uuid" to uuid, "url" to url)))
-        val sent = uiSent && clusterStream == content.stream && !closed.get() &&
-            sendCommand(mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to uuid)))
-        return synchronized(clusterContentLock) {
-            val current = clusterContent ?: return false
-            if (closed.get() || current.stream != content.stream || clusterStream != content.stream) {
-                // A command already in flight can outlast re-SETUP. Its displayed result is unknown.
-                if (uiSent) clusterContent = current.copy(displayed = null, token = Any())
-                return false
+        return writeClusterContent(content, url)
+    }
+
+    /** Writer -> exact content admission, never content -> writer. Retirement can invalidate a
+     * queued writer, but cannot replace its epoch halfway through write/flush. Defer close because
+     * media retirement can take the engine monitor before this admission lock.
+     */
+    private fun writeClusterContent(content: ClusterContent, url: String?, initial: Boolean = false): Boolean {
+        // Do not wait for a writer on a transport which is not ready yet. Recheck under admission.
+        if (closed.get() || !content.setupReplied || !encryptedEventReady) return false
+        var failure: Exception? = null
+        var attempted = false
+        var uiSent = false
+        var keyframeSent = false
+        val sent = synchronized(eventWriteLock) {
+            synchronized(clusterContentLock) {
+                val current = clusterContent
+                if (closed.get() || current == null || current.stream != content.stream ||
+                    clusterStream != content.stream || !current.setupReplied || !encryptedEventReady ||
+                    (initial && (!current.shown || current.initialSelectionAttempted || current.requested != url))) {
+                    false
+                } else {
+                    attempted = true
+                    val admitted = current.copy(initialSelectionAttempted = true)
+                    clusterContent = admitted
+                    val onFailure: (Exception) -> Unit = { failure = it; closed.set(true) }
+                    val uuid = AirPlayInfoPlist.ALT_UUID
+                    uiSent = sendCommandLocked(mapOf("type" to if (url == null) "stopUI" else "showUI",
+                        "params" to if (url == null) mapOf("uuid" to uuid) else mapOf("uuid" to uuid, "url" to url)),
+                        onFailure = onFailure)
+                    keyframeSent = url != null && uiSent && !closed.get() && sendCommandLocked(
+                        mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to uuid)), onFailure = onFailure)
+                    val complete = uiSent && (url == null || keyframeSent) && !closed.get()
+                    if (uiSent) clusterContent = admitted.copy(displayed = if (complete) url else null,
+                        shown = url != null, token = Any())
+                    complete
+                }
             }
-            if (uiSent) clusterContent = current.copy(displayed = if (sent) url else null,
-                shown = true, token = Any())
-            sent
         }
+        if (attempted && url != null) clusterDiagnostic("BENCH_DIAG clusterSelection epoch=${content.stream} " +
+            "content=${clusterUrlClass(url)} showWritten=$uiSent keyframeWritten=$keyframeSent")
+        failure?.let { commandWriteFailed(it) }
+        return sent
     }
 
     private fun beginClusterContent() = synchronized(clusterContentLock) {
         val stream = ++clusterStreamSetups
-        val initial = config.cluster?.initialUrl
-        clusterContent = ClusterContent(stream, requestedClusterUrl, initial)
+        // initialURL is an offer, not an acknowledgment that the phone selected or drew it.
+        clusterContent = ClusterContent(stream, requestedClusterUrl, null)
         clusterStream = stream
     }
 
@@ -315,14 +334,25 @@ class AirPlaySession @JvmOverloads constructor(
         clusterContent = null
     }
 
-    // Re-SETUP starts at initialURL. Reapply the saved live selection only after SETUP was answered,
-    // or the event channel becomes ready, without claiming it was displayed before delivery.
+    // Both gates are required, in either order. Equality with initialURL cannot suppress selection.
     private fun reapplyClusterContent() {
+        // A no-work control completion must not queue behind an explicit writer that teardown
+        // has already revoked. The exact epoch and gates are revalidated at the actual write.
+        val pending = clusterContent ?: return
+        if (pending.initialSelectionAttempted || !pending.setupReplied || !encryptedEventReady) return
         synchronized(clusterCommandLock) {
             val content = clusterContent ?: return
             val requested = content.requested ?: return
-            if (content.shown && requested != content.displayed) showClusterUrl(content, requested)
+            if (content.shown && !content.initialSelectionAttempted)
+                writeClusterContent(content, requested, initial = true)
         }
+    }
+
+    private fun clusterUrlClass(url: String?): String =
+        com.openautolink.carplaylab.media.CarPlayClusterContent.fromUrl(url)?.name ?: if (url == null) "absent" else "other"
+
+    private fun clusterDiagnostic(message: String) {
+        runCatching { listener.onDebugLog("$message owner=$clusterDiagnosticOwner") }
     }
 
     /**
@@ -593,6 +623,7 @@ class AirPlaySession @JvmOverloads constructor(
                 accumulated += plaintext
                 val parsed = RtspMessage.parseMessages(accumulated)
                 accumulated = parsed.rest
+                var repliedClusterEpoch: Int? = null
                 for (request in parsed.messages) {
                     val cseq = request.headers["cseq"] ?: "-"
                     val path = request.path.lowercase()
@@ -616,6 +647,9 @@ class AirPlaySession @JvmOverloads constructor(
                         val streamsReply = runCatching { asMap(BplistCodec.decode(response.body))?.get("streams") as? List<*> }.getOrNull()
                         streamsReply?.forEach { entry ->
                             val replyMap = asMap(entry) ?: return@forEach
+                            if ((response.status ?: 200) == 200 &&
+                                (replyMap["type"] as? Number)?.toInt() == STREAM_TYPE_ALT_SCREEN)
+                                repliedClusterEpoch = clusterStream.takeIf { it > 0 }
                             listener.onDebugLog("BENCH_DIAG streamReply type=${(replyMap["type"] as? Number)?.toLong()} port=${(replyMap["dataPort"] as? Number)?.toLong()} streamId=${(replyMap["streamID"] as? Number)?.toLong()}")
                         }
                     }
@@ -631,7 +665,7 @@ class AirPlaySession @JvmOverloads constructor(
                     }
                 }
                 output.flush()
-                notifySetupResponseSent()
+                notifySetupResponseSent(repliedClusterEpoch)
             }
         } catch (error: Exception) {
             closeReason = "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
@@ -703,6 +737,7 @@ class AirPlaySession @JvmOverloads constructor(
                         else com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits,
                     microphoneCapability = offeredMicrophone, videoSelection = videoSelection)
                 val audioRows = info["audioFormats"] as? List<*> ?: emptyList<Any>()
+                clusterDiagnostic(AirPlayInfoPlist.clusterOfferDiagnostic(info))
                 AudioOfferDiagnostics.lines(info).forEach(listener::onDebugLog)
                 listener.onDebugLog("BENCH_DIAG audioOfferRows=${audioRows.size} codecBits=${(outputAudioFormats ?: com.shilapi.xcertplay.media.AndroidAudioDecoderSupport.availableBits).sorted().joinToString(",")}")
                 if (request.body.isNotEmpty()) {
@@ -733,7 +768,11 @@ class AirPlaySession @JvmOverloads constructor(
         }
     }
 
-    private fun notifySetupResponseSent() {
+    private fun notifySetupResponseSent(repliedClusterEpoch: Int?) {
+        synchronized(clusterContentLock) {
+            clusterContent?.takeIf { it.stream == repliedClusterEpoch && !closed.get() }
+                ?.let { clusterContent = it.copy(setupReplied = true) }
+        }
         try {
             media.onSetupResponseSent(this)
         } catch (error: Exception) {
@@ -830,7 +869,15 @@ class AirPlaySession @JvmOverloads constructor(
                     Unit
                     if (port != null) {
                         activeStreams.add(type)
-                        if (type == STREAM_TYPE_ALT_SCREEN) beginClusterContent()
+                        if (type == STREAM_TYPE_ALT_SCREEN) {
+                            beginClusterContent()
+                            val requestUuid = when (stream["uuid"]) {
+                                null -> "absent"
+                                AirPlayInfoPlist.ALT_UUID -> "match"
+                                else -> "mismatch"
+                            }
+                            clusterDiagnostic("BENCH_DIAG clusterSetup epoch=$clusterStream requestUuid=$requestUuid target=alt")
+                        }
                         else mainScreenToken = Any()
                         result.add(linkedMapOf("type" to type, "dataPort" to port))
                     }
@@ -1085,6 +1132,7 @@ class AirPlaySession @JvmOverloads constructor(
     }
 
     private companion object {
+        val clusterDiagnosticOwners = java.util.concurrent.atomic.AtomicLong()
         const val TAG = "xcertplay-usb"
         const val PLIST_CONTENT_TYPE = "application/x-apple-binary-plist"
         const val PAIRING_CONTENT_TYPE = "application/pairing+tlv8"

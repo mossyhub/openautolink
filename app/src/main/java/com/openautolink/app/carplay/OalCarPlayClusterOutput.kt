@@ -76,13 +76,15 @@ class OalCarPlayClusterOutput internal constructor(
     }
     private fun legacyCodecConfig(streamEpoch: Long, codecData: ByteArray) = synchronized(lock) {
         val current = stream ?: return@synchronized
-        if (revoked || wireEpoch != streamEpoch || codecData.size !in 7..65536) return@synchronized
+        if (revoked || wireEpoch != streamEpoch) return@synchronized
         try {
-            val (sps, pps) = MediaCodecSupport.avcParameterSets(codecData)
-            if (sps.isEmpty() || pps.isEmpty()) { localError = "Cluster AVC configuration rejected"; return@synchronized }
-            bridge!!.configure(lease!!, current, ClusterCodecConfig(bridge.mapping.codedSize,
-                START + sps, START + pps, decoderName = configuration!!.videoSelection.avcDecoderName))
-        } catch (_: Exception) { localError = "Cluster AVC configuration rejected" }
+            val config = ClusterCodecConfig.carPlay(codecData, configuration!!.videoSelection)
+            if (!bridge!!.configure(lease!!, current, config)) throw IllegalArgumentException("Cluster configuration not admitted")
+        } catch (_: Exception) {
+            // Do not continue decoding with the previous CSD after a rejected replacement.
+            bridge?.endStream(lease!!, current); stream = null
+            localError = "Cluster video configuration rejected"
+        }
     }
 
     override fun onFrame(streamEpoch: Long, naluBytes: ByteArray) {
@@ -149,7 +151,7 @@ class OalCarPlayClusterOutput internal constructor(
         internal fun hasOutstandingMapOutput(): Boolean = synchronized(admissionLock) { owner != null } ||
             com.openautolink.app.secondary.SecondaryOutputRuntime.hasOutstandingHostedMapOutput()
 
-        fun prepare(context: Context, selection: ClusterOutputSelection): OalCarPlayClusterOutput = synchronized(admissionLock) {
+        fun prepare(context: Context, selection: ClusterOutputSelection, experimentalHevc: Boolean = false): OalCarPlayClusterOutput = synchronized(admissionLock) {
             var layoutReason: ClusterLayoutFallbackReason? = null
             fun withheld(error: String? = null) = OalCarPlayClusterOutput(selection, null, null, null, null,
                 initialError = error, layoutSelectionReason = layoutReason)
@@ -171,9 +173,10 @@ class OalCarPlayClusterOutput internal constructor(
                 layoutReason = resolution.fallbackReason
                 com.openautolink.app.diagnostics.DiagnosticLog.i("cluster",
                     "CarPlay layout selection: ${layoutReason?.name ?: "CUSTOM"}")
-                val mapping = ClusterVideoGeometry.carPlay(display)
+                val video = CarPlayVideoQualification.selectCluster(display.effectiveOutput.width,
+                    display.effectiveOutput.height, experimentalHevc)
+                val mapping = ClusterVideoGeometry.carPlay(display,PixelSize(video.width,video.height))
                 val insets = mapping.phoneSafeInsets
-                val video = CarPlayVideoQualification.select(1280, 480, 30, preferHevc = false)
                 val config = CarPlayClusterVideoConfiguration.create(AirPlayInsets(0, 0, 0, 0),
                     AirPlayInsets(insets.top, insets.bottom, insets.left, insets.right), video)
                 bridge = ClusterProjectionOutput(mapping, avcDecoderName = config.videoSelection.avcDecoderName)

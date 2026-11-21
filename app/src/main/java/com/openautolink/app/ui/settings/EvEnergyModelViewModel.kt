@@ -13,10 +13,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 /**
  * Backs [EvEnergyModelScreen]. State is driven entirely by [AppPreferences];
- * the live readout reads from [SessionManager.vehicleData].
+ * the live readout observes the existing process-owned vehicle stream without requiring a phone.
  *
  * See docs/ev-energy-model-tuning-plan.md.
  */
@@ -37,6 +39,9 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
         val profilesLastUpdateMs: Long = 0L,
         val profilesUpdateUrl: String = AppPreferences.DEFAULT_EV_PROFILES_UPDATE_URL,
         val refreshing: Boolean = false,
+        val distanceUnits: String = "auto",
+        val learnEvaluationEnabled: Boolean = false,
+        val learnEvaluationLoaded: Boolean = false,
     )
 
     /** Result of the bundled-profile lookup for the currently connected car. */
@@ -52,8 +57,7 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Snapshot of the most recent VHAL data the live-readout card displays.
-     * `derivedWhPerKm` is the C++ legacy formula; `effectiveWhPerKm` is what
-     * we actually send (override-aware).
+     * Rates are local previews. A selected override is not proof it reached the phone.
      */
     data class LiveReadout(
         val hasData: Boolean = false,
@@ -64,6 +68,8 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
         val derivedWhPerKm: Float = 0f,
         val effectiveWhPerKm: Float = 0f,
         val socPct: Float = 0f,
+        val batteryAvailable: Boolean = hasData,
+        val rangeAvailable: Boolean = hasData,
     )
 
     private val prefs = AppPreferences.getInstance(app.applicationContext)
@@ -81,9 +87,12 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
     private val _learned = MutableStateFlow(EvLearnedRateEstimator.Snapshot())
     val learned: StateFlow<EvLearnedRateEstimator.Snapshot> = _learned.asStateFlow()
 
+    internal val learnEvaluationStatus = com.openautolink.app.input.ProcessVehicleDataRuntime.learnQualificationStatus
+
     /** Snackbar / toast events. Cleared by the UI after read. */
     private val _events = MutableStateFlow<String?>(null)
     val events: StateFlow<String?> = _events.asStateFlow()
+    private var lastVehicle: ControlMessage.VehicleData? = null
 
     init {
         viewModelScope.launch {
@@ -100,6 +109,8 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.evUseEpaBaseline,
                 prefs.evProfilesLastUpdateMs,
                 prefs.evProfilesUpdateUrl,
+                prefs.distanceUnits,
+                prefs.evLearnEvaluationEnabled,
             ) { values: Array<Any> ->
                 UiState(
                     tuningEnabled = values[0] as Boolean,
@@ -115,15 +126,19 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
                     profilesLastUpdateMs = values[10] as Long,
                     profilesUpdateUrl = values[11] as String,
                     refreshing = _state.value.refreshing,
+                    distanceUnits = values[12] as String,
+                    learnEvaluationEnabled = values[13] as Boolean,
+                    learnEvaluationLoaded = true,
                 )
             }.collect { _state.value = it }
         }
 
-        // Live readout — observe SessionManager's vehicle data flow, recompute
-        // derived/effective Wh/km on each tick.
+        // Read-only observation of the existing producer: no extra VHAL subscription/consumer.
         viewModelScope.launch {
-            val sm = SessionManager.instanceOrNull()
-            sm?.vehicleData?.collect { vd ->
+            val source = com.openautolink.app.input.ProcessVehicleDataRuntime.latestVehicleData()
+                ?: SessionManager.instanceOrNull()?.vehicleData
+            source?.collect { vd ->
+                lastVehicle = vd
                 _readout.value = computeReadout(vd, _state.value)
                 _profileMatch.value = computeProfileMatch(vd)
             }
@@ -137,18 +152,32 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
         // Recompute readout when sliders change (so effectiveWhPerKm tracks UI).
         viewModelScope.launch {
             _state.collect { ui ->
-                val vd = SessionManager.instanceOrNull()?.vehicleData?.value
+                val vd = lastVehicle
                 if (vd != null) _readout.value = computeReadout(vd, ui)
+            }
+        }
+        // Expire the display even if a disconnected producer emits nothing further. This only
+        // revalidates the retained observation; it never re-ages or rereads vehicle properties.
+        viewModelScope.launch {
+            while (isActive) {
+                delay(5_000)
+                lastVehicle?.let { _readout.value = computeReadout(it, _state.value) }
             }
         }
     }
 
     private fun computeReadout(vd: ControlMessage.VehicleData, ui: UiState): LiveReadout {
-        val batteryWh = vd.evBatteryLevelWh?.toInt() ?: 0
-        val capacityWh = vd.evBatteryCapacityWh?.toInt() ?: 0
-        val rangeM = ((vd.rangeKm ?: 0f) * 1000).toInt()
+        // Reuse the production source/status/generation/freshness boundary. Nonnull cached
+        // scalars alone must never turn this screen Ready after the car source goes stale.
+        val qualified = com.openautolink.app.carplay.OalCarPlayVehicleSnapshotAdapter(
+            source = { MutableStateFlow(vd) },
+        ).snapshot()
+        val battery = qualified?.currentChargeWh?.takeIf { it <= Int.MAX_VALUE }?.toInt()
+        val capacityWh = qualified?.maxChargeWh?.takeIf { it <= Int.MAX_VALUE }?.toInt() ?: 0
+        val range = vd.rangeKm?.takeIf { qualified?.rangeKm != null }?.let { (it * 1000).toInt() }
+        val batteryWh = battery ?: 0
+        val rangeM = range ?: 0
         val chargeW = vd.evChargeRateW?.toInt() ?: 0
-        if (capacityWh <= 0 || batteryWh <= 0) return LiveReadout(hasData = false)
         val derived = if (rangeM > 0) (batteryWh.toFloat() / rangeM.toFloat()) * 1000f else 0f
         val effective = if (!ui.tuningEnabled) derived else when (ui.drivingMode) {
             AppPreferences.EV_DRIVING_MODE_MANUAL -> ui.drivingWhPerKm.toFloat()
@@ -160,14 +189,16 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
             else -> derived
         }
         return LiveReadout(
-            hasData = true,
+            hasData = battery != null && range != null,
             batteryWh = batteryWh,
             capacityWh = capacityWh,
             rangeM = rangeM,
             chargeW = chargeW,
             derivedWhPerKm = derived,
             effectiveWhPerKm = effective,
-            socPct = (batteryWh.toFloat() / capacityWh.toFloat()) * 100f,
+            socPct = if (capacityWh > 0) (batteryWh.toFloat() / capacityWh.toFloat()) * 100f else 0f,
+            batteryAvailable = battery != null,
+            rangeAvailable = range != null,
         )
     }
 
@@ -202,10 +233,21 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val ok = sm.forceSendEnergyModel()
-        _events.value = if (ok) "Sent updated energy model" else "No EV battery data yet."
+        _events.value = if (ok) "Vehicle-data resend requested" else "No EV battery data yet."
     }
 
     fun consumeEvent() { _events.value = null }
+
+    fun setLearnEvaluationEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                prefs.setEvLearnEvaluationEnabled(enabled)
+                if (_events.value == "Could not save Learn Mode.") _events.value = null
+            } catch (_: java.io.IOException) {
+                _events.value = "Could not save Learn Mode."
+            }
+        }
+    }
 
     /** Phase 3' — reset learned EMA for the active vehicle. */
     fun resetLearnedRate() {
@@ -258,8 +300,7 @@ class EvEnergyModelViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.setEvProfilesLastUpdateMs(System.currentTimeMillis())
                 _events.value = "Updated EV profile database ($n profiles)"
                 // Re-run match against new data.
-                val sm = SessionManager.instanceOrNull()
-                sm?.vehicleData?.value?.let { _profileMatch.value = computeProfileMatch(it) }
+                lastVehicle?.let { _profileMatch.value = computeProfileMatch(it) }
             } else {
                 _events.value = "Update failed — check your internet connection."
             }

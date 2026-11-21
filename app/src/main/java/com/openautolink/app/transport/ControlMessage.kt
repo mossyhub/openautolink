@@ -195,6 +195,8 @@ sealed class ControlMessage {
         // Local diagnostics only; never changes value acceptance or the AA wire protocol.
         val evObservationMetadata: Map<String, VehiclePropertyObservation> = emptyMap(),
         val vhalRegistrationGeneration: Long? = null,
+        // Local CarPlay source only; never used as AA lowFuel.
+        val evLowRangeWarning: Boolean? = null,
     ) : ControlMessage()
 
     data class SatelliteInfo(

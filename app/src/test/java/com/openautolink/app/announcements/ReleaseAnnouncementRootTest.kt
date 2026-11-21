@@ -170,6 +170,35 @@ class ReleaseAnnouncementRootTest {
         coVerify(exactly = 0) { session.reconnect(codecPreference=any(),micSourcePreference=any(),scalingMode=any(),directTransport=any(),wppInterfaceName=any(),hotspotSsid=any(),hotspotPassword=any(),videoAutoNegotiate=any(),aaResolution=any(),aaDpi=any(),aaAutoDpi=any(),aaWidthMargin=any(),aaHeightMargin=any(),aaPixelAspect=any(),aaTargetLayoutWidthDp=any(),aaViewingDistanceMm=any(),aaDecoderAdditionalDepth=any(),aaAutoMargins=any(),videoFps=any(),driveSide=any(),hideClock=any(),hideSignal=any(),hideBattery=any(),volumeOffsetMedia=any(),volumeOffsetNavigation=any(),volumeOffsetAssistant=any(),manualIpAddress=any(),safeAreaTop=any(),safeAreaBottom=any(),safeAreaLeft=any(),safeAreaRight=any(),gpsForwarding=any(),galVersion=any(),seedIdrThresholds=any()) }
     }
 
+    // Research packet: uses the existing real dispatch + fixture only. Not executed here.
+    private fun savedUsbCarPlayMustNotMaskActualWppOwner(state: SessionState) = runBlocking<Unit> {
+        preferences.setCarPlaySettings(CarPlaySettings(enabled = true, connectionMode = "usb"))
+        preferences.setDirectTransport("wpp")
+        sessionState.value = state
+        every { session.transportMode } returns MutableStateFlow("wpp")
+        every { session.reconnectAttempt } returns MutableStateFlow(1)
+        every { session.hasCurrentWppOwner() } returns true
+        every { session.externalUsbTransport } returns false
+        mount(store = null)
+        val dispatched = java.util.concurrent.atomic.AtomicInteger()
+        compose.runOnIdle {
+            projection.reconnectAfterSettingsSave { dispatched.incrementAndGet() }
+        }
+        compose.waitUntil(5000) {
+            shadowOf(Looper.getMainLooper()).idle()
+            dispatched.get() > 0 || projection.settingsSaveMessage.value != null
+        }
+        assertFalse("A retained WPP owner is not a physical USB connection",
+            projection.settingsSaveMessage.value?.contains("Unplug and reconnect USB") == true)
+        assertEquals("Committed Save must reach AA re-preparation, not retain old sdrConfig", 1, dispatched.get())
+    }
+
+    @Test fun configuredNextUsbCarPlayDoesNotMaskStreamingWppSave() =
+        savedUsbCarPlayMustNotMaskActualWppOwner(SessionState.STREAMING)
+
+    @Test fun configuredNextUsbCarPlayDoesNotMaskIdleRetainedWppSave() =
+        savedUsbCarPlayMustNotMaskActualWppOwner(SessionState.IDLE)
+
     @Test fun connectedUsbAnnouncementUsesSameOverlayAndPreservesPendingSaveGuidance() = runBlocking<Unit> {
         preferences.setDirectTransport("usb")
         every { session.transportMode } returns MutableStateFlow("usb")

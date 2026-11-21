@@ -91,6 +91,7 @@ class IconsOnlyNativeGuidanceTest {
         every { f.session.secondaryVideoFrames } returns emptyFlow()
         every { f.session.secondaryVideoSelections } returns MutableStateFlow(emptyMap())
         every { f.session.evTelemetryToken } returns "icons-fixture"
+        every { f.session.sdrConfig } returns com.openautolink.app.transport.aasdk.AasdkSdrConfig()
         every { f.session.reconnectAttempt } returns MutableStateFlow(0)
         every { f.session.vehicleEnergyForecast } returns MutableStateFlow(null)
         every { f.session.negotiatedCodecType } returns MutableStateFlow(0)

@@ -131,6 +131,8 @@ fun CarPlaySettingsSection(viewModel: SettingsViewModel) {
             style = MaterialTheme.typography.bodyMedium)
     }
 
+    SettingsHelp("Battery sharing and EV routing are managed in EV & routing.")
+
     var password: String? by remember { mutableStateOf(viewModel.pendingCarPlayPassword()) }
     var advanced by remember { mutableStateOf(false) }
     var phoneMenu by remember { mutableStateOf(false) }
@@ -360,7 +362,7 @@ fun CarPlayDisplaySettingsSection(
             Text("CarPlay safe area", style = MaterialTheme.typography.titleMedium)
             OutlinedButton(onClick = onNavigateToCarPlaySafeAreaEditor, enabled = !saving,
                 modifier = Modifier.testTag("carPlaySafeAreaEditor")) { Text("Calibrate safe controls") }
-            Text("Background can extend to the edges; controls stay inside your manual safe rectangle. No automatic curve detection.",
+            Text("Main screen. Set a control area for CarPlay; the background may extend beyond it. Use only if controls are hidden or cut off.",
                 style = MaterialTheme.typography.bodyMedium)
             Text("Safe edges: T ${settings.safeTop / 100.0}% · B ${settings.safeBottom / 100.0}% · L ${settings.safeLeft / 100.0}% · R ${settings.safeRight / 100.0}%",
                 style = MaterialTheme.typography.bodyMedium)
@@ -591,7 +593,7 @@ fun CarPlayVideoSettingsSection(viewModel: SettingsViewModel) {
                     }
                 }
             }
-            SettingsHelp("Automatic codec always retains H.264 and offers HEVC only when the same exact size, rate and profile qualify. Automatic is the default for new settings; saved H.264 choices are preserved. HEVC has been verified on one phone/display after a negotiation correction, not on every device. If connection fails, select H.264, save changes, then reconnect your phone. Local qualification is not phone acceptance; no automatic retry is performed.")
+            SettingsHelp("Automatic prefers qualified HEVC on the main and driver displays and retains H.264 fallback. Saved H.264 choices are preserved. If connection fails, select H.264, save changes, then reconnect your phone.")
         }
 
         if (videoError != null) Text(videoError, color = MaterialTheme.colorScheme.error)

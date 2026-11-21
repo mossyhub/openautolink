@@ -11,6 +11,8 @@
         <intent><action android:name="android.car.intent.action.MEDIA_TEMPLATE" /></intent>
         <package android:name="com.android.car.settings" />
         <package android:name="com.android.server.telecom" />
+        <!-- Resource-only optional Drive Card typeface; no package code or OEM privilege. -->
+        <package android:name="chevrolet.vcd_chevy_ff.systemui" />
         <intent>
             <action android:name="android.settings.SOUND_SETTINGS" />
         </intent>

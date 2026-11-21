@@ -49,7 +49,7 @@ class SessionReadinessInstrumentationTest {
         val sessionSource = projectFile(
             "app/src/main/java/com/openautolink/app/transport/aasdk/AasdkSession.kt",
         ).readText()
-        val started = sessionSource.indexOf("override fun onSessionStarted()")
+        val started = sessionSource.indexOf("\n    override fun onSessionStarted()")
         val stopped = sessionSource.indexOf("override fun onSessionStopped", startIndex = started)
         assertTrue("Native onSessionStarted callback must exist", started >= 0)
         assertTrue("Native callback block must have a boundary", stopped > started)

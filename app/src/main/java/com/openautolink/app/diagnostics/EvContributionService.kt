@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.SystemClock
 import com.openautolink.app.data.AppPreferences
+import com.openautolink.app.data.EvContributionScope
 import com.openautolink.app.navigation.VehicleEnergyForecast
 import com.openautolink.app.session.SessionState
 import com.openautolink.app.transport.ControlMessage
@@ -13,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +36,7 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /** Process-scope, default-off compact EV capture and passive event-driven drain. */
@@ -59,6 +62,19 @@ object EvContributionService {
     private val activeUploadJob = EvUploadJobOwnership<Job>()
     @Volatile internal var afterUploadOwnerInstalled: ((Job) -> Unit)? = null
     private val destructiveLane = EvDestructiveLane()
+    private val accuracyCapture = EvAccuracyCapture { UUID.randomUUID().toString() }
+    private val accuracyEpoch = AtomicLong()
+    private val accuracyVehicleOrdinal = AtomicLong()
+    private val accuracyInputs = Channel<AccuracyInput>(capacity = 64)
+
+    private sealed interface AccuracyInput {
+        val receipt: ConsentReceipt
+        val epoch: Long
+        data class Vehicle(override val receipt: ConsentReceipt, override val epoch: Long,
+            val ordinal: Long, val data: ControlMessage.VehicleData, val elapsed: Long, val wall: Long) : AccuracyInput
+        data class Forecast(override val receipt: ConsentReceipt, override val epoch: Long,
+            val forecast: VehicleEnergyForecast) : AccuracyInput
+    }
     private val reevaluation = EarliestOneShotDeadline(SystemClock::elapsedRealtime) { delayMs, task ->
         val job = scope.launch { delay(delayMs); task() }
         EarliestOneShotDeadline.Cancellable { job.cancel() }
@@ -66,14 +82,17 @@ object EvContributionService {
     private val _status = MutableStateFlow(Status())
     val status: StateFlow<Status> = _status.asStateFlow()
 
-    @Volatile private var consentBinding: EvContributionConsentBinding? = null
-    @Volatile private var uploadUrl = ""
-    @Volatile private var token = ""
+    private class ConsentReceipt(
+        val prefs: AppPreferences,
+        val saved: EvContributionScope,
+        val binding: EvContributionConsentBinding,
+    )
+
+    @Volatile private var consentReceipt: ConsentReceipt? = null
     @Volatile private var authFenced = false
     @Volatile private var deletionFailureBlocked = false
     @Volatile private var orphanUploadBlocked = false
     @Volatile private var queue: EvContributionQueue? = null
-    @Volatile private var appContext: Context? = null
     private val driveIdentityOwner = EvContributionDriveIdentityOwner { UUID.randomUUID().toString() }
     private val processGeneration = UUID.randomUUID().toString()
     private val freshParkGate = EvFreshParkGate()
@@ -94,7 +113,6 @@ object EvContributionService {
     fun initialize(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
         val app = context.applicationContext
-        appContext = app
         processStartedElapsedMs = SystemClock.elapsedRealtime()
         freshParkGate.clear()
         rawParked = false
@@ -118,6 +136,7 @@ object EvContributionService {
             runCatching { publishStatus(it) }
                 .onFailure { error -> DiagnosticLog.w("ev_contribution", "statusRecoveryFailed=${error.javaClass.simpleName}") }
         }
+        scope.launch { recordAccuracyInputs() }
         installPassiveNetworkObserver(app)
         observeConsent(app)
         evaluateProcessStartNetwork(app)
@@ -126,22 +145,21 @@ object EvContributionService {
     private fun observeConsent(context: Context) {
         val prefs = AppPreferences.getInstance(context)
         scope.launch {
-            combine(
-                prefs.evContributionConsent,
-                prefs.evContributionBinding,
-                prefs.logUploadUrl,
-                prefs.logUploadToken,
-                prefs.logUploadDeviceLabel,
-            ) { enabled, encoded, url, secret, label -> ConsentConfig(enabled, encoded, url, secret, label) }
-                .collect { config ->
+            // The label is never transmitted, but an edit still retires in-flight I/O.
+            combine(prefs.evContributionScope, prefs.logUploadDeviceLabel) { saved, label -> saved to label }
+                .collect { (saved, _) ->
                     destructiveLane.withTurn {
-                        val decoded = EvContributionConsentBinding.decode(config.encoded)
-                        val valid = config.enabled && decoded?.matches(config.url, config.token) == true
+                        val decoded = EvContributionConsentBinding.decode(saved.binding)
+                        val next = decoded?.takeIf { saved.enabled && it.matches(saved.url, saved.token) }
+                            ?.let { ConsentReceipt(prefs, saved, it) }
+                        val valid = next != null
                         val deletionLease = lifecycle.beginDestructiveOperation {
-                            uploadUrl = config.url
-                            token = config.token
-                            consentBinding = decoded.takeIf { valid }
-                            authFenced = config.enabled && !valid
+                            val previous = consentReceipt
+                            consentReceipt = next
+                            authFenced = saved.enabled && !valid
+                            if (previous?.binding?.accuracy == true || next?.binding?.accuracy == true || !valid) {
+                                accuracyEpoch.incrementAndGet()
+                            }
                             if (!valid) {
                                 driveIdentityOwner.clear()
                                 activeId = null
@@ -166,16 +184,17 @@ object EvContributionService {
                                     q.completeDeletion(checkNotNull(deleted))
                                 }
                             } else !mustDelete
-                            val currentValid = consentBinding?.matches(uploadUrl, token) == true && !authFenced
+                            val currentValid = consentReceipt != null && !authFenced
                             orphanUploadBlocked = quiescence.orphaned || activeUploadJob.isOrphaned()
                             val resume = currentValid && deletionComplete && q?.isDeletionBlocked() != true && !orphanUploadBlocked
                             lifecycle.finishDestructiveOperation(deletionLease, resumeAdmissions = resume)
+                            if (decoded?.accuracy == true) accuracyEpoch.incrementAndGet()
                             finished = true
                             deletionFailureBlocked = !deletionComplete || q?.isDeletionBlocked() == true
                             _status.value = _status.value.copy(
                                 consentValid = currentValid,
                                 consentInvalidReason = if (currentValid) "" else when {
-                                    !config.enabled -> "Not opted in"
+                                    !saved.enabled -> "Not opted in"
                                     decoded == null -> "Consent binding is missing or obsolete"
                                     else -> "Endpoint or credential changed; opt in again"
                                 },
@@ -184,7 +203,7 @@ object EvContributionService {
                             )
                             deleted?.let { DiagnosticLog.i("ev_contribution", "serializedDelete=${it.display()}") }
                             if (resume) {
-                                DiagnosticLog.i("ev_contribution", "consent=on schema=2 compactEvOnly=true")
+                                DiagnosticLog.i("ev_contribution", "consent=on schema=${decoded?.payloadSchema()} compactEvOnly=true")
                                 attemptNaturalDrain("consent-valid")
                             }
                             q?.let(::publishStatus)
@@ -238,10 +257,21 @@ object EvContributionService {
         attemptNaturalDrain("process-start")
     }
 
+    // Pending receiver intent fences admissions, never committed-consent deletion.
+    private fun captureCurrent(receipt: ConsentReceipt): Boolean =
+        consentReceipt === receipt && !authFenced && !deletionFailureBlocked &&
+            receipt.prefs.isEvCaptureScopeCurrent(receipt.saved.revision)
+
+    private fun <T> withCapture(lease: EvContributionLifecycleGate.Lease, receipt: ConsentReceipt, action: () -> T): T? =
+        lifecycle.withCurrent(lease) { if (captureCurrent(receipt)) action() else null }
+
     /** Called for every raw VHAL batch, independently of projection and tuning. */
     @Synchronized
     fun onVehicle(data: ControlMessage.VehicleData, nowElapsedMs: Long = SystemClock.elapsedRealtime()) {
-        val parked = freshParkGate.observe(data, nowElapsedMs)
+        val epoch = accuracyEpoch.get()
+        val receipt = consentReceipt
+        val legacyParked = freshParkGate.observe(data, nowElapsedMs)
+        val parked = if (receipt?.binding?.accuracy == true) freshParkGate.rawParkAuthorization(nowElapsedMs) else legacyParked
         if (!parked) {
             lifecycle.invalidate {
                 rawIgnition = data.ignitionState
@@ -253,15 +283,19 @@ object EvContributionService {
             rawParked = true
         }
 
+        receipt ?: return
+        val binding = receipt.binding
+        val captureLease = lifecycle.admitCapture { captureCurrent(receipt) } ?: return
+        if (binding.accuracy) {
+            accuracyInputs.trySend(AccuracyInput.Vehicle(receipt, epoch, accuracyVehicleOrdinal.incrementAndGet(),
+                data, nowElapsedMs, System.currentTimeMillis()))
+            return
+        }
         val q = queue ?: return
-        val binding = consentBinding
-        val captureLease = lifecycle.admitCapture {
-            binding != null && EvContributionPolicy.mayCapture(binding, uploadUrl, token) && !authFenced && !deletionFailureBlocked
-        } ?: return
         if (!parked) {
             val identity = EvVehicleCalibrationIdentity.from(data) ?: return
             val previousId = activeId
-            val transition = lifecycle.withCurrent(captureLease) {
+            val transition = withCapture(captureLease, receipt) {
                 driveIdentityOwner.observe(identity).also { change ->
                     change.closeId?.let { closing -> q.close(closing, System.currentTimeMillis()) }
                 }
@@ -297,8 +331,8 @@ object EvContributionService {
             // generate identical compact rows many times within one bucket.
             if (!vehicleSampleDedup.shouldRecord(line)) return
             runCatching {
-                checkNotNull(lifecycle.withCurrent(captureLease) {
-                    q.append(id, activeStartedMs, line, binding!!.tokenFingerprint, identity.pseudonymousLabel)
+                checkNotNull(withCapture(captureLease, receipt) {
+                    q.append(id, activeStartedMs, line, binding.tokenFingerprint, identity.pseudonymousLabel)
                 }) { "capture generation invalidated" }
                 vehicleSampleDedup.recorded(line)
             }
@@ -311,7 +345,7 @@ object EvContributionService {
             return
         }
         activeId?.let { id ->
-            lifecycle.withCurrent(captureLease) { q.close(id, System.currentTimeMillis()) } ?: return
+            withCapture(captureLease, receipt) { q.close(id, System.currentTimeMillis()) } ?: return
             driveIdentityOwner.close()
             activeId = null; activeIdentity = null; resetDriveContinuity()
             DiagnosticLog.i("ev_contribution", "closed retained=${q.counters().retained}")
@@ -322,11 +356,15 @@ object EvContributionService {
 
     @Synchronized
     fun onForecast(forecast: VehicleEnergyForecast?) {
-        val binding = consentBinding ?: return
-        if (forecast == null || !binding.matches(uploadUrl, token)) return
-        val captureLease = lifecycle.admitCapture {
-            consentBinding == binding && !authFenced && !deletionFailureBlocked
-        } ?: return
+        val epoch = accuracyEpoch.get()
+        val receipt = consentReceipt ?: return
+        val binding = receipt.binding
+        if (forecast == null) return
+        val captureLease = lifecycle.admitCapture { captureCurrent(receipt) } ?: return
+        if (binding.accuracy) {
+            accuracyInputs.trySend(AccuracyInput.Forecast(receipt, epoch, forecast))
+            return
+        }
         val id = activeId ?: return
         val identity = activeIdentity ?: return
         val q = queue ?: return
@@ -338,11 +376,56 @@ object EvContributionService {
             put("vehicleClass", identity.pseudonymousLabel.removePrefix("ev-class-"))
         }.toString()
         runCatching {
-            checkNotNull(lifecycle.withCurrent(captureLease) {
+            checkNotNull(withCapture(captureLease, receipt) {
                 q.append(id, activeStartedMs, line, binding.tokenFingerprint, identity.pseudonymousLabel)
             }) { "capture generation invalidated" }
         }
             .onFailure { DiagnosticLog.w("ev_contribution", "forecastRejected=${it.javaClass.simpleName}") }
+    }
+
+    private suspend fun recordAccuracyInputs() {
+        var observedEpoch = -1L
+        var previousOrdinal: Long? = null
+        for (input in accuracyInputs) {
+            val q = queue ?: continue
+            var accepted = false
+            // Queue I/O does not hold the lifecycle monitor. The destructive lane orders
+            // it against consent/config changes and user deletion; producers never wait on it.
+            destructiveLane.withTurn {
+                fun current() = accuracyEpoch.get() == input.epoch && captureCurrent(input.receipt)
+                if (lifecycle.admitCapture(::current) == null) return@withTurn
+                val binding = input.receipt.binding
+                runCatching {
+                    if (observedEpoch != input.epoch) {
+                        if (!current()) return@runCatching
+                        accuracyCapture.close(q, System.currentTimeMillis(), EvAccuracyClosure.INTERRUPTED)
+                        observedEpoch = input.epoch
+                        previousOrdinal = null
+                    }
+                    when (input) {
+                        is AccuracyInput.Vehicle -> {
+                            if (previousOrdinal?.let { input.ordinal != it + 1 } == true) {
+                                if (!current()) return@runCatching
+                                accuracyCapture.close(q, input.wall, EvAccuracyClosure.GAP)
+                            }
+                            if (!current()) return@runCatching
+                            accuracyCapture.vehicle(q, binding, input.data, input.elapsed, input.wall)
+                            previousOrdinal = input.ordinal
+                        }
+                        is AccuracyInput.Forecast -> {
+                            if (!current()) return@runCatching
+                            accuracyCapture.forecast(q, binding, input.forecast)
+                        }
+                    }
+                    accepted = true
+                }.onFailure { DiagnosticLog.w("ev_contribution", "accuracyCaptureRejected=${it.javaClass.simpleName}") }
+            }
+            if (accepted && input is AccuracyInput.Vehicle && rawParked && uploadParkCurrent(input.receipt.binding) &&
+                captureCurrent(input.receipt)) {
+                publishStatus(q)
+                attemptNaturalDrain("accuracy-parked-tick")
+            }
+        }
     }
 
     fun onProjectionStateChanged(state: SessionState) {
@@ -355,6 +438,12 @@ object EvContributionService {
         }
     }
 
+    private fun EvContributionConsentBinding.payloadSchema(): Int =
+        if (accuracy) EvContributionPrivacy.ACCURACY_SCHEMA else EvContributionPrivacy.LEGACY_SCHEMA
+
+    private fun uploadParkCurrent(binding: EvContributionConsentBinding, now: Long = SystemClock.elapsedRealtime()): Boolean =
+        if (binding.accuracy) freshParkGate.rawParkAuthorization(now) else freshParkGate.authorization(now)
+
     private fun attemptNaturalDrain(trigger: String) {
         val q = queue ?: return
         val nowElapsedMs = SystemClock.elapsedRealtime()
@@ -363,38 +452,39 @@ object EvContributionService {
             scheduleReevaluation(graceRemaining, "startup-grace")
             return
         }
-        val nextRetryMs = q.pending().firstOrNull()?.nextAttemptMs ?: 0L
+        val receipt = consentReceipt ?: return
+        if (!captureCurrent(receipt)) return
+        val binding = receipt.binding
+        val schema = binding.payloadSchema()
+        val nextRetryMs = q.pending().firstOrNull { it.payloadSchema == schema }?.nextAttemptMs ?: return
         val retryRemaining = nextRetryMs - System.currentTimeMillis()
         if (retryRemaining > 0) {
             scheduleReevaluation(retryRemaining, "retry-backoff")
             return
         }
         val uploadLease = lifecycle.admitUpload {
-            val binding = consentBinding
             val state = projectionState
             val admissionNow = SystemClock.elapsedRealtime()
-            val freshParkAuthorization = freshParkGate.authorization(admissionNow)
+            val freshParkAuthorization = uploadParkCurrent(binding, admissionNow)
             val uploadContext = EvContributionPolicy.UploadContext(
                 validatedInternet = validatedInternet && networkTracker.current() != null,
                 parked = rawParked && freshParkAuthorization,
-                idle = activeId == null,
+                idle = binding.accuracy || activeId == null,
                 startupSensitive = admissionNow - processStartedElapsedMs < STARTUP_GRACE_MS,
                 projectionActive = state != SessionState.IDLE,
                 reconnecting = state == SessionState.CONNECTING,
                 freshParkObservedThisProcess = freshParkAuthorization,
             )
-            binding != null && !authFenced && !deletionFailureBlocked && binding.matches(uploadUrl, token) &&
-                EvContributionPolicy.mayUpload(true, uploadContext)
+            EvContributionPolicy.mayUpload(true, uploadContext) && captureCurrent(receipt)
         } ?: run {
             if (activeUploadJob.current() != null && !activeUploadJob.markDrainPending()) {
                 scope.launch { attemptNaturalDrain("worker-finish-race") }
             }
             return
         }
-        val binding = consentBinding ?: run { lifecycle.releaseUpload(uploadLease); return }
-        val url = uploadUrl
-        val secret = token
-        val namespace = binding.tokenFingerprint
+        fun uploadCurrent(): Boolean = lifecycle.isCurrent(uploadLease) &&
+            uploadParkCurrent(binding) && captureCurrent(receipt)
+        val namespace = binding.captureNamespace
         val job = EvLazyUploadStartup.launch(
             scope = scope,
             ownership = activeUploadJob,
@@ -410,58 +500,60 @@ object EvContributionService {
         ) {
             val transport = EvContributionHttpTransport()
             try {
-                if (!lifecycle.isCurrent(uploadLease)) return@launch
-                activeTransport.set(transport)
+                val started = lifecycle.withCurrent(uploadLease) {
+                    if (!uploadCurrent()) false
+                    else { activeTransport.set(transport); true }
+                }
+                if (started != true) return@launch
                 val outcome = EvContributionDrainLoop(q) { queueForAttempt ->
                     EvContributionUploader(
                         queueForAttempt,
                         onUnauthorized = {
-                            lifecycle.invalidate(blockAdmissions = true) { authFenced = true }
-                            _status.value = _status.value.copy(
-                                consentValid = false,
-                                consentInvalidReason = "Server rejected the credential; opt in again",
-                            )
-                            cancelTransport("unauthorized")
-                            scope.launch { AppPreferences.getInstance(appContext ?: return@launch).setEvContributionConsent(false) }
+                            val fenced = lifecycle.withCurrent(uploadLease) {
+                                if (!uploadCurrent()) return@withCurrent false
+                                lifecycle.invalidate(blockAdmissions = true) { authFenced = true }
+                                _status.value = _status.value.copy(
+                                    consentValid = false,
+                                    consentInvalidReason = "Server rejected the credential; opt in again",
+                                )
+                                true
+                            }
+                            if (fenced == true) {
+                                // The old lease already fences its timer; don't cancel a successor's transport.
+                                if (activeTransport.compareAndSet(transport, null)) transport.cancel()
+                                scope.launch { receipt.prefs.clearEvContributionIfCurrent(receipt.saved) }
+                            }
                         },
-                        mayTransmit = {
-                            lifecycle.isCurrent(uploadLease) &&
-                                freshParkGate.authorization(SystemClock.elapsedRealtime())
-                        },
-                        mayMutate = {
-                            lifecycle.isCurrent(uploadLease) &&
-                                freshParkGate.authorization(SystemClock.elapsedRealtime())
-                        },
+                        mayTransmit = ::uploadCurrent,
+                        mayMutate = ::uploadCurrent,
                         mutateIfCurrent = { action ->
-                            // Global lock order is lifecycle -> freshParkGate. Vehicle
-                            // revocation never nests the inverse order.
+                            // Lock order: lifecycle -> freshParkGate -> short preference check.
+                            // The preference monitor is released before queue I/O.
                             lifecycle.withCurrent(uploadLease) {
-                                val currentBinding = consentBinding
-                                val consentCurrent = currentBinding === binding && !authFenced && !deletionFailureBlocked &&
-                                    currentBinding.matches(uploadUrl, token)
-                                if (!consentCurrent) EvContributionUploader.Outcome.CANCELLED
-                                else freshParkGate.mutateIfAuthorized(SystemClock.elapsedRealtime(), action)
+                                val commit = {
+                                    if (captureCurrent(receipt)) action() else EvContributionUploader.Outcome.CANCELLED
+                                }
+                                (if (binding.accuracy) freshParkGate.mutateIfRawPark(SystemClock.elapsedRealtime(), commit)
+                                 else freshParkGate.mutateIfAuthorized(SystemClock.elapsedRealtime(), commit))
                                     ?: EvContributionUploader.Outcome.CANCELLED
                             } ?: EvContributionUploader.Outcome.CANCELLED
                         },
+                        payloadSchema = schema,
                     ) { file, _ ->
-                        val transmissionAuthorized = lifecycle.isCurrent(uploadLease) &&
-                            freshParkGate.authorization(SystemClock.elapsedRealtime())
-                        if (!transmissionAuthorized) {
+                        if (!uploadCurrent()) {
                             return@EvContributionUploader EvContributionUploader.Response(0, "")
                         }
                         val label = q.pending().firstOrNull { it.file == file }?.vehicleLabel ?: "ev-class-unknown"
-                        transport.send(url, secret, label, file) {
-                            lifecycle.isCurrent(uploadLease) &&
-                                freshParkGate.authorization(SystemClock.elapsedRealtime())
-                        }
+                        transport.send(receipt.saved.url, receipt.saved.token, label, file, payloadSchema = schema,
+                            mayContinue = ::uploadCurrent)
                     }
                 }.drainEligible(System.currentTimeMillis(), namespace)
-                if (lifecycle.isCurrent(uploadLease)) {
+                if (lifecycle.isCurrent(uploadLease) && captureCurrent(receipt)) {
                     _status.value = _status.value.copy(lastUploadOutcome = "$outcome ($trigger)")
                     DiagnosticLog.i("ev_contribution", "uploadOutcome=$outcome trigger=$trigger")
                     if (outcome == EvContributionUploader.Outcome.BACKOFF || outcome == EvContributionUploader.Outcome.RETRY) {
-                        val delayMs = (q.pending().firstOrNull()?.nextAttemptMs ?: 0L) - System.currentTimeMillis()
+                        val delayMs = (q.pending().firstOrNull { it.payloadSchema == schema }?.nextAttemptMs ?: 0L) -
+                            System.currentTimeMillis()
                         if (delayMs > 0) scheduleReevaluation(delayMs, "retry-backoff")
                     }
                 }
@@ -493,6 +585,7 @@ object EvContributionService {
     suspend fun deletePendingEvContributions(): EvContributionQueue.DeleteResult {
         return destructiveLane.withTurn {
             val deletionLease = lifecycle.beginDestructiveOperation {
+                accuracyEpoch.incrementAndGet()
                 driveIdentityOwner.clear()
                 activeId = null
                 activeIdentity = null
@@ -513,10 +606,11 @@ object EvContributionService {
                 }
                 val deletionComplete = q?.let { result.failures == 0 && it.completeDeletion(result) } ?: true
                 val verifiedResult = if (deletionComplete) result else result.copy(failures = result.failures.coerceAtLeast(1))
-                val currentValid = consentBinding?.matches(uploadUrl, token) == true && !authFenced
+                val currentValid = consentReceipt != null && !authFenced
                 orphanUploadBlocked = quiescence.orphaned || activeUploadJob.isOrphaned()
                 val resume = deletionComplete && currentValid && q?.isDeletionBlocked() != true && !orphanUploadBlocked
                 lifecycle.finishDestructiveOperation(deletionLease, resumeAdmissions = resume)
+                accuracyEpoch.incrementAndGet()
                 leaseFinished = true
                 deletionFailureBlocked = !deletionComplete || q?.isDeletionBlocked() == true
                 _status.value = _status.value.copy(
@@ -560,7 +654,7 @@ object EvContributionService {
                 if (activeUploadJob.current() != null || activeUploadJob.isOrphaned()) return@withTurn
                 orphanUploadBlocked = false
                 val q = queue
-                val currentValid = consentBinding?.matches(uploadUrl, token) == true && !authFenced
+                val currentValid = consentReceipt != null && !authFenced
                 val resume = currentValid && !deletionFailureBlocked && q?.isDeletionBlocked() != true
                 val recoveryLease = lifecycle.beginDestructiveOperation()
                 lifecycle.finishDestructiveOperation(recoveryLease, resumeAdmissions = resume)
@@ -589,15 +683,6 @@ object EvContributionService {
         vehicleSampleDedup.reset()
     }
     private fun EvContributionQueue.DeleteResult.display() = "files=$files bytes=$bytes failures=$failures"
-    // label is intentionally never transmitted; retaining it in the observed
-    // configuration ensures even a legacy label edit cancels exact in-flight I/O.
-    private data class ConsentConfig(
-        val enabled: Boolean,
-        val encoded: String,
-        val url: String,
-        val token: String,
-        @Suppress("unused") val legacyLabel: String,
-    )
 }
 
 internal object EvContributionDeadline {
@@ -702,10 +787,12 @@ internal class EvContributionHttpTransport(
         secret: String,
         label: String,
         file: File,
+        payloadSchema: Int = 2,
         mayContinue: () -> Boolean = { true },
     ): EvContributionUploader.Response {
         require(file.isFile && file.length() > 0)
         require(attemptTimeoutMs > 0)
+        require(payloadSchema == 2 || payloadSchema == 3)
         val deadline = monotonicNow.asLong + attemptTimeoutMs
         val attempt = Attempt(Thread.currentThread(), requestCancellation)
         synchronized(ownershipLock) {
@@ -741,7 +828,9 @@ internal class EvContributionHttpTransport(
             connection.instanceFollowRedirects = false
             connection.connectTimeout = remainingTimeout(10_000L)
             connection.readTimeout = remainingTimeout(15_000L)
-            connection.setRequestProperty("Content-Type", "application/zip")
+            // Legacy receivers reject the expanded media type before reading or storing the ZIP.
+            connection.setRequestProperty("Content-Type", if (payloadSchema == 3)
+                "application/vnd.oal.ev-accuracy+zip" else "application/zip")
             checkDeadline()
             connection.setRequestProperty("X-Upload-Token", secret)
             checkDeadline()

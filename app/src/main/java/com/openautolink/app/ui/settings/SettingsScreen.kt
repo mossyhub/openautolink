@@ -69,6 +69,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,11 +89,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 import com.openautolink.app.session.SessionState
+import com.openautolink.app.cluster.ClusterProjectionProtocol
 import com.openautolink.app.data.AppPreferences
 import com.openautolink.app.transport.aasdk.GalProtocolPolicy
 import com.openautolink.app.ui.components.LocalEchoTextField
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import com.openautolink.app.ui.theme.OalUiScale
 
 // Standard MAC form aa:bb:cc:dd:ee:ff. gearhead rejects anything else
@@ -109,7 +114,7 @@ internal enum class SettingsTab(
     VIDEO("Video", Icons.Default.VideoSettings),
     AUDIO("Audio", Icons.Default.Mic),
     INPUT("Input", Icons.Default.Keyboard),
-    EV("EV", Icons.Default.BatteryChargingFull),
+    EV("EV & routing", Icons.Default.BatteryChargingFull),
     DIAGNOSTICS("Diagnostics", Icons.Default.BugReport),
 }
 
@@ -119,16 +124,22 @@ private data class DisplayModeOption(
     val description: String,
 )
 
+/** An editor-open snapshot, not a last-session preference or a live geometry owner. */
+private data class SecondaryDirectionsEditorEntry(
+    val display: com.openautolink.app.secondary.SecondaryDisplayDescriptor,
+    val context: DirectionsPreviewContext,
+)
+
 private val displayModes = listOf(
     DisplayModeOption(
         "system_ui_visible",
-        "System UI Visible",
-        "Video avoids system bars. Recommended default."
+        "Keep system bars",
+        "Video stays inside the app area, clear of system bars. Recommended."
     ),
     DisplayModeOption(
         "fullscreen_immersive",
-        "Fullscreen Immersive",
-        "Video fills entire screen edge-to-edge."
+        "Request edge-to-edge",
+        "Requests hidden system bars. The vehicle decides the available app area."
     ),
 )
 
@@ -140,19 +151,21 @@ fun SettingsScreen(
     onSaveAndConnect: () -> Unit = {},
     onBack: () -> Unit = {},
     onNavigateToDiagnostics: () -> Unit = {},
-    onNavigateToSafeAreaEditor: () -> Unit = {},
     onNavigateToCarPlaySafeAreaEditor: () -> Unit = {},
     activeProtocolStatus: String? = null,
     audioBindings: AudioSettingsBindings? = null,
     clusterInitializationError: String? = null,
     secondarySource: SecondaryDisplaysSource? = null,
     initialSecondaryDisplays: Boolean = false,
+    activeDirectionsProtocol: ClusterProjectionProtocol? = null,
+    directionsPreviewIdle: Boolean = false,
 ) {
     OalUiScale {
         SettingsScreenContent(viewModel, sessionState, onSaveAndConnect, onBack,
-            onNavigateToDiagnostics, onNavigateToSafeAreaEditor,
+            onNavigateToDiagnostics,
             onNavigateToCarPlaySafeAreaEditor, activeProtocolStatus, audioBindings, clusterBindings,
-            clusterInitializationError, secondarySource, initialSecondaryDisplays)
+            clusterInitializationError, secondarySource, initialSecondaryDisplays,
+            activeDirectionsProtocol, directionsPreviewIdle)
     }
 }
 
@@ -163,7 +176,6 @@ private fun SettingsScreenContent(
     onSaveAndConnect: () -> Unit,
     onBack: () -> Unit,
     onNavigateToDiagnostics: () -> Unit,
-    onNavigateToSafeAreaEditor: () -> Unit,
     onNavigateToCarPlaySafeAreaEditor: () -> Unit,
     activeProtocolStatus: String?,
     audioBindings: AudioSettingsBindings?,
@@ -171,6 +183,8 @@ private fun SettingsScreenContent(
     clusterInitializationError: String?,
     secondarySource: SecondaryDisplaysSource?,
     initialSecondaryDisplays: Boolean,
+    activeDirectionsProtocol: ClusterProjectionProtocol?,
+    directionsPreviewIdle: Boolean,
 ) {
     val uiState by viewModel.settingsState.collectAsStateWithLifecycle()
     val carPlaySaving by viewModel.carPlaySettingsSaving.collectAsStateWithLifecycle()
@@ -178,23 +192,39 @@ private fun SettingsScreenContent(
     val clusterSelection by viewModel.clusterSelection.collectAsStateWithLifecycle()
     val secondaryPreferences = if (secondarySource != null) viewModel.secondaryPreferences.collectAsStateWithLifecycle().value else null
     val carPlayLoaded by viewModel.carPlaySettingsLoaded.collectAsStateWithLifecycle()
+    val carPlayDraft by viewModel.carPlaySettings.collectAsStateWithLifecycle()
     val applyError by viewModel.carPlayApplyError.collectAsStateWithLifecycle()
     val audioError by viewModel.audioSaveError.collectAsStateWithLifecycle()
     var selectedTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(if (initialSecondaryDisplays) SettingsTab.INSTRUMENT_CLUSTER else SettingsTab.CONNECTION) }
     var secondaryTargetId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
-    var secondaryEditor by remember { mutableStateOf<com.openautolink.app.secondary.SecondaryDisplayDescriptor?>(null) }
+    var showControlAreaEditor by remember { mutableStateOf(false) }
+    if (showControlAreaEditor) {
+        AndroidAutoControlAreaEditor(viewModel) { showControlAreaEditor = false }
+        return
+    }
+    var secondaryEditor by remember { mutableStateOf<SecondaryDirectionsEditorEntry?>(null) }
+    var driveCardEditor by remember { mutableStateOf<com.openautolink.app.secondary.SecondaryDisplayDescriptor?>(null) }
     val secondaryInventory = secondarySource?.inventory?.collectAsStateWithLifecycle()?.value
     LaunchedEffect(secondaryInventory) { viewModel.observeSecondaryPresentationInventory(secondaryInventory) }
     LaunchedEffect(selectedTab, secondarySource) {
         if (selectedTab == SettingsTab.INSTRUMENT_CLUSTER && secondarySource == null)
             viewModel.observeSecondaryPresentationTarget(null)
     }
-    val directGridIdle by androidx.compose.runtime.rememberUpdatedState(sessionState == SessionState.IDLE && activeProtocolStatus == null)
-    secondaryEditor?.let { target ->
+    val directGridIdle by androidx.compose.runtime.rememberUpdatedState(directionsPreviewIdle)
+    driveCardEditor?.let { target ->
+        DriveCardEditor(target, secondaryInventory?.displays?.singleOrNull { it.id == target.id },
+            secondaryPreferences?.outputs?.get(target.id)?.driveCardLayout, !carPlaySaving,
+            { layout -> viewModel.updateSecondaryOutput(target.id) { it.copy(driveCardLayout = layout) } },
+            { driveCardEditor = null })
+        return
+    }
+    secondaryEditor?.let { entry ->
+        val target = entry.display
         SecondaryOutputLayoutEditor(target, secondaryInventory?.displays?.singleOrNull { it.id == target.id },
             secondaryPreferences?.outputs?.get(target.id)?.layout, !carPlaySaving,
             { layout -> viewModel.updateSecondaryOutput(target.id) { it.copy(layout = layout) } },
-            { secondaryEditor = null }, projectionIdle = { directGridIdle }, safeOnly = true)
+            { secondaryEditor = null }, projectionIdle = { directGridIdle }, safeOnly = true,
+            previewContext = entry.context)
         return
     }
 
@@ -256,7 +286,8 @@ private fun SettingsScreenContent(
                         SettingsTab.CONNECTION -> ConnectionTab(viewModel, uiState)
                         SettingsTab.DISPLAY -> DisplayTab(
                             viewModel, uiState,
-                            onNavigateToSafeAreaEditor,
+                            { showControlAreaEditor = true },
+                            !carPlaySaving && carPlayLoaded,
                             onNavigateToCarPlaySafeAreaEditor,
                         )
                         SettingsTab.INSTRUMENT_CLUSTER -> {
@@ -274,7 +305,16 @@ private fun SettingsScreenContent(
                             }
                             if (secondarySource != null) SecondaryDisplaysSettings(
                                 secondarySource, secondaryPreferences, !carPlaySaving,
-                                viewModel::updateSecondaryOutput, { secondaryEditor = it },
+                                viewModel::updateSecondaryOutput, { display ->
+                                    // Freeze only on entry; disconnect/status/draft observations do
+                                    // not reset an in-progress rectangle or write coordinates.
+                                    if (activeDirectionsProtocol != null || carPlayLoaded) {
+                                        secondaryEditor = SecondaryDirectionsEditorEntry(display,
+                                            DirectionsPreviewContext(activeDirectionsProtocol ?: if (carPlayDraft.enabled)
+                                                ClusterProjectionProtocol.CARPLAY else ClusterProjectionProtocol.ANDROID_AUTO,
+                                                currentConnection = activeDirectionsProtocol != null))
+                                    }
+                                },
                                 selection = clusterSelection,
                                 onVideoChange = { viewModel.chooseClusterDisplay(if (it)
                                     com.openautolink.app.cluster.ClusterDisplayMode.MAP_VIDEO else
@@ -284,6 +324,7 @@ private fun SettingsScreenContent(
                                     viewModel.observeSecondaryPresentationTarget(target)
                                 },
                                 initialTargetId = secondaryTargetId,
+                                onAdjustDriveCard = { driveCardEditor = it },
                             ) else {
                                 Column(if (clusterBindings == null) Modifier.verticalScroll(rememberScrollState()) else Modifier) {
                                     if (clusterBindings == null) SecondaryGmSetupHelp()
@@ -295,7 +336,7 @@ private fun SettingsScreenContent(
                         SettingsTab.VIDEO -> VideoTab(viewModel, uiState)
                         SettingsTab.AUDIO -> AudioTab(viewModel, uiState, audioBindings)
                         SettingsTab.INPUT -> InputTab(viewModel, uiState)
-                        SettingsTab.EV -> EvEnergyModelTab()
+                        SettingsTab.EV -> EvEnergyModelTab(carPlaySettingsViewModel = viewModel)
                         SettingsTab.DIAGNOSTICS -> DiagnosticsSettingsTab(
                             viewModel, uiState, onNavigateToDiagnostics
                         )
@@ -446,39 +487,6 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         CarPlaySettingsSection(viewModel)
-        SectionHeader("Android Auto · Advanced connection")
-        // BT MAC override — used in the SDR's bluetooth_service.car_address.
-        // Some phones won't enter wireless AA pairing without a valid car MAC.
-        // Does NOT affect call audio routing.
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        ) {
-            Text(
-                text = "Bluetooth MAC override",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "Override the Bluetooth MAC reported to the phone in the AA Service Discovery " +
-                    "Response. Leave blank to auto-detect. Some phones won't enter wireless AA pairing " +
-                    "if auto-detect returns empty or 02:00:00:00:00:00. Read the head unit's BT MAC from " +
-                    "Settings → About → Bluetooth address and paste it here (format AA:BB:CC:DD:EE:FF). " +
-                    "Does NOT affect call audio routing. Save changes, then reconnect your phone.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            LocalEchoTextField(
-                value = uiState.btMacOverride,
-                onValueChange = { filtered -> viewModel.updateBtMacOverride(filtered) },
-                filter = { it.filter { c -> c.isLetterOrDigit() || c == ':' || c == '-' }.take(17).uppercase() },
-                placeholder = { Text("AA:BB:CC:DD:EE:FF") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("btMacOverride"),
-            )
-        }
-
-
         SectionHeader("Android Auto")
         SettingsGroup {
             Text("Android Auto connection", style = MaterialTheme.typography.titleMedium,
@@ -679,6 +687,41 @@ private fun ConnectionTab(viewModel: SettingsViewModel, uiState: SettingsUiState
                 )
             }
         }
+        AdvancedSettingsSection("Advanced connection", "advancedConnection") {
+            // BT MAC override — used in the SDR's bluetooth_service.car_address.
+            // Some phones won't enter wireless AA pairing without a valid car MAC.
+            // Does NOT affect call audio routing.
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            ) {
+                Text(
+                    text = "Bluetooth MAC override",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Override the Bluetooth MAC reported to the phone in the AA Service Discovery " +
+                        "Response. Leave blank to auto-detect. Some phones won't enter wireless AA pairing " +
+                        "if auto-detect returns empty or 02:00:00:00:00:00. Read the head unit's BT MAC from " +
+                        "Settings → About → Bluetooth address and paste it here (format AA:BB:CC:DD:EE:FF). " +
+                        "Does NOT affect call audio routing. Save changes, then reconnect your phone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                LocalEchoTextField(
+                    value = uiState.btMacOverride,
+                    onValueChange = { filtered -> viewModel.updateBtMacOverride(filtered) },
+                    filter = { it.filter { c -> c.isLetterOrDigit() || c == ':' || c == '-' }.take(17).uppercase() },
+                    placeholder = { Text("AA:BB:CC:DD:EE:FF") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("btMacOverride"),
+                )
+            }
+
+
+
+        }
     }
 }
 
@@ -752,6 +795,7 @@ private fun DisplayTab(
     viewModel: SettingsViewModel,
     uiState: SettingsUiState,
     onNavigateToSafeAreaEditor: () -> Unit,
+    canEditControlArea: Boolean,
     onNavigateToCarPlaySafeAreaEditor: () -> Unit,
 ) {
     Column(
@@ -762,15 +806,13 @@ private fun DisplayTab(
         OalInterfaceSizeSetting(uiState.oalUiScalePercent, viewModel::updateOalUiScalePercent)
         Spacer(Modifier.height(16.dp))
         SectionHeader("Shared")
-        SectionHeader("Display Mode")
+        SectionHeader("Display coverage")
 
         Spacer(modifier = Modifier.height(4.dp))
 
         SettingsHelp(
-            text = "Controls how the app interacts with AAOS system bars. " +
-                    "Changes apply immediately. On some AAOS head units, the system may " +
-                    "prevent apps from hiding bars. To change the video encoding resolution, " +
-                    "use AA Resolution on the Video tab.",
+            text = "Shared by Android Auto and CarPlay. Changes system-bar visibility immediately, not video resolution or control placement. " +
+                    "OpenAutoLink cannot draw outside the app window allowed by the vehicle.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp)
@@ -802,6 +844,105 @@ private fun DisplayTab(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth())
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Main-screen content area is independent of video fit.
+        SectionHeader("Keep controls visible")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        SettingsHelp(
+            text = "Android Auto · Main screen. Keeps important controls away from curved or hidden edges. " +
+                    "The phone and app decide placement; map backgrounds may extend beyond this area.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+        )
+
+        Text(
+            if (uiState.displayMode == "system_ui_visible")
+                "Keep system bars mode does not send custom edges to the phone. Choose Request edge-to-edge to use them."
+            else "Try the editor if the default area doesn’t fit your screen. Done keeps your edits as a draft; " +
+                "tap Save changes to apply them and reconnect.",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(bottom = 8.dp).testTag("controlAreaApplyScope"),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilledTonalButton(
+                onClick = onNavigateToSafeAreaEditor,
+                enabled = canEditControlArea,
+                modifier = Modifier.testTag("editSafeAreaButton"),
+            ) {
+                Text("Edit control area")
+            }
+
+            Text(
+                text = formatInsetLabel(
+                    uiState.safeAreaTop, uiState.safeAreaBottom,
+                    uiState.safeAreaLeft, uiState.safeAreaRight
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (uiState.safeAreaTop > 0 || uiState.safeAreaBottom > 0 ||
+                    uiState.safeAreaLeft > 0 || uiState.safeAreaRight > 0)
+                    MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        HorizontalDivider(modifier = Modifier.fillMaxWidth())
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+
+        // --- Video Scaling Mode ---
+        SectionHeader("Video fit")
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        SettingsHelp(
+            text = "Android Auto · Fits the video inside the available app area. Letterbox keeps the full frame; " +
+                    "Fill crops part of the frame. This does not set the control-safe area.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        listOf(
+            "letterbox" to "Letterbox · show full frame",
+            "crop" to "Fill · crop to fit",
+        ).forEach { (key, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.updateVideoScalingMode(key) }
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = uiState.videoScalingMode == key,
+                    onClick = { viewModel.updateVideoScalingMode(key) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (uiState.videoScalingMode == key) FontWeight.SemiBold else FontWeight.Normal,
+                )
             }
         }
 
@@ -1129,307 +1270,6 @@ private fun DisplayTab(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // --- Video Scaling Mode ---
-        SectionHeader("Video Scaling")
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        SettingsHelp(
-            text = "How the video fits your screen. " +
-                    "Letterbox shows the full frame with black bars on the sides. " +
-                    "Crop fills the screen but cuts off top/bottom. " +
-                    "Save changes, then reconnect your phone.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
-        listOf(
-            "letterbox" to "Letterbox (no crop, black bars on sides)",
-            "crop" to "Fill screen (set Pixel Aspect for correct proportions)",
-        ).forEach { (key, label) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { viewModel.updateVideoScalingMode(key) }
-                    .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadioButton(
-                    selected = uiState.videoScalingMode == key,
-                    onClick = { viewModel.updateVideoScalingMode(key) }
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (uiState.videoScalingMode == key) FontWeight.SemiBold else FontWeight.Normal,
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        HorizontalDivider(modifier = Modifier.fillMaxWidth())
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // --- AA Video Margins ---
-        SectionHeader("AA Video Margins")
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        SettingsHelp(
-            text = "Tells the phone to letterbox its UI inside the encoded video. " +
-                    "Crop mode renders only the inner (non-margin) rect onto the panel " +
-                    "with uniform square-pixel scaling. Auto computes margins per-tier " +
-                    "from panel aspect ratio so any AA codec resolution lands correctly. " +
-                    "Disable Auto to send the literal values below " +
-                    "(0/0 = no margins, decoder stretches the full codec frame).",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
-        SettingsToggleRow("Auto-compute margins", uiState.aaAutoMargins,
-            { viewModel.updateAaAutoMargins(it) }, controlModifier = Modifier.testTag("aaAutoMargins")) {
-            Text("Auto-compute margins", style = MaterialTheme.typography.bodyLarge)
-        }
-
-        // Width Margin
-        SettingsLabeledControl(label = "Width Margin") {
-            LocalEchoTextField(
-                value = if (uiState.aaWidthMargin == 0) "" else uiState.aaWidthMargin.toString(),
-                onValueChange = { filtered ->
-                    val margin = filtered.toIntOrNull() ?: 0
-                    viewModel.updateAaWidthMargin(margin.coerceIn(0, 1000))
-                },
-                filter = { it.filter { c -> c.isDigit() } },
-                placeholder = { Text("0 (auto)") },
-                singleLine = true,
-                modifier = Modifier.width(120.dp).testTag("aaWidthMargin"),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("px", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        // Height Margin
-        SettingsLabeledControl(label = "Height Margin") {
-            LocalEchoTextField(
-                value = if (uiState.aaHeightMargin == 0) "" else uiState.aaHeightMargin.toString(),
-                onValueChange = { filtered ->
-                    val margin = filtered.toIntOrNull() ?: 0
-                    viewModel.updateAaHeightMargin(margin.coerceIn(0, 1000))
-                },
-                filter = { it.filter { c -> c.isDigit() } },
-                placeholder = { Text("0 (auto)") },
-                singleLine = true,
-                modifier = Modifier.width(120.dp).testTag("aaHeightMargin"),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("px", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // --- Viewing Distance / Decoder Depth (GM SDR fields) ---
-        // GM puts viewing_distance + decoder_additional_depth in every
-        // VideoConfiguration. The phone uses viewing_distance (mm from driver
-        // eye to screen) to pick text/icon sizes that look right at the
-        // actual seating distance. decoder_additional_depth tells the phone
-        // how many extra reordered frames the car can buffer (GM uses 1).
-        Text(
-            text = "Viewing distance & decoder depth (advanced)",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-        )
-        SettingsHelp(
-            text = "Sent in VideoConfiguration. Viewing distance = mm from driver eye " +
-                    "to display (GM uses ~700 for centre IP screens; tune per vehicle). " +
-                    "Decoder depth = extra reordered frames the head unit can buffer " +
-                    "(GM uses 1; raise only if you see B-frame stalls). 0 = omit field.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
-        SettingsLabeledControl(label = "Viewing Distance") {
-            LocalEchoTextField(
-                value = if (uiState.aaViewingDistanceMm == 0) "" else uiState.aaViewingDistanceMm.toString(),
-                onValueChange = { filtered ->
-                    val mm = filtered.toIntOrNull() ?: 0
-                    viewModel.updateAaViewingDistanceMm(mm.coerceIn(0, 5000))
-                },
-                filter = { it.filter { c -> c.isDigit() } },
-                placeholder = { Text("0 (omit)") },
-                singleLine = true,
-                modifier = Modifier.width(120.dp).testTag("aaViewingDistanceMm"),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("mm", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        SettingsLabeledControl(label = "Decoder Add'l Depth") {
-            LocalEchoTextField(
-                value = if (uiState.aaDecoderAdditionalDepth == 0) "" else uiState.aaDecoderAdditionalDepth.toString(),
-                onValueChange = { filtered ->
-                    val depth = filtered.toIntOrNull() ?: 0
-                    viewModel.updateAaDecoderAdditionalDepth(depth.coerceIn(0, 8))
-                },
-                filter = { it.filter { c -> c.isDigit() } },
-                placeholder = { Text("0 (omit)") },
-                singleLine = true,
-                modifier = Modifier.width(120.dp).testTag("aaDecoderAdditionalDepth"),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("frames", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        HorizontalDivider(modifier = Modifier.fillMaxWidth())
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // --- Pixel Aspect Ratio ---
-        SectionHeader("Pixel Aspect Ratio")
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        SettingsHelp(
-            text = "Compensates for wide displays in Crop mode. Off = square pixels (no compensation). " +
-                    "Auto = computed from your display's aspect ratio vs video aspect ratio. " +
-                    "Manual = enter a specific value. " +
-                    "Only matters in Crop mode — Letterbox constrains to 16:9 so no stretching occurs.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
-        // Pixel aspect mode: -1=auto, 0=off, >0=manual
-        val pixelAspectMode = when {
-            uiState.aaPixelAspect == -1 -> "auto"
-            uiState.aaPixelAspect == 0 -> "off"
-            else -> "manual"
-        }
-        val pixelAspectModes = mapOf(
-            "off" to "Off (square pixels — no compensation)",
-            "auto" to "Auto (compute from display size, crop mode only)",
-            "manual" to "Manual (enter value)"
-        )
-
-        pixelAspectModes.forEach { (key, label) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        when (key) {
-                            "off" -> viewModel.updateAaPixelAspect(0)
-                            "auto" -> viewModel.updateAaPixelAspect(-1)
-                            "manual" -> viewModel.updateAaPixelAspect(10000)
-                        }
-                    }
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(
-                    selected = pixelAspectMode == key,
-                    onClick = {
-                        when (key) {
-                            "off" -> viewModel.updateAaPixelAspect(0)
-                            "auto" -> viewModel.updateAaPixelAspect(-1)
-                            "manual" -> viewModel.updateAaPixelAspect(10000)
-                        }
-                    },
-                )
-                Text(text = label, style = MaterialTheme.typography.bodyLarge)
-            }
-        }
-
-        // Show manual input only when manual mode selected
-        if (pixelAspectMode == "manual") {
-            SettingsLabeledControl(label = "Value (×10⁴)") {
-                LocalEchoTextField(
-                    value = uiState.aaPixelAspect.toString(),
-                    onValueChange = { filtered ->
-                        val pa = filtered.toIntOrNull() ?: 10000
-                        viewModel.updateAaPixelAspect(pa.coerceIn(1, 30000))
-                    },
-                    filter = { it.filter { c -> c.isDigit() } },
-                    placeholder = { Text("10000") },
-                    singleLine = true,
-                    modifier = Modifier.width(140.dp).testTag("aaPixelAspect"),
-                )
-            }
-            SettingsHelp(
-                text = "10000 = 1:1 (no compensation). " +
-                        "Blazer EV 2914×1134 at 1080p ≈ 14454. " +
-                        "Higher = wider pixel compensation.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "For Android Auto video changes, save changes, then reconnect your phone.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        // --- AA Display Insets ---
-        SectionHeader("AA Display Insets")
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        SettingsHelp(
-            text = "Tells the phone where to keep critical AA UI (dropdowns, " +
-                    "dialogs, FAB buttons) so they don't land on physical " +
-                    "curves, AAOS chrome, or anywhere you don't want. " +
-                    "Leave at 0 to use what AAOS reports (system bars + " +
-                    "display cutouts). Set values to add extra padding for " +
-                    "vehicles whose curves AAOS doesn't expose (e.g. Blazer " +
-                    "EV's rounded top-right corner).",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp)
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FilledTonalButton(
-                onClick = onNavigateToSafeAreaEditor,
-                modifier = Modifier.testTag("editSafeAreaButton"),
-            ) {
-                Text("Edit Display Insets")
-            }
-
-            Text(
-                text = formatInsetLabel(
-                    uiState.safeAreaTop, uiState.safeAreaBottom,
-                    uiState.safeAreaLeft, uiState.safeAreaRight
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (uiState.safeAreaTop > 0 || uiState.safeAreaBottom > 0 ||
-                    uiState.safeAreaLeft > 0 || uiState.safeAreaRight > 0)
-                    MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        HorizontalDivider(modifier = Modifier.fillMaxWidth())
-
-        Spacer(modifier = Modifier.height(24.dp))
-
         // --- Drive Side ---
         Column {
         SectionHeader("Android Auto Drive Side")
@@ -1627,6 +1467,213 @@ private fun DisplayTab(
         Spacer(modifier = Modifier.height(16.dp))
 
 
+        AdvancedSettingsSection("Advanced video geometry", "advancedVideoGeometry") {
+            // --- AA Video Margins ---
+            SectionHeader("AA Video Margins")
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            SettingsHelp(
+                text = "Tells the phone to letterbox its UI inside the encoded video. " +
+                        "Crop mode renders only the inner (non-margin) rect onto the panel " +
+                        "with uniform square-pixel scaling. Auto computes margins per-tier " +
+                        "from panel aspect ratio so any AA codec resolution lands correctly. " +
+                        "Disable Auto to send the literal values below " +
+                        "(0/0 = no margins, decoder stretches the full codec frame).",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            SettingsToggleRow("Auto-compute margins", uiState.aaAutoMargins,
+                { viewModel.updateAaAutoMargins(it) }, controlModifier = Modifier.testTag("aaAutoMargins")) {
+                Text("Auto-compute margins", style = MaterialTheme.typography.bodyLarge)
+            }
+
+            // Width Margin
+            SettingsLabeledControl(label = "Width Margin") {
+                LocalEchoTextField(
+                    value = if (uiState.aaWidthMargin == 0) "" else uiState.aaWidthMargin.toString(),
+                    onValueChange = { filtered ->
+                        val margin = filtered.toIntOrNull() ?: 0
+                        viewModel.updateAaWidthMargin(margin.coerceIn(0, 1000))
+                    },
+                    filter = { it.filter { c -> c.isDigit() } },
+                    placeholder = { Text("0 (auto)") },
+                    singleLine = true,
+                    modifier = Modifier.width(120.dp).testTag("aaWidthMargin"),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("px", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            // Height Margin
+            SettingsLabeledControl(label = "Height Margin") {
+                LocalEchoTextField(
+                    value = if (uiState.aaHeightMargin == 0) "" else uiState.aaHeightMargin.toString(),
+                    onValueChange = { filtered ->
+                        val margin = filtered.toIntOrNull() ?: 0
+                        viewModel.updateAaHeightMargin(margin.coerceIn(0, 1000))
+                    },
+                    filter = { it.filter { c -> c.isDigit() } },
+                    placeholder = { Text("0 (auto)") },
+                    singleLine = true,
+                    modifier = Modifier.width(120.dp).testTag("aaHeightMargin"),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("px", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // --- Viewing Distance / Decoder Depth (GM SDR fields) ---
+            // GM puts viewing_distance + decoder_additional_depth in every
+            // VideoConfiguration. The phone uses viewing_distance (mm from driver
+            // eye to screen) to pick text/icon sizes that look right at the
+            // actual seating distance. decoder_additional_depth tells the phone
+            // how many extra reordered frames the car can buffer (GM uses 1).
+            Text(
+                text = "Viewing distance & decoder depth (advanced)",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            )
+            SettingsHelp(
+                text = "Sent in VideoConfiguration. Viewing distance = mm from driver eye " +
+                        "to display (GM uses ~700 for centre IP screens; tune per vehicle). " +
+                        "Decoder depth = extra reordered frames the head unit can buffer " +
+                        "(GM uses 1; raise only if you see B-frame stalls). 0 = omit field.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            SettingsLabeledControl(label = "Viewing Distance") {
+                LocalEchoTextField(
+                    value = if (uiState.aaViewingDistanceMm == 0) "" else uiState.aaViewingDistanceMm.toString(),
+                    onValueChange = { filtered ->
+                        val mm = filtered.toIntOrNull() ?: 0
+                        viewModel.updateAaViewingDistanceMm(mm.coerceIn(0, 5000))
+                    },
+                    filter = { it.filter { c -> c.isDigit() } },
+                    placeholder = { Text("0 (omit)") },
+                    singleLine = true,
+                    modifier = Modifier.width(120.dp).testTag("aaViewingDistanceMm"),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("mm", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            SettingsLabeledControl(label = "Decoder Add'l Depth") {
+                LocalEchoTextField(
+                    value = if (uiState.aaDecoderAdditionalDepth == 0) "" else uiState.aaDecoderAdditionalDepth.toString(),
+                    onValueChange = { filtered ->
+                        val depth = filtered.toIntOrNull() ?: 0
+                        viewModel.updateAaDecoderAdditionalDepth(depth.coerceIn(0, 8))
+                    },
+                    filter = { it.filter { c -> c.isDigit() } },
+                    placeholder = { Text("0 (omit)") },
+                    singleLine = true,
+                    modifier = Modifier.width(120.dp).testTag("aaDecoderAdditionalDepth"),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("frames", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            HorizontalDivider(modifier = Modifier.fillMaxWidth())
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // --- Pixel Aspect Ratio ---
+            SectionHeader("Pixel Aspect Ratio")
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            SettingsHelp(
+                text = "Compensates for wide displays in Crop mode. Off = square pixels (no compensation). " +
+                        "Auto = computed from your display's aspect ratio vs video aspect ratio. " +
+                        "Manual = enter a specific value. " +
+                        "Only matters in Crop mode — Letterbox constrains to 16:9 so no stretching occurs.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Pixel aspect mode: -1=auto, 0=off, >0=manual
+            val pixelAspectMode = when {
+                uiState.aaPixelAspect == -1 -> "auto"
+                uiState.aaPixelAspect == 0 -> "off"
+                else -> "manual"
+            }
+            val pixelAspectModes = mapOf(
+                "off" to "Off (square pixels — no compensation)",
+                "auto" to "Auto (compute from display size, crop mode only)",
+                "manual" to "Manual (enter value)"
+            )
+
+            pixelAspectModes.forEach { (key, label) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            when (key) {
+                                "off" -> viewModel.updateAaPixelAspect(0)
+                                "auto" -> viewModel.updateAaPixelAspect(-1)
+                                "manual" -> viewModel.updateAaPixelAspect(10000)
+                            }
+                        }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = pixelAspectMode == key,
+                        onClick = {
+                            when (key) {
+                                "off" -> viewModel.updateAaPixelAspect(0)
+                                "auto" -> viewModel.updateAaPixelAspect(-1)
+                                "manual" -> viewModel.updateAaPixelAspect(10000)
+                            }
+                        },
+                    )
+                    Text(text = label, style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+
+            // Show manual input only when manual mode selected
+            if (pixelAspectMode == "manual") {
+                SettingsLabeledControl(label = "Value (×10⁴)") {
+                    LocalEchoTextField(
+                        value = uiState.aaPixelAspect.toString(),
+                        onValueChange = { filtered ->
+                            val pa = filtered.toIntOrNull() ?: 10000
+                            viewModel.updateAaPixelAspect(pa.coerceIn(1, 30000))
+                        },
+                        filter = { it.filter { c -> c.isDigit() } },
+                        placeholder = { Text("10000") },
+                        singleLine = true,
+                        modifier = Modifier.width(140.dp).testTag("aaPixelAspect"),
+                    )
+                }
+                SettingsHelp(
+                    text = "10000 = 1:1 (no compensation). " +
+                            "Blazer EV 2914×1134 at 1080p ≈ 14454. " +
+                            "Higher = wider pixel compensation.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "For Android Auto video changes, save changes, then reconnect your phone.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+        }
     }
 }
 
@@ -2336,7 +2383,17 @@ private fun formatInsetLabel(top: Int, bottom: Int, left: Int, right: Int): Stri
     if (bottom > 0) parts += "Bottom: ${bottom}px"
     if (left > 0) parts += "Left: ${left}px"
     if (right > 0) parts += "Right: ${right}px"
-    return parts.joinToString(", ")
+    return parts.joinToString(", ").ifEmpty { "No custom edges" }
+}
+
+/** Rare tuning only; prerequisites and ordinary setup stay outside this section. */
+@Composable
+private fun AdvancedSettingsSection(title: String, tag: String, content: @Composable () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    OutlinedButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag(tag)) {
+        Text(if (expanded) "Hide $title" else title)
+    }
+    if (expanded) content()
 }
 
 private val logLevelOptions = listOf("DEBUG", "INFO", "WARN", "ERROR")
@@ -2348,6 +2405,48 @@ private fun DiagnosticsSettingsTab(
     onNavigateToDiagnostics: () -> Unit,
 ) {
     val contributionStatus by com.openautolink.app.diagnostics.EvContributionService.status.collectAsStateWithLifecycle()
+    val contributionScope = rememberCoroutineScope()
+    var reviewContribution by remember(viewModel) { mutableStateOf(false) }
+    var contributionCheck by remember(viewModel) { mutableStateOf<Job?>(null) }
+    var contributionMessage by remember(viewModel) { mutableStateOf<String?>(null) }
+    DisposableEffect(viewModel) {
+        onDispose { contributionCheck?.cancel() }
+    }
+    if (reviewContribution) {
+        OalAlertDialog(
+            onDismissRequest = { reviewContribution = false },
+            title = { Text("Share expanded EV observations?") },
+            text = {
+                Text(
+                    "Shares vehicle-reported battery energy and capacity (including how capacity was determined), " +
+                        "temperatures when available, driving speed, distance and sample coverage, parked charging observations, " +
+                        "and Android Auto forecasts that are not matched to trips or arrivals. Compact records use relative timing " +
+                        "and hour buckets with a hashed vehicle-class label. No locations, destinations, VIN, device identifiers or general logs. " +
+                        "After you agree in Park, the app checks your configured HTTPS upload address with your current upload token, " +
+                        "without sending EV data. Your current choice stays in place if the receiver cannot be verified. " +
+                        "Expanded sharing is bound to that address and token. Uploads require fresh vehicle Park, validated internet " +
+                        "and idle projection. Turning contribution off deletes retained contribution files but keeps learned calibration.",
+                )
+            },
+            dismissButton = { OutlinedButton(onClick = { reviewContribution = false }) { Text("Cancel") } },
+            confirmButton = {
+                Button(onClick = {
+                    if (!reviewContribution || contributionCheck != null) return@Button
+                    reviewContribution = false
+                    contributionMessage = null
+                    val check = contributionScope.launch(start = CoroutineStart.LAZY) {
+                        try {
+                            contributionMessage = viewModel.updateEvContributionConsent().message
+                        } finally {
+                            if (contributionCheck === coroutineContext[Job]) contributionCheck = null
+                        }
+                    }
+                    contributionCheck = check
+                    check.start()
+                }) { Text("Agree and check receiver") }
+            },
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2469,15 +2568,20 @@ private fun DiagnosticsSettingsTab(
             Column(modifier = Modifier.weight(1f)) {
                 Text("Automatic compact EV contribution", style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Off by default and separate from manual diagnostic upload. Opt-in is bound to compact schema v2, " +
-                        "the HTTPS server origin, and a fingerprint of the current upload token; changing either revokes consent and deletes retained contribution files until you opt in again. " +
-                        "Completed drives are queued as compact ZIPs and sent only after a real Park or ignition-off sample, on validated internet, " +
-                        "outside startup and with no active or reconnecting projection. Records use elapsed minute buckets; the manifest discloses only start/completion hour buckets. They include battery, distance, " +
-                        "forecast, coarse capacity, gear/ignition and EV configuration fields. It includes no destinations, coordinates, VIN, device identifiers, or general logs. " +
-                        "The upload label is a generic hash of the frozen vehicle class, never the mutable device label. No raw token is stored. " +
-                        "Turning this off deletes every retained contribution artifact but keeps learned calibration.",
+                    "Off by default and separate from manual diagnostic uploads. Previous opt-ins do not authorize expanded sharing. " +
+                        "Changing the receiver address or token may require a new opt-in. You can turn sharing off at any time.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (contributionCheck != null) {
+                    Text("Checking your configured receiver…", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(onClick = {
+                        contributionCheck?.cancel()
+                        contributionCheck = null
+                    }) { Text("Cancel receiver check") }
+                } else if (uiState.evContributionConsent) {
+                    OutlinedButton(onClick = { reviewContribution = true }) { Text("Review expanded sharing") }
+                }
+                contributionMessage?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                 Text(
                     "Consent: ${if (contributionStatus.consentValid) "valid" else contributionStatus.consentInvalidReason}; " +
                         "retained=${contributionStatus.retainedCount}; last upload=${contributionStatus.lastUploadOutcome}; " +
@@ -2492,7 +2596,17 @@ private fun DiagnosticsSettingsTab(
             }
             Switch(
                 checked = uiState.evContributionConsent,
-                onCheckedChange = viewModel::updateEvContributionConsent,
+                enabled = uiState.evContributionConsent || contributionCheck == null,
+                onCheckedChange = { enabled ->
+                    if (enabled) {
+                        reviewContribution = true
+                    } else {
+                        contributionCheck?.cancel()
+                        contributionCheck = null
+                        contributionMessage = null
+                        viewModel.disableEvContributionConsent()
+                    }
+                },
                 modifier = Modifier.testTag("evContributionConsentToggle").semantics { contentDescription = "Automatic compact EV contribution" },
             )
         }

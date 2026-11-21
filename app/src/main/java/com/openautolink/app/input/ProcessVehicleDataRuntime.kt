@@ -3,13 +3,19 @@ package com.openautolink.app.input
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.SystemClock
+import com.openautolink.app.data.EvLearnQualification
 import com.openautolink.app.data.EvLearnedRateEstimator
 import com.openautolink.app.diagnostics.DiagnosticLog
 import com.openautolink.app.diagnostics.EvContributionService
 import com.openautolink.app.transport.ControlMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 /**
  * Dispatches every process-owned raw VHAL batch before any projection gating.
@@ -20,22 +26,32 @@ internal class ProcessVehicleDataCoordinator(
     private val learn: (ControlMessage.VehicleData, Long) -> Unit,
     private val contribute: (ControlMessage.VehicleData) -> Unit,
     private val elapsedRealtime: () -> Long = SystemClock::elapsedRealtime,
+    private val qualification: ProcessEvLearnQualification? = null,
 ) {
+    val learnQualificationStatus = qualification?.status ?: MutableStateFlow<EvLearnQualification.Status?>(null).asStateFlow()
     class SessionAttachment internal constructor(internal val id: Long)
 
     private val _latestVehicleData = MutableStateFlow(ControlMessage.VehicleData())
     val latestVehicleData: StateFlow<ControlMessage.VehicleData> = _latestVehicleData.asStateFlow()
 
     private val consumerLock = Any()
+    private val qualificationLock = Any()
     private var retainedVehicleData: ControlMessage.VehicleData? = null
     private var projectionConsumer: ((ControlMessage.VehicleData) -> Unit)? = null
     private var projectionAttachmentId = 0L
 
-    fun onRawBatch(data: ControlMessage.VehicleData) {
+    fun onRawBatch(data: ControlMessage.VehicleData) = onRawBatch(data, 0L)
+
+    internal fun onRawBatch(data: ControlMessage.VehicleData, learnChargeStateRevision: Long) {
         synchronized(consumerLock) {
             retainedVehicleData = data
             _latestVehicleData.value = data
-            learn(data, elapsedRealtime())
+            val now = elapsedRealtime()
+            if (qualification == null) learn(data, now)
+            else synchronized(qualificationLock) {
+                qualification.observeChargeStateRevision(learnChargeStateRevision)
+                qualification.onRawBatch(data, now)
+            }
             contribute(data)
             projectionConsumer?.invoke(data)
         }
@@ -62,6 +78,26 @@ internal class ProcessVehicleDataCoordinator(
 
     internal fun sessionConsumer(): ((ControlMessage.VehicleData) -> Unit)? =
         synchronized(consumerLock) { projectionConsumer }
+
+    companion object {
+        fun withEvLearner(
+            estimator: EvLearnedRateEstimator,
+            contribute: (ControlMessage.VehicleData) -> Unit,
+            enabled: StateFlow<Boolean>,
+            scope: CoroutineScope,
+            elapsedRealtime: () -> Long = SystemClock::elapsedRealtime,
+            status: MutableStateFlow<EvLearnQualification.Status?> = MutableStateFlow(null),
+        ): ProcessVehicleDataCoordinator {
+            val qualification = ProcessEvLearnQualification(estimator, enabled, status)
+            val coordinator = ProcessVehicleDataCoordinator(estimator::onVehicleTick, contribute, elapsedRealtime, qualification)
+            scope.launch {
+                combine(enabled, estimator.qualificationResetRevision) { _, _ -> Unit }.collect {
+                    synchronized(coordinator.qualificationLock) { qualification.reconcile() }
+                }
+            }
+            return coordinator
+        }
+    }
 }
 
 /** Owns exactly one forwarder and never stops it at session boundaries. */
@@ -72,7 +108,13 @@ internal class ProcessVehicleDataOwner(
     private val resetLearnerContinuity: () -> Unit = {},
 ) {
     val forwarder: VehicleDataForwarder? by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        if (automotive) createForwarder(coordinator::onRawBatch) else null
+        if (!automotive) null else {
+            // The real forwarder invokes the sink under its publisher monitor. Piggyback
+            // the continuity receipt on that call, not on the DTO or a separate callback.
+            var producer: VehicleDataForwarderImpl? = null
+            createForwarder { data -> coordinator.onRawBatch(data, producer?.learnChargeStateRevision ?: 0L) }
+                .also { producer = it as? VehicleDataForwarderImpl }
+        }
     }
 
     fun requestSubscriptionRefresh(reason: String) = forwarder?.requestSubscriptionRefresh(reason)
@@ -109,18 +151,28 @@ internal class ProcessVehicleDataOwner(
 /** Application-owned VHAL runtime. SessionManager borrows state/dispatch only. */
 object ProcessVehicleDataRuntime {
     @Volatile private var owner: ProcessVehicleDataOwner? = null
+    private val defaultLearnEnabled = MutableStateFlow(false).asStateFlow()
+    private val _learnQualificationStatus = MutableStateFlow<EvLearnQualification.Status?>(null)
+    internal val learnQualificationStatus: StateFlow<EvLearnQualification.Status?> = _learnQualificationStatus.asStateFlow()
 
-    fun initialize(context: Context, estimator: EvLearnedRateEstimator) {
+    fun initialize(
+        context: Context,
+        estimator: EvLearnedRateEstimator,
+        learnQualificationEnabled: StateFlow<Boolean> = defaultLearnEnabled,
+    ) {
         if (owner != null) return
         synchronized(this) {
             if (owner != null) return
             val app = context.applicationContext
-            val coordinator = ProcessVehicleDataCoordinator(
-                learn = estimator::onVehicleTick,
+            val coordinator = ProcessVehicleDataCoordinator.withEvLearner(
+                estimator = estimator,
                 contribute = { data ->
                     IgnitionMonitor.acceptProcessVehicleData(data)
                     EvContributionService.onVehicle(data)
                 },
+                enabled = learnQualificationEnabled,
+                scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+                status = _learnQualificationStatus,
             )
             val automotive = app.packageManager.hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)
             owner = ProcessVehicleDataOwner(

@@ -361,6 +361,9 @@ class PhoneDiscovery private constructor(private val context: Context) {
             val cleanupKey = Any()
             val callback = object : NsdManager.ServiceInfoCallback {
                 override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
+                    // Registration failure is terminal: Android will send no more callbacks.
+                    resolutionCleanups.remove(cleanupKey)
+                    executor.shutdown()
                     OalLog.d(TAG, "ServiceInfoCallback register failed: $errorCode for ${serviceInfo.serviceName} — falling back to legacy resolve")
                     resolveLegacy(serviceInfo, policyTicket)
                 }
@@ -413,14 +416,21 @@ class PhoneDiscovery private constructor(private val context: Context) {
                 }
                 override fun onServiceInfoCallbackUnregistered() {
                     resolutionCleanups.remove(cleanupKey)
-                    executor.shutdownNow()
+                    executor.shutdown()
+                    OalLog.i(TAG, "NSD service-info callback retired after unregister acknowledgement")
                 }
             }
             resolutionCleanups[cleanupKey] = {
+                // This only requests unregister. Android still submits its terminal
+                // acknowledgement on this executor, so keep accepting work until then.
                 try { mgr.unregisterServiceInfoCallback(callback) } catch (_: Throwable) {}
-                executor.shutdownNow()
             }
-            if (!connectionPolicy.admits(policyTicket)) { resolutionCleanups.remove(cleanupKey)?.invoke(); return }
+            if (!connectionPolicy.admits(policyTicket)) {
+                // No registration was submitted, hence no framework callback owns the pool.
+                resolutionCleanups.remove(cleanupKey)
+                executor.shutdown()
+                return
+            }
             try { mgr.registerServiceInfoCallback(serviceInfo, executor, callback) }
             catch (failure: Throwable) { resolutionCleanups.remove(cleanupKey)?.invoke(); throw failure }
         } catch (e: Throwable) {

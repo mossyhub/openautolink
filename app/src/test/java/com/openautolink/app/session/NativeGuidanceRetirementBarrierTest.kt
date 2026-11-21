@@ -111,6 +111,7 @@ class NativeGuidanceRetirementBarrierTest {
         every { session.vehicleEnergyForecast } returns MutableStateFlow(null)
         every { session.negotiatedCodecType } returns MutableStateFlow(0)
         every { session.evTelemetryToken } returns "native-barrier"
+        every { session.sdrConfig } returns com.openautolink.app.transport.aasdk.AasdkSdrConfig()
         fun field(name:String)=SessionManager::class.java.getDeclaredField(name).apply { isAccessible=true }
         field("aasdkSession").set(manager,session)
         val component=ComponentName(app,"com.openautolink.app.cluster.OalClusterService")

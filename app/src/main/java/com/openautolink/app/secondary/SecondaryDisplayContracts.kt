@@ -87,6 +87,9 @@ data class SecondaryOutputPreference(
     val aaDensityDpi: Int? = null,
     /** CarPlay driver-display view; null keeps the default (map with turn card). */
     val carPlayContent: com.openautolink.carplaylab.media.CarPlayClusterContent? = null,
+    /** Optional shared AA/CarPlay app-drawn panel. Saved per physical output; never implicit. */
+    val driveCardEnabled: Boolean = false,
+    val driveCardLayout: com.openautolink.app.drivecard.DriveCardLayout? = null,
 ) {
     init { require(aaDensityDpi == null || aaDensityDpi in 80..320) }
 }

@@ -97,8 +97,7 @@ object ClusterVideoGeometry {
     }
 
     /** Proposed independent AVC secondary; no inherited center-screen/BYD offsets or HID geometry. */
-    fun carPlay(display: QualifiedClusterDisplay): ClusterVideoMapping {
-        val coded = PixelSize(1280, 480)
+    fun carPlay(display: QualifiedClusterDisplay, coded: PixelSize = PixelSize(1280, 480)): ClusterVideoMapping {
         return ClusterVideoMapping(display, coded, coded.bounds, 30)
     }
 

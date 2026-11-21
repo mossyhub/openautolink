@@ -1,9 +1,13 @@
 package com.openautolink.app.carplay
 
+import com.openautolink.app.data.CarPlaySettings
 import com.openautolink.app.input.GnssForwarder
 import com.openautolink.app.transport.ControlMessage
 import com.openautolink.app.transport.VehiclePropertyObservation
 import com.openautolink.carplaylab.intake.OalCarDataBootstrap
+import com.openautolink.carplaylab.intake.OalCarDataIdentification
+import com.openautolink.carplaylab.intake.OalEvSnapshot
+import com.openautolink.carplaylab.intake.OalIap2CarDataReporter
 import com.openautolink.carplaylab.intake.RuntimeCarDataLink
 import com.shilapi.xcertplay.iap2.body.Iap2BodyReader
 import com.shilapi.xcertplay.iap2.message.Iap2Messages
@@ -15,6 +19,63 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CarPlayVehicleTemperatureIntegrationTest {
+    @Test fun explicitOffOffersAndSendsOnlyFreshTemperatureEvenWithQualifiedEvData() {
+        val saved = CarPlaySettings(evDataEnabled = false)
+        assertFalse(saved.evDataEnabled)
+        val policy = OalCarPlayVehicleSnapshotAdapter.savedPilot(saved)
+        val base = Iap2Messages.buildRaw(0x1D01) {
+            u16List(6, emptyList()); u16List(7, emptyList())
+        }
+        val evOnly = Iap2Messages.buildRaw(0xA100) { void(3); void(11); void(21); void(30) }
+        val mixed = Iap2Messages.buildRaw(0xA100) { void(3); void(4); void(11); void(21); void(30) }
+        for (fuel in listOf(10, 1)) {
+            var now = 1000L
+            val observation = VehiclePropertyObservation(1_000_000_000, now, 0,
+                registrationGeneration = 1, subscriptionActive = true)
+            val source = MutableStateFlow(ControlMessage.VehicleData(
+                fuelTypes = listOf(fuel), carMake = "Chevrolet", carModel = "C234", carYear = "2025",
+                evConnectorTypes = listOf(1, 5), vhalRegistrationGeneration = 1,
+                ambientTempC = -12.6f, rangeKm = 210f, evBatteryLevelWh = 42_785f,
+                evCurrentBatteryCapacityWh = 85_570f, evBatteryCapacityWh = 85_570f, evChargeState = 1,
+                evObservationMetadata = mapOf("ENV_OUTSIDE_TEMPERATURE" to 0x11600703,
+                    "RANGE_REMAINING" to 0x11600308, "EV_BATTERY_LEVEL" to 0x11600309,
+                    "EV_CURRENT_BATTERY_CAPACITY" to 0x1160030D, "INFO_EV_BATTERY_CAPACITY" to 0x11600106,
+                    "EV_CHARGE_STATE" to 0x11400F41).mapValues { (_, id) -> observation.copy(propertyId = id) }))
+            val adapter = OalCarPlayVehicleSnapshotAdapter({ source }, { now }, { policy })
+            val caps = adapter.capabilities(location = true)
+            val identify = Iap2BodyReader.of(Iap2CsmFramer().offer(
+                OalCarDataIdentification.apply(base, caps).encodedFrame()).single())
+            assertTrue("Outside temperature must offer vehicle status with EV off (fuel=$fuel)", identify.has(21))
+            assertEquals(listOf(0, 1, 4), identify.group(21).list().map { it.id })
+            val info = identify.group(20)
+            assertEquals(listOf(0, 1, 2), info.list().map { it.id })
+            assertEquals("Vehicle information", info.string(1))
+            assertTrue("EV off must not affect the location offer", identify.has(22))
+            assertEquals(OalEvSnapshot(outsideTemperatureC = -13), adapter.snapshot())
+
+            val sent = mutableListOf<Iap2Frame>()
+            OalIap2CarDataReporter(caps, { now }, { null }, adapter::snapshot, {}, sent::add, {}).use { reporter ->
+                reporter.handle(mixed)
+                assertTrue("No pre-authentication status", sent.isEmpty())
+                reporter.authenticate()
+                reporter.handle(evOnly)
+                assertTrue("No EV-only status with EV off", sent.isEmpty())
+                reporter.handle(mixed)
+                val frame = Iap2CsmFramer().offer(sent.single().encodedFrame()).single()
+                assertEquals(0xA101, frame.messageId)
+                val status = Iap2BodyReader.of(frame)
+                assertEquals(listOf(4), status.list().map { it.id })
+                assertEquals(-13, status.i16(4))
+
+                now += 30_001L
+                assertNull(adapter.snapshot())
+                assertSame("Capability stays frozen while its value expires", caps, adapter.capabilities(true))
+                reporter.tick()
+                assertEquals("Expired temperature must not be sent again or substituted", 1, sent.size)
+            }
+        }
+    }
+
     @Test fun temperatureRejectsInvalidStatusProvenanceBoundsAndTimesWithoutSubstitution() {
         val observation = VehiclePropertyObservation(1_000_000_000, 1000, 0,
             registrationGeneration = 1, subscriptionActive = true)

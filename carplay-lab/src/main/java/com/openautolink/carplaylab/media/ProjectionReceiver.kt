@@ -42,8 +42,10 @@ class ProjectionReceiver(
     /** Optional wired Bluetooth association only; never the Ethernet or AirPlay device identity. */
     private val advertisedBluetoothAddress: String? = null,
     private val captureAdmission: () -> Boolean = { false },
-    val clusterVideoConfiguration: CarPlayClusterVideoConfiguration? = null,
+    clusterVideoConfiguration: CarPlayClusterVideoConfiguration? = null,
     private val clusterVideoListener: CarPlayClusterVideoListener? = null,
+    private val videoDecoderBudgetProbe: com.shilapi.xcertplay.media.VideoDecoderBudgetProbe =
+        com.shilapi.xcertplay.media.CarPlayVideoQualification.androidBudgetProbe(),
     private val onStatus: (String) -> Unit,
 ) : Closeable {
     init {
@@ -59,9 +61,19 @@ class ProjectionReceiver(
         // Caller qualifies the initial presentation before handoff. It can be destroyed
         // during construction; reconcile exact receipts rather than abort the session owner.
     }
-    private val videoSelection = CarPlayDisplayPolicy.videoSelection(display).let { main ->
-        clusterVideoConfiguration?.let { main.withCluster(it.display, it.videoSelection) } ?: main
+    private val mainVideoSelection: com.shilapi.xcertplay.media.CarPlayVideoSelection = CarPlayDisplayPolicy.videoSelection(display)
+    // A known single-instance AVC component cannot supply the conservative two-screen fallback.
+    // Withhold only the optional offer; leave primary HEVC/settings and connection ownership alone.
+    val clusterVideoConfiguration: CarPlayClusterVideoConfiguration? = clusterVideoConfiguration?.takeIf { alternate ->
+        runCatching { videoDecoderBudgetProbe.supports(VideoCodec.H264,mainVideoSelection.avcDecoderName,
+            alternate.videoSelection.avcDecoderName) }.getOrNull() != false
     }
+    private val videoSelection: com.shilapi.xcertplay.media.CarPlayVideoSelection = this.clusterVideoConfiguration?.let { alternate ->
+        // The lab direct-Surface consumer remains AVC. Production encoded mode owns the common
+        // HEVC renderer and must never initialize that second lab decoder.
+        val selected = if(clusterVideoListener == null) alternate.videoSelection.copy(hevcDecoderName=null) else alternate.videoSelection
+        mainVideoSelection.withCluster(alternate.display,selected,videoDecoderBudgetProbe)
+    } ?: mainVideoSelection
     val clusterVideoPilotStatus: String? get() = clusterVideoConfiguration?.let { CarPlayClusterVideoConfiguration.PILOT_STATUS }
     private val displaySelection = CarPlayDisplaySelection(
         display.copy(resolution = CarPlayResolution.entries.firstOrNull {
@@ -69,8 +81,8 @@ class ProjectionReceiver(
         } ?: CarPlayResolution.CUSTOM,
             customWidth = videoSelection.width, customHeight = videoSelection.height,
             fps = videoSelection.fps,
-            preferHevc = if (clusterVideoConfiguration == null) display.preferHevc else false,
-            qualifiedVideoSelection = if (clusterVideoConfiguration == null) display.qualifiedVideoSelection else videoSelection),
+            preferHevc = if (this.clusterVideoConfiguration == null) display.preferHevc else videoSelection.hevcOffered,
+            qualifiedVideoSelection = if (this.clusterVideoConfiguration == null) display.qualifiedVideoSelection else videoSelection),
         videoSelection.avcDecoderName, videoSelection.usedFallback)
     /** Actual advertised/sink/input configuration, including a capability-qualified fallback. */
     val displayConfiguration: CarPlayDisplayPreferences get() = displaySelection.display
@@ -252,7 +264,7 @@ class ProjectionReceiver(
         manualMicrophoneExperiment = microphoneOverride != null,
         captureLedger = captureLedger, audioDiagnostic = { line, current -> enqueueStatus(line, current) },
         speechRecognitionProfile = speechRecognitionProfile,
-        clusterVideoSelection = clusterVideoConfiguration?.videoSelection,
+        clusterVideoSelection = this.clusterVideoConfiguration?.videoSelection,
         captureAdmission = { !closed.get() && !admissionRevoked.get() && captureAdmission() }).also { media ->
         media.setMediaOutputObserver { blocked, current ->
             val owner=active
@@ -273,6 +285,7 @@ class ProjectionReceiver(
     private var clusterEpoch = 0L
     private var clusterActive = false
     private var clusterListenerRetired = false
+    private var clusterCodec = VideoCodec.H264
     private fun clusterCallback(callback: (CarPlayClusterVideoListener) -> Unit) {
         val listener = clusterVideoListener ?: return
         try { callback(listener) } catch (_: Exception) {
@@ -291,11 +304,31 @@ class ProjectionReceiver(
     }
     /** One full sink remains the sole audio/mic owner. Encoded mode never feeds its second decoder. */
     private val mediaSink: com.shilapi.xcertplay.airplay.MediaSink = object : com.shilapi.xcertplay.airplay.MediaSink by sink {
+        override fun onVideoCodec(type: Int, codec: VideoCodec) {
+            if(type != 111 || clusterVideoListener == null) { sink.onVideoCodec(type,codec);return }
+            synchronized(clusterListenerLock) {
+                if(clusterListenerRetired || !clusterActive || closed.get() || admissionRevoked.get()) return@synchronized
+                if(videoSelection.clusterQualification?.videoSelection?.decoderName(codec) == null) {
+                    clusterActive=false
+                    clusterCallback { it.onStreamActive(clusterEpoch,false) }
+                } else clusterCodec=codec
+            }
+        }
         override fun onVideoConfig(type: Int, codecData: ByteArray) {
             if (type != 111 || clusterVideoListener == null) { sink.onVideoConfig(type, codecData); return }
             synchronized(clusterListenerLock) {
-                if (!clusterListenerRetired && clusterActive && !closed.get() && !admissionRevoked.get())
-                    clusterCallback { it.onCodecConfig(clusterEpoch, codecData.copyOf()) }
+                if (!clusterListenerRetired && clusterActive && !closed.get() && !admissionRevoked.get()) {
+                    try {
+                        val selected=requireNotNull(videoSelection.clusterQualification).videoSelection
+                        val (actual,record)=com.shilapi.xcertplay.airplay.ScreenCodec.detectConfig(codecData)
+                        require(actual==clusterCodec && selected.decoderName(actual)!=null)
+                        com.shilapi.xcertplay.media.CarPlayVideoQualification.mediaFormat(actual,record,selected)
+                        clusterCallback { it.onCodecConfig(clusterEpoch,record.copyOf()) }
+                    } catch (_: Exception) {
+                        clusterActive=false
+                        clusterCallback { it.onStreamActive(clusterEpoch,false) }
+                    }
+                }
             }
         }
         override fun onVideoFrame(type: Int, naluBytes: ByteArray) {
@@ -309,12 +342,13 @@ class ProjectionReceiver(
             sink.onScreenStreamActive(type, active)
             if (type != 111 || clusterVideoListener == null) return
             synchronized(clusterListenerLock) {
-                if (clusterListenerRetired || closed.get() || admissionRevoked.get()) return
+                if (clusterListenerRetired || closed.get() || admissionRevoked.get() || this@ProjectionReceiver.clusterVideoConfiguration == null) return
                 if (clusterActive) {
                     clusterActive = false
                     clusterCallback { it.onStreamActive(clusterEpoch, false) }
                 }
                 if (active) {
+                    clusterCodec = VideoCodec.H264
                     clusterEpoch++
                     clusterActive = true
                     clusterCallback { it.onStreamActive(clusterEpoch, true) }
@@ -331,7 +365,11 @@ class ProjectionReceiver(
             btMac = advertisedBluetoothAddress ?: btMac,
             cluster = clusterVideoConfiguration?.display,
             hevc = videoSelection.hevcOffered, oemLabel = "OpenAutoLink", icons = oemIcons,
-            drivingRestrictions = drivingRestrictions)
+            drivingRestrictions = drivingRestrictions).also { frozen ->
+                val url = frozen.cluster?.initialUrl
+                val content = CarPlayClusterContent.fromUrl(url)?.name ?: if (url == null) "absent" else "other"
+                status("BENCH_DIAG clusterPrepared content=$content offered=${frozen.cluster != null}")
+            }
     private val engine = CarPlayMediaEngine(mediaSink, microphoneEnabled = microphoneCapability.available,
         onDiagnostic = { session, message ->
             if (!closed.get() && !admissionRevoked.get() && session in sessions) status(message)

@@ -842,6 +842,28 @@ class EvContributionHardeningTest {
         assertTrue(q.isDeletionBlocked())
     }
 
+    @Test fun `expanded uploads use a media type legacy receivers reject`() {
+        val q = EvContributionQueue(dir(), 100_000, 8)
+        q.append("drive", 1, vehicleLine(), "owner"); q.close("drive", 2)
+        val file = q.pending().single().file
+        for ((schema, expected) in listOf(2 to "application/zip", 3 to "application/vnd.oal.ev-accuracy+zip")) {
+            val conn = object : HttpURLConnection(URL("https://logs.example/upload")) {
+                override fun connect() = Unit
+                override fun usingProxy() = false
+                override fun disconnect() = Unit
+                override fun getOutputStream(): java.io.OutputStream {
+                    assertEquals(expected, getRequestProperty("Content-Type"))
+                    return java.io.ByteArrayOutputStream()
+                }
+                override fun getResponseCode() = 200
+                override fun getInputStream() = "{}".byteInputStream()
+            }
+            assertEquals(200, EvContributionHttpTransport(openConnection = { conn }).send(
+                "https://logs.example/upload", "token", "ev-class-test", file, payloadSchema = schema,
+            ).statusCode)
+        }
+    }
+
     @Test fun `bounded HTTP rejects oversized response and later retry succeeds`() {
         val q = EvContributionQueue(dir(), 100_000, 8)
         q.append("drive", 1, vehicleLine(), "owner"); q.close("drive", 2)

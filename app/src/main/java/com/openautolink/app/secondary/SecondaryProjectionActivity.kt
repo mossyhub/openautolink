@@ -14,7 +14,7 @@ import com.openautolink.app.cluster.PixelRect
 import kotlin.math.max
 import kotlin.math.min
 
-/** An opaque, noninteractive public-display canvas. No audio, input, overlays or navigation owner. */
+/** A noninteractive video canvas with optional admitted app drawing; no audio/input/nav owner. */
 open class SecondaryProjectionActivity : Activity(), SurfaceHolder.Callback {
     private val retainedWindow get() = this is com.openautolink.app.cluster.ClusterDirectVideoActivity
     private var textureView: android.view.TextureView? = null
@@ -27,6 +27,7 @@ open class SecondaryProjectionActivity : Activity(), SurfaceHolder.Callback {
     private var hidden = false
     private var surfaceView: SurfaceView? = null
     private var concealment: View? = null
+    private var driveCard: com.openautolink.app.drivecard.DriveCardView? = null
     private var surfaceWidth = 0
     private var surfaceHeight = 0
     private var callbackSequence = 0L
@@ -107,6 +108,7 @@ open class SecondaryProjectionActivity : Activity(), SurfaceHolder.Callback {
             SecondaryHostGeometry(view.width, view.height, PixelRect(left, top, right, bottom)))
     }
     internal fun concealSurface() {
+        hideDriveCard()
         hidden = true
         // INVISIBLE destroys SurfaceView's native window before the renderer's asynchronous
         // black-swap/detach. Cover the old image in the window instead, keeping its borrowed
@@ -119,6 +121,28 @@ open class SecondaryProjectionActivity : Activity(), SurfaceHolder.Callback {
             isFocusable = false
         }.also { parent.addView(it, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)) }
+    }
+    internal fun showDriveCard(geometry: SecondaryHostGeometry, carPlay: Boolean,
+        descriptor: SecondaryDisplayDescriptor, layout: com.openautolink.app.drivecard.DriveCardLayout?, current: () -> Boolean) {
+        if (!started || !admitted || hidden || !current()) return
+        hideDriveCard()
+        val root = findViewById<android.view.ViewGroup>(android.R.id.content) ?: return
+        val view = com.openautolink.app.drivecard.DriveCardView(this, geometry, carPlay, current, ::hideDriveCard, layout)
+        driveCard = view
+        root.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        view.start()
+        com.openautolink.app.drivecard.DriveCardPreview.register(descriptor, view)
+    }
+    internal fun hideDriveCard() {
+        val view = driveCard ?: return
+        val parent = view.parent as? android.view.ViewGroup
+        driveCard = null
+        view.stop()
+        // A TextureView visibility callback can hide a later sibling mid-traversal.
+        // Stop authority/work now; queue only exact-old structural removal, even on Main.
+        if (parent != null) android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (view.parent === parent) parent.removeView(view)
+        }
     }
     private fun withdraw() {
         if (!admitted) return
@@ -209,12 +233,14 @@ open class SecondaryProjectionActivity : Activity(), SurfaceHolder.Callback {
         if (retainedWindow && admitted) { hidden = false; SecondaryHostRegistry.resume(this, token); publishTexture() }
     }
     override fun onStop() {
+        hideDriveCard()
         started = false
         observeCallback("stop")
         if (retainedWindow) { if (admitted) SecondaryHostRegistry.suspend(this, token, source = "activity_stop") } else withdraw()
         super.onStop()
     }
     override fun onDestroy() {
+        hideDriveCard()
         observeCallback("destroy")
         if (retainedWindow) SecondaryHostRegistry.destroyed(this, token) else withdraw()
         surfaceView?.holder?.removeCallback(this)

@@ -10,9 +10,13 @@ class UsbCarPlayPlatformContractTest {
         assertTrue(manifest.contains("com.openautolink.carplaylab.usb.OalUsbCarPlayVpnService"))
         assertTrue(manifest.contains("android.permission.BIND_VPN_SERVICE"))
         val service = File("../carplay-lab/src/main/java/com/openautolink/carplaylab/usb/OalUsbCarPlayVpnService.kt").readText()
-        assertTrue(service.contains("addAllowedApplication(packageName)"))
-        assertTrue(service.contains("addRoute(\"fe80::\", 64)"))
-        assertFalse(service.contains("0.0.0.0"))
+        val builder = service.substringAfter("val fd = Builder()").substringBefore(".establish()")
+        assertTrue(builder.contains(".addAllowedApplication(packageName)"))
+        assertEquals(listOf("\"fe80::\", 64"), Regex("""\.addRoute\(([^)]*)\)""")
+            .findAll(builder).map { it.groupValues[1] }.toList())
+        assertFalse(builder.contains(".addDnsServer("))
+        assertTrue("OAL's IPv4 traffic must be allowed to fall through to the normal network",
+            builder.contains(".allowFamily(OsConstants.AF_INET)"))
     }
 
     @Test fun usbStageReceiptsSurviveExportAndRejectIdentifiers() {

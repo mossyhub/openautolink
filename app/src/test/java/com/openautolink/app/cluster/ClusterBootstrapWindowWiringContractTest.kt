@@ -27,7 +27,8 @@ class ClusterBootstrapWindowWiringContractTest {
         )
 
         val install = application.indexOf("ClusterBootstrapWindowProtector.install(this)")
-        val sessionInfrastructure = application.indexOf("ProcessVehicleDataRuntime.initialize(this, learnedEstimator)")
+        val sessionInfrastructure = Regex("""ProcessVehicleDataRuntime\.initialize\(\s*this,\s*learnedEstimator,""")
+            .find(application)?.range?.first ?: -1
         assertTrue("protector must install before session infrastructure", install in 0 until sessionInfrastructure)
         assertTrue(protector.contains("private const val CAR_APP_ACTIVITY = \"androidx.car.app.activity.CarAppActivity\""))
         assertTrue(protector.contains("if (activity.javaClass.name != CAR_APP_ACTIVITY) return"))

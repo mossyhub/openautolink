@@ -91,7 +91,7 @@ class CarPlayClusterReceiverTest {
         try {
             assertNull(receiver.attachClusterSurface(mock(Surface::class.java)))
             val media = field(receiver,"mediaSink") as MediaSink
-            val bytes = byteArrayOf(1,2)
+            val bytes = byteArrayOf(1,66,0,30,-1,-31,0,2,0x67,1,1,0,2,0x68,2)
             media.onScreenStreamActive(111,true)
             media.onVideoConfig(111,bytes); media.onVideoFrame(111,bytes)
             bytes[0] = 9
@@ -115,7 +115,7 @@ class CarPlayClusterReceiverTest {
         })
         try {
             val media = field(receiver,"mediaSink") as MediaSink
-            media.onScreenStreamActive(111,true); media.onVideoConfig(111,byteArrayOf(1)); media.onVideoFrame(111,byteArrayOf(1))
+            media.onScreenStreamActive(111,true); media.onVideoConfig(111,byteArrayOf(1,66,0,30,-1,-31,0,2,0x67,1,1,0,2,0x68,2)); media.onVideoFrame(111,byteArrayOf(1))
             media.onVideoCodec(110,VideoCodec.H264)
             media.onScreenStreamActive(111,true); media.onVideoFrame(111,byteArrayOf(1))
             assertEquals(listOf("1:true","1:false","2:true","2:frame"),events)
