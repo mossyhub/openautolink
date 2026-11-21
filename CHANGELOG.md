@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.601 — Car information permission
+
+- OpenAutoLink requests **Car information** on Android Automotive when access is missing. While parked, tap **Allow** to enable live EV data. If no prompt appears, use **car Settings → Apps → OpenAutoLink → Permissions → Car information → Allow**.
+- Includes the [0.1.600 updates](https://github.com/mossyhub/openautolink/releases/tag/v0.1.600): Apple Maps EV routing on compatible vehicles, higher-resolution CarPlay driver-display video, the optional EV Drive Card, and Android Auto reconnection improvements.
+
 ## 0.1.584 — USB-only connections and CarPlay driver-display views
 
 - Add **Wired-only projection (USB)** in Connection settings for Android Auto and CarPlay. Keep separate normal connection modes, credentials and paired phones; turning the override off restores those choices. CarPlay must still be enabled separately.
