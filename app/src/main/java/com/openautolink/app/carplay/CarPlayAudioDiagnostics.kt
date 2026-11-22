@@ -6,6 +6,8 @@ object CarPlayAudioDiagnostics {
     const val MAX_LINE_LENGTH = 1152
     private const val MAX_NUMERIC_INPUT_LENGTH = 1024
     private const val number = "[0-9]{1,19}"
+    private const val evDecimal = "[0-9]{1,7}(?:\\.[0-9]{1,20})?(?:[eE][+-]?[0-9]{1,3})?"
+    private const val evScalar = "(?:[34]|11|15|2[1-5]|30):-?[0-9]{1,10}"
     private const val optional = "($number|null)"
     private const val bool = "(true|false)"
     private const val micRequestedSource = "(MIC|VOICE_COMMUNICATION|VOICE_RECOGNITION)"
@@ -115,6 +117,12 @@ object CarPlayAudioDiagnostics {
         "carplay-car-data-offer location=$bool range=$bool current=$bool maximum=$bool( temperature=true)?",
         "carplay-car-data-request id=(65530|41216) bytes=[0-9]{1,5} result=(accepted|disabled|malformed|oversized|duplicate|unsupported_id|width|interval_bounds|orphan_interval|no_supported_groups) parameter=[0-9]{1,5} length=[0-9]{1,3} groups=([0-9]|1[0-5]) ggaMs=[0-9]{1,5} rmcMs=[0-9]{1,5}",
         "carplay-car-data-source property=(range|current|maximum|temperature|reported_capacity) reason=(available|absent|fuel|metadata|generation|source|inactive|status|property|timestamp|source_age|receipt_age|bounds|inconsistent) status=(-1|[0-9]) active=$bool generation=$bool sourceAgeMs=(-1|[0-9]{1,8}) receiptAgeMs=(-1|[0-9]{1,8})( changeMode=(0|1|2|unknown) statusReadAgeMs=(-1|[0-9]{1,8}))?",
+        "carplay-ev-offer stage=prepared connectors=(?:none|[012456](?:,[012456]){0,5}) dcW=(?:none|[0-9]{1,10}) acW=(?:none|[0-9]{1,10}) groups=(?:3|4|11|15|21|30)(?:,(?:3|4|11|15|21|30)){0,5}",
+        "carplay-ev-wire send=$number status=$evScalar(?:,$evScalar){0,9}",
+        "carplay-ev-wire send=$number model=26 id=12582922 (?:energy|watts|steps)=$evDecimal(?:,$evDecimal){0,20}",
+        "carplay-ev-wire send=$number model=26 id=12582922 eff=$evDecimal",
+        "carplay-ev-wire send=$number model=27 id=12582921 consumption=$evDecimal(?:,$evDecimal){0,9}",
+        "carplay-ev-wire send=$number model=27 id=12582921 (?:aux|gain|loss)=$evDecimal",
         "carplay-ev-pilot readiness=(configuration_unavailable|disabled|charging_profile_required|unsupported_profile|invalid_configuration|source_unavailable|source_identity|source_range|capacity_required|model_invalid|ready) enabled=$bool basis=(usable|reported|manual|absent) frozen=true model=$bool",
         "carplay-ev-admission wireBasis=(usable|reported|absent) socBasis=(usable|reported|absent) modelBasis=(usable|reported|manual|absent) model=(admitted|not_frozen|source|owner|scale|current|range) fullRange=(available|absent) charging=(available|absent)",
         "carplay-car-data-bootstrap id=(65530|65532|41216|41218) result=(deferred|oversized|retired)",
@@ -205,7 +213,8 @@ object CarPlayAudioDiagnostics {
 
     fun sanitize(session: Long, message: String): String? {
         val maximum = if (message.startsWith("media stage=audio-pcm ") || message.startsWith("media stage=microphone-pcm ") ||
-            message.startsWith("media stage=microphone-owned ") || message.startsWith("media stage=microphone-terminal "))
+            message.startsWith("media stage=microphone-owned ") || message.startsWith("media stage=microphone-terminal ") ||
+            message.startsWith("carplay-ev-wire "))
             MAX_NUMERIC_INPUT_LENGTH else MAX_INPUT_LENGTH
         if (session <= 0 || message.length > maximum) return null
         val receipt = accepted.matchEntire(message)

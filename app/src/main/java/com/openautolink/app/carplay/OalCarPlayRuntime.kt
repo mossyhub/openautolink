@@ -354,7 +354,7 @@ class OalCarPlayRuntime(
                     }, SystemClock::elapsedRealtime, CarPlayAppearanceBridge(),
                     session::setNightModeIfEventReady, send, receipt,
                     restrictionPolicy = config.restrictionPolicy,
-                    sendLimitedUI = session::setLimitedUIIfEventReady)
+                    sendLimitedUI = session::setLimitedUIIfEventReady, evCapture = CarPlayEvLogCapture.Link())
             }, runtimeMetadataFactory = { session, receipt -> own {
                 admitWireless()
                 val metadata = OalCarPlayMetadataLink(SystemClock::elapsedRealtime, receipt,

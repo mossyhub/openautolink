@@ -2,6 +2,7 @@ package com.openautolink.app.diagnostics
 
 import android.content.Context
 import android.os.Build
+import com.openautolink.app.carplay.CarPlayEvLogCapture
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
@@ -62,13 +63,25 @@ class LogUploader(
         if (url.isBlank() || token.isBlank()) return UploadResult.Failure("upload not configured", UploadFailureCode.NOT_CONFIGURED)
         if (!UploadEndpointPolicy.isAllowed(url)) return UploadResult.Failure("HTTPS upload URL required", UploadFailureCode.HTTPS_REQUIRED)
 
+        var evSnapshotFile: File? = null
         val archive = try {
+            // Already-admitted EV receipts are self-contained. Snapshot them on manual upload IO
+            // without waiting for the ordinary status queue, logcat, or the ordinary file buffer.
+            val evSnapshot = DiagnosticFileLogging.writer?.evWireCapture?.snapshot().orEmpty()
+            if (evSnapshot.isNotEmpty()) {
+                val file = File.createTempFile("carplay_ev_wire_", ".log", context.cacheDir)
+                evSnapshotFile = file
+                file.bufferedWriter(Charsets.UTF_8).use { out -> evSnapshot.forEach { out.appendLine(it) } }
+            }
             val flushed = try { flushTelemetry() } catch (_: Exception) { false }
             val bluetoothFlushed = try { flushBluetooth() } catch (_: Exception) { false }
             check(com.openautolink.app.carplay.HostMediaDiagnosticSink.flush()) { "host media diagnostics pending" }
             check(com.openautolink.carplaylab.telecom.NativeCallDiagnostics.flush()) { "native call diagnostics pending" }
             val mediaStatus = try { prepareMedia() } catch (_: Exception) { MediaStoreStatus.UNAVAILABLE }
-            val plan = LogUploadArchive.select(allLogFiles(), System.currentTimeMillis(), mediaStatus)
+            val plan = LogUploadArchive.select(allLogFiles(), System.currentTimeMillis(), mediaStatus, evSnapshotFile)
+            check(evSnapshotFile == null || plan.selected.any {
+                it.name == CarPlayEvLogCapture.FILE_NAME && it.source == evSnapshotFile
+            })
             if (plan.selected.isEmpty()) return UploadResult.Failure(
                 "no eligible log files; ${plan.skipped.size} omitted (age/size/member limits)", UploadFailureCode.NO_LOGS
             )
@@ -76,6 +89,8 @@ class LogUploader(
         } catch (_: Exception) {
             // Do not leak filesystem paths, credentials, or URL query strings through exception text.
             return UploadResult.Failure("log snapshot failed; source logs retained, retry upload", UploadFailureCode.SNAPSHOT)
+        } finally {
+            evSnapshotFile?.delete()
         }
 
         return archive.use { payload ->

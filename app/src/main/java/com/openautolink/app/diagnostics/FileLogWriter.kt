@@ -3,6 +3,7 @@ package com.openautolink.app.diagnostics
 import android.content.Context
 import android.os.Environment
 import android.os.StatFs
+import com.openautolink.app.carplay.CarPlayEvLogCapture
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileOutputStream
@@ -10,6 +11,11 @@ import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** Read the selected writer without initializing DiagnosticLog's Android UI handler. */
+internal object DiagnosticFileLogging {
+    @Volatile var writer: FileLogWriter? = null
+}
 
 /**
  * Writes [LocalLogEntry] lines to a timestamped log file on external storage.
@@ -45,6 +51,10 @@ class FileLogWriter(private val context: Context) {
         private set
 
     private var writer: BufferedWriter? = null
+    // Published/revoked along with the actual file run; never acquire the writer lock to record EVs.
+    @Volatile
+    internal var evWireCapture: CarPlayEvLogCapture? = null
+        private set
     private val lock = Any()
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private val fileNameFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US)
@@ -87,6 +97,7 @@ class FileLogWriter(private val context: Context) {
                 linesSinceFlush = 0
                 currentFilePath = file.absolutePath
                 isActive = true
+                evWireCapture = CarPlayEvLogCapture()
                 OalLog.i(TAG, "File logging started: ${file.absolutePath}")
                 file.absolutePath
             } catch (e: Exception) {
@@ -102,6 +113,7 @@ class FileLogWriter(private val context: Context) {
     fun stop() {
         synchronized(lock) {
             if (!isActive) return
+            evWireCapture = null
             isActive = false
             try {
                 writer?.flush()
@@ -155,6 +167,7 @@ class FileLogWriter(private val context: Context) {
                 }
             } catch (e: Exception) {
                 // Don't recurse through OalLog — just stop silently
+                evWireCapture = null
                 isActive = false
                 try { w.close() } catch (_: Exception) { }
                 writer = null

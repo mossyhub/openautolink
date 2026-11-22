@@ -7,6 +7,11 @@ class CarPlayIntakeDiagnosticsTest {
     @Test fun preciseVehicleContractReceiptsSurviveSanitizerReporterAndRealArchive() {
         val receipts = listOf(
             "carplay-car-data-offer location=true range=true current=true maximum=false",
+            "carplay-ev-offer stage=prepared connectors=0,2 dcW=150000 acW=11500 groups=3,4,11,15,21,30",
+            "carplay-ev-wire send=1 status=3:180,11:180,15:0,4:-5,21:0,22:20000,23:60000,24:33333,25:0,30:540",
+            "carplay-ev-wire send=1 model=26 id=12582922 energy=0,6000",
+            "carplay-ev-wire send=1 model=27 id=12582921 consumption=0.00012,0.2",
+
             "carplay-car-data-request id=65530 bytes=32 result=width parameter=0 length=2 groups=0 ggaMs=0 rmcMs=0",
             "carplay-car-data-request id=41216 bytes=12 result=accepted parameter=0 length=0 groups=7 ggaMs=0 rmcMs=0",
             "carplay-car-data-source property=range reason=source_age status=0 active=true generation=true sourceAgeMs=60000 receiptAgeMs=1000",
@@ -24,7 +29,8 @@ class CarPlayIntakeDiagnosticsTest {
                 assertNull(CarPlayAudioDiagnostics.sanitize(1,line+suffix))
         }
         assertEquals(receipts.size,exported.size)
-        assertNull(CarPlayAudioDiagnostics.sanitize(1,receipts[1].replace("result=width","result=private")))
+        val badRequest = receipts.single { it.contains("result=width") }.replace("result=width","result=private")
+        assertNull(CarPlayAudioDiagnostics.sanitize(1,badRequest))
         val folder = java.nio.file.Files.createTempDirectory(java.nio.file.Path.of(System.getProperty("java.io.tmpdir")),"vehicle-export").toFile()
         try {
             val contents=exported.joinToString("\n",postfix="\n")

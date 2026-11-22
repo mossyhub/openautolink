@@ -10,6 +10,7 @@ class OalCarDataBootstrap(
     private val capabilities: OalCarDataCapabilities,
     private val elapsedMs: () -> Long,
     private val receipt: (String) -> Unit,
+    private val evReceipt: ((OalEvWireDiagnostics.Receipt) -> Boolean)? = null,
 ) : AutoCloseable {
     private val pending = linkedMapOf<Int,Iap2Frame>()
     private val lastReceipts = mutableMapOf<Pair<Int,String>,Long>()
@@ -18,12 +19,20 @@ class OalCarDataBootstrap(
     private val retired = java.util.concurrent.atomic.AtomicBoolean()
 
     @Synchronized fun identification(base: Iap2Frame): Iap2Frame {
-        if (!offerReported) {
+        val frame = OalCarDataIdentification.apply(base,capabilities)
+        if (!retired.get() && !offerReported) {
             offerReported=true
-            runCatching {receipt("carplay-car-data-offer location=${capabilities.location} range=${capabilities.range} current=${capabilities.currentEnergy} maximum=${capabilities.maximumEnergy}" +
-                if (capabilities.outsideTemperature) " temperature=true" else "")}
+            // Wired production supplies a memory-only sink. The runtime reporter reports the
+            // ordinary capability summary later; do not call its logger before Identify send.
+            val capture = evReceipt
+            if (capture != null) {
+                runCatching { OalEvWireDiagnostics.preparedOffer(frame)?.let { capture(it) } }
+            } else {
+                runCatching { receipt("carplay-car-data-offer location=${capabilities.location} range=${capabilities.range} current=${capabilities.currentEnergy} maximum=${capabilities.maximumEnergy}" +
+                    if (capabilities.outsideTemperature) " temperature=true" else "") }
+            }
         }
-        return OalCarDataIdentification.apply(base,capabilities)
+        return frame
     }
 
     @Synchronized fun handle(frame: Iap2Frame): Boolean {

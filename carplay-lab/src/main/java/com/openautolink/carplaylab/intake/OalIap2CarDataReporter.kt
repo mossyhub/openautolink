@@ -38,6 +38,9 @@ class OalIap2CarDataReporter(
     private val locationActive: (Boolean) -> Unit,
     private val send: (Iap2Frame) -> Unit,
     private val receipt: (String) -> Unit,
+    // Normal OAL runtimes use the dedicated, memory-only sink. Keep the standalone observer
+    // usable for library callers; only the dedicated sink acknowledges whole-group retention.
+    private val evReceipt: (OalEvWireDiagnostics.Receipt) -> Boolean = { batch -> batch.lines.forEach(receipt); true },
 ) : AutoCloseable {
     private var authenticated = false
     private var retired = false
@@ -48,6 +51,7 @@ class OalIap2CarDataReporter(
     private var evGroups = emptySet<Int>()
     private var lastEvAttempt: Long? = null
     private var transmissionCount = 0L
+    private var lastEvModelReceiptMs: Long? = null
     private val lastReceipts = mutableMapOf<Pair<Int,String>,Long>()
     private var suppressed = 0L
 
@@ -242,10 +246,34 @@ class OalIap2CarDataReporter(
                 mask or when (parameter.id) { 0 -> 1; 3 -> 2; 11 -> 4; 22 -> 8; 23 -> 16; 4 -> 32; 26 -> 64; 27 -> 128; 21 -> 256; 24 -> 512; 25 -> 1024; 30 -> 2048; else -> 0 }
             }
             log(frame.messageId,"transmitted",presence)
+            // A diagnostic failure must never be reported as a transport failure or close the link.
+            if (frame.messageId == 0xA101) runCatching { logEvValues(frame) }
         } catch (_: Exception) {
             close()
             log(frame.messageId,"send_failed") // No exception text; no claim of phone consumption.
         }
+    }
+
+    private fun logEvValues(frame: Iap2Frame) {
+        val body = Iap2BodyReader.of(frame)
+        val status = OalEvWireDiagnostics.status(body, transmissionCount) ?: return
+        val now = elapsedMs()
+        val previous = lastEvModelReceiptMs
+        // Never throttle a rejected model batch. Retry only on the next ordinary, completed
+        // model-bearing write; this decision does not schedule or authorize any protocol send.
+        if (body.has(26) && body.has(27) && (previous == null || now < previous || now - previous >= 300_000)) {
+            val retained = runCatching {
+                val values = OalEvWireDiagnostics.model(body, transmissionCount, 26) +
+                    OalEvWireDiagnostics.model(body, transmissionCount, 27)
+                values.size == 8 && evReceipt(OalEvWireDiagnostics.Receipt(
+                    OalEvWireDiagnostics.Kind.WRITTEN_MODEL, listOf(status) + values))
+            }.getOrDefault(false)
+            if (retained) {
+                lastEvModelReceiptMs = now
+                return
+            }
+        }
+        evReceipt(OalEvWireDiagnostics.Receipt(OalEvWireDiagnostics.Kind.WRITTEN_STATUS, listOf(status)))
     }
 
     private fun setLocationActive(active: Boolean) {
