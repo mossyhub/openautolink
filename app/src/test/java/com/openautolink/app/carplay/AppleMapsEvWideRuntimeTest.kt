@@ -64,7 +64,7 @@ class AppleMapsEvWideRuntimeTest {
         return OalCarDataIdentification.apply(identify, caps) to writes.single().also { assertEquals(0xA101, it.messageId) }
     }
 
-    @Test fun unconfiguredNonBlazerSharesSourcedStatusByDefaultWithoutInventingModelOrRatings() {
+    @Test fun unconfiguredNonBlazerSharesSourcedStatusWithFallbackModelAndNoInventedRatings() {
         val (offer, status) = output(adapter(MutableStateFlow(sample())) { CarPlaySettings.decode(null) })
         val info = Iap2BodyReader.of(offer).group(20)
         assertEquals("2026 Other Brand Other Model", info.optionalString(8))
@@ -74,7 +74,27 @@ class AppleMapsEvWideRuntimeTest {
         assertEquals(150, body.u16(11))
         assertEquals(30_000L, body.u32(22))
         assertEquals(60_000L, body.u32(23))
-        assertFalse(body.has(26)); assertFalse(body.has(27))
+        assertTrue(body.has(26) && body.has(27))
+        assertEquals(89_395, firstChargingWatts(body))
+    }
+
+    private fun firstChargingWatts(body: Iap2BodyReader) = JSONObject(body.string(26))
+        .getJSONObject("vehicle_parameters").getJSONArray("vehicle_charge_axis_w").getInt(0)
+
+    @Test fun otherYearsAndUnknownOrUnmatchedIdentityUseTheSameFallback() {
+        for (data in listOf(
+            sample().copy(carMake = "Chevrolet", carModel = "C234", carYear = "2025",
+                evBatteryCapacityWh = 85_000f, evConnectorTypes = listOf(1, 5)),
+            sample().copy(carMake = "Chevrolet", carModel = "Equinox", carYear = "2026"),
+            sample().copy(carMake = null, carModel = null, carYear = null),
+        )) {
+            val (offer, status) = output(adapter(MutableStateFlow(data)) { settings("") })
+            assertEquals(89_395, firstChargingWatts(Iap2BodyReader.of(status)))
+            val info = Iap2BodyReader.of(offer).group(20)
+            assertFalse(info.has(12)); assertFalse(info.has(14))
+            assertFalse("No preset-only range capability", Iap2BodyReader.of(offer).group(21).has(30))
+            assertFalse("No preset-only full-range estimate", Iap2BodyReader.of(status).has(30))
+        }
     }
 
     @Test fun explicitOffAndFailedPreferenceReadKeepTemperatureAndLocationIndependent() {
@@ -185,7 +205,7 @@ class AppleMapsEvWideRuntimeTest {
         }
     }
 
-    @Test fun blazersWithNoOverrideRetainIndependent599IdentifyAndAuthenticatedA101Bytes() {
+    @Test fun exactOwnerBlazerAndLegacyMy25EngineeringPilotRetainIndependent599WireBytes() {
         now = 1000
         // Reproduce the separately compiled 599 HostDefaultWireProbe, including metadata shape.
         // A101 goldens use Android JSONObject insertion order within TLVs 26/27, not the host
@@ -208,7 +228,14 @@ class AppleMapsEvWideRuntimeTest {
             Triple(gm25, "f506ca3124f4dd4183032dedb6f21d3ad4b72733c6e7dafa3d5a1d2586dfb902",
                 "6bc3dc682d80083f8da775a90128decc79bfc5f647ef5cf83d4b39eb9df23c26"),
         )) {
-            val (offer, status) = output(adapter(MutableStateFlow(data)) { CarPlaySettings.decode("""{"evDataEnabled":true}""") })
+            val source = MutableStateFlow(data)
+            val testedAdapter = if (data.carYear == "2025") {
+                // Keep the old MY25 wire baseline for the engineering pilot, not normal saved sharing.
+                OalCarPlayVehicleSnapshotAdapter({ source }, { now }, {
+                    CarPlayEvPilotConfiguration(enabled = true, profileId = CarPlayEvPilotConfiguration.GM_ROUTING)
+                })
+            } else adapter(source) { settings("") }
+            val (offer, status) = output(testedAdapter)
             assertEquals(data.carYear, expectedIdentify, sha(offer))
             assertEquals(data.carYear, expectedStatus, sha(status))
         }

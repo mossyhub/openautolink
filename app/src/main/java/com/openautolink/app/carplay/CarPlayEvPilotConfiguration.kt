@@ -89,9 +89,11 @@ data class CarPlayEvPilotConfiguration(
     }
 
     /** Saved Advanced estimate uses only qualified source capacity, never legacy calibration. */
-    internal fun savedEstimate(currentWh: Long?, rangeKm: Float?, usableWh: Long?, reportedWh: Long?): OalEvRoutingModel? {
+    internal fun savedEstimate(currentWh: Long?, rangeKm: Float?, usableWh: Long?, reportedWh: Long?,
+        automaticPowerWatts: Int): OalEvRoutingModel? {
         if (!enabled || profileId != SAVED_SHARING) return null
-        val power = averageDcWatts(averageChargeKw) ?: return null
+        val power = if (averageChargeKw.isEmpty()) automaticPowerWatts
+            else averageDcWatts(averageChargeKw) ?: return null
         val scale = (usableWh ?: reportedWh)?.takeIf { it in 10_000L..250_000L } ?: return null
         val provenance = if (usableWh != null) OalEvRoutingModel.CapacityProvenance.SOURCE_USABLE
             else OalEvRoutingModel.CapacityProvenance.SOURCE_REPORTED
@@ -132,12 +134,13 @@ data class CarPlayEvPilotConfiguration(
         // 16,110..71,600 Wh deficit: (71600-16110)*3600/(3220-1235), rounded. A pilot
         // assumption, not live power, charger rating, or a conversion of the OEM curve.
         private const val C234_AVERAGE_DC_W = 100_637
+        internal const val DEFAULT_AVERAGE_DC_W = 89_395
 
         // MY24 small-pack AWD proxy from a published RS AWD 10–80% session:
         // 102 kW at the station / 1.141 input-to-pack energy ratio, rounded.
         // Not a VIN/trim detection, live charger limit, or validated taper curve.
         internal fun c234PilotPower(year: String?): Int? = when (year) {
-            "2024" -> 89_395
+            "2024" -> DEFAULT_AVERAGE_DC_W
             "2025" -> C234_AVERAGE_DC_W
             else -> null
         }
