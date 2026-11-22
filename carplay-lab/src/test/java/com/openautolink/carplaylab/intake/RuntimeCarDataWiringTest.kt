@@ -10,6 +10,10 @@ class RuntimeCarDataWiringTest {
     @Test fun usbBootstrapAndRuntimeConsumeOneFrozenContractWithBoundedRequestHandoff() {
         val usb=source("app/src/main/java/com/openautolink/app/carplay/OalUsbCarPlayRuntime.kt")
         assertTrue(usb.contains("OalCarDataBootstrap(capabilities"))
+        assertTrue(usb.contains("val vehicleBootstrap=own { createVehicleBootstrap(capabilities, evCapture) }"))
+        assertTrue(usb.contains("::status, evReceipt = evCapture::record"))
+        assertTrue(usb.substringAfter("vehicleBootstrap.wrap(").substringBefore("runtimeMetadataFactory")
+            .contains("evCapture = evCapture"))
         assertTrue(usb.contains("vehicleBootstrap.wrap("))
         assertTrue(usb.contains("frozenCapabilities=capabilities"))
         assertTrue(usb.contains("onOtherFrame=vehicleBootstrap::handle"))
@@ -21,6 +25,8 @@ class RuntimeCarDataWiringTest {
     @Test fun productionRuntimeUsesActualPerTunnelLifecycleAndRawSources() {
         val app = source("app/src/main/java/com/openautolink/app/carplay/OalCarPlayRuntime.kt")
         assertTrue("real runtime factory absent", app.contains("runtimeCarDataFactory ="))
+        assertTrue(app.substringAfter("runtimeCarDataFactory =").substringBefore("runtimeMetadataFactory")
+            .contains("evCapture = CarPlayEvLogCapture.Link()"))
         assertTrue(app.contains("GnssForwarderImpl(context.applicationContext, sink, true)"))
         assertTrue(app.contains("ACCESS_FINE_LOCATION"))
         assertTrue(app.contains("isProviderEnabled(LocationManager.GPS_PROVIDER)"))

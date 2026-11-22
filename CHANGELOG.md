@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.604 — CarPlay EV diagnostics
+
+- With file logging on, manual log uploads include the prepared CarPlay EV connector offer and values from completed local status writes, without GPS or destination details in the new EV records. Routing behavior is unchanged.
+
+## 0.1.603 — Apple Maps EV range
+
+- Share an estimated full-charge range when valid battery and range readings are available.
+
 ## 0.1.602 — Automatic Apple Maps charging estimate
 
 - Provide a default average DC charging estimate without a vehicle allowlist. A saved **Advanced** value overrides the estimate; **Use automatic** restores it. OAL still requires valid battery and range readings from the vehicle.

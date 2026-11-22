@@ -81,8 +81,9 @@ object DiagnosticLog {
     var instance: RemoteDiagnostics? = null
 
     /** File log writer for USB stick logging. Set by ProjectionViewModel. */
-    @Volatile
-    var fileLogWriter: FileLogWriter? = null
+    var fileLogWriter: FileLogWriter?
+        get() = DiagnosticFileLogging.writer
+        set(value) { DiagnosticFileLogging.writer = value }
 
     private val ring = ArrayDeque<LocalLogEntry>(MAX_LOCAL_ENTRIES)
     private val _localLogs = MutableStateFlow<List<LocalLogEntry>>(emptyList())

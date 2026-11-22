@@ -10,6 +10,8 @@ import android.net.VpnService
 import android.os.*
 import android.view.Surface
 import com.openautolink.app.input.GnssForwarderImpl
+import com.openautolink.carplaylab.intake.OalCarDataBootstrap
+import com.openautolink.carplaylab.intake.OalCarDataCapabilities
 import com.openautolink.carplaylab.media.*
 import com.openautolink.carplaylab.network.CarPlayNetworkSelection
 import com.openautolink.carplaylab.usb.*
@@ -97,6 +99,8 @@ class OalUsbCarPlayRuntime(
         runCatching { android.util.Log.i("OalCarPlayAudio",line) }
     }
     private fun status(line:String) { if(!canceled.get()) { audioDiagnostics.record(line);report(line) } }
+    internal fun createVehicleBootstrap(capabilities: OalCarDataCapabilities, evCapture: CarPlayEvLogCapture.Link) =
+        OalCarDataBootstrap(capabilities, SystemClock::elapsedRealtime, ::status, evReceipt = evCapture::record)
     // Exact historical receiver evidence remains exportable after cancellation; live UI does not.
     private fun receiverStatus(line:String) {
         attemptContext?.hostMedia?.let {
@@ -362,7 +366,8 @@ class OalUsbCarPlayRuntime(
             runCatching { context.getSystemService(LocationManager::class.java)?.isProviderEnabled(LocationManager.GPS_PROVIDER)==true }.getOrDefault(false)
         val vehicle=OalCarPlayVehicleSnapshotAdapter.forContext(context)
         val capabilities=vehicle.capabilities(gps,::status)
-        val vehicleBootstrap=own { com.openautolink.carplaylab.intake.OalCarDataBootstrap(capabilities,SystemClock::elapsedRealtime,::status) }
+        val evCapture = CarPlayEvLogCapture.Link()
+        val vehicleBootstrap=own { createVehicleBootstrap(capabilities, evCapture) }
         val identification=Iap2IdentificationConfig("OpenAutoLink","OAL-native-CarPlay","OpenAutoLink",
             "oal-private-receiver","0.1","Android",function.data.id,externalAccessoryProtocol="com.openautolink.carplaylab")
         val projection=createClusterReceiver { clusterConfiguration, clusterListener -> ProjectionReceiver(context,identity,surface,auth,display,trustedOnly=true,
@@ -371,7 +376,7 @@ class OalUsbCarPlayRuntime(
                     sink -> GnssForwarderImpl(context.applicationContext,sink,true)
                 },SystemClock::elapsedRealtime,CarPlayAppearanceBridge(),session::setNightModeIfEventReady,send,receipt,
                     frozenCapabilities=capabilities, restrictionPolicy = restrictionPolicy,
-                    sendLimitedUI = session::setLimitedUIIfEventReady))
+                    sendLimitedUI = session::setLimitedUIIfEventReady, evCapture = evCapture))
             },runtimeMetadataFactory={ session, receipt -> own {
                 active()
                 val metadata = OalCarPlayMetadataLink(SystemClock::elapsedRealtime, receipt,

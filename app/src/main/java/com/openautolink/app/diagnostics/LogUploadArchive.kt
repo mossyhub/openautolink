@@ -1,5 +1,6 @@
 package com.openautolink.app.diagnostics
 
+import com.openautolink.app.carplay.CarPlayEvLogCapture
 import java.io.Closeable
 import java.io.File
 import java.util.zip.ZipEntry
@@ -32,12 +33,13 @@ internal class LogUploadArchive(
         const val MAX_RAW_BYTES = 25L * 1024 * 1024
         const val MAX_MEMBER_BYTES = 16L * 1024 * 1024 - 1
 
-        fun select(files: List<File>, now: Long, mediaPreparation: MediaStoreStatus = MediaStoreStatus.UNAVAILABLE): UploadPlan {
+        fun select(files: List<File>, now: Long, mediaPreparation: MediaStoreStatus = MediaStoreStatus.UNAVAILABLE,
+            carPlayEvSnapshot: File? = null): UploadPlan {
             val selected = mutableListOf<UploadSelection>()
             val skipped = mutableListOf<UploadSkipped>()
             val used = mutableSetOf("upload_manifest.log")
             var remaining = MAX_RAW_BYTES - MANIFEST_RESERVE
-            val unique = files.distinctBy { it.canonicalPath }
+            val unique = (listOfNotNull(carPlayEvSnapshot) + files).distinctBy { it.canonicalPath }
             val localRun = Regex("microphone_diagnostic_run_[0-9]{19}\\.log")
             fun capture(file: File) = CaptureTerminalLogStore.runName.matches(file.name)
             fun local(file: File) = localRun.matches(file.name)
@@ -63,6 +65,7 @@ internal class LogUploadArchive(
             val mediaRuns = validMedia.sortedWith(compareByDescending<File> { it.name }.thenBy { it.absolutePath })
                 .distinctBy { it.name }.take(MediaDiagnosticStore.MAX_RUNS).toSet()
             fun tier(file: File) = when {
+                file == carPlayEvSnapshot -> -1
                 file in captureRuns || file in localRuns || file in bluetoothRuns || file in telecomReceipts -> 0
                 media(file) -> 1
                 file.name.startsWith("ev_", true) -> 2
@@ -73,8 +76,9 @@ internal class LogUploadArchive(
                     .thenByDescending { if (tier(it) == 0) it.name.startsWith("ev_", true) else false }
                     .thenByDescending { it.lastModified() }.thenBy { it.absolutePath })
                 .forEachIndexed { index, file ->
-                    val ev = file.name.startsWith("ev_", true)
-                    val safe = file.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(160)
+                    val ev = file == carPlayEvSnapshot || file.name.startsWith("ev_", true)
+                    val safe = if (file == carPlayEvSnapshot) CarPlayEvLogCapture.FILE_NAME
+                        else file.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(160)
                     var name = if (safe.endsWith(".log", true)) safe else "$safe.log"
                     if (!used.add(name.lowercase(java.util.Locale.ROOT))) {
                         name = "${name.dropLast(4)}_source${index}.log"

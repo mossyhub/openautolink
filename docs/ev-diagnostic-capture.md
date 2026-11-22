@@ -2,7 +2,13 @@
 
 This build collects evidence to improve EV arrival estimates. It **does not change the vehicle energy model or enable learned-mode calibration**. A correct current battery display is not proof of an accurate arrival forecast.
 
-## Normal use
+## Apple Maps on CarPlay
+
+Enable file logging before connecting, then reconnect CarPlay and retry the route while parked. Leave file logging on and use **Upload Logs** on the car immediately afterward; logcat capture is not required. The upload snapshots `carplay_ev_wire.log` separately from the ordinary file buffer. Its link-scoped entries distinguish the prepared Identify offer (connectors and ratings) from completed local status writes (battery, range and model values). A prepared offer does not prove it was sent or accepted, and a completed local write does not prove Apple Maps used it. These entries do not include route text, coordinates, or a VIN.
+
+This capture is kept in memory for the active file-logging run; stopping logging or exiting OAL can discard it. It keeps the first complete model write and latest status for each of up to eight links and reports how many links were evicted. Upload includes the receipts already recorded when its snapshot begins, not writes that finish later.
+
+## Android Auto road testing
 
 1. Enable the existing **Always Log (maintainer)** option, or start file logging before the journey.
 2. Start a Google Maps route before departure when practical. Drive normally; no screen interaction is required during the journey.

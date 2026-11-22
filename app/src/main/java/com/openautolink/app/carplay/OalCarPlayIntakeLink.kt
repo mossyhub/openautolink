@@ -1,5 +1,6 @@
 package com.openautolink.app.carplay
 
+import com.openautolink.carplaylab.intake.OalEvWireDiagnostics
 import com.openautolink.carplaylab.intake.RuntimeCarDataLink
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 
@@ -11,19 +12,21 @@ internal class OalCarPlayIntakeLink(
     appearance: CarPlayAppearanceBridge,
     sendNight: (Boolean) -> Boolean,
     send: (Iap2Frame) -> Unit,
-    receipt: (String) -> Unit,
+    private val receipt: (String) -> Unit,
     frozenCapabilities: com.openautolink.carplaylab.intake.OalCarDataCapabilities? = null,
     restrictionPolicy: CarPlayRestrictionPolicy = CarPlayRestrictionPolicy.from(com.openautolink.app.data.CarPlaySettings()),
     private val restriction: CarPlayDrivingRestrictionBridge? = if (restrictionPolicy.enabled)
         CarPlayDrivingRestrictionBridge(com.openautolink.app.input.ProcessVehicleDataRuntime.latestVehicleData(),
             kotlinx.coroutines.Dispatchers.IO, elapsedMs, 15_000L, restrictionPolicy.alwaysInPark) else null,
     sendLimitedUI: (Boolean, () -> Boolean) -> Boolean = { _, _ -> false },
+    private val evCapture: CarPlayEvLogCapture.Link = CarPlayEvLogCapture.Link(),
 ) : RuntimeCarDataLink {
     private val capabilities = frozenCapabilities ?: vehicle.capabilities(gpsQualified, receipt)
     private val gps = gnss
     private val appearanceBridge = appearance
     private val ready = kotlinx.coroutines.flow.MutableStateFlow(false)
     private val retired = java.util.concurrent.atomic.AtomicBoolean()
+    private val evOfferReported = java.util.concurrent.atomic.AtomicBoolean()
     @Volatile private var authenticated = false
     private var appearanceTransmissions = 0L // appearance IO collector only
     private val appearanceOwner = kotlinx.coroutines.runBlocking {
@@ -46,9 +49,15 @@ internal class OalCarPlayIntakeLink(
     }
     private val reporter = com.openautolink.carplaylab.intake.OalIap2CarDataReporter(
         capabilities, elapsedMs, gnss::latest, { vehicle.snapshot(receipt) }, gnss::setActive,
-        { frame -> check(!retired.get()); send(frame) }, receipt,
+        { frame -> check(!retired.get()); send(frame) }, receipt, evReceipt = evCapture::record,
     )
-    override fun identification(base: Iap2Frame) = com.openautolink.carplaylab.intake.OalCarDataIdentification.apply(base, capabilities)
+    override fun identification(base: Iap2Frame): Iap2Frame {
+        val frame = com.openautolink.carplaylab.intake.OalCarDataIdentification.apply(base, capabilities)
+        if (!retired.get() && evOfferReported.compareAndSet(false, true)) runCatching {
+            OalEvWireDiagnostics.preparedOffer(frame)?.let(evCapture::record)
+        }
+        return frame
+    }
     override fun authenticate() {
         if (retired.get()) return
         reporter.authenticate()
