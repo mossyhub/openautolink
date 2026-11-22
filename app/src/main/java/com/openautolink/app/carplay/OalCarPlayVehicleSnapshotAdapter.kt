@@ -136,7 +136,9 @@ class OalCarPlayVehicleSnapshotAdapter(
             offered?.currentChargeWh != null, offered?.maxChargeWh != null, name, connectors,
             outsideTemperature = offered?.outsideTemperatureC != null, evRoutingModel = frozenModel,
             electricRangeWarning = offered?.electricRangeWarning != null,
-            maximumRange = referenceStatus && offered?.maxChargeWh != null && offered.currentChargeWh != null && offered.rangeKm != null,
+            // Full-charge range is derived from this car's own readings, not its charging preset.
+            maximumRange = (savedSharing || referenceStatus) && offered?.maxChargeWh != null &&
+                offered.currentChargeWh != null && offered.rangeKm != null,
             maximumDcChargePowerWatts = 150_000.takeIf { ratedMy24 },
             maximumAcChargePowerWatts = 11_500.takeIf { ratedMy24 })
             .also { if (savedSharing || linkPilot?.profileId == CarPlayEvPilotConfiguration.GM_ROUTING) productionCapabilities = it }
@@ -268,7 +270,7 @@ class OalCarPlayVehicleSnapshotAdapter(
         val reported = reportedScale(data,now)
         val scopedStatus = if (savedSharing) data?.fuelTypes?.toSet() == setOf(10) && (generation ?: 0) > 0
             else qualifiedPilot(data, reported)
-        val referenceRange = scopedStatus && (!savedSharing || (ownerBlazer(data) && matchesProductionSource(data, reported)))
+
         // Never derive a warning from SOC/range thresholds, nor admit a replacement VHAL owner.
         val electricWarning = data?.evLowRangeWarning?.takeIf {
             linkCaptured && warningSourceCurrent && scopedStatus && range != null && data.carYear == linkYear &&
@@ -311,7 +313,7 @@ class OalCarPlayVehicleSnapshotAdapter(
         val chargeReason = reason(data,data?.evChargeState?.toFloat(),"EV_CHARGE_STATE",now,4.0,minimum=1.0)
         val charging = data?.evChargeState?.takeIf { scopedStatus && chargeReason == "available" }
             ?.let { it == 1 }
-        val candidate = if (referenceRange && current != null && max != null && max > 0 && range != null &&
+        val candidate = if (scopedStatus && current != null && max != null && max > 0 && range != null &&
             current.toDouble() / max >= 0.2) {
             val estimate = data!!.rangeKm!!.toDouble() * max / current
             if (estimate.isFinite() && estimate > 0 && estimate <= 65535)

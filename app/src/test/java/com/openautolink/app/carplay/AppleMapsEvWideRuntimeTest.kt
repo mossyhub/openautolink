@@ -92,8 +92,31 @@ class AppleMapsEvWideRuntimeTest {
             assertEquals(89_395, firstChargingWatts(Iap2BodyReader.of(status)))
             val info = Iap2BodyReader.of(offer).group(20)
             assertFalse(info.has(12)); assertFalse(info.has(14))
-            assertFalse("No preset-only range capability", Iap2BodyReader.of(offer).group(21).has(30))
-            assertFalse("No preset-only full-range estimate", Iap2BodyReader.of(status).has(30))
+            assertTrue("Sourced range capability without a preset", Iap2BodyReader.of(offer).group(21).has(30))
+            assertEquals(300, Iap2BodyReader.of(status).u16(30))
+        }
+    }
+
+    @Test fun derivedFullRangeIsWithheldBelowMinimumChargeOrOnLossOfQualifiedRange() {
+        val flow = MutableStateFlow(sample().copy(evBatteryLevelWh = 11_999f))
+        val adapter = adapter(flow) { settings("") }
+        val caps = adapter.capabilities(false)
+        assertTrue(caps.maximumRange)
+        val sent = mutableListOf<Iap2Frame>()
+        OalIap2CarDataReporter(caps, { now }, { null }, adapter::snapshot, {}, sent::add, {}).use { reporter ->
+            reporter.authenticate()
+            reporter.handle(request)
+            assertFalse(Iap2BodyReader.of(sent.single()).has(30))
+            now += 30_000
+            flow.value = sample()
+            reporter.tick()
+            assertEquals(300, Iap2BodyReader.of(sent.last()).u16(30))
+            now += 30_000
+            val next = sample()
+            flow.value = next.copy(evObservationMetadata = next.evObservationMetadata - "RANGE_REMAINING")
+            reporter.tick()
+            assertEquals(3, sent.size)
+            assertFalse(Iap2BodyReader.of(sent.last()).has(30))
         }
     }
 
