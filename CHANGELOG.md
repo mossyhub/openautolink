@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.602 — Automatic Apple Maps charging estimate
+
+- Provide a default average DC charging estimate without a vehicle allowlist. A saved **Advanced** value overrides the estimate; **Use automatic** restores it. OAL still requires valid battery and range readings from the vehicle.
+
 ## 0.1.601 — Car information permission
 
 - OpenAutoLink requests **Car information** on Android Automotive when access is missing. While parked, tap **Allow** to enable live EV data. If no prompt appears, use **car Settings → Apps → OpenAutoLink → Permissions → Car information → Allow**.

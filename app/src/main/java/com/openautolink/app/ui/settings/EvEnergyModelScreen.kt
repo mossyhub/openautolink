@@ -99,7 +99,7 @@ fun EvEnergyModelTab(
                 if (advanced) {
                     Text(
                         "Optional estimate of average power into the battery during DC fast charging, not peak or live power. " +
-                            "Leave blank for Automatic. Requires compatible vehicle data and applies after Save changes and reconnect.",
+                            "Leave blank to use OAL’s automatic estimate. Changes apply after Save changes and reconnect.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     val error = draft.evAverageDcChargeError()

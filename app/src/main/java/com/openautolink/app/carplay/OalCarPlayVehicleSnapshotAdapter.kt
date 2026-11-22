@@ -68,8 +68,7 @@ class OalCarPlayVehicleSnapshotAdapter(
             val savedSharing = configured?.profileId == CarPlayEvPilotConfiguration.SAVED_SHARING
             val reported = reportedScale(data, now)
             val actual = actualScale(data, now)
-            val preset = savedSharing && configured?.averageChargeKw.isNullOrEmpty() && matchesProductionSource(data, reported)
-            val production = configured?.profileId == CarPlayEvPilotConfiguration.GM_ROUTING || preset
+            val production = configured?.profileId == CarPlayEvPilotConfiguration.GM_ROUTING
             val sourceProfile = production || savedSharing || configured?.profileId == CarPlayEvPilotConfiguration.GM_SOURCE
             val basis = when {
                 !sourceProfile -> if (configured?.pilotCapacityWh?.isNotEmpty() == true) ScaleBasis.manual else ScaleBasis.absent
@@ -81,12 +80,11 @@ class OalCarPlayVehicleSnapshotAdapter(
             var readiness = when {
                 configured == null -> "configuration_unavailable"
                 !configured.enabled -> "disabled"
-                sourceProfile && !production && configured.averageChargeKw.isEmpty() -> "charging_profile_required"
+                sourceProfile && !production && !savedSharing && configured.averageChargeKw.isEmpty() -> "charging_profile_required"
                 !sourceProfile && configured.profileId != CarPlayEvPilotConfiguration.CUSTOM -> "unsupported_profile"
                 configured.validationError() != null -> "invalid_configuration"
                 data == null || !electric || initial?.currentChargeWh == null || (data.vhalRegistrationGeneration ?: 0) <= 0 -> "source_unavailable"
                 production && !matchesProductionSource(data, reported) -> "source_identity"
-                savedSharing && (identityLabel(data.carMake) == null || identityLabel(data.carModel) == null) -> "source_identity"
                 sourceProfile && !production && !savedSharing && !configured.acceptsGmSource(data.carMake,data.carModel) -> "source_identity"
                 !sourceProfile && (data.carMake != configured.sourceMake || data.carModel != configured.sourceModel) -> "source_identity"
                 sourceProfile && initial?.rangeKm == null -> "source_range"
@@ -97,10 +95,11 @@ class OalCarPlayVehicleSnapshotAdapter(
                 if (sourceProfile) {
                     val built = when {
                         production -> configured.gmRoutingEstimate(initial.currentChargeWh, data.rangeKm, actual, checkNotNull(reported), data.carYear)
-                        savedSharing -> configured.savedEstimate(initial.currentChargeWh, data.rangeKm, actual, reported)
+                        savedSharing -> configured.savedEstimate(initial.currentChargeWh, data.rangeKm, actual, reported,
+                            automaticSavedChargingWatts(data))
                         else -> configured.sourceEstimate(initial.currentChargeWh, data.rangeKm, actual, reported)
                     }
-                    configured = configured.copy(sourceMake=data.carMake!!,sourceModel=data.carModel!!)
+                    if (!savedSharing) configured = configured.copy(sourceMake=data.carMake!!,sourceModel=data.carModel!!)
                     built
                 } else configured.modelOrNull()
             } else null
@@ -128,7 +127,7 @@ class OalCarPlayVehicleSnapshotAdapter(
         // Chevrolet MY24 ordering guide: C234 small-pack AWD family, CCS1/J1772.
         // No VHAL-rated watts are known; never substitute live power or the pilot's modeled rate.
         val savedSharing = linkPilot?.profileId == CarPlayEvPilotConfiguration.SAVED_SHARING
-        val referenceStatus = if (savedSharing) matchesProductionSource(data, reportedScale(data, now)) && frozenModel != null
+        val referenceStatus = if (savedSharing) ownerBlazer(data) && matchesProductionSource(data, reportedScale(data, now)) && frozenModel != null
             else qualifiedPilot(data, reportedScale(data, now))
         val ratedMy24 = referenceStatus && frozenModel != null && year == "2024" &&
             data?.evConnectorTypes?.toSet() == setOf(1, 5) &&
@@ -149,6 +148,14 @@ class OalCarPlayVehicleSnapshotAdapter(
     }?.trim()?.replace(Regex(" +"), " ")?.takeUnless {
         it.lowercase(java.util.Locale.ROOT) in setOf("unknown", "null", "n/a", "none", "unspecified")
     }
+
+    private fun ownerBlazer(data: ControlMessage.VehicleData?): Boolean =
+        identityLabel(data?.carMake).equals("Chevrolet", ignoreCase = true) &&
+            identityLabel(data?.carModel).equals("C234", ignoreCase = true) && data?.carYear == "2024"
+
+    private fun automaticSavedChargingWatts(data: ControlMessage.VehicleData): Int =
+        if (ownerBlazer(data)) checkNotNull(CarPlayEvPilotConfiguration.c234PilotPower(data.carYear))
+        else CarPlayEvPilotConfiguration.DEFAULT_AVERAGE_DC_W
 
     // Narrow VHAL applicability fingerprint, not VIN/trim detection. Do not select by capacity
     // alone or infer CCS from brand. A different year/pack/port gets ordinary status only.
@@ -261,7 +268,7 @@ class OalCarPlayVehicleSnapshotAdapter(
         val reported = reportedScale(data,now)
         val scopedStatus = if (savedSharing) data?.fuelTypes?.toSet() == setOf(10) && (generation ?: 0) > 0
             else qualifiedPilot(data, reported)
-        val referenceRange = scopedStatus && (!savedSharing || matchesProductionSource(data, reported))
+        val referenceRange = scopedStatus && (!savedSharing || (ownerBlazer(data) && matchesProductionSource(data, reported)))
         // Never derive a warning from SOC/range thresholds, nor admit a replacement VHAL owner.
         val electricWarning = data?.evLowRangeWarning?.takeIf {
             linkCaptured && warningSourceCurrent && scopedStatus && range != null && data.carYear == linkYear &&
@@ -286,10 +293,10 @@ class OalCarPlayVehicleSnapshotAdapter(
         }
         val admission = when {
             frozenModel == null || configured == null -> "not_frozen"
-            generation != frozenGeneration || data?.carMake != configured.sourceMake || data?.carModel != configured.sourceModel -> "owner"
+            generation != frozenGeneration || (!savedSharing &&
+                (data?.carMake != configured.sourceMake || data?.carModel != configured.sourceModel)) -> "owner"
             data?.fuelTypes?.toSet() != setOf(10) -> "source"
             configured.profileId == CarPlayEvPilotConfiguration.GM_ROUTING && !scopedStatus -> "source"
-            savedSharing && configured.averageChargeKw.isEmpty() && !matchesProductionSource(data, reported) -> "source"
             savedSharing && (range == null || data?.rangeKm?.let { it > 0f } != true) -> "range"
             !scaleCurrent -> "scale"
             current == null || !frozenModel!!.acceptsCurrentCharge(current,max) -> "current"
