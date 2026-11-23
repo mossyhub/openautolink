@@ -69,6 +69,9 @@ data class CarPlaySettings(
     val evDataEnabled: Boolean = true,
     /** Manual battery-side DC estimate. Blank selects Automatic. */
     val evAverageDcChargeKw: String = "",
+    val evConnectorChoice: String = "auto",
+    val evConnectorDcKw: String = "",
+    val evConnectorAcKw: String = "",
 ) {
     /** Strict path shared by UI qualification, Save and runtime; no corrupt-storage fallback. */
     fun displayRequest(): com.openautolink.carplaylab.media.CarPlayDisplayPreferences {
@@ -142,6 +145,13 @@ data class CarPlaySettings(
             "Enter an average from 1 to 1000 kW (up to three decimal places), or use Automatic."
         else null
 
+    fun evConnectorError(): String? = when {
+        com.openautolink.app.carplay.CarPlayEvConnectors.Choice.fromId(evConnectorChoice) == null -> "Choose a charging connector option in EV & routing."
+        evConnectorDcKw.isNotEmpty() && CarPlayEvPilotConfiguration.averageDcWatts(evConnectorDcKw) == null -> "Enter a CCS1 rating from 1 to 1000 kW, or leave it blank for Automatic."
+        evConnectorAcKw.isNotEmpty() && CarPlayEvPilotConfiguration.connectorAcWatts(evConnectorAcKw) == null -> "Enter a J1772 rating from 1 to 50 kW, or leave it blank for Automatic."
+        else -> null
+    }
+
     companion object {
         private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
         fun decode(record: String?): CarPlaySettings =
@@ -175,6 +185,14 @@ data class CarPlaySettings(
                 json.decodeFromJsonElement<CarPlaySettings>(JsonObject(fields.toMutableMap().apply {
                     put("evDataEnabled", JsonPrimitive(evDataEnabled))
                     put("evAverageDcChargeKw", JsonPrimitive(average))
+                    fun optionalText(name: String) = (fields[name] as? JsonPrimitive)
+                        ?.takeIf { field -> field.isString }?.content.orEmpty()
+                    put("evConnectorChoice", JsonPrimitive(com.openautolink.app.carplay.CarPlayEvConnectors.Choice
+                        .fromId(optionalText("evConnectorChoice"))?.id ?: "auto"))
+                    val dc = optionalText("evConnectorDcKw").takeIf { CarPlayEvPilotConfiguration.averageDcWatts(it) != null }.orEmpty()
+                    val ac = optionalText("evConnectorAcKw").takeIf { CarPlayEvPilotConfiguration.connectorAcWatts(it) != null }.orEmpty()
+                    put("evConnectorDcKw", JsonPrimitive(dc))
+                    put("evConnectorAcKw", JsonPrimitive(ac))
                     put("dockPosition", JsonPrimitive(dock.id))
                     put("evRoutingPilot", json.encodeToJsonElement(pilot))
                     // 587 stored its temporary default-Off pilot flag in every record. It is not

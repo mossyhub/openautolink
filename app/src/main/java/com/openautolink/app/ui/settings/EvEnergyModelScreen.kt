@@ -1,9 +1,12 @@
 package com.openautolink.app.ui.settings
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.setValue
@@ -22,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.openautolink.app.carplay.CarPlayEvConnectors
 import com.openautolink.app.data.EvLearnQualification.Reason
 import com.openautolink.app.navigation.DistanceFormatter
 
@@ -123,6 +127,40 @@ fun EvEnergyModelTab(
                         enabled = editable && draft.evAverageDcChargeKw.isNotEmpty(),
                         modifier = Modifier.testTag("carPlayEvChargeReset"),
                     ) { Text("Use automatic") }
+                    Text("Charging connectors", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall)
+                    Text("Automatic uses the car’s plug types if available. Otherwise it uses CCS1 + J1772. Change the plugs or rated power here if the defaults don’t match your car.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    var connectorMenu by rememberSaveable { mutableStateOf(false) }
+                    Box {
+                        TextButton(onClick = { connectorMenu = true }, enabled = editable,
+                            modifier = Modifier.testTag("carPlayEvConnectorChoice")) {
+                            Text(CarPlayEvConnectors.Choice.fromId(draft.evConnectorChoice)?.label ?: "Automatic")
+                        }
+                        DropdownMenu(expanded = connectorMenu, onDismissRequest = { connectorMenu = false }) {
+                            CarPlayEvConnectors.Choice.entries.forEach { choice ->
+                                DropdownMenuItem(text = { Text(choice.label) }, enabled = editable, onClick = {
+                                    settings.updateCarPlayDraft { it.copy(evConnectorChoice = choice.id) }
+                                    connectorMenu = false
+                                })
+                            }
+                        }
+                    }
+                    OutlinedTextField(value = draft.evConnectorDcKw,
+                        onValueChange = { raw -> settings.updateCarPlayDraft { it.copy(evConnectorDcKw = raw) } },
+                        enabled = editable, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        label = { Text("CCS1 rated DC power (kW)") }, placeholder = { Text("Automatic") },
+                        modifier = Modifier.fillMaxWidth().testTag("carPlayEvConnectorDcKw"))
+                    OutlinedTextField(value = draft.evConnectorAcKw,
+                        onValueChange = { raw -> settings.updateCarPlayDraft { it.copy(evConnectorAcKw = raw) } },
+                        enabled = editable, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        label = { Text("J1772 rated AC power (kW)") }, placeholder = { Text("Automatic") },
+                        modifier = Modifier.fillMaxWidth().testTag("carPlayEvConnectorAcKw"))
+                    draft.evConnectorError()?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    TextButton(onClick = { settings.updateCarPlayDraft {
+                        it.copy(evConnectorChoice = "auto", evConnectorDcKw = "", evConnectorAcKw = "")
+                    } }, enabled = editable && (draft.evConnectorChoice != "auto" ||
+                        draft.evConnectorDcKw.isNotEmpty() || draft.evConnectorAcKw.isNotEmpty()),
+                        modifier = Modifier.testTag("carPlayEvConnectorReset")) { Text("Reset connector settings") }
                 }
             }
         }

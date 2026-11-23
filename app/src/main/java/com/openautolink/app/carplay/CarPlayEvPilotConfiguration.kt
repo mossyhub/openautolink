@@ -19,6 +19,9 @@ data class CarPlayEvPilotConfiguration(
     val modelCapacityKwh: String = "",
     /** Owner's battery-side average over the intended DC charging window, NOT peak/live power. */
     val averageChargeKw: String = "",
+    val connectorChoice: String = "auto",
+    val connectorDcKw: String = "",
+    val connectorAcKw: String = "",
 ) {
     private fun validIdentity(value: String) = value.isNotBlank() && value == value.trim() &&
         value.toByteArray(Charsets.UTF_8).size <= 80 && value.none {it.isISOControl() || it.isSurrogate()} &&
@@ -129,6 +132,7 @@ data class CarPlayEvPilotConfiguration(
         }
 
         internal fun averageDcWatts(raw: String): Int? = kiloUnits(raw, 1, 1000)
+        internal fun connectorAcWatts(raw: String): Int? = kiloUnits(raw, 1, 50)
 
         // Chevrolet MY25 C234 ten-module calibration, high-input curve secant spanning
         // 16,110..71,600 Wh deficit: (71600-16110)*3600/(3220-1235), rounded. A pilot

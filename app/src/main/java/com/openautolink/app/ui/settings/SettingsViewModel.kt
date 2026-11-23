@@ -257,7 +257,7 @@ internal fun carPlayEditError(settings: CarPlaySettings): String? = when {
     settings.widthPhysicalMm !in com.openautolink.carplaylab.media.CarPlayDisplayPreferences.PHYSICAL_WIDTHS_MM ||
         settings.physicalWidthDraft?.let { it != settings.widthPhysicalMm.toString() } == true ->
         "Enter a whole number from 100 to 400 for UI calibration in Display."
-    else -> settings.evAverageDcChargeError()
+    else -> settings.evAverageDcChargeError() ?: settings.evConnectorError()
 }
 
 class SettingsViewModel @JvmOverloads constructor(
