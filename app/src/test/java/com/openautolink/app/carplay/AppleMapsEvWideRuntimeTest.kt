@@ -90,11 +90,90 @@ class AppleMapsEvWideRuntimeTest {
         )) {
             val (offer, status) = output(adapter(MutableStateFlow(data)) { settings("") })
             assertEquals(89_395, firstChargingWatts(Iap2BodyReader.of(status)))
-            val info = Iap2BodyReader.of(offer).group(20)
-            assertFalse(info.has(12)); assertFalse(info.has(14))
             assertTrue("Sourced range capability without a preset", Iap2BodyReader.of(offer).group(21).has(30))
             assertEquals(300, Iap2BodyReader.of(status).u16(30))
         }
+    }
+
+    @Test fun reportedCcs1AndJ1772UseFallbackRatingsWithoutChangingA101() {
+        val data = sample().copy(evConnectorTypes = listOf(1, 5))
+        val (offer, status) = output(adapter(MutableStateFlow(data)) { settings("") })
+        val info = Iap2BodyReader.of(offer).group(20)
+        assertEquals(listOf(0, 2), info.list().filter { it.id == 11 }.map { it.payload.single().toInt() })
+        assertEquals(150_000L, info.u32(12))
+        assertEquals(11_500L, info.u32(14))
+        val (_, controlStatus) = output(adapter(MutableStateFlow(data.copy(evConnectorTypes = null))) { settings("") })
+        assertArrayEquals(controlStatus.payload, status.payload)
+    }
+
+    @Test fun missingOrUnusablePlugReportsFallBackRegardlessOfIdentityAndLocale() {
+        val original = java.util.Locale.getDefault()
+        try {
+            for (locale in listOf(java.util.Locale.GERMANY, java.util.Locale.US, java.util.Locale.ROOT)) {
+                java.util.Locale.setDefault(locale)
+                for (data in listOf(
+                    sample().copy(evConnectorTypes = null),
+                    sample().copy(carMake = null, carModel = null, carYear = null, evConnectorTypes = emptyList()),
+                    sample().copy(carMake = "Chevrolet", carModel = "C223", carYear = "2027", evConnectorTypes = listOf(0)),
+                    sample().copy(carYear = "2035", evConnectorTypes = listOf(8, 9)),
+                )) {
+                    val (offer, _) = output(adapter(MutableStateFlow(data)) { settings("") })
+                    val info = Iap2BodyReader.of(offer).group(20)
+                    assertEquals(listOf(0, 2), info.list().filter { it.id == 11 }.map { it.payload.single().toInt() })
+                    assertEquals(150_000L, info.u32(12))
+                    assertEquals(11_500L, info.u32(14))
+                }
+            }
+        } finally {
+            java.util.Locale.setDefault(original)
+        }
+    }
+
+    @Test fun usablePartialReportIsPreservedAndNotPaddedWithFallbackPlugs() {
+        val (offer, _) = output(adapter(MutableStateFlow(sample().copy(evConnectorTypes = listOf(1, 123)))) { settings("") })
+        val info = Iap2BodyReader.of(offer).group(20)
+        assertEquals(listOf(2), info.list().filter { it.id == 11 }.map { it.payload.single().toInt() })
+        assertFalse(info.has(12))
+        assertEquals(11_500L, info.u32(14))
+    }
+
+    @Test fun fallbackDeclaresConnectorsWithoutAReadyModelButNotForTemperatureOnly() {
+        val rangeOnly = sample().copy(evConnectorTypes = null, evBatteryLevelWh = null,
+            evCurrentBatteryCapacityWh = null, evBatteryCapacityWh = null)
+        val (offer, status) = output(adapter(MutableStateFlow(rangeOnly)) { settings("") })
+        val info = Iap2BodyReader.of(offer).group(20)
+        assertEquals(150_000L, info.u32(12))
+        assertEquals(11_500L, info.u32(14))
+        val body = Iap2BodyReader.of(status)
+        assertFalse(body.has(22) || body.has(23) || body.has(26) || body.has(27))
+        val (tempOnly, _) = output(adapter(MutableStateFlow(rangeOnly.copy(rangeKm = null))) { settings("") })
+        assertFalse(Iap2BodyReader.of(tempOnly).group(20).has(11))
+
+        val (reportedWhileWarmingUp, _) = output(adapter(MutableStateFlow(
+            rangeOnly.copy(rangeKm = null, evConnectorTypes = listOf(1, 5)),
+        )) { settings("") })
+        val reportedInfo = Iap2BodyReader.of(reportedWhileWarmingUp).group(20)
+        assertEquals(listOf(0, 2), reportedInfo.list().filter { it.id == 11 }.map { it.payload.single().toInt() })
+        assertFalse(reportedInfo.has(12) || reportedInfo.has(14))
+    }
+
+    @Test fun savedConnectorOverridesReachIdentifyButNotTheRoutingEstimate() {
+        val saved = settings("").copy(evConnectorChoice = "ccs1-j1772", evConnectorDcKw = "200", evConnectorAcKw = "19.2")
+        val restored = CarPlaySettings.decode(CarPlaySettings.encode(saved))
+        assertEquals(saved.evConnectorChoice, restored.evConnectorChoice)
+        assertEquals(saved.evConnectorDcKw, restored.evConnectorDcKw)
+        assertEquals(saved.evConnectorAcKw, restored.evConnectorAcKw)
+        val (offer, status) = output(adapter(MutableStateFlow(sample())) { restored })
+        val info = Iap2BodyReader.of(offer).group(20)
+        assertEquals(listOf(0, 2), info.list().filter { it.id == 11 }.map { it.payload.single().toInt() })
+        assertEquals(200_000L, info.u32(12))
+        assertEquals(19_200L, info.u32(14))
+        assertEquals(89_395, firstChargingWatts(Iap2BodyReader.of(status)))
+        val malformed = CarPlaySettings.decode("""{"evDataEnabled":true,"evConnectorChoice":false,"evConnectorDcKw":150,"evConnectorAcKw":"51"}""")
+        assertTrue(malformed.evDataEnabled)
+        assertEquals("auto", malformed.evConnectorChoice)
+        assertEquals("", malformed.evConnectorDcKw)
+        assertEquals("", malformed.evConnectorAcKw)
     }
 
     @Test fun derivedFullRangeIsWithheldBelowMinimumChargeOrOnLossOfQualifiedRange() {

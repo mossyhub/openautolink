@@ -118,7 +118,7 @@ class OalCarPlayVehicleSnapshotAdapter(
         val identityQualified = electric && (data?.vhalRegistrationGeneration ?: 0) > 0
         val name = if (identityQualified && make != null && model != null) listOfNotNull(year,make,model).joinToString(" ") else null
         // INFO_EV_CONNECTOR_TYPE is VHAL, not deprecated CarInfoManager ordinals.
-        val connectors = if (identityQualified) data?.evConnectorTypes.orEmpty().fold(0) { mask, vhal ->
+        val reportedConnectors = if (identityQualified) data?.evConnectorTypes.orEmpty().fold(0) { mask, vhal ->
             val wire = when (vhal) { 1 -> 2; 2 -> 4; 5 -> 0; 6 -> 1; 10 -> 6; 11 -> 5; else -> null }
             mask or (wire?.let { 1 shl it } ?: 0)
         } else 0
@@ -132,15 +132,23 @@ class OalCarPlayVehicleSnapshotAdapter(
         val ratedMy24 = referenceStatus && frozenModel != null && year == "2024" &&
             data?.evConnectorTypes?.toSet() == setOf(1, 5) &&
             (savedSharing || linkPilot?.profileId == CarPlayEvPilotConfiguration.GM_ROUTING)
+        val hasEvStatus = offered?.rangeKm != null || offered?.currentChargeWh != null || offered?.maxChargeWh != null
+        val connectorOffer = if (savedSharing) {
+            if (identityQualified && hasEvStatus) CarPlayEvConnectors.resolve(reportedConnectors, checkNotNull(linkPilot))
+            // Keep real plug reports even when only temperature was ready at Identify.
+            // Only inferred plug types and ratings require qualified EV status.
+            else CarPlayEvConnectors.Offer(reportedConnectors, null, null)
+        } else CarPlayEvConnectors.Offer(reportedConnectors,
+            150_000.takeIf { ratedMy24 }, 11_500.takeIf { ratedMy24 })
         return OalCarDataCapabilities(location, offered?.rangeKm != null,
-            offered?.currentChargeWh != null, offered?.maxChargeWh != null, name, connectors,
+            offered?.currentChargeWh != null, offered?.maxChargeWh != null, name, connectorOffer.mask,
             outsideTemperature = offered?.outsideTemperatureC != null, evRoutingModel = frozenModel,
             electricRangeWarning = offered?.electricRangeWarning != null,
             // Full-charge range is derived from this car's own readings, not its charging preset.
             maximumRange = (savedSharing || referenceStatus) && offered?.maxChargeWh != null &&
                 offered.currentChargeWh != null && offered.rangeKm != null,
-            maximumDcChargePowerWatts = 150_000.takeIf { ratedMy24 },
-            maximumAcChargePowerWatts = 11_500.takeIf { ratedMy24 })
+            maximumDcChargePowerWatts = connectorOffer.dcWatts,
+            maximumAcChargePowerWatts = connectorOffer.acWatts)
             .also { if (savedSharing || linkPilot?.profileId == CarPlayEvPilotConfiguration.GM_ROUTING) productionCapabilities = it }
     }
 
@@ -343,6 +351,9 @@ class OalCarPlayVehicleSnapshotAdapter(
             enabled = settings?.evDataEnabled == true,
             profileId = CarPlayEvPilotConfiguration.SAVED_SHARING,
             averageChargeKw = settings?.evAverageDcChargeKw.orEmpty(),
+            connectorChoice = settings?.evConnectorChoice ?: "auto",
+            connectorDcKw = settings?.evConnectorDcKw.orEmpty(),
+            connectorAcKw = settings?.evConnectorAcKw.orEmpty(),
         )
 
         /** Uses the existing atomic saved CarPlay record, never another preference owner/collector. */
