@@ -140,13 +140,17 @@ class ProjectionReceiverSharedIpv4Test {
                         val accepted = session()
                         assertTrue(admission()!!.allowsPairSetup(accepted))
                         assertFalse(admission()!!.allowsPairSetup(Any()))
-                        assertNull(ProjectionReceiver::class.java.getDeclaredField("network")
-                            .apply { isAccessible = true }.get(receiver)) // No scoped auxiliary transport.
-                        assertNull(AirPlaySession::class.java.getDeclaredField("socketBinding")
-                            .apply { isAccessible = true }.get(accepted))
+                        val selectedNetwork = ProjectionReceiver::class.java.getDeclaredField("network")
+                            .apply { isAccessible = true }.get(receiver) as CarPlayNetworkSelection
+                        assertEquals(ip, selectedNetwork.local)
+                        assertEquals(peer, selectedNetwork.manualPeer)
+                        val binding = AirPlaySession::class.java.getDeclaredField("socketBinding")
+                            .apply { isAccessible = true }.get(accepted) as CarPlaySocketBinding
+                        assertTrue(binding.allowsLocal(ip))
+                        assertTrue(binding.allowsPeer(peer))
                         val listener = ProjectionReceiver::class.java.getDeclaredField("server")
                             .apply { isAccessible = true }.get(receiver) as ServerSocket
-                        assertTrue(listener.inetAddress.isAnyLocalAddress)
+                        assertEquals(ip, listener.inetAddress)
                         assertFalse(session().controlAuthenticated)
                         assertNull(admission()?.authenticatedBinding(session()))
                         assertEquals(403, exchange("RECORD", "/stream", ByteArray(0)).first)

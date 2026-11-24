@@ -448,10 +448,10 @@ class ProjectionReceiver(
         firstEnrollmentWindowMillis = windowMillis
     }
 
-    /** Exact control admission, but retain the proven wildcard/auxiliary shared-IPv4 transport. */
+    /** Exact selected-interface control and auxiliary transport for shared IPv4. */
     fun startSharedIpv4(selected: CarPlayNetworkSelection) {
         require(selected.local is java.net.Inet4Address && selected.manualPeer is java.net.Inet4Address)
-        startInternal(MediaPolicy(checkNotNull(selected.manualPeer.hostAddress)), null, selected)
+        startInternal(MediaPolicy(checkNotNull(selected.manualPeer.hostAddress)), selected, selected)
     }
     fun start(peerIp: String) = startInternal(MediaPolicy(peerIp), null)
     fun start(selected: CarPlayNetworkSelection) = startInternal(null, selected)
