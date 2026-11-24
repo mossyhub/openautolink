@@ -60,6 +60,14 @@ class ReleaseAnnouncementTest {
         for (quiet in listOf(573, 574, 576, 1000)) assertNull(ReleaseAnnouncements.forVersion(quiet))
     }
 
+    @Test fun assistantReleaseIsExplicitAndNamesItsExternalSystemAction() {
+        val announcement = requireNotNull(ReleaseAnnouncements.forVersion(608))
+        assertEquals(ReleaseAnnouncementAction.ASSISTANT_SETTINGS, announcement.action)
+        assertTrue(announcement.body.contains("replaces"))
+        assertTrue(announcement.body.contains("Android Auto"))
+        assertTrue(announcement.body.contains("CarPlay"))
+    }
+
     @Test fun dismissalSurvivesActualDataStoreColdReopenWithoutChangingOtherPreferences() = runBlocking {
         val app = RuntimeEnvironment.getApplication() as Application
         val file = File(app.filesDir, "announcement-${java.util.UUID.randomUUID()}.preferences_pb")

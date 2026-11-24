@@ -510,6 +510,7 @@ class OalCarPlayRuntime(
     }
     override fun clusterTelemetrySnapshot(): CarPlayClusterStatus? = clusterOutput?.snapshot()
     override fun cancel() { clusterOutput?.revoke(); canceled.set(true); displayOfferStore.retire(displayOfferLease); presentationWorker.shutdownNow(); receiver?.revokePendingAdmission() }
+    override fun requestVoiceAssistant(): Boolean = !canceled.get() && receiver?.requestVoiceAssistant() == true
     override fun close() = synchronized(closeLock) {
         cancel()
         clusterOutput?.awaitRetirement()

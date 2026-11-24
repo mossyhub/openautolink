@@ -77,6 +77,10 @@ internal fun ReleaseAnnouncementHost(
     val eligible = !finished && unobstructed && !nativeCallActive && normalDisplay && lifecycleState == Lifecycle.State.RESUMED
     val owner = remember(store, announcement) { Any() }
     val openSettings by rememberUpdatedState(onOpenSettings)
+    val assistantSettingsAvailable = remember(announcement, context) {
+        announcement.action != ReleaseAnnouncementAction.ASSISTANT_SETTINGS ||
+            com.openautolink.app.voice.AssistantSettingsLauncher.pickerIntent(context) != null
+    }
     LaunchedEffect(store, announcement, eligible) {
         visible = false
         if (!eligible) return@LaunchedEffect
@@ -110,8 +114,14 @@ internal fun ReleaseAnnouncementHost(
             title = { Text(announcement.title) },
             text = { Text(announcement.body) },
             confirmButton = {
-                TextButton(onClick = { dismiss(); openSettings() }, modifier = Modifier.heightIn(min = 48.dp).testTag("releaseAnnouncementOpenSettings")) {
-                    Text("Open settings")
+                if (assistantSettingsAvailable) TextButton(onClick = {
+                    dismiss()
+                    if (announcement.action == ReleaseAnnouncementAction.ASSISTANT_SETTINGS)
+                        com.openautolink.app.voice.AssistantSettingsLauncher.open(context)
+                    else openSettings()
+                }, modifier = Modifier.heightIn(min = 48.dp).testTag("releaseAnnouncementOpenSettings")) {
+                    Text(if (announcement.action == ReleaseAnnouncementAction.ASSISTANT_SETTINGS)
+                        "Open assistant settings" else "Open settings")
                 }
             },
             dismissButton = {

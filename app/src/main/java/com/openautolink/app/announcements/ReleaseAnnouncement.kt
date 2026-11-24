@@ -8,9 +8,17 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 
-data class ReleaseAnnouncement(val id: String, val versionCode: Int, val title: String, val body: String) {
+data class ReleaseAnnouncement(
+    val id: String,
+    val versionCode: Int,
+    val title: String,
+    val body: String,
+    val action: ReleaseAnnouncementAction = ReleaseAnnouncementAction.SETTINGS,
+) {
     val acknowledgementKey: String get() = "$versionCode:$id"
 }
+
+enum class ReleaseAnnouncementAction { SETTINGS, ASSISTANT_SETTINGS }
 
 internal object ReleaseAnnouncements {
     // Opt-IN release authoring: add an exact code + unique ID only for a significant feature
@@ -25,6 +33,12 @@ internal object ReleaseAnnouncements {
         "Maps on your driver display",
         "OAL can now show Android Auto and CarPlay maps on your driver display.\n\n" +
             "To enable it, open Settings → Secondary Displays and turn on Driver-display video.",
+    ), 608 to ReleaseAnnouncement(
+        "steering-wheel-assistant-608", 608,
+        "Use the steering-wheel voice button with OAL",
+        "OAL can route this button to Android Auto or CarPlay while a projection session is active.\n\n" +
+            "To enable it, select OpenAutoLink Beta as the car’s Digital assistant. This replaces the car’s built-in assistant until you change it back. When no projection session is active, the button may not reach the car assistant.",
+        ReleaseAnnouncementAction.ASSISTANT_SETTINGS,
     ))
     fun forVersion(versionCode: Int): ReleaseAnnouncement? = catalog[versionCode]
 }

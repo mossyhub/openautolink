@@ -812,6 +812,13 @@ class ProjectionReceiver(
             true
         } catch (_: RejectedExecutionException) { false }
     }
+    /** Request the connected phone's native assistant through the exact authenticated event owner. */
+    fun requestVoiceAssistant(): Boolean {
+        val session = synchronized(lock) { active?.takeIf(::currentMediaOwner) } ?: return false
+        val sent = session.invokeSiri { currentMediaOwner(session) }
+        status("media stage=voice-assistant outcome=${if (sent) "sent" else "failed"}")
+        return sent
+    }
     /** Queue only for the exact authenticated metadata owner; queue admission is not phone receipt. */
     fun mediaCommand(session: AirPlaySession, index: Int): Boolean {
         if (index !in 1..5) { commandQueue(0, "declined", "invalid-index"); return false }

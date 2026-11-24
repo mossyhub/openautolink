@@ -17,6 +17,12 @@
             <action android:name="android.settings.SOUND_SETTINGS" />
         </intent>
         <intent>
+            <action android:name="android.settings.VOICE_INPUT_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.MANAGE_DEFAULT_APPS_SETTINGS" />
+        </intent>
+        <intent>
             <action android:name="android.telecom.action.CHANGE_PHONE_ACCOUNTS" />
         </intent>
     </queries>
@@ -223,6 +229,35 @@
         <meta-data
             android:name="com.android.automotive"
             android:resource="@xml/automotive_app_desc" />
+
+        <!-- Inert assistant candidate: GM only binds it after the driver selects OAL in
+             Settings > Apps > Default apps. The session forwards the gesture to the exact live
+             Android Auto or CarPlay owner and owns no local recognition UI. -->
+        <service
+            android:name=".voice.OalVoiceInteractionService"
+            android:exported="true"
+            android:label="OpenAutoLink Voice"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/oal_voice_interaction_service" />
+        </service>
+        <service
+            android:name=".voice.OalVoiceInteractionSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+        <service
+            android:name=".voice.OalRecognitionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_RECOGNITION_SERVICE"
+            android:label="OpenAutoLink Recognition">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+            </intent-filter>
+        </service>
 
         <!-- Application-level distraction optimization declaration -->
         <meta-data
