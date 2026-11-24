@@ -501,9 +501,30 @@ class AirPlaySession @JvmOverloads constructor(
         }
     }
 
-    fun invokeSiri() {
-        sendCommand(linkedMapOf("type" to "requestSiri", "params" to linkedMapOf("siriAction" to 2)))
-        sendCommand(linkedMapOf("type" to "requestSiri", "params" to linkedMapOf("siriAction" to 3)))
+    /** One native assistant button press over the encrypted event channel. */
+    fun invokeSiri(): Boolean = invokeSiri { true }
+
+    /**
+     * Keep press and release on one event-channel generation. Once press is observed, release is
+     * best-effort on that same original socket/cipher even if a receiver owner becomes stale.
+     */
+    fun invokeSiri(current: (() -> Boolean)?): Boolean = synchronized(eventWriteLock) {
+        if (!encryptedEventReady || current == null || !runCatching(current).getOrDefault(false)) return@synchronized false
+        val originalSocket = eventSocket
+        val originalCipher = eventCipher
+        val down = sendCommandLocked(linkedMapOf(
+            "type" to "requestSiri", "params" to linkedMapOf("siriAction" to 2)))
+        if (!down) return@synchronized false
+        try {
+            Thread.sleep(120)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        // Never leave a known press unmatched merely because receiver ownership changed mid-hold.
+        val usable = eventSocket === originalSocket && eventCipher === originalCipher &&
+            originalSocket?.isClosed == false
+        usable && sendCommandLocked(linkedMapOf(
+            "type" to "requestSiri", "params" to linkedMapOf("siriAction" to 3)))
     }
 
     fun sendIapMessage(data: ByteArray, timeoutMillis: Long = 0L): Boolean {

@@ -223,6 +223,7 @@ class SessionManager(
     }.asCoroutineDispatcher()
 
     private val sessionStateLock = Any()
+    private val voiceAssistantOwner = Any()
 
     /** Synchronous, atomic geometry from the current native session's Start. */
     val activeVideoGeometry: Pair<Int, Int>?
@@ -261,6 +262,13 @@ class SessionManager(
                 _settingsSessionEpoch.value += 1L
             }
             aasdkSession = session
+            com.openautolink.app.voice.ProjectionVoiceAssistantRouter.install(voiceAssistantOwner) {
+                val generation = synchronized(sessionStateLock) {
+                    if (aasdkSession !== session) return@synchronized 0L
+                    session.currentNativeSessionGeneration()
+                }
+                generation != 0L && session.sendKeyPress(84, generation)
+            }
         }
     }
 
@@ -269,6 +277,7 @@ class SessionManager(
         val current = aasdkSession
         if(current!=null) OalMediaSessionManager.instanceOrNull()?.retireAndroidAutoMedia(current)
         aasdkSession = null
+        com.openautolink.app.voice.ProjectionVoiceAssistantRouter.clear(voiceAssistantOwner)
         if (current != null) retiringAasdkSession = current
         return current ?: retiringAasdkSession
     }

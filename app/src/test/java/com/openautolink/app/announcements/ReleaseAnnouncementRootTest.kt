@@ -1,6 +1,7 @@
 package com.openautolink.app.announcements
 
 import android.app.Application
+import android.content.Intent
 import android.os.Looper
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
@@ -142,6 +143,23 @@ class ReleaseAnnouncementRootTest {
         shadowOf(Looper.getMainLooper()).idle()
         runBlocking { requireNotNull(ReleaseAnnouncements.forVersion(575)).acknowledgementKey in
             data.data.first()[androidx.datastore.preferences.core.stringSetPreferencesKey("release_announcements_acknowledged_v1")].orEmpty() }
+    }
+
+    @Test fun assistantAnnouncementOpensCarPickerWithoutOpeningOalSettings() {
+        val launcher = com.openautolink.app.voice.AssistantSettingsLauncher
+        mockkObject(launcher)
+        every { launcher.pickerIntent(any<android.content.Context>()) } returns Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS)
+        every { launcher.open(any<android.content.Context>()) } returns true
+        try {
+            version = 608
+            mount()
+            compose.waitUntil(5000) { compose.onAllNodesWithTag("releaseAnnouncement").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Use the steering-wheel voice button with OAL").assertExists()
+            compose.onNodeWithTag("releaseAnnouncementOpenSettings").performScrollTo()
+                .assertTextEquals("Open assistant settings").performTouchInput { click() }
+            verify(exactly = 1) { launcher.open(any<android.content.Context>()) }
+            compose.onNodeWithTag("settingsScreen").assertDoesNotExist()
+        } finally { unmockkObject(launcher) }
     }
 
     @Test fun openSettingsTargetsRealSecondaryPaneWithoutSaveEnableReconnectOrLostDraft() = runBlocking<Unit> {

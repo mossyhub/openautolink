@@ -87,6 +87,45 @@ class CarPlayCoordinatorTest {
         }
     }
 
+    @Test fun liveCarPlayRuntimeReceivesAssistantGesture() {
+        val running = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val invoked = CountDownLatch(1)
+        val coordinator = CarPlayCoordinator(CarPlayOwnership(), {}) { }
+        try {
+            assertTrue(coordinator.connect(true) { object : CarPlayRuntime {
+                override fun run() { running.countDown(); check(release.await(3, TimeUnit.SECONDS)) }
+                override fun cancel() { release.countDown() }
+                override fun close() {}
+                override fun requestVoiceAssistant(): Boolean { invoked.countDown(); return true }
+            } })
+            assertTrue(running.await(3, TimeUnit.SECONDS))
+            assertTrue(com.openautolink.app.voice.ProjectionVoiceAssistantRouter.request("carplay-test"))
+            assertTrue(invoked.await(3, TimeUnit.SECONDS))
+        } finally {
+            release.countDown()
+            coordinator.close()
+        }
+    }
+
+    @Test fun stoppedCarPlayRuntimeCannotReceiveAssistantGesture() {
+        val running = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val invoked = CountDownLatch(1)
+        val coordinator = CarPlayCoordinator(CarPlayOwnership(), {}) { }
+        assertTrue(coordinator.connect(true) { object : CarPlayRuntime {
+            override fun run() { running.countDown(); check(release.await(3, TimeUnit.SECONDS)) }
+            override fun cancel() { release.countDown() }
+            override fun close() {}
+            override fun requestVoiceAssistant(): Boolean { invoked.countDown(); return true }
+        } })
+        assertTrue(running.await(3, TimeUnit.SECONDS))
+        coordinator.stop()
+        assertFalse(com.openautolink.app.voice.ProjectionVoiceAssistantRouter.request("stopped-carplay-test"))
+        assertFalse(invoked.await(100, TimeUnit.MILLISECONDS))
+        coordinator.close()
+    }
+
     @Test fun disabledDoesNotInvokeRetirementOrRuntimeFactory() {
         val coordinator = CarPlayCoordinator(CarPlayOwnership(), { error("disabled retirement") }) { }
         assertFalse(coordinator.connect(false) { error("disabled bootstrap") })

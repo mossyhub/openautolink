@@ -17,6 +17,8 @@ interface CarPlayRuntime : Closeable {
     /** Constant-space observed receiver counters, never inferred from status strings. */
     fun telemetrySnapshot(): com.openautolink.carplaylab.media.ReceiverTelemetrySnapshot? = null
     fun clusterTelemetrySnapshot(): CarPlayClusterStatus? = null
+    /** Route AAOS's assistant gesture to the exact live CarPlay session, if it exists. */
+    fun requestVoiceAssistant(): Boolean = false
 }
 
 /** Safe memory-only UI receipt: never retain an exception, cause or diagnostic message. */
@@ -116,6 +118,7 @@ class CarPlayCoordinator(
         try {
             attempt.sessionLease.onProtectionLost {
                 attempt.canceled.set(true)
+                com.openautolink.app.voice.ProjectionVoiceAssistantRouter.clear(attempt)
                 attempt.cancelRetainedHost()
                 attempt.sessionLease.revokeCapture()
                 attempt.runtime?.cancel()
@@ -135,6 +138,10 @@ class CarPlayCoordinator(
             synchronized(lock) {
                 attempt.runtime = runtime
                 if (current === attempt && !attempt.canceled.get()) {
+                    com.openautolink.app.voice.ProjectionVoiceAssistantRouter.install(attempt) {
+                        val owned = synchronized(lock) { current === attempt && !attempt.canceled.get() && attempt.runtime === runtime }
+                        owned && runtime.requestVoiceAssistant()
+                    }
                     // A destroy/replacement may arrive while the factory is blocked. Never
                     // revive its original target when installing this exact runtime.
                     attempt.initialSurface?.takeIf { it !== presentation }?.let(runtime::detachSurface)
@@ -180,6 +187,7 @@ class CarPlayCoordinator(
 
     /** One retryable finalizer, including failed factory/null-runtime and partial-apply debt. */
     private fun finishAttempt(attempt: Attempt) {
+        com.openautolink.app.voice.ProjectionVoiceAssistantRouter.clear(attempt)
         if (attempt.mediaBegun) attempt.context.hostMedia.record("pending", "unknown", "pending")
         if (!attempt.runtimeClosed) retirementStage(CarPlayForegroundStage.RUNTIME_CLOSE) {
             attempt.runtime?.cancel()
@@ -262,6 +270,7 @@ class CarPlayCoordinator(
         synchronized(lock) {
         commandEpoch++ // revoke already-queued reconnects even if no runtime exists yet.
         val attempt = current ?: return@synchronized
+        com.openautolink.app.voice.ProjectionVoiceAssistantRouter.clear(attempt)
         attempt.preserveHostOnClose.set(preserveClusterHostForReconnect)
         attempt.canceled.set(true)
         attempt.sessionLease.revokeCapture()
