@@ -363,8 +363,11 @@ class MainActivity : ComponentActivity() {
 
     private fun requestMissingPermissions() {
         val requested = if (packageManager.hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)) {
-            // GM shows this runtime permission under “Car information”. CAR_INFO is separate.
-            requiredPermissions + "android.car.permission.CAR_ENERGY"
+            // GM shows these runtime permissions under “Car information”. CAR_INFO is separate.
+            requiredPermissions + listOf(
+                "android.car.permission.CAR_ENERGY",
+                "android.car.permission.CAR_SPEED",
+            )
         } else {
             requiredPermissions
         }

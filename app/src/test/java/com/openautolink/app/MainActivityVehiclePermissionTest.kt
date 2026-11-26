@@ -24,11 +24,15 @@ class MainActivityVehiclePermissionTest {
         assertEquals(setOf(Manifest.permission.RECORD_AUDIO), request(true, true))
     }
 
+    @Test fun `AAOS startup requests car speed if missing`() {
+        assertEquals(setOf(Manifest.permission.RECORD_AUDIO, CAR_SPEED), request(true, true, false))
+    }
+
     @Test fun `non automotive startup does not request car energy`() {
         assertEquals(setOf(Manifest.permission.RECORD_AUDIO), request(false, false))
     }
 
-    private fun request(automotive: Boolean, energyGranted: Boolean): Set<String> {
+    private fun request(automotive: Boolean, energyGranted: Boolean, speedGranted: Boolean = true): Set<String> {
         val activity = Robolectric.buildActivity(MainActivity::class.java).get()
         shadowOf(activity.packageManager).setSystemFeature(PackageManager.FEATURE_AUTOMOTIVE, automotive)
         shadowOf(activity.application).grantPermissions(
@@ -38,6 +42,7 @@ class MainActivityVehiclePermissionTest {
             Manifest.permission.BLUETOOTH_CONNECT,
         )
         if (energyGranted) shadowOf(activity.application).grantPermissions(CAR_ENERGY)
+        if (speedGranted) shadowOf(activity.application).grantPermissions(CAR_SPEED)
         // Run the real startup request without starting projection or process services.
         MainActivity::class.java.getDeclaredMethod("requestMissingPermissions").apply {
             isAccessible = true
@@ -47,5 +52,6 @@ class MainActivityVehiclePermissionTest {
 
     private companion object {
         const val CAR_ENERGY = "android.car.permission.CAR_ENERGY"
+        const val CAR_SPEED = "android.car.permission.CAR_SPEED"
     }
 }
