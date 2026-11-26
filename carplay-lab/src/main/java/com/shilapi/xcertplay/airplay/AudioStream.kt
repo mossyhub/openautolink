@@ -191,7 +191,7 @@ class AudioStream(
         val socket = DatagramSocket(null)
         // Each live data/control socket must exclusively reserve its UDP endpoint.
         socket.reuseAddress = false
-        socket.bind(InetSocketAddress(socketBinding?.local ?: InetAddress.getByName("::"), 0))
+        com.openautolink.carplaylab.media.ReceiverPorts.bind(socket, socketBinding?.local ?: InetAddress.getByName("::"), com.openautolink.carplaylab.media.ReceiverPorts.AUDIO)
         return socket
     }
 

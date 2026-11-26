@@ -60,7 +60,7 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
         this.listener = listener
         val bound = ServerSocket()
         bound.reuseAddress = true
-        bound.bind(InetSocketAddress(socketBinding?.local ?: InetAddress.getByName("::"), 0))
+        com.openautolink.carplaylab.media.ReceiverPorts.bind(bound, socketBinding?.local ?: InetAddress.getByName("::"), 50, com.openautolink.carplaylab.media.ReceiverPorts.SCREEN)
         server = bound
         thread = Thread({ accept(bound) }, "airplay-screen").apply { isDaemon = true; start() }
         return bound.localPort

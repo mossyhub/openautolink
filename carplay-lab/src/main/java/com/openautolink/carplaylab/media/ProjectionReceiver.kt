@@ -365,7 +365,8 @@ class ProjectionReceiver(
             btMac = advertisedBluetoothAddress ?: btMac,
             cluster = clusterVideoConfiguration?.display,
             hevc = videoSelection.hevcOffered, oemLabel = "OpenAutoLink", icons = oemIcons,
-            drivingRestrictions = drivingRestrictions).also { frozen ->
+            drivingRestrictions = drivingRestrictions,
+            disableAudioOutput = ReceiverPorts.audioOverBluetooth(network?.local)).also { frozen ->
                 val url = frozen.cluster?.initialUrl
                 val content = CarPlayClusterContent.fromUrl(url)?.name ?: if (url == null) "absent" else "other"
                 status("BENCH_DIAG clusterPrepared content=$content offered=${frozen.cluster != null}")
@@ -485,7 +486,7 @@ class ProjectionReceiver(
         try {
             bound.reuseAddress = false
             network = selectedNetwork
-            bound.bind(InetSocketAddress(network?.local ?: InetAddress.getByName("::"), 0), 2)
+            ReceiverPorts.bind(bound, network?.local ?: InetAddress.getByName("::"), 2, ReceiverPorts.CONTROL)
             peerAdmission = admission
             admissionSelection = admissionNetwork
             policy = selected; server = bound; port = bound.localPort

@@ -996,7 +996,7 @@ class AirPlaySession @JvmOverloads constructor(
     private fun openKeepAlive(): Int {
         val socket = DatagramSocket(null)
         socket.reuseAddress = true
-        socket.bind(InetSocketAddress(socketBinding?.local ?: InetAddress.getByName("::"), 0))
+        com.openautolink.carplaylab.media.ReceiverPorts.bind(socket, socketBinding?.local ?: InetAddress.getByName("::"), com.openautolink.carplaylab.media.ReceiverPorts.KEEPALIVE)
         keepAliveSocket = socket
         keepAliveThread = Thread({ runKeepAlive(socket) }, "airplay-keepalive").apply {
             isDaemon = true
@@ -1019,7 +1019,7 @@ class AirPlaySession @JvmOverloads constructor(
     }
 
     private fun openEvent(): Int {
-        val server = ServerSocket(0, 50, socketBinding?.local ?: InetAddress.getByName("::"))
+        val server = com.openautolink.carplaylab.media.ReceiverPorts.server(50, socketBinding?.local ?: InetAddress.getByName("::"), com.openautolink.carplaylab.media.ReceiverPorts.EVENT)
         synchronized(eventTransportLock) {
             if (closed.get()) { safeClose(server); error("Session closed") }
             eventServer = server

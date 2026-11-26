@@ -19,6 +19,7 @@ import com.openautolink.carplaylab.SavedWifiPassword
 
 import com.openautolink.carplaylab.media.CarPlayDisplayPreferences
 import com.openautolink.carplaylab.media.ProjectionReceiver
+import com.openautolink.carplaylab.pairing.HotspotPhoneActivation
 import com.openautolink.carplaylab.pairing.PhoneActivation
 import com.openautolink.carplaylab.network.CarPlayInterface
 import com.openautolink.carplaylab.network.CarPlayNetworkConfig
@@ -279,7 +280,7 @@ class OalCarPlayRuntime(
         }
         connectionStage("network-selection")
         val network = try { CarPlayNetworkPolicy.select(CarPlayNetworkConfig(
-            config.sharedWifiOverride, config.networkFamily, config.interfaceName,
+            config.sharedWifiOverride, CarHotspotPorts.family(config.networkFamily, config.sharedWifiOverride), config.interfaceName,
             config.localAddress.ifEmpty { if (config.sharedWifiOverride && config.networkFamily != "ipv6") wifiLocalAddress.orEmpty() else "" },
             config.peerAddress,
         ), listOf(CarPlayInterface(nic.name, nic.index, nic.isUp, nic.isPointToPoint, nic.inetAddresses.toList()))) }
@@ -414,6 +415,7 @@ class OalCarPlayRuntime(
             "carplay-enrollment stage=authorized windowMs=120000 boundary=selected-bootstrap-request; first-client race remains possible"
             else "carplay-enrollment stage=authorized windowMs=120000 boundary=explicit-manual-peer; first-client race remains possible")
         connectionStage("listener")
+        CarHotspotPorts.apply(network.local, config.sharedWifiOverride, ::status)
         // Shared IPv4 retains wildcard/auxiliary transport, with exact bounded control admission.
         try {
             admitWireless()
@@ -440,7 +442,15 @@ class OalCarPlayRuntime(
             val activation = own { PhoneActivation(context, checkNotNull(peer.hostAddress), config.receiverAddress, binding, ::status) }
             admitWireless()
             activation.start()
-        } ?: status("CarPlay network stage=activation-skipped reason=trusted-control-peer-pending; phone initiation unverified")
+        } ?: run {
+            // No typed peer address (normal on a DHCP hotspot): find the trusted iPhone's control
+            // service on this interface and ask it to connect.
+            status("CarPlay network stage=activation-skipped reason=trusted-control-peer-pending; phone initiation unverified")
+            admitWireless()
+            val search = own { HotspotPhoneActivation(context, config.receiverAddress, network.local, network.interfaceIndex, ::status) }
+            admitWireless()
+            search.start()
+        }
         status("CarPlay endpoint listening · awaiting real phone / render evidence")
         connectionStage("runtime")
         val readyDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(120)
