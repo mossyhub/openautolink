@@ -58,7 +58,7 @@ class NtpClock(private val expectedPeer: InetAddress? = null,
         check(!running.getAndSet(true)) { "NtpClock is already running" }
         val bound = DatagramSocket(null)
         bound.reuseAddress = true
-        bound.bind(InetSocketAddress(socketBinding?.local ?: InetAddress.getByName("::"), 0))
+        com.openautolink.carplaylab.media.ReceiverPorts.bind(bound, socketBinding?.local ?: InetAddress.getByName("::"), com.openautolink.carplaylab.media.ReceiverPorts.TIMING)
         synchronized(socketLock) { socket = bound }
         receiver = Thread(::runReceiver, "airplay-ntp-rx").apply { isDaemon = true; start() }
         return bound.localPort

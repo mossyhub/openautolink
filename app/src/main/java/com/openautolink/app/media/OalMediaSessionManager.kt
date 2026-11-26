@@ -192,7 +192,22 @@ class OalMediaSessionManager private constructor(private val context: Context) {
     }
     internal fun acceptsCarPlayHost(lease: com.openautolink.app.carplay.CarPlayHostMediaLease): Boolean =
         synchronized(sessionLock) { hostMediaLease === lease && hostMediaApplied }
-    private fun inactive() = hostMediaLease?.mode == com.openautolink.app.carplay.CarPlayHostMediaMode.INACTIVE
+    private fun inactive() = hostMediaLease?.mode == com.openautolink.app.carplay.CarPlayHostMediaMode.INACTIVE ||
+        (hostMediaLease != null && hostMediaLease === bluetoothAudioLease)
+    // Set when a wireless session sends its audio over the car's Bluetooth. The car then already
+    // has a music source for the iPhone; a second active session for the same song makes the car
+    // pause one of them, and that pause would be forwarded to the iPhone.
+    @Volatile private var bluetoothAudioLease: Any? = null
+    init { com.openautolink.carplaylab.media.ReceiverPorts.onBluetoothAudioSession = { instanceOrNull()?.stepAsideForBluetoothAudio() } }
+    internal fun stepAsideForBluetoothAudio() = synchronized(sessionLock) {
+        val lease = hostMediaLease ?: return@synchronized
+        if (bluetoothAudioLease === lease) return@synchronized
+        bluetoothAudioLease = lease
+        mediaSession?.let { setHostActive(it, false) }
+        clearHostToIdle()
+        browseChanged()
+        lease.record("bluetooth-audio-step-aside", "false", "ok")
+    }
 
     /** Exclusion is installed before fallible platform effects and retained on failure. */
     fun beginCarPlayHostMedia(lease: com.openautolink.app.carplay.CarPlayHostMediaLease) = synchronized(sessionLock) {
@@ -310,6 +325,12 @@ class OalMediaSessionManager private constructor(private val context: Context) {
         val target = synchronized(sessionLock) { carPlayControls }
         if(expectedCarPlayOwner!=null && target?.owner !== expectedCarPlayOwner) {
             MediaReadinessDiagnostics.event(MediaReadinessDiagnostics.Event.CALLBACK_PLAY_STALE_OWNER); return
+        }
+        // With audio on Bluetooth, the car's Pause and Stop belong to its Bluetooth source, not the CarPlay session.
+        if (target != null && bluetoothAudioLease != null && bluetoothAudioLease === synchronized(sessionLock) { hostMediaLease } &&
+            (command == GmMediaControlPolicy.Command.STOP || command == GmMediaControlPolicy.Command.PAUSE)) {
+            runCatching { target.onDiagnostic("media stage=media-command-ingress command=${command.name} result=dropped reason=bluetooth-audio") }
+            return
         }
         if (target != null) {
             val elapsedMs = android.os.SystemClock.elapsedRealtime()
