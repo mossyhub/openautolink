@@ -300,14 +300,18 @@ class SecondaryOutputRuntime internal constructor(
             val safe = mapping.phoneSafeInsets
             val stable = mapping.stableContentInsets
             val role = preferences.outputs[output.descriptor.id]?.aaRole ?: continue
+            val resolution = AaSecondaryResolution.entries.firstOrNull { it.codedSize == mapping.codedSize } ?: continue
             val offer = runCatching { AasdkSecondaryVideoOffer.create(
                 channelId = if (hosted) 3 else publicChannel++, protocolDisplayId = if (hosted) 1 else publicDisplay++,
                 displayType = if (role == AaSecondaryRole.CLUSTER) 1 else 2,
-                density = preferences.outputs[output.descriptor.id]?.aaDensityDpi ?: SecondaryCalibratedDefaults.AA_DENSITY_DPI,
+                density = resolution.density(
+                    preferences.outputs[output.descriptor.id]?.aaDensityDpi ?: SecondaryCalibratedDefaults.AA_DENSITY_DPI),
                 cropLeft = crop.left, cropTop = crop.top, cropRight = crop.right, cropBottom = crop.bottom,
                 safeLeft = safe.left, safeTop = safe.top, safeRight = safe.right, safeBottom = safe.bottom,
                 stableLeft = stable.left, stableTop = stable.top, stableRight = stable.right, stableBottom = stable.bottom,
-                realDensity = output.descriptor.densityDpi) }.getOrNull()
+                realDensity = output.descriptor.densityDpi,
+                codedWidth = mapping.codedSize.width, codedHeight = mapping.codedSize.height,
+                codecType = resolution.codecType) }.getOrNull()
             if (offer == null) {
                 revoke(output, SecondaryReason.HOST_UNAVAILABLE); retireOutput(output); continue
             }
@@ -315,7 +319,7 @@ class SecondaryOutputRuntime internal constructor(
             output.trace("aa_offer_frozen", "channel=${offer.channelId} display=${offer.protocolDisplayId} role=${offer.displayType} dpi=${offer.density} realDpi=${offer.realDensity} hostAttached=${output.bridge?.status?.value?.hostAttached == true}")
             com.openautolink.app.diagnostics.DiagnosticLog.i("secondary",
                 "AA optional offer frozen channel=${offer.channelId} display=${offer.protocolDisplayId} role=${offer.displayType} " +
-                    "codec=3 resolution=2 fps=2 density=${offer.density} realDpi=${offer.realDensity} crop=$crop safe=$safe stable=$stable hostAttached=${output.bridge?.status?.value?.hostAttached == true}; phone acceptance unverified")
+                    "codec=${offer.codecType} resolution=${offer.codedWidth}x${offer.codedHeight} fps=2 density=${offer.density} realDpi=${offer.realDensity} crop=$crop safe=$safe stable=$stable hostAttached=${output.bridge?.status?.value?.hostAttached == true}; phone acceptance unverified")
             offers += offer
         }
         preparationTrace(projectionEpoch, token, null, "preparation_complete", "offered=${offers.size} remainingMs=${remainingBudget(deadline)}")
@@ -528,6 +532,9 @@ class SecondaryOutputRuntime internal constructor(
                     output = owner
                     owner.experimentalHevc = carPlay && experimentalHevc
                     val finalPreference = preferences.outputs[descriptor.id]
+                    // GM's hosted cluster channel carries only its qualified 720p H.264 stream.
+                    if (!carPlay && descriptor.route != SecondaryRoute.GM_HOSTED)
+                        finalPreference?.aaResolution?.let { owner.aaResolution = it }
                     owner.driveCardEnabled = finalPreference?.driveCardEnabled == true
                     owner.driveCardLayout = finalPreference?.driveCardLayout
                     owner.trace("settings_snapshot", "enabled=${finalPreference?.enabled == true} aa=${finalPreference?.androidAuto == true} cp=${finalPreference?.carPlay == true} role=${finalPreference?.aaRole} protocol=${if (carPlay) "CP" else "AA"}")
@@ -725,6 +732,8 @@ class SecondaryOutputRuntime internal constructor(
         var driveCardLayout: com.openautolink.app.drivecard.DriveCardLayout? = null
         /** Explicit caller opt-in, frozen before readiness; never inferred from main HEVC defaults. */
         var experimentalHevc = false
+        /** Saved Android Auto video size; [attach] advertises the largest one up to it that this car can decode. */
+        var aaResolution = AaSecondaryResolution.HD
         var directWindow = false
         var initialHostGeometry: SecondaryHostGeometry? = null
         var layout: SecondaryLayoutPreference? = null
@@ -791,11 +800,17 @@ class SecondaryOutputRuntime internal constructor(
             val target = SecondaryRuntimeLayouts.target(descriptor, layout, panel, measured.safe,
                 android.os.Build.PRODUCT, android.os.Build.FINGERPRINT, carPlay = carPlay, safeOnly = directWindow,
                 carPlayCodedSize = video?.let { PixelSize(it.width, it.height) } ?: panel)
-            val baseMapping = if (carPlay) SecondaryVideoMapping.carPlay(target,PixelSize(video!!.width,video.height)) else SecondaryVideoMapping.androidAuto(target)
+            // No decoder for the saved size means the next one down, not no stream.
+            val aaSelection = if (carPlay) null else aaResolution.select(videoDecoderProbe())
+            if (aaSelection != null && aaSelection.resolution != aaResolution)
+                trace("aa_resolution_fallback", "saved=$aaResolution advertised=${aaSelection.resolution}")
+            val baseMapping = if (aaSelection == null) SecondaryVideoMapping.carPlay(target,PixelSize(video!!.width,video.height))
+                else SecondaryVideoMapping.androidAuto(target, aaSelection.resolution.codedSize)
             val mapping = if (directWindow) RetainedWindowMapping(baseMapping) else baseMapping
             val config = if (carPlay) configuration(mapping, carPlayContent, requireNotNull(video)) else null
             val name = config?.videoSelection?.avcDecoderName ?: decoder(1280, 720)
             val next = renderFactory(mapping, name)
+            next.aaHevcDecoderName = aaSelection?.hevcDecoderName
             check(next.bindLease(lease))
             val accepted = synchronized(guard) {
                 if (revoked || !current(token) || bridge != null ||

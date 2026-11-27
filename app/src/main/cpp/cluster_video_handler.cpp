@@ -5,9 +5,24 @@ namespace openautolink::jni {
 namespace media = aap_protobuf::service::media::shared::message;
 namespace video = aap_protobuf::service::media::video::message;
 
+// Wire VideoCodecResolutionType for an advertised frame; 0 for a size this sink does not offer.
+static int codedResolutionEnum(int w,int h) {
+    using namespace aap_protobuf::service::media::sink::message;
+    if(w==1280 && h==720)return VIDEO_1280x720;
+    if(w==1920 && h==1080)return VIDEO_1920x1080;
+    if(w==2560 && h==1440)return VIDEO_2560x1440;
+    if(w==3840 && h==2160)return VIDEO_3840x2160;
+    return 0;
+}
 bool ClusterVideoOffer::valid() const {
-    if(cropLeft<0 || cropLeft>=640 || cropTop<0 || cropTop>=360 ||
-        cropRight<=640 || cropRight>1280 || cropBottom<=360 || cropBottom>720)return false;
+    const int cw=codedWidth,ch=codedHeight;
+    if(codedResolutionEnum(cw,ch)==0)return false;
+    // 720p is H.264 BP; larger sizes are H.265 only. Mirrors AasdkSecondaryVideoOffer.validFormat.
+    const bool h264=codecType==media::MEDIA_CODEC_VIDEO_H264_BP;
+    if(ch==720 ? !h264 : codecType!=media::MEDIA_CODEC_VIDEO_H265)return false;
+    if(channelId==3 && !h264)return false;  // GM hosted contract.
+    if(cropLeft<0 || cropLeft>=cw/2 || cropTop<0 || cropTop>=ch/2 ||
+        cropRight<=cw/2 || cropRight>cw || cropBottom<=ch/2 || cropBottom>ch)return false;
     const int w=cropRight-cropLeft,h=cropBottom-cropTop;
     auto insets=[&](int l,int t,int r,int b) {
         return l>=0 && t>=0 && r>=0 && b>=0 && l<w && r<w-l && t<h && b<h-t;
@@ -15,8 +30,8 @@ bool ClusterVideoOffer::valid() const {
     const bool identity=(channelId==3 && protocolDisplayId==1 && displayType>=1 && displayType<=2) ||
         (channelId>=19 && channelId<=254 && protocolDisplayId>=2 && protocolDisplayId<=254 && displayType>=1 && displayType<=2);
     return identity && density>0 && density<=1000 && realDensity>=0 && realDensity<=1000 && cropLeft>=0 && cropTop>=0 &&
-        cropRight<=1280 && cropBottom<=720 && w>0 && h>0 &&
-        cropLeft==1280-cropRight && cropTop==720-cropBottom &&
+        cropRight<=cw && cropBottom<=ch && w>0 && h>0 &&
+        cropLeft==cw-cropRight && cropTop==ch-cropBottom &&
         insets(safeLeft,safeTop,safeRight,safeBottom) &&
         insets(stableLeft,stableTop,stableRight,stableBottom);
 }
@@ -25,7 +40,8 @@ static void appendVideoService(
     const ClusterVideoOffer* offer) {
     auto* service=response.add_channels();service->set_id(offer->channelId);
     auto* sink=service->mutable_media_sink_service();
-    sink->set_available_type(media::MEDIA_CODEC_VIDEO_H264_BP);
+    const auto codec=static_cast<media::MediaCodecType>(offer->codecType);
+    sink->set_available_type(codec);
     sink->set_available_while_in_call(true);
     sink->set_display_id(offer->protocolDisplayId); // main is protocol display0
     sink->set_display_type(static_cast<aap_protobuf::service::media::sink::message::DisplayType>(offer->displayType));
@@ -34,18 +50,19 @@ static void appendVideoService(
     if (offer->displayType == 2) sink->set_initial_content_keycode(
         aap_protobuf::service::media::sink::message::KEYCODE_NAVIGATION);
     auto* config=sink->add_video_configs();
-    config->set_video_codec_type(media::MEDIA_CODEC_VIDEO_H264_BP);
-    config->set_codec_resolution(aap_protobuf::service::media::sink::message::VIDEO_1280x720);
+    config->set_video_codec_type(codec);
+    config->set_codec_resolution(static_cast<aap_protobuf::service::media::sink::message::VideoCodecResolutionType>(
+        codedResolutionEnum(offer->codedWidth,offer->codedHeight)));
     config->set_frame_rate(aap_protobuf::service::media::sink::message::VIDEO_FPS_30);
     config->set_density(offer->density);config->set_real_density(offer->realDensity>0 ? offer->realDensity : offer->density);
     config->set_decoder_additional_depth(1);
-    config->set_width_margin(1280-(offer->cropRight-offer->cropLeft));
-    config->set_height_margin(720-(offer->cropBottom-offer->cropTop));
+    config->set_width_margin(offer->codedWidth-(offer->cropRight-offer->cropLeft));
+    config->set_height_margin(offer->codedHeight-(offer->cropBottom-offer->cropTop));
     auto edges=[](auto* target,int l,int t,int r,int b) {
         target->set_left(l);target->set_top(t);target->set_right(r);target->set_bottom(b);
     };
     auto* ui=config->mutable_ui_config();
-    edges(ui->mutable_margins(),offer->cropLeft,offer->cropTop,1280-offer->cropRight,720-offer->cropBottom);
+    edges(ui->mutable_margins(),offer->cropLeft,offer->cropTop,offer->codedWidth-offer->cropRight,offer->codedHeight-offer->cropBottom);
     edges(ui->mutable_content_insets(),offer->safeLeft,offer->safeTop,offer->safeRight,offer->safeBottom);
     edges(ui->mutable_stable_content_insets(),offer->stableLeft,offer->stableTop,offer->stableRight,offer->stableBottom);
 }
@@ -171,7 +188,8 @@ void ClusterVideoHandler::onMediaChannelSetupRequest(const media::Setup& setup){
     if(retired_){receive();return;}
     codec_=setup.type();ready_=false;
     if(!invalidate()){retire();receive();return;}
-    ready_=codec_==media::MEDIA_CODEC_VIDEO_H264_BP;
+    // The phone can only set up a codec we advertised; Kotlin re-checks it against the offer.
+    ready_=codec_==media::MEDIA_CODEC_VIDEO_H264_BP || codec_==media::MEDIA_CODEC_VIDEO_H265;
     media::Config out;out.set_status(ready_?media::Config::STATUS_READY:media::Config::STATUS_WAIT);
     out.set_max_unacked(maxUnacked_);if(ready_)out.add_configuration_indices(0);
     diagnostic("setup_response","status="+std::to_string(out.status())+" maxUnacked="+std::to_string(out.max_unacked())+" config0="+std::to_string(ready_));

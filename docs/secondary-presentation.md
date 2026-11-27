@@ -45,6 +45,18 @@ With video on, choose the phone-facing role:
 
 **Android Auto density does not affect CarPlay.** The default is **149 DPI** for Android Auto secondary displays, with physical display metadata preserved. Existing installations move to the new density once; subsequent density edits or choosing Automatic persist normally. The **Custom Android Auto density** slider covers **80–320 DPI** for the selected driver display only; it does not change the main feed. Lower DPI requests smaller phone-rendered text and cards, not a change to the map's camera zoom. Select **Save changes** and reconnect to apply (wireless reconnects automatically when safe; unplug/reconnect USB). Turn the control off to restore **Automatic · 149 DPI**.
 
+#### Higher-resolution Android Auto video
+
+Android Auto supplies the driver-display video in one of a few fixed sizes. OAL shows the centred band that matches the display's shape and stretches it to fill the display, so the default **720p · H.264** can look soft on a large panel.
+
+Under **Android Auto video resolution**, choose **1080p**, **1440p** or **4K** (all H.265) for the selected display. The multiplier beside each choice, such as **(1.5x)**, is how far that size is stretched to fill this display. Closer to **1.0x** is sharper, but asks more of the phone and the car's video decoder.
+
+- **Text and cards keep their size.** OAL scales the density it reports to the phone with the video size, so the density control above means the same at every size.
+- **Unsupported sizes step down.** If the car reports no H.265 decoder for the chosen size, OAL advertises the next smaller one.
+- **GM-hosted displays stay at 720p.** A display on GM's qualified cluster route keeps its 720p H.264 stream and does not show this choice.
+
+Select **Save changes** and reconnect to apply; for USB, unplug and reconnect after saving. If the driver display stutters or stays blank, choose a smaller size. A reported decoder is not proof that a particular phone and vehicle will accept a size.
+
 ### Apple CarPlay
 
 Choose **CarPlay display view** for the selected driver display:

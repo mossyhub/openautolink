@@ -259,6 +259,32 @@ class SecondaryOutputRuntimeTest {
         } finally { cleanup(runtime) }
     }
 
+    /** One Android Auto offer from a car that decodes H.265 up to 1440p. */
+    private fun resolutionOffer(display: SecondaryDisplayDescriptor, saved: AaSecondaryResolution): AasdkSecondaryVideoOffer {
+        val runtime = SecondaryOutputRuntime(context, MutableStateFlow(SecondaryInventorySnapshot(1, listOf(display))), { mapping, name ->
+            ClusterProjectionOutput(mapping, ClusterRenderDriverFactory { _, _ -> Driver() }, name)
+        }, { _, _ -> "qualified.avc" }, { com.shilapi.xcertplay.media.VideoDecoderProbe { request ->
+            if (request.codec == com.shilapi.xcertplay.airplay.VideoCodec.H264) "qualified.avc"
+            else "qualified.hevc".takeIf { request.height <= 1440 } } })
+        try {
+            val base = prefs(listOf(display))
+            val pending = scope.async { runtime.prepareAndroidAuto(1, base.copy(outputs = base.outputs +
+                (display.id to base.outputs.getValue(display.id).copy(aaResolution = saved)))) }
+            pump { pending.isCompleted }
+            return runBlocking { pending.await() }.offers.single()
+        } finally { cleanup(runtime) }
+    }
+    @Test fun androidAutoResolutionStepsDownToADecodableSizeAndScalesDensity() {
+        val offer = resolutionOffer(descriptor("A", 1280, 480), AaSecondaryResolution.ULTRA_HD)
+        assertEquals(listOf(19, 2560, 1440, AasdkSecondaryVideoOffer.CODEC_TYPE_H265, 298),
+            listOf(offer.channelId, offer.codedWidth, offer.codedHeight, offer.codecType, offer.density))
+    }
+    @Test fun gmHostedChannelKeeps720pH264WhateverSizeIsSaved() {
+        val offer = resolutionOffer(hostedDescriptor(), AaSecondaryResolution.QUAD_HD)
+        assertEquals(listOf(3, 1280, 720, AasdkSecondaryVideoOffer.CODEC_TYPE, 149),
+            listOf(offer.channelId, offer.codedWidth, offer.codedHeight, offer.codecType, offer.density))
+    }
+
     @Test fun measuredDirectDrawableKeepsPhysical220AndCalibratedAaOfferWithoutChangingCarPlay() {
         val original = descriptor("Measured", 2000, 810)
         val live = context.getSystemService(DisplayManager::class.java).getDisplay(original.displayId)

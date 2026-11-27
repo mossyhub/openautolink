@@ -52,8 +52,8 @@ class SecondaryVideoMapping(
         internal fun carPlayDestination(output: PixelRect, coded: PixelSize = CARPLAY_CODED_SIZE): PixelRect =
             ClusterVideoTransform.aspectFit(coded.bounds, output).destination.inward()
 
-        fun androidAuto(target: SecondaryRenderTarget): SecondaryVideoMapping {
-            val coded = PixelSize(1280, 720)
+        /** [coded] is the one advertised frame; the centred crop keeps the output's aspect inside it. */
+        fun androidAuto(target: SecondaryRenderTarget, coded: PixelSize = PixelSize(1280, 720)): SecondaryVideoMapping {
             val output = target.output
             val width: Int
             val height: Int

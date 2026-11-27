@@ -90,6 +90,8 @@ data class SecondaryOutputPreference(
     /** Optional shared AA/CarPlay app-drawn panel. Saved per physical output; never implicit. */
     val driveCardEnabled: Boolean = false,
     val driveCardLayout: com.openautolink.app.drivecard.DriveCardLayout? = null,
+    /** Android Auto video size for this display; null keeps 720p H.264. */
+    val aaResolution: AaSecondaryResolution? = null,
 ) {
     init { require(aaDensityDpi == null || aaDensityDpi in 80..320) }
 }
