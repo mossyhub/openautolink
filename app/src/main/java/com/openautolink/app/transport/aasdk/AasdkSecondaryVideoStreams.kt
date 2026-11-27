@@ -84,7 +84,7 @@ internal class AasdkSecondaryVideoStreams(offers: List<AasdkSecondaryVideoOffer>
             if (s.retired || expectedOwner != owner || epoch <= 0 || epoch < s.epoch || (epoch == s.epoch && s.activeAtEpoch)) return
             if (epoch > s.epoch) s.activeAtEpoch=false
             s.epoch=epoch;s.selection=null
-            if (active && codec == AasdkSecondaryVideoOffer.CODEC_TYPE && index == 0) {
+            if (active && codec == s.offer.codecType && index == 0) {
                 s.activeAtEpoch=true
                 s.selection=AasdkSecondaryVideoSelection(channelId,owner,epoch,codec,index,mediaSessionId,s.offer)
             }

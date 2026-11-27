@@ -26,7 +26,7 @@ Under **Android Auto display mode**, enable **Custom Android Auto density** to a
 
 This is a draft until **Save changes**. Wireless applies it through the normal reconnect transaction; USB requires unplugging and reconnecting. The density is frozen when the next session is prepared. Opening Settings or moving the slider does not change the active stream or start video.
 
-The setting affects only the selected Android Auto secondary display. It does not change the main AA feed, CarPlay, the AA Cluster/Auxiliary role, the Directions area, or the full output window. Logical UI density is separate from physical-density metadata. Video remains 1280×720 with the existing aspect crop; higher-resolution secondary video is not part of this control. Navigation apps may rearrange information at different densities. This is not a map-camera zoom control, and the final appearance depends on the phone and navigation app.
+The setting affects only the selected Android Auto secondary display. It does not change the main AA feed, CarPlay, the AA Cluster/Auxiliary role, the Directions area, or the full output window. Logical UI density is separate from physical-density metadata. It does not change the video size: that is the separate [Android Auto video resolution](secondary-presentation.md#higher-resolution-android-auto-video) choice, which scales the density reported to the phone so text and cards keep their size. Navigation apps may rearrange information at different densities. This is not a map-camera zoom control, and the final appearance depends on the phone and navigation app.
 
 ## Hidden and returning windows
 

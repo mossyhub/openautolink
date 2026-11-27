@@ -46,6 +46,8 @@ struct ClusterVideoOffer {
     int safeLeft=0, safeTop=0, safeRight=0, safeBottom=0;
     int stableLeft=0, stableTop=0, stableRight=0, stableBottom=0;
     int realDensity=0;
+    // Advertised codec frame and MediaCodecType. Legacy GM hosted offers keep 1280x720 H.264 BP.
+    int codedWidth=1280, codedHeight=720, codecType=3;
     bool valid() const;
 };
 // Separate input services use highest free protocol channels, never main/fixed IDs.

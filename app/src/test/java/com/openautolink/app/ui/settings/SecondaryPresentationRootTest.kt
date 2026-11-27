@@ -168,6 +168,9 @@ class SecondaryPresentationRootTest {
             compose.onNodeWithTag("secondaryCarPlayContentDescription").performScrollTo().assertTextEquals(
                 "Map and route without a turn card.")
             compose.onNodeWithTag("secondaryCarPlayContent_${first.value}_MAP_WITH_CARD").performScrollTo().performClick().assertIsSelected()
+            compose.onNodeWithTag("secondaryAaResolution_${first.value}_HD").performScrollTo().assertIsSelected()
+            compose.onNodeWithText("1080p · H.265 (1.0x)").performScrollTo().performClick() // 2000-wide display
+            compose.onNodeWithTag("secondaryAaResolution_${first.value}_FULL_HD").assertIsSelected()
             compose.onNodeWithTag("secondaryImportantContentEditor").performScrollTo().assertIsDisplayed()
             if (gm && !multipleTargets && RuntimeEnvironment.getApiLevel() == 32) {
                 compose.onNodeWithTag("clusterDisplay_MAP_VIDEO").performScrollTo()
@@ -191,6 +194,7 @@ class SecondaryPresentationRootTest {
             assertFalse(durable.outputs.getValue(second).enabled)
             assertEquals(layout, durable.outputs.getValue(first).layout)
             assertEquals(AaSecondaryRole.CLUSTER, durable.outputs.getValue(first).aaRole)
+            assertEquals(AaSecondaryResolution.FULL_HD, durable.outputs.getValue(first).aaResolution)
             val video = preferences.getClusterOutputSelection()
             assertEquals(ClusterDisplayMode.MAP_VIDEO, video.mode)
             assertTrue(video.nativeIconsWithMap) // preserve non-GM intent; GM policy still vetoes publication
@@ -201,6 +205,7 @@ class SecondaryPresentationRootTest {
             coldReopen()
             compose.onNodeWithTag("clusterDisplay_MAP_VIDEO").assertIsOn()
             compose.onNodeWithTag("secondaryRole_${first.value}_CLUSTER").performScrollTo().assertIsSelected()
+            compose.onNodeWithTag("secondaryAaResolution_${first.value}_FULL_HD").performScrollTo().assertIsSelected()
             assertEquals(layout, preferences.getSecondaryDisplayPreferences().outputs.getValue(first).layout)
             compose.onNodeWithTag("clusterDisplay_MAP_VIDEO").performScrollTo().performClick().assertIsOff()
             assertCleanRoot(video = false)

@@ -37,6 +37,9 @@ class ClusterProjectionOutput internal constructor(
     factory: ClusterRenderDriverFactory,
     val avcDecoderName: String? = null,
 ) : ClusterHostOutputBridge {
+    /** Set before any stream for an Android Auto H.265 offer: the stream's own VPS/SPS/PPS then
+     * configure this named decoder. Null keeps the AVC and CarPlay paths unchanged. */
+    @Volatile var aaHevcDecoderName: String? = null
     constructor(mapping: VideoMapping, avcDecoderName: String? = null) : this(mapping,
         ClusterRenderDriverFactory { surface, geometry -> ClusterEglVideoDriver(surface, geometry,
             retainDecoderWhileHidden = geometry is com.openautolink.app.secondary.RetainedWindowMapping) }, avcDecoderName)
@@ -186,6 +189,12 @@ class ClusterProjectionOutput internal constructor(
     private fun annexBLocked(exact: ClusterOutputLease, source: ClusterProjectionStream, bytes: ByteArray, timestampUs: Long): Boolean {
         if (!current(exact, source) || bytes.isEmpty() || bytes.size > ClusterEncodedFrame.MAX_BYTES || timestampUs < 0 ||
             NalParser.findStartCode(bytes) != 0) return false
+        val hevcDecoder = aaHevcDecoderName
+        if (configuration == null && hevcDecoder != null) {
+            // Android Auto sends H.265 parameter sets in-band; CarPlay configures before its frames.
+            val config = aaHevcConfig(bytes, hevcDecoder) ?: return false
+            if (!configureLocked(exact, source, config)) return false
+        }
         if (configuration?.codec == com.shilapi.xcertplay.airplay.VideoCodec.H265) {
             var position = 0
             var slices = false
@@ -252,6 +261,29 @@ class ClusterProjectionOutput internal constructor(
         }
         return if (!hasSlice) admittedConfig else frameLocked(exact, source, ClusterEncodedFrame(source.epoch, bytes, timestampUs, idr))
     }
+    /** Named-decoder config from an Annex-B unit carrying VPS, SPS and PPS; null if any is missing. */
+    private fun aaHevcConfig(bytes: ByteArray, decoderName: String): ClusterCodecConfig? = runCatching {
+        val sets = arrayOfNulls<ByteArray>(3)
+        var position = 0
+        while (position < bytes.size) {
+            val payload = position + NalParser.startCodeLength(bytes, position)
+            val next = NalParser.findStartCode(bytes, payload + 2).let { if (it < 0) bytes.size else it }
+            val index = NalParser.h265NalType(bytes[payload]) - NalParser.H265_NAL_VPS
+            if (index in sets.indices && sets[index] == null) sets[index] = byteArrayOf(0, 0, 0, 1) + bytes.copyOfRange(payload, next)
+            position = next
+        }
+        val csd = sets.requireNoNulls().reduce { all, set -> all + set }
+        val (width, height) = requireNotNull(NalParser.parseH265SpsResolution(csd))
+        // Android Auto encodes Main profile. The level only bounds what the named decoder must
+        // support: Level 4 covers 1080p30, Level 5 covers 1440p30 and 4K30.
+        val level = if (mapping.codedSize.height <= 1080) android.media.MediaCodecInfo.CodecProfileLevel.HEVCMainTierLevel4
+            else android.media.MediaCodecInfo.CodecProfileLevel.HEVCMainTierLevel5
+        // A size other than the advertised one fails ClusterCodecConfig's own checks.
+        ClusterCodecConfig(mapping.codedSize, csd, byteArrayOf(), decoderName,
+            com.shilapi.xcertplay.airplay.VideoCodec.H265, PixelSize(width, height),
+            android.media.MediaCodecInfo.CodecProfileLevel.HEVCProfileMain, level, mapping.framesPerSecond)
+    }.getOrNull()
+
     fun endStream(exact: ClusterOutputLease, source: ClusterProjectionStream): Boolean = synchronized(lock) {
         if (!owns(exact) || stream !== source) return@synchronized false
         stream = null; configuration = null; sps = null; pps = null; admittedConfig = false

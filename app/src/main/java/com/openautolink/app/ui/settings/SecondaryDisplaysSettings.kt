@@ -165,6 +165,23 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
                     Text("Lower DPI makes text and cards smaller. Applies to this Android Auto display after Save and reconnect.",
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryDensityHelp"))
                 }
+                // GM's hosted cluster channel carries only its qualified 720p H.264 stream.
+                if (row.descriptor?.route != SecondaryRoute.GM_HOSTED) SettingsGroup(Modifier.testTag("secondaryAaResolutionGroup")) {
+                    Text("Android Auto video resolution", style = MaterialTheme.typography.titleMedium)
+                    val display = row.descriptor?.let { PixelSize(it.width, it.height) }
+                    val resolution = row.preference.aaResolution ?: AaSecondaryResolution.HD
+                    Column(Modifier.selectableGroup()) {
+                        AaSecondaryResolution.entries.forEach { choice -> ClusterChoice(aaResolutionLabel(choice, display),
+                            "secondaryAaResolution_${row.id?.value}_${choice.name}", resolution == choice,
+                            editable && row.usable) { row.id?.let { id -> onOutputChange(id) { it.copy(aaResolution = choice) } } }
+                        }
+                    }
+                    Text((display?.let { "This display is ${it.width} × ${it.height}; the multiplier is how far each size is stretched to fill it. " } ?: "") +
+                        "Closest to 1.0x is sharpest. Larger sizes ask more of the phone and the car's video decoder, and below 1.0x add no detail. Text and cards keep their size.",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryAaResolutionDescription"))
+                    Text("Android Auto only, and it offers only these sizes. Applies after Save and reconnect. If the driver display stutters or stays blank, choose a smaller size.",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("secondaryAaResolutionHelp"))
+                }
                 SettingsGroup(Modifier.testTag("secondaryCarPlayContentGroup")) {
                     Text("CarPlay display view", style = MaterialTheme.typography.titleMedium)
                     val content = row.preference.carPlayContent ?: CarPlayClusterContent.DEFAULT
@@ -196,6 +213,17 @@ fun SecondaryDisplaysSettings(source: SecondaryDisplaysSource, preferences: Seco
         }
         Spacer(Modifier.height(16.dp))
     }
+}
+
+/** "1440p · H.265 (1.5x)": the multiplier is how far that size is stretched to fill [display]. */
+internal fun aaResolutionLabel(resolution: AaSecondaryResolution, display: PixelSize?): String {
+    val name = when (resolution) {
+        AaSecondaryResolution.HD -> "720p · H.264"
+        AaSecondaryResolution.FULL_HD -> "1080p · H.265"
+        AaSecondaryResolution.QUAD_HD -> "1440p · H.265"
+        AaSecondaryResolution.ULTRA_HD -> "4K · H.265"
+    }
+    return if (display == null) name else "$name (${"%.1f".format(java.util.Locale.US, resolution.stretchFor(display))}x)"
 }
 
 internal fun carPlayContentLabel(content: CarPlayClusterContent): String = when (content) {
